@@ -16,6 +16,7 @@ services:
       # Input directory for uploads
       - ./storage/input:/home/user/ComfyUI/input
     environment:
+      - N8N_API_KEY=testkey123
       - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --use-sage-attention
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
@@ -39,6 +40,7 @@ services:
     volumes:
       - ./n8n-data:/root/.n8n
     environment:
+      - N8N_API_KEY=testkey123
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=admin
       - N8N_BASIC_AUTH_PASSWORD=password
@@ -54,6 +56,7 @@ services:
     volumes:
       - ./metabase-data:/metabase-data
     environment:
+      - N8N_API_KEY=testkey123
       - MB_DB_FILE=/metabase-data/metabase.db
     restart: unless-stopped
 

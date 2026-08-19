@@ -3,16 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "triggerTimes": [
-          {
-            "mode": "everyX",
-            "value": 6,
-            "unit": "hours"
-          }
-        ]
+        "path": "marketing-trigger",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": {}
       },
-      "name": "Cron Trigger",
-      "type": "n8n-nodes-base.cron",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300]
     },
@@ -127,7 +124,7 @@
     }
   ],
   "connections": {
-    "Cron Trigger": {
+    "Webhook": {
       "main": [
         [
           {
@@ -199,7 +196,7 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {},
   "id": "1"
 }
