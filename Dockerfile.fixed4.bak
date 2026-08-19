@@ -27,7 +27,6 @@ RUN pip install --no-cache-dir --retries 20 --timeout 600 \
 
 # soundfile is required by custom_nodes/ComfyUI-Replicate (node.py imports it)
 RUN pip install --no-cache-dir --retries 5 --timeout 60 soundfile
-RUN pip install --no-cache-dir --retries 5 --timeout 60 sageattention
 
 # Data-directory infrastructure:
 # compose bind-mounts ./storage onto /home/user/ComfyUI; symlinks point the
