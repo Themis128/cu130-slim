@@ -1,0 +1,58 @@
+# ComfyUI GPU-Accelerated Docker Compose
+# Machine: OFFICE (WSL2 Ubuntu 26.04, RTX 3070 8GB)
+#
+# Runs the official pytorch/pytorch:2.5.1-cuda12.4-cudnn9 image with ComfyUI,
+# configured for CUDA acceleration on the host's NVIDIA GPU.
+#
+# Models:
+#   Existing checkpoint: comfyui/models/checkpoints/z_image_turbo_bf16.safetensors (12GB)
+#   NOTE: bf16 models don't use Tensor Cores efficiently on RTX 3070.
+#   Consider adding an fp16 or Q4_K_M GGUF checkpoint for better VRAM usage.
+#
+# Start: docker compose -f docker-compose.comfyui.yml up -d
+# UI:    http://localhost:7860
+# API:   http://localhost:7860/prompt
+---
+services:
+  comfyui:
+    # PyTorch with CUDA 12.4 — full GPU acceleration
+    # Includes cuDNN 9, optimized for Ampere (RTX 30-series)
+    image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+    container_name: comfyui-gpu
+
+    # Enable NVIDIA GPU access inside the container
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command: ["/bin/bash", "-c", "pip install --no-cache-dir \"torch>=2.5,<3.0\" \"torchvision\" \"torchaudio\" --index-url https://download.pytorch.org/whl/cu124 && \\\n        pip install --no-cache-dir \\\n          einops \\\n          transformers>=4.50.3 \\\n          tokenizers>=0.13.3 \\\n          sentencepiece \\\n          safetensors>=0.4.2 \\\n          aiohttp>=3.11.8 \\\n          yarl>=1.18.0 \\\n          pyyaml \\\n          Pillow \\\n          scipy \\\n          tqdm \\\n          psutil \\\n          filelock \\\n          \"pydantic>=2.0,<3.0\" \\\n          PyOpenGL>=3.1.8 \\\n          kornia>=0.7.1 \\\n          spandrel \\\n          simpleeval>=1.0.0 \\\n          natsort \\\n          decord \\\n          && \\\n        git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /ComfyUI && \\\n        git clone --depth 1 https://github.com/pythongosssss/ComfyUI-Manager.git /ComfyUI/custom_nodes/ComfyUI-Manager && \\\n        cd /ComfyUI && \\\n        pip install --no-cache-dir -r requirements.txt && \\\n        python -m pip install --no-cache-dir torch-scatter --extra-index-url https://data.pytorch.org/whl/cu124 || true && \\\n        exec python main.py --listen 0.0.0.0 --port 7860 --preview-method auto --use-sage-attention 2"]
+    ports:
+      - "7860:7860"
+    # Mount existing models directory and ComfyUI output
+    volumes:
+      - ../comfyui/models:/ComfyUI/models
+      - comfyui-output:/ComfyUI/output
+      - comfyui-uploads:/ComfyUI/input
+      - comfyui-custom:/ComfyUI/custom_nodes
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+    # GPU passthrough — required for CUDA acceleration
+    # On WSL2, the NVIDIA runtime is configured via nvidia-ctk
+    runtime: nvidia
+    gpus: all
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/ping', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  comfyui-output:
+  comfyui-uploads:
+  comfyui-custom:
