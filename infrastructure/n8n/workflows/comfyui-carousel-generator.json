@@ -175,7 +175,7 @@
     },
     {
       "parameters": {
-        "functionCode": "return [{\n  slides: [\n    {\n      title: \"Serverless Frameworks\",\n      subtitle: \"Eliminate infrastructure bloat\",\n      overline: \"OPTIMIZE YOUR STACK\",\n      stepNumber: \"1\",\n      body: \"Deploy globally with zero configuration\"\n    },\n    {\n      title: \"Edge Computing\",\n      subtitle: \"Bring computation to the data source\",\n      overline: \"ACCELERATE PERFORMANCE\",\n      stepNumber: \"2\",\n      body: \"Process data closer to users for lightning-fast response times\"\n    },\n    {\n      title: \"Cloud Cost Reduction\",\n      subtitle: \"Save up to 70% on infrastructure\",\n      overline: \"REDUCE CLOUD SPEND\",\n      stepNumber: \"3\",\n      body: \"Eliminate wasted resources and optimize utilization\"\n    },\n    {\n      title: \"Free 30-Minute Audit\",\n      subtitle: \"Get personalized recommendations\",\n      overline: \"BOOK YOUR CONSULTATION\",\n      body: \"Let our experts analyze your current architecture\"\n    }\n  ]\n}];"
+        "functionCode": "return [{ slides: $json.slidesWithImages }];"
       },
       "name": "Prepare Payload for generate.js",
       "type": "n8n-nodes-base.function",
@@ -417,25 +417,25 @@
         ]
       ]
     },
-    "Merge (Collect File Paths)": {
-      "main": [
-        [
-          {
-            "node": "Prepare Payload for generate.js",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Payload for generate.js": {
-      "main": [
-        [
-          {
-            "node": "Execute Command (generate.js)",
-            "type": "main",
-            "index": 0
-          }
+"Merge (Collect File Paths)": {
+  "parameters": {
+    "mode": "combine",
+    "keepOnlySet": true,
+    "set": [
+      {
+        "name": "slidesWithImages",
+        "value": "={{ $json.map(item => ({ title: item.title, subtitle: item.subtitle, overline: item.overline, stepNumber: item.stepNumber, body: item.body, imagePath: item.filePath })) }}"
+      }
+    ]
+  },
+  "name": "Merge (Collect File Paths)",
+  "type": "n8n-nodes-base.merge",
+  "typeVersion": 1,
+  "position": [
+    2500,
+    300
+  ]
+}
         ]
       ]
     },
