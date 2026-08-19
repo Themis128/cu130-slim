@@ -9,7 +9,7 @@
     },
     "2": {
       "inputs": {
-        "ckpt_name": "z_image_turbo_bf16.safetensors"
+        "ckpt_name": "tiny-sd.safetensors"
       },
       "class_type": "CheckpointLoaderSimple"
     },
