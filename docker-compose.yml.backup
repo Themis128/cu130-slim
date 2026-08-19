@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: social-media-comfyui-gpu
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directories individually to avoid overwriting ComfyUI source code
+      - ./storage/custom_nodes:/home/user/ComfyUI/custom_nodes
+      - ./storage/models:/home/user/ComfyUI/models
+      - ./storage/user:/home/user/ComfyUI/user
+      # Output directory for generated images (symlinked to host in workflow)
+      - ./storage/output:/home/user/ComfyUI/output
+      # Input directory for uploads
+      - ./storage/input:/home/user/ComfyUI/input
+    environment:
+      - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --use-sage-attention
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - FAL_KEY=${FAL_KEY}
+      # VRAM optimization for 8GB cards (reduces fragmentation)
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
