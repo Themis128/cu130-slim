@@ -59,7 +59,7 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
-      - "11434:11434"
+      - "11435:11434"
     volumes:
       - ./ollama:/root/.ollama
     restart: unless-stopped
@@ -73,3 +73,16 @@ services:
       - ./chroma:/chroma/chroma
     command: ["run", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+
+volumes:
+  portainer_data:

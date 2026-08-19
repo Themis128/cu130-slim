@@ -1,0 +1,20 @@
+{
+    "Comfy.InstalledVersion": "1.49.6",
+    "Comfy.TutorialCompleted": true,
+    "Comfy.Queue.History.Expanded": true,
+    "Comfy.Minimap.Visible": false,
+    "Comfy.RightSidePanel.IsOpen": false,
+    "Comfy.Canvas.NavigationMode": "custom",
+    "Comfy.Canvas.LeftMouseClickBehavior": "select",
+    "Comfy.Canvas.MouseWheelScroll": "zoom",
+    "Comfy.VueNodes.Enabled": true,
+    "Comfy.ModelLibrary.AutoLoadAll": true,
+    "Comfy.NodeSearchBoxImpl.ShowNodeFrequency": true,
+    "Comfy.NodeSearchBoxImpl.ShowIdName": true,
+    "Comfy.Validation.Workflows": true,
+    "Comfy.Workflow.SortNodeIdOnSave": true,
+    "Comfy.Templates.SelectedRunsOn": [
+        "ComfyUI"
+    ],
+    "Comfy.Templates.SortBy": "default"
+}
