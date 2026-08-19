@@ -1,0 +1,61 @@
+{
+  "client_id": "cloudless-factory-1787176139",
+  "prompt": {
+    "1": {
+      "inputs": {
+        "value": "A clean, modern flat minimalist infographic layout background, high contrast corporate accent waves, optimized for corporate carousel slide backgrounds --ar 1:1"
+      },
+      "class_type": "PrimitiveString"
+    },
+    "2": {
+      "inputs": {
+        "ckpt_name": "z_image_turbo_bf16.safetensors"
+      },
+      "class_type": "CheckpointLoaderSimple"
+    },
+    "3": {
+      "inputs": {
+        "text": ["1", 0],
+        "clip": ["2", 1]
+      },
+      "class_type": "CLIPTextEncode"
+    },
+    "4": {
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "class_type": "EmptyLatentImage"
+    },
+    "5": {
+      "inputs": {
+        "seed": 1331,
+        "steps": 20,
+        "cfg": 8,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1,
+        "model": ["2", 0],
+        "positive": ["3", 0],
+        "negative": ["3", 0],
+        "latent_image": ["4", 0]
+      },
+      "class_type": "KSampler"
+    },
+    "6": {
+      "inputs": {
+        "samples": ["5", 0],
+        "vae": ["2", 2]
+      },
+      "class_type": "VAEDecode"
+    },
+    "7": {
+      "inputs": {
+        "images": ["6", 0],
+        "filename_prefix": "cloudless-gr-social"
+      },
+      "class_type": "SaveImage"
+    }
+  }
+}
