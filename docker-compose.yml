@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  comfyui:
+    init: true
+    container_name: comfyui
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "yanwk/comfyui-boot:cu130-slim"
+    restart: unless-stopped
+    environment:
+      - SKIP_INNER_DOCKER=1
+      - OLLAMA_HOST=http://ollama:11434   # point to Ollama service
+      - CLI_ARGS=                         # e.g., --fast if desired
+    volumes:
+      - ./storage:/root                   # persistent ComfyUI instance
+      - ./storage-models/models:/root/ComfyUI/models
+      - ./storage-models/hf-hub:/root/.cache/huggingface/hub
+      - ./storage-models/torch-hub:/root/.cache/torch/hub
+      - ./storage-user/input:/root/ComfyUI/input
+      - ./storage-user/output:/root/ComfyUI/output
+      - ./storage-user/workflows:/root/ComfyUI/user/default/workflows
+      - ./analytics:/root/analytics       # for auto‑post logs / Metabase
+    ports:
+      - "8188:8188"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+      - chroma
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama            # persist downloaded models
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    # Uncomment the following line to pre‑pull a model on startup:
+    # command: ["run", "llama3"]
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma:/chroma/chroma           # persist Chroma data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    environment:
+      - DB_TYPE=sqlite
+      - DB_FILE=/home/node/.n8n/database.sqlite
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./analytics:/metabase/data        # same analytics volume as ComfyUI
+    environment:
+      - METABASE_DB_TYPE=sqlite
+      - METABASE_DB_DBNAME=/metabase/data/posts.db
