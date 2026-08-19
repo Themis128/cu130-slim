@@ -28,11 +28,11 @@ jobs:
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
         
-    - name: Scan image for vulnerabilities
-      uses: aquasecurity/trivy-action@0.23.0
-      with:
-        image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
-        format: 'table'
-        exit-code: '1'
-        ignore-unfixed: true
-        severity: 'CRITICAL,HIGH'
+     - name: Scan image for vulnerabilities
+       uses: aquasecurity/trivy-action@v0.36.0
+       with:
+         image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
+         format: 'table'
+         exit-code: '1'
+         ignore-unfixed: true
+         severity: 'CRITICAL,HIGH'
