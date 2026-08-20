@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useOverviewMetrics, useTopPosts } from '@/hooks/useQueries'
+import type { PostAnalytics } from '@/types'
 import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
 
@@ -17,7 +18,7 @@ const stats = [
   { name: 'Connected Accounts', value: 'connected_accounts', icon: Users, color: 'text-purple-500', bg: 'bg-purple-500/10' },
 ]
 
-export function DashboardPage() {
+export default function DashboardPage() {
   const { data: metrics, isLoading: metricsLoading } = useOverviewMetrics(30)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(5)
 
@@ -113,9 +114,9 @@ export function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {topPosts?.map((post) => (
+                {topPosts?.map((post: PostAnalytics) => (
                   <div
-                    key={post.id}
+                    key={post.post_id}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -125,18 +126,15 @@ export function DashboardPage() {
                       <div className="min-w-0">
                         <p className="font-medium truncate">{post.content?.slice(0, 60)}...</p>
                         <p className="text-sm text-muted-foreground">
-                          {post.platform} • {formatRelativeTime(post.published_at || post.created_at)}
+                          {post.platform} • {formatRelativeTime(post.published_at || post.created_at || new Date().toISOString())}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <TrendingUp className="h-3.5 w-3.5" />
-                        {post.engagement_count || 0}
+                        {(post.likes + post.comments + post.shares) || 0}
                       </span>
-                      <Badge variant={post.status === 'published' ? 'success' : 'secondary'}>
-                        {post.status}
-                      </Badge>
                     </div>
                   </div>
                 ))}

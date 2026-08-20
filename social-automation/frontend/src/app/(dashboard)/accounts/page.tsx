@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useAccounts, useConnectAccount, useDisconnectAccount } from '@/hooks/useQueries'
+import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 
 const platforms = [
@@ -72,7 +73,7 @@ const platformColors: Record<string, string> = {
   threads: 'bg-gray-800',
 }
 
-export function AccountsPage() {
+export default function AccountsPage() {
   const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null)
   const { data: accounts, isLoading } = useAccounts()
   const connectMutation = useConnectAccount()
@@ -106,7 +107,7 @@ export function AccountsPage() {
   }
 
   const getAccountStatus = (platformId: string) => {
-    const account = connectedAccounts.find(a => a.platform === platformId)
+    const account = connectedAccounts.find((a: SocialAccount) => a.platform === platformId)
     if (!account) return { connected: false }
     if (account.token_expires_at && new Date(account.token_expires_at) < new Date()) {
       return { connected: true, expired: true, account }
@@ -231,7 +232,7 @@ export function AccountsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {connectedAccounts.map((account) => {
+              {connectedAccounts.map((account: SocialAccount) => {
                 const platform = platforms.find(p => p.id === account.platform)
                 const Icon = platform ? platformIcons[account.platform] : AlertCircle
                 const color = platform ? platformColors[account.platform] : 'bg-gray-500'
@@ -249,7 +250,7 @@ export function AccountsPage() {
                       <div>
                         <p className="font-medium">{platform?.name || account.platform}</p>
                         <p className="text-sm text-muted-foreground">
-                          @{account.account_username || account.account_name || 'Unknown'}
+                          @{account.username || account.display_name || 'Unknown'}
                         </p>
                       </div>
                     </div>

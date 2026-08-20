@@ -12,7 +12,9 @@ import { Separator } from '@/components/ui/Separator'
 import { useAuth } from '@/hooks/useAuth'
 import toast from 'react-hot-toast'
 
-export function LoginPage() {
+export const dynamic = 'force-dynamic'
+
+export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { login } = useAuth()
@@ -21,7 +23,7 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard'
 
   const validate = () => {
     const newErrors: { email?: string; password?: string } = {}
@@ -39,7 +41,7 @@ export function LoginPage() {
 
     setIsLoading(true)
     try {
-      await login(email, password)
+      await login({ email, password })
       toast.success('Welcome back!')
       router.push(callbackUrl)
       router.refresh()

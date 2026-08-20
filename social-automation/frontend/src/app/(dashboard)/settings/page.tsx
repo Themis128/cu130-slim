@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Mail, Lock, Bell, Shield, Palette, Database, Trash2, Loader2 } from 'lucide-react'
+import { User, Mail, Lock, Bell, Shield, Palette, Database, Trash2, Loader2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -11,18 +11,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Separator } from '@/components/ui/Separator'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
 import { Switch } from '@/components/ui/Switch'
+import { Badge } from '@/components/ui/Badge'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import toast from 'react-hot-toast'
 
-export function SettingsPage() {
+export default function SettingsPage() {
   const router = useRouter()
   const { user, updateProfile, changePassword, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const [activeTab, setActiveTab] = useState('profile')
 
   const [profileData, setProfileData] = useState({
-    full_name: user?.full_name || '',
+    full_name: user?.name || '',
     email: user?.email || '',
     avatar_url: user?.avatar_url || '',
   })
@@ -294,7 +295,7 @@ export function SettingsPage() {
                   </div>
                   <Switch
                     checked={notifications[item.id as keyof typeof notifications]}
-                    onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
+                    onCheckedChange={(checked: boolean) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
                   />
                 </div>
               ))}
@@ -318,7 +319,7 @@ export function SettingsPage() {
                   </div>
                   <Switch
                     checked={notifications[item.id as keyof typeof notifications]}
-                    onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
+                    onCheckedChange={(checked: boolean) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
                   />
                 </div>
               ))}

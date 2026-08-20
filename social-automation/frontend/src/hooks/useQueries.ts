@@ -47,7 +47,7 @@ export function useCreatePost() {
 export function useUpdatePost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Post> }) => contentApi.updatePost(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<Post> }) => contentApi.updatePost(id, data as any),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['posts'] })
       queryClient.invalidateQueries({ queryKey: ['post', id] })
@@ -123,7 +123,7 @@ export function useDeleteMedia() {
 
 export function useGenerateImage() {
   return useMutation({
-    mutationFn: mediaApi.generateImage,
+    mutationFn: ({ prompt, options }: { prompt: string; options?: { width?: number; height?: number; model?: string; negative_prompt?: string; steps?: number; cfg_scale?: number } }) => mediaApi.generateImage(prompt, options),
     onSuccess: () => {
       toast.success('Image generated')
     },

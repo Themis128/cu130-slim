@@ -1,6 +1,6 @@
 'use client'
 
-import { HTMLAttributes, forwardRef } from 'react'
+import React, { HTMLAttributes, forwardRef } from 'react'
 import * as AvatarPrimitive from '@radix-ui/react-avatar'
 import { cn } from '@/lib/utils'
 

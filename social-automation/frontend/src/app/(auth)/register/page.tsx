@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/Separator'
 import { useAuth } from '@/hooks/useAuth'
 import toast from 'react-hot-toast'
 
-export function RegisterPage() {
+export default function RegisterPage() {
   const router = useRouter()
   const { register } = useAuth()
   const [formData, setFormData] = useState({
@@ -42,7 +42,7 @@ export function RegisterPage() {
 
     setIsLoading(true)
     try {
-      await register(formData.full_name, formData.email, formData.password)
+      await register({ name: formData.full_name, email: formData.email, password: formData.password })
       toast.success('Account created successfully!')
       router.push('/dashboard')
       router.refresh()

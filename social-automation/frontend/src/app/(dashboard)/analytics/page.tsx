@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Separator } from '@/components/ui/Separator'
 import { useOverviewMetrics, usePlatformMetrics, useTopPosts } from '@/hooks/useQueries'
+import type { PlatformMetrics, PostAnalytics } from '@/types'
 import { formatRelativeTime } from '@/lib/utils'
 import {
   BarChart,
@@ -33,7 +34,7 @@ import { format } from 'date-fns'
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 
-export function AnalyticsPage() {
+export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
   const [platformFilter, setPlatformFilter] = useState('')
 
@@ -94,7 +95,7 @@ export function AnalyticsPage() {
     },
   ]
 
-  const platformMetrics = platformData?.map((p, i) => ({
+  const platformMetrics = platformData?.map((p: PlatformMetrics, i: number) => ({
     ...p,
     color: COLORS[i % COLORS.length],
   })) || []
@@ -230,7 +231,7 @@ export function AnalyticsPage() {
                     formatter={(value: number) => [value.toLocaleString(), 'Engagements']}
                   />
                   <Bar dataKey="engagement" radius={[0, 4, 4, 0]}>
-                    {platformMetrics.map((_, i) => (
+                    {platformMetrics.map((_: PlatformMetrics, i: number) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Bar>
@@ -321,7 +322,7 @@ export function AnalyticsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {platformMetrics.map((p, i) => (
+                  {platformMetrics.map((p: PlatformMetrics, i: number) => (
                     <TableRow key={p.platform}>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -332,7 +333,7 @@ export function AnalyticsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono">{p.impressions?.toLocaleString() || '0'}</TableCell>
-                      <TableCell className="text-right font-mono">{p.engagement?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-right font-mono">{p.engagements?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-right font-mono">
                         {p.engagement_rate ? `${p.engagement_rate.toFixed(2)}%` : '0%'}
                       </TableCell>
@@ -366,9 +367,9 @@ export function AnalyticsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {topPosts?.map((post, index) => (
+              {topPosts?.map((post: PostAnalytics, index: number) => (
                 <div
-                  key={post.id}
+                  key={post.post_id}
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -379,13 +380,14 @@ export function AnalyticsPage() {
                     <div className="min-w-0">
                       <p className="font-medium truncate">{post.content?.slice(0, 80)}...</p>
                       <p className="text-sm text-muted-foreground">
-                        {post.platform} • {formatRelativeTime(post.published_at || post.created_at)}
+                        {post.platform} • {formatRelativeTime(post.published_at || post.created_at || new Date().toISOString())}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <Badge variant="outline">{post.engagement_count?.toLocaleString() || 0} engagements</Badge>
-                    <Badge variant={post.status === 'published' ? 'success' : 'secondary'}>{post.status}</Badge>
+                    <Badge variant="outline">
+                      {(post.likes + post.comments + post.shares)?.toLocaleString() || 0} engagements
+                    </Badge>
                   </div>
                 </div>
               ))}

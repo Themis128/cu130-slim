@@ -10,8 +10,25 @@ const api = axios.create({
   },
 })
 
-let accessToken: string | null = localStorage.getItem('access_token')
-let refreshToken: string | null = localStorage.getItem('refresh_token')
+let accessToken: string | null = null
+let refreshToken: string | null = null
+
+const getInitialAccessToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('access_token')
+  }
+  return null
+}
+
+const getInitialRefreshToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('refresh_token')
+  }
+  return null
+}
+
+accessToken = getInitialAccessToken()
+refreshToken = getInitialRefreshToken()
 let isRefreshing = false
 let failedQueue: Array<{
   resolve: (token: string) => void
@@ -89,24 +106,41 @@ api.interceptors.response.use(
 export const setTokens = (access: string, refresh: string) => {
   accessToken = access
   refreshToken = refresh
-  localStorage.setItem('access_token', access)
-  localStorage.setItem('refresh_token', refresh)
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('access_token', access)
+    localStorage.setItem('refresh_token', refresh)
+  }
 }
 
 export const clearTokens = () => {
   accessToken = null
   refreshToken = null
-  localStorage.removeItem('access_token')
-  localStorage.removeItem('refresh_token')
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+  }
 }
 
 export const logout = () => {
   clearTokens()
-  window.location.href = '/login'
+  if (typeof window !== 'undefined') {
+    window.location.href = '/login'
+  }
 }
 
-export const getAccessToken = () => accessToken
-export const getRefreshToken = () => refreshToken
+export const getAccessToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('access_token')
+  }
+  return accessToken
+}
+
+export const getRefreshToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('refresh_token')
+  }
+  return refreshToken
+}
 
 // Auth endpoints
 export const authApi = {

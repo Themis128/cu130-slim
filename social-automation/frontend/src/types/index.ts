@@ -180,6 +180,9 @@ export interface PlatformMetrics {
 export interface PostAnalytics {
   post_id: string
   platform: string
+  content: string | null
+  published_at: string | null
+  created_at: string | null
   impressions: number
   clicks: number
   likes: number

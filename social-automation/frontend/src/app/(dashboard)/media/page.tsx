@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useMedia, useUploadMedia, useDeleteMedia, useGenerateImage } from '@/hooks/useQueries'
+import type { MediaAsset } from '@/types'
 import toast from 'react-hot-toast'
 
 const typeOptions = [
@@ -21,7 +22,7 @@ const typeOptions = [
   { value: 'generated', label: 'AI Generated' },
 ]
 
-export function MediaPage() {
+export default function MediaPage() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [page, setPage] = useState(1)
@@ -60,7 +61,7 @@ export function MediaPage() {
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
     try {
-      await generateMutation.mutateAsync({ prompt: generatePrompt, model: 'sdxl' })
+      await generateMutation.mutateAsync({ prompt: generatePrompt })
       setGeneratePrompt('')
       setGenerateOpen(false)
     } catch {
@@ -171,15 +172,15 @@ export function MediaPage() {
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                {media.map((item) => (
+                {media.map((item: MediaAsset) => (
                   <div
                     key={item.id}
                     className="relative group aspect-square rounded-lg overflow-hidden border bg-muted/50"
                   >
-                    {item.thumbnail_url ? (
+                    {item.storage_path ? (
                       <img
-                        src={item.thumbnail_url}
-                        alt={item.filename}
+                        src={item.storage_path}
+                        alt={item.filename || 'Media'}
                         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                       />
                     ) : (
@@ -189,7 +190,7 @@ export function MediaPage() {
                     )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <Button variant="ghost" size="icon" className="bg-white/90" asChild>
-                        <a href={item.url} target="_blank" rel="noopener noreferrer">
+                        <a href={item.storage_path} target="_blank" rel="noopener noreferrer">
                           <Eye className="h-4 w-4" />
                         </a>
                       </Button>
@@ -203,7 +204,7 @@ export function MediaPage() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
-                    {item.is_generated && (
+                    {item.source === 'ai-generated' && (
                       <Badge className="absolute bottom-2 left-2" variant="outline">
                         <Sparkles className="mr-1 h-3 w-3" />
                         AI

@@ -66,7 +66,7 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto" aria-label="Main navigation">
         {navigation.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+          const isActive = pathname === item.href || (pathname && pathname.startsWith(item.href + '/'))
           return (
             <Link
               key={item.name}
@@ -92,13 +92,13 @@ export function Sidebar() {
         {!collapsed && user ? (
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={user.avatar_url || undefined} alt={user.full_name || user.email} />
+              <AvatarImage src={user.avatar_url || undefined} alt={user.name || user.email} />
               <AvatarFallback>
-                {user.full_name?.[0] || user.email[0].toUpperCase()}
+                {user.name?.[0] || user.email[0].toUpperCase()}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user.full_name || user.email}</p>
+              <p className="text-sm font-medium truncate">{user.name || user.email}</p>
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
             <DropdownMenu>

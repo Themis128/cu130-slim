@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/Dialog'
 import { usePosts, useDeletePost, usePublishPost, useSchedulePost } from '@/hooks/useQueries'
+import type { Post } from '@/types'
 import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
 import { format } from 'date-fns'
@@ -34,12 +35,12 @@ const platformOptions = [
   { value: 'threads', label: 'Threads' },
 ]
 
-export function ContentPage() {
+export default function ContentPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [platformFilter, setPlatformFilter] = useState('')
   const [page, setPage] = useState(1)
-  const [selectedPost, setSelectedPost] = useState<{ id: string; scheduled_at?: string } | null>(null)
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null)
   const [scheduleDate, setScheduleDate] = useState('')
 
   const { data, isLoading } = usePosts({ status: statusFilter, page, page_size: 20 })
@@ -78,7 +79,7 @@ export function ContentPage() {
     }
   }
 
-  const openScheduleDialog = (post: { id: string; scheduled_at?: string }) => {
+  const openScheduleDialog = (post: Post) => {
     setSelectedPost(post)
     setScheduleDate(post.scheduled_at ? new Date(post.scheduled_at).toISOString().slice(0, 16) : '')
   }
@@ -203,16 +204,16 @@ export function ContentPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {posts.map((post) => (
+                  {posts.map((post: Post) => (
                     <TableRow key={post.id}>
                       <TableCell className="max-w-[300px]">
-                        <p className="font-medium line-clamp-1">{post.content?.slice(0, 100) || 'No content'}</p>
-                        {post.media_urls && post.media_urls.length > 0 && (
-                          <p className="text-xs text-muted-foreground">{post.media_urls.length} media attachment(s)</p>
+                        <p className="font-medium line-clamp-1">{post.content_text?.slice(0, 100) || 'No content'}</p>
+                        {post.media_ids && post.media_ids.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{post.media_ids.length} media attachment(s)</p>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="capitalize">{post.platform}</Badge>
+                        <Badge variant="outline" className="capitalize">{post.targets?.[0]?.social_account?.platform || 'Multi'}</Badge>
                       </TableCell>
                       <TableCell>{statusBadge(post.status)}</TableCell>
                       <TableCell>

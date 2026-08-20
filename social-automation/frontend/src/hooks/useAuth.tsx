@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { authApi, setTokens, clearTokens, getAccessToken } from '@/services/api'
+import { authApi, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/services/api'
 import type { User, AuthState, LoginCredentials, RegisterData, TokenResponse } from '@/types'
 import toast from 'react-hot-toast'
 
@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
     access_token: getAccessToken(),
-    refresh_token: localStorage.getItem('refresh_token'),
+    refresh_token: getRefreshToken(),
     isAuthenticated: !!getAccessToken(),
     isLoading: true,
   })

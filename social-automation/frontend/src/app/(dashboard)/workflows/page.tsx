@@ -5,16 +5,17 @@ import { useQuery } from '@tanstack/react-query'
 import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, Loader2, Sparkles, Brain } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useTemplates, useCreateTemplate, useGenerateWorkflow, useWorkflows, useDeployWorkflow } from '@/hooks/useQueries'
+import type { PromptTemplate, GeneratedWorkflow } from '@/types'
 import toast from 'react-hot-toast'
 
 const categoryOptions = [
@@ -26,8 +27,8 @@ const categoryOptions = [
   { value: 'cross-post', label: 'Cross-posting' },
 ]
 
-export function WorkflowsPage() {
-  const [activeTab, setActiveTab] = useState<'templates' | 'deployed' | 'generate'>('templates')
+export default function WorkflowsPage() {
+  const [activeTab, setActiveTab] = useState<string>('templates')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [generatePrompt, setGeneratePrompt] = useState('')
@@ -45,7 +46,7 @@ export function WorkflowsPage() {
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
     try {
-      await generateMutation.mutateAsync({ prompt: generatePrompt, platforms: ['linkedin', 'twitter'] })
+      await generateMutation.mutateAsync({ prompt: generatePrompt })
       setGeneratePrompt('')
       setGenerateOpen(false)
       setActiveTab('templates')
@@ -206,7 +207,7 @@ export function WorkflowsPage() {
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {templates.map((template) => (
+              {templates.map((template: PromptTemplate) => (
                 <Card key={template.id}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
@@ -227,7 +228,7 @@ export function WorkflowsPage() {
                       )}
                     </div>
                     <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>By {template.created_by_name || 'Unknown'}</span>
+                      <span>By {template.user_id || 'Unknown'}</span>
                       <span>{template.usage_count} uses</span>
                     </div>
                   </CardContent>
@@ -305,7 +306,7 @@ export function WorkflowsPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {workflows.map((workflow) => (
+              {workflows.map((workflow: GeneratedWorkflow) => (
                 <Card key={workflow.id}>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
@@ -314,7 +315,7 @@ export function WorkflowsPage() {
                           <Zap className="h-5 w-5 text-primary" />
                         </div>
                         <div>
-                          <p className="font-medium">{workflow.name}</p>
+                          <p className="font-medium">{workflow.prompt.slice(0, 50)}...</p>
                           <p className="text-sm text-muted-foreground">n8n ID: {workflow.n8n_workflow_id}</p>
                         </div>
                       </div>

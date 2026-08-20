@@ -9,12 +9,13 @@ import { Label } from '@/components/ui/Label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem } from '@/components/ui/DropdownMenu'
 import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Input } from '@/components/ui/Input'
 import { useAccounts } from '@/hooks/useQueries'
+import type { SocialAccount } from '@/types'
 import { useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { useAuth } from '@/hooks/useAuth'
 import toast from 'react-hot-toast'
@@ -27,7 +28,7 @@ const platforms = [
   { id: 'threads', name: 'Threads', icon: '@', color: 'bg-gray-800', maxChars: 500 },
 ]
 
-export function NewPostPage() {
+export default function NewPostPage() {
   const router = useRouter()
   const { user } = useAuth()
   const { data: accounts } = useAccounts()
@@ -41,7 +42,7 @@ export function NewPostPage() {
   const [scheduleDate, setScheduleDate] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
 
-  const connectedPlatforms = accounts?.map(a => a.platform) || []
+  const connectedPlatforms = accounts?.map((a: SocialAccount) => a.platform) || []
 
   const handlePlatformToggle = (platformId: string) => {
     if (!connectedPlatforms.includes(platformId)) {

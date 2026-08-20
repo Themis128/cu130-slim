@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, Moon, Sun, Search, Command } from 'lucide-react'
+import { Bell, Moon, Sun, Search, Command, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Separator } from '@/components/ui/Separator'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
+import { cn } from '@/lib/utils'
 
 export function Header() {
   const { user, logout } = useAuth()
@@ -121,16 +122,16 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.avatar_url || undefined} alt={user?.full_name || user?.email} />
+                  <AvatarImage src={user?.avatar_url || undefined} alt={user?.name || user?.email} />
                   <AvatarFallback className="text-xs">
-                    {user?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
+                    {user?.name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-2">
-                <p className="font-medium text-sm">{user?.full_name || user?.email}</p>
+                <p className="font-medium text-sm">{user?.name || user?.email}</p>
                 <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
               </div>
               <Separator />
