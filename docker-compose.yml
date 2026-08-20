@@ -229,7 +229,9 @@ services:
       dockerfile: Dockerfile
     container_name: social-frontend
     ports:
-      - "8082:80"
+      - "8082:8083"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
     depends_on:
       - social-api
     restart: unless-stopped
