@@ -4,10 +4,17 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 from app.core.config import get_settings
+import hashlib
+import secrets
 
 settings = get_settings()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use sha256_crypt instead of bcrypt to avoid the 72-byte password limit issue
+pwd_context = CryptContext(
+    schemes=["sha256_crypt"],
+    deprecated="auto",
+    sha256_crypt__rounds=290000,
+)
 
 _fernet: Optional[Fernet] = None
 
