@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 8083",
+    "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 8083",
     "lint": "next lint",

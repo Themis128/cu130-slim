@@ -219,7 +219,7 @@ export function SettingsPage() {
                   {isSaving ? 'Changing...' : 'Change Password'}
                 </Button>
               </form>
-            </CardContent          />
+            </CardContent>
 
             <Separator className="my-6" />
 

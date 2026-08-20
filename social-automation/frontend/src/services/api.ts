@@ -1,7 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import type { TokenResponse, ApiError } from '@/types'
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -119,6 +119,10 @@ export const authApi = {
   refresh: (refresh_token: string) =>
     api.post('/auth/refresh', { refresh_token }),
   me: () => api.get('/auth/me'),
+  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string }) =>
+    api.patch('/auth/me', data),
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    api.post('/auth/change-password', data),
   oauthAuthorize: (platform: string, teamId: string) =>
     api.get(`/auth/oauth/${platform}/authorize`, { params: { team_id: teamId } }),
   oauthCallback: (platform: string, code: string, state: string) =>

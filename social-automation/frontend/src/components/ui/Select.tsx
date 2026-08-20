@@ -26,7 +26,7 @@ const SelectTrigger = forwardRef<
       <ChevronDown className="h-4 w-4 opacity-50" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
-)
+);
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
 const SelectScrollUpButton = forwardRef<
@@ -43,7 +43,7 @@ const SelectScrollUpButton = forwardRef<
   >
     <ChevronUp className="h-4 w-4" />
   </SelectPrimitive.ScrollUpButton>
-))
+));
 SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName
 
 const SelectScrollDownButton = forwardRef<
@@ -60,7 +60,7 @@ const SelectScrollDownButton = forwardRef<
   >
     <ChevronDown className="h-4 w-4" />
   </SelectPrimitive.ScrollDownButton>
-))
+));
 SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayName
 
 const SelectContent = forwardRef<
@@ -92,7 +92,7 @@ const SelectContent = forwardRef<
       <SelectScrollDownButton />
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
-))
+));
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
 const SelectLabel = forwardRef<
@@ -104,7 +104,7 @@ const SelectLabel = forwardRef<
     className={cn('py-1.5 pl-8 pr-2 text-sm font-semibold', className)}
     {...props}
   />
-))
+));
 SelectLabel.displayName = SelectPrimitive.Label.displayName
 
 const SelectItem = forwardRef<
@@ -124,7 +124,7 @@ const SelectItem = forwardRef<
     </SelectPrimitive.ItemIndicator>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
-))
+));
 SelectItem.displayName = SelectPrimitive.Item.displayName
 
 const SelectSeparator = forwardRef<

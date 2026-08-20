@@ -9,6 +9,8 @@ interface AuthContextType extends AuthState {
   register: (data: RegisterData) => Promise<boolean>
   logout: () => void
   refreshUser: () => Promise<void>
+  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string }) => Promise<boolean>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -93,10 +95,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     toast.success('Logged out successfully')
   }
 
+  const updateProfile = async (data: { full_name?: string; email?: string; avatar_url?: string }): Promise<boolean> => {
+    try {
+      const response = await authApi.updateProfile(data)
+      setState(prev => ({ ...prev, user: response.data }))
+      toast.success('Profile updated')
+      return true
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update profile')
+      return false
+    }
+  }
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
+    try {
+      await authApi.changePassword({ current_password: currentPassword, new_password: newPassword })
+      toast.success('Password changed')
+      return true
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to change password')
+      return false
+    }
+  }
+
   const refreshUser = fetchUser
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser, updateProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   )
