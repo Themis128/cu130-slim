@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   comfyui:
-    image: baltzakist/comfyui:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: social-media-comfyui-gpu
     ports:
       - "8000:8000"
@@ -17,7 +19,7 @@ services:
       - ./storage/input:/home/user/ComfyUI/input
     environment:
       - N8N_API_KEY=testkey123
-      - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --use-sage-attention
+      - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
       # VRAM optimization for 8GB cards (reduces fragmentation)
@@ -38,7 +40,7 @@ services:
     ports:
       - "5678:5678"
     volumes:
-      - ./n8n-data:/root/.n8n
+      - ./n8n-data:/home/node/.n8n
     environment:
       - N8N_API_KEY=testkey123
       - N8N_BASIC_AUTH_ACTIVE=true
@@ -46,6 +48,22 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=password
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
+      - N8N_SANDBOX_ENABLED=false
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_WEBHOOK_URL=http://localhost:5678/
+      - N8N_WORKFLOW_FILE_SYSTEM=true
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_DB=metabase
+      - POSTGRES_USER=metabase
+      - POSTGRES_PASSWORD=metabase
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   metabase:
@@ -53,11 +71,16 @@ services:
     container_name: metabase
     ports:
       - "3000:3000"
-    volumes:
-      - ./metabase-data:/metabase-data
     environment:
+      - MB_DB_TYPE=postgres
+      - MB_DB_DBNAME=metabase
+      - MB_DB_PORT=5432
+      - MB_DB_USER=metabase
+      - MB_DB_PASS=metabase
+      - MB_DB_HOST=postgres
       - N8N_API_KEY=testkey123
-      - MB_DB_FILE=/metabase-data/metabase.db
+    depends_on:
+      - postgres
     restart: unless-stopped
 
   ollama:
@@ -89,5 +112,132 @@ services:
       - portainer_data:/data
     restart: unless-stopped
 
+  env-manager-backend:
+    build:
+      context: ./env-manager/backend
+      dockerfile: Dockerfile
+    container_name: env-manager-backend
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./.env:/app/.env:rw
+    environment:
+      - ENV_MANAGER_USER=admin
+      - ENV_MANAGER_PASS=admin
+    restart: unless-stopped
+
+  env-manager-frontend:
+    build:
+      context: ./env-manager/frontend
+      dockerfile: Dockerfile
+    container_name: env-manager-frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - env-manager-backend
+    restart: unless-stopped
+
+# Social Automation Platform Services
+  social-postgres:
+    image: postgres:16-alpine
+    container_name: social-postgres
+    environment:
+      - POSTGRES_DB=social_automation
+      - POSTGRES_USER=social_user
+      - POSTGRES_PASSWORD=social_pass
+    volumes:
+      - social_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  social-api:
+    build:
+      context: ./social-automation/backend
+      dockerfile: Dockerfile
+    container_name: social-api
+    ports:
+      - "8083:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://social_user:social_pass@social-postgres:5432/social_automation
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - N8N_URL=http://n8n:5678
+      - N8N_API_KEY=testkey123
+      - COMFYUI_URL=http://comfyui:8000
+      - OLLAMA_URL=http://ollama:11434
+      - CHROMA_URL=http://chroma:8000
+      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
+      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+      - LINKEDIN_REDIRECT_URI=http://localhost:8080/auth/callback/linkedin
+      - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
+      - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
+      - TWITTER_REDIRECT_URI=http://localhost:8080/auth/callback/twitter
+      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
+      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
+      - INSTAGRAM_REDIRECT_URI=http://localhost:8080/auth/callback/instagram
+      - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
+      - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
+      - FACEBOOK_REDIRECT_URI=http://localhost:8080/auth/callback/facebook
+    depends_on:
+      - social-postgres
+      - redis
+      - n8n
+      - comfyui
+      - ollama
+      - chroma
+    restart: unless-stopped
+
+  social-worker:
+    build:
+      context: ./social-automation/backend
+      dockerfile: Dockerfile.worker
+    container_name: social-worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://social_user:social_pass@social-postgres:5432/social_automation
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - N8N_URL=http://n8n:5678
+      - N8N_API_KEY=testkey123
+      - COMFYUI_URL=http://comfyui:8000
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      - social-postgres
+      - redis
+      - n8n
+      - comfyui
+      - ollama
+    restart: unless-stopped
+
+  social-frontend:
+    build:
+      context: ./social-automation/frontend
+      dockerfile: Dockerfile
+    container_name: social-frontend
+    ports:
+      - "8082:80"
+    depends_on:
+      - social-api
+    restart: unless-stopped
+
 volumes:
   portainer_data:
+  postgres_data:
+  social_postgres_data:
+  redis_data:
+
+

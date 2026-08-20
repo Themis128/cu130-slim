@@ -1,0 +1,307 @@
+{
+  "name": "Marketing Image Generation Hybrid",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "marketing-trigger",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "jsonParameters": true,
+        "options": {
+          "bodyContent": {
+            "model": "llama3",
+            "prompt": "Enhance this marketing image prompt for better AI generation: {{$json[\"prompt\"]}} Return only the enhanced prompt.",
+            "stream": false,
+            "temperature": 0.7
+          }
+        }
+      },
+      "name": "Ollama Prompt Enhance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        500,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://comfyui:8000/prompt",
+        "jsonParameters": true,
+        "options": {
+          "bodyContent": {
+            "prompt": {
+              "1": {
+                "inputs": {
+                  "ckpt_name": "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"
+                },
+                "class_type": "CheckpointLoaderSimple"
+              },
+              "2": {
+                "inputs": {
+                  "width": 1024,
+                  "height": 1024,
+                  "batch_size": 1
+                },
+                "class_type": "EmptyLatentImage"
+              },
+              "3": {
+                "inputs": {
+                  "text": "={{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || $json[\"raw_prompt\"] }}",
+                  "clip": [
+                    "1",
+                    1
+                  ]
+                },
+                "class_type": "CLIPTextEncode"
+              },
+              "4": {
+                "inputs": {
+                  "text": "blurry, low quality",
+                  "clip": [
+                    "1",
+                    1
+                  ]
+                },
+                "class_type": "CLIPTextEncode"
+              },
+              "5": {
+                "inputs": {
+                  "seed": 42,
+                  "steps": 20,
+                  "cfg": 7,
+                  "sampler_name": "euler",
+                  "scheduler": "normal",
+                  "denoise": 1,
+                  "model": [
+                    "1",
+                    0
+                  ],
+                  "positive": [
+                    "3",
+                    0
+                  ],
+                  "negative": [
+                    "4",
+                    0
+                  ],
+                  "latent_image": [
+                    "2",
+                    0
+                  ]
+                },
+                "class_type": "KSampler"
+              },
+              "6": {
+                "inputs": {
+                  "samples": [
+                    "5",
+                    0
+                  ],
+                  "vae": [
+                    "1",
+                    2
+                  ]
+                },
+                "class_type": "VAEDecode"
+              },
+              "7": {
+                "inputs": {
+                  "filename_prefix": "n8n_output",
+                  "images": [
+                    "6",
+                    0
+                  ]
+                },
+                "class_type": "SaveImage"
+              }
+            }
+          }
+        }
+      },
+      "name": "Call ComfyUI API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        750,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://comfyui:8000/history/={{ $node[\"Call ComfyUI API\"].json[\"prompt_id\"] }}",
+        "responseFormat": "json",
+        "retryOnFail": true,
+        "retryInterval": 5000,
+        "maxRetries": 12
+      },
+      "name": "Poll ComfyUI History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"8\"][\"images\"][0][\"filename\"] }}",
+        "responseFormat": "blob"
+      },
+      "name": "Fetch Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "post",
+        "url": "={{ $env[\"TWITTER_API_URL\"] }}",
+        "authentication": "Bearer Token",
+        "token": "={{ $env[\"TWITTER_BEARER_TOKEN\"] }}",
+        "options": {
+          "bodyContent": {
+            "status": "={{ $json[\"caption\"] }}",
+            "media_ids": [
+              "={{ $node[\"Fetch Image\"].binary?.image?.id }}"
+            ]
+          }
+        }
+      },
+      "name": "Post to Twitter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        100
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "path": "={{ \"/home/node/.n8n/storage/metadata/run_log.csv\" }}",
+        "options": {
+          "csv": {
+            "fields": [
+              {
+                "name": "timestamp",
+                "value": "={{ $now }}"
+              },
+              {
+                "name": "prompt",
+                "value": "={{ $json[\"raw_prompt\"] }}"
+              },
+              {
+                "name": "enhanced_prompt",
+                "value": "={{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || \"\" }}"
+              },
+              {
+                "name": "status",
+                "value": "completed"
+              },
+              {
+                "name": "posted",
+                "value": "={{ $node[\"Post to Twitter\"].statusCode === 200 }}"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Log Run",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ollama Prompt Enhance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Prompt Enhance": {
+      "main": [
+        [
+          {
+            "node": "Call ComfyUI API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call ComfyUI API": {
+      "main": [
+        [
+          {
+            "node": "Poll ComfyUI History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll ComfyUI History": {
+      "main": [
+        [
+          {
+            "node": "Fetch Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Image": {
+      "main": [
+        [
+          {
+            "node": "Post to Twitter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "id": "1",
+  "version": 1
+}

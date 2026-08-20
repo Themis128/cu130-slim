@@ -15,20 +15,27 @@
     },
     {
       "parameters": {
-        "operation": "generate",
-        "prompt": "={{ $json[\"prompt\"] }}",
-        "model": "llama3",
-        "temperature": 0.7
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "jsonParameters": true,
+        "options": {
+          "bodyContent": {
+            "model": "llama3",
+            "prompt": "Enhance this marketing image prompt for better AI generation: {{$json[\"prompt\"]}} Return only the enhanced prompt.",
+            "stream": false,
+            "temperature": 0.7
+          }
+        }
       },
       "name": "Ollama Prompt Enhance",
-      "type": "n8n-nodes-base.ollama",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
       "position": [500, 200],
       "continueOnFail": true
     },
     {
       "parameters": {
-        "operation": "post",
+        "method": "POST",
         "url": "http://comfyui:8000/prompt",
         "jsonParameters": true,
         "options": {
@@ -44,7 +51,7 @@
     },
     {
       "parameters": {
-        "operation": "get",
+        "method": "GET",
         "url": "http://comfyui:8000/history/={{ $node[\"Call ComfyUI API\"].json[\"prompt_id\"] }}",
         "responseFormat": "json",
         "retryOnFail": true,
@@ -58,29 +65,14 @@
     },
     {
       "parameters": {
-        "operation": "binary",
-        "propertyName": "data",
-        "binaryPropertyName": "image",
-        "options": {
-          "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"3\"][\"images\"][0][\"filename\"] }}",
-          "responseFormat": "blob"
-        }
+        "method": "GET",
+        "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"8\"][\"images\"][0][\"filename\"] }}",
+        "responseFormat": "blob"
       },
       "name": "Fetch Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
       "position": [1250, 200]
-    },
-    {
-      "parameters": {
-        "operation": "display",
-        "title": "Generated Image – Approve?",
-        "annotation": [{"width": 400, "height": 400, "path": "image", "type": "image"}]
-      },
-      "name": "Manual Approval",
-      "type": "n8n-nodes-base.manual",
-      "typeVersion": 1,
-      "position": [1500, 200]
     },
     {
       "parameters": {
@@ -98,20 +90,20 @@
       "name": "Post to Twitter",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [1750, 100],
+      "position": [1500, 100],
       "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "append",
-        "path": "={{ \"storage/metadata/run_log.csv\" }}",
+        "path": "={{ \"/home/node/.n8n/storage/metadata/run_log.csv\" }}",
         "options": {
           "csv": {
             "fields": [
               {"name": "timestamp", "value": "={{ $now }}"},
               {"name": "prompt", "value": "={{ $json[\"raw_prompt\"] }}"},
               {"name": "enhanced_prompt", "value": "={{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || \"\" }}"},
-              {"name": "status", "value": "={{ $node[\"Manual Approval\"].json[\"approved\"] ? \"approved\" : \"rejected\" }}"},
+              {"name": "status", "value": "completed"},
               {"name": "posted", "value": "={{ $node[\"Post to Twitter\"].statusCode === 200 }}"}
             ]
           }
@@ -120,7 +112,7 @@
       "name": "Log Run",
       "type": "n8n-nodes-base.writeBinaryFile",
       "typeVersion": 1,
-      "position": [1750, 350]
+      "position": [1500, 300]
     }
   ],
   "connections": {
@@ -172,17 +164,6 @@
       "main": [
         [
           {
-            "node": "Manual Approval",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Manual Approval": {
-      "main": [
-        [
-          {
             "node": "Post to Twitter",
             "type": "main",
             "index": 0
@@ -196,7 +177,7 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {},
   "id": "1"
 }
