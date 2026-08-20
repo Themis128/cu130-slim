@@ -21,7 +21,7 @@ class Post(Base):
     __tablename__ = "posts"
     __table_args__ = (
         Index("ix_posts_team_status", "team_id", "status"),
-        Index("ix_posts_scheduled", "scheduled_at", postgresql_where="status = 'scheduled'"),
+        # Partial index created via migration to avoid enum creation order issues
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

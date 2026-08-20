@@ -1,3 +1,71 @@
+# Environment files
 .env
+.env.local
+.env.*.local
+
+# Docker
+docker-compose.override.yml
+
+# Build outputs
 storage/
 ollama/cache/
+
+# Node.js
+node_modules/
+dist/
+build/
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Metabase
+metabase-data/metabase.db.mv.db
+metabase-data/metabase.db.mv.db.trace.db
+
+# N8N
+n8n-data/*.sqlite*
+n8n-data/crash.journal
+
+# Ollama models
+ollama/models/
