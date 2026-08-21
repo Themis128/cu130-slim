@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ComfyUI
     COMFYUI_URL: str = "http://comfyui:8000"
 
+    # ChromaDB
+    CHROMA_URL: str = "http://chromadb:8000"
+
     # Ollama
     OLLAMA_URL: str = "http://ollama:11434"
     OLLAMA_DEFAULT_MODEL: str = "llama3"

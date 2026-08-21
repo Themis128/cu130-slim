@@ -1,101 +1,89 @@
+import asyncio
 from datetime import UTC, datetime
 
 import httpx
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.models.workflow import GeneratedWorkflow
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-async def execute_workflow(self, workflow_id: str, input_data: dict):
-    """Execute an n8n workflow"""
-    async with async_session() as db:
-        from app.models.workflow import Workflow, WorkflowExecution
+def execute_workflow(self: "execute_workflow", workflow_id: str, input_data: dict) -> dict:  # type: ignore[name-defined]
+    return asyncio.run(_execute_workflow_async(workflow_id, input_data))
 
-        workflow_result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
-        workflow = workflow_result.scalar_one_or_none()
+
+async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
+    async with async_session() as db:
+        result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+        workflow = result.scalar_one_or_none()
         if not workflow:
             return {"success": False, "error": "Workflow not found"}
 
-        execution = WorkflowExecution(
-            workflow_id=workflow.id,
-            status="running",
-            input_data=input_data,
-            started_at=datetime.now(UTC),
-        )
-        db.add(execution)
-        await db.commit()
-
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
-                # Trigger n8n workflow
                 response = await client.post(
-                    f"{settings.N8N_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
+                    f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
                     headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
                     json=input_data,
                 )
                 response.raise_for_status()
-                result = response.json()
+                result_data = response.json()
 
-            execution.status = "completed"
-            execution.output_data = result
-            execution.completed_at = datetime.now(UTC)
+            workflow.status = "active"
+            workflow.updated_at = datetime.now(UTC)
             await db.commit()
 
-            return {"success": True, "result": result}
+            return {"success": True, "result": result_data}
 
         except Exception as e:
-            execution.status = "failed"
-            execution.error_message = str(e)
-            execution.completed_at = datetime.now(UTC)
             await db.commit()
-
-            raise self.retry(exc=e)
+            return {"success": False, "error": str(e)}
 
 
 @shared_task
-async def deploy_workflow(workflow_id: str):
-    """Deploy a workflow to n8n"""
-    async with async_session() as db:
-        from app.models.workflow import Workflow
+def deploy_workflow(workflow_id: str) -> dict:
+    return asyncio.run(_deploy_workflow_async(workflow_id))
 
-        workflow_result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
-        workflow = workflow_result.scalar_one_or_none()
+
+async def _deploy_workflow_async(workflow_id: str) -> dict:
+    async with async_session() as db:
+        result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+        workflow = result.scalar_one_or_none()
         if not workflow:
             return {"success": False, "error": "Workflow not found"}
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 if workflow.n8n_workflow_id:
-                    # Update existing workflow
                     response = await client.put(
-                        f"{settings.N8N_URL}/api/v1/workflows/{workflow.n8n_workflow_id}",
+                        f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}",
                         headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
-                        json=workflow.definition,
+                        json=workflow.n8n_workflow_json,
                     )
                 else:
-                    # Create new workflow
                     response = await client.post(
-                        f"{settings.N8N_URL}/api/v1/workflows",
+                        f"{settings.N8N_API_URL}/api/v1/workflows",
                         headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
-                        json=workflow.definition,
+                        json=workflow.n8n_workflow_json,
                     )
                 response.raise_for_status()
-                result = response.json()
+                n8n_result = response.json()
 
-            workflow.n8n_workflow_id = result.get("id")
+            workflow.n8n_workflow_id = n8n_result.get("id")
             workflow.status = "active"
+            workflow.updated_at = datetime.now(UTC)
             await db.commit()
 
             return {"success": True, "n8n_workflow_id": workflow.n8n_workflow_id}
 
         except Exception as e:
-            workflow.status = "error"
+            workflow.status = "draft"
+            workflow.updated_at = datetime.now(UTC)
             await db.commit()
             return {"success": False, "error": str(e)}
