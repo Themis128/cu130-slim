@@ -9,9 +9,8 @@ interface DialogProps {
 }
 
 const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
-  if (!open) return null
-
   React.useEffect(() => {
+    if (!open) return
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onOpenChange(false)
     }
@@ -21,7 +20,9 @@ const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
       document.removeEventListener("keydown", handleEscape)
       document.body.style.overflow = "unset"
     }
-  }, [onOpenChange])
+  }, [open, onOpenChange])
+
+  if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50" onClick={() => onOpenChange(false)} role="dialog" aria-modal="true">

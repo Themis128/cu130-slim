@@ -20,7 +20,7 @@ dependencies = [
     "celery==5.4.0",
     "python-dotenv==1.0.1",
     "cryptography==42.0.5",
-    "httpx-oauth==0.11.0",
+    "httpx-oauth==0.17.0",
     "pgvector==0.2.3",
     "structlog==24.1.0",
     "aiofiles==24.1.0",
