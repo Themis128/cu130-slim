@@ -1,12 +1,11 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Loader2, Lock, Unlock, Eye, EyeOff, Shield, AlertCircle, CheckCircle, LogIn } from "lucide-react"
+import { Loader2, Lock, Unlock, Eye, EyeOff, Shield, AlertCircle, CheckCircle, Unlock } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/Card"
 import { Separator } from "@/components/ui/Separator"
-import { cn } from "@/lib/utils"
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate()
