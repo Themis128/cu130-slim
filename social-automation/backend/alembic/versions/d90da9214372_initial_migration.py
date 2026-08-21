@@ -19,18 +19,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    userrole = postgresql.ENUM("owner", "admin", "editor", "viewer", name="userrole", create_type=False)
-    userrole.create(op.get_bind(), checkfirst=True)
-    poststatus = postgresql.ENUM(
-        "draft", "scheduled", "publishing", "published", "failed", "archived",
-        name="poststatus", create_type=False,
-    )
-    poststatus.create(op.get_bind(), checkfirst=True)
-    queuestatus = postgresql.ENUM(
-        "pending", "processing", "completed", "failed",
-        name="queuestatus", create_type=False,
-    )
-    queuestatus.create(op.get_bind(), checkfirst=True)
+    op.execute("CREATE TYPE IF NOT EXISTS userrole AS ENUM ('owner', 'admin', 'editor', 'viewer')")
+    op.execute("CREATE TYPE IF NOT EXISTS poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived')")
+    op.execute("CREATE TYPE IF NOT EXISTS queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed')")
 
     op.create_table(
         "users",
