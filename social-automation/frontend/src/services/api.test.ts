@@ -502,7 +502,7 @@ describe('API Service', () => {
       
       const result = await apiModule.mediaApi.list({ page: 1 })
       
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/media', { params: { page: 1 } })
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/media/assets', { params: { page: 1 } })
       expect(result.data).toEqual([{ id: '1' }])
     })
 
@@ -527,7 +527,7 @@ describe('API Service', () => {
       
       const result = await apiModule.mediaApi.delete('1')
       
-      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/media/1')
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/media/assets/1')
       expect(result.data).toEqual({ success: true })
     })
 
@@ -539,7 +539,7 @@ describe('API Service', () => {
         height: 768,
       })
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/media/generate', {
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/media/generate-image', {
         prompt: 'A beautiful sunset',
         width: 1024,
         height: 768,

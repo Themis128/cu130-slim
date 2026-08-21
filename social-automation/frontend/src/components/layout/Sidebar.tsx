@@ -64,7 +64,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto" aria-label="Main navigation">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto" aria-label="Main navigation" data-tour="nav">
         {navigation.map((item) => {
           const isActive = pathname === item.href || (pathname && pathname.startsWith(item.href + '/'))
           return (

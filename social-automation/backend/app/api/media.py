@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from datetime import datetime
@@ -15,8 +16,7 @@ from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 
-UPLOAD_DIR = "/app/uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
 
 class MediaAssetResponse(BaseModel):
@@ -61,6 +61,7 @@ async def upload_media(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     content = await file.read()
     file_ext = os.path.splitext(file.filename)[1] if file.filename else ""
     filename = f"{uuid.uuid4()}{file_ext}"
@@ -170,7 +171,7 @@ async def generate_image(
         tags=["ai-generated"],
         source="comfyui",
         generation_prompt=prompt,
-        comfyui_workflow_json=eval(workflow_json) if workflow_json else None,
+        comfyui_workflow_json=json.loads(workflow_json) if workflow_json else None,
     )
     db.add(asset)
     await db.commit()

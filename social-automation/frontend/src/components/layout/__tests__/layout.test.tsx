@@ -67,6 +67,10 @@ vi.mock('lucide-react', () => ({
   Plus: () => <svg data-testid="plus-icon" />,
   Clock: () => <svg data-testid="clock-icon" />,
   ExternalLink: () => <svg data-testid="external-link-icon" />,
+  Map: () => <svg data-testid="map-icon" />,
+  Lightbulb: () => <svg data-testid="lightbulb-icon" />,
+  ArrowLeft: () => <svg data-testid="arrow-left-icon" />,
+  ArrowRight: () => <svg data-testid="arrow-right-icon" />,
 }))
 
 // Mock next/navigation
@@ -204,7 +208,7 @@ vi.mock('@/components/ui/DropdownMenu', () => ({
   DropdownMenu: ({ children, ...props }: any) => <div {...props} data-testid="dropdown-menu">{children}</div>,
   DropdownMenuTrigger: ({ children, asChild, ...props }: any) => <div {...props} data-testid="dropdown-trigger">{children}</div>,
   DropdownMenuContent: ({ children, align, className, ...props }: any) => <div align={align} className={className} {...props} data-testid="dropdown-content">{children}</div>,
-  DropdownMenuItem: ({ children, onClick, inset, className, ...props }: any) => (
+  DropdownMenuItem: ({ children, onClick, inset, className, asChild, ...props }: any) => (
     <div onClick={onClick} className={className} data-testid="dropdown-item" {...props}>{children}</div>
   ),
   DropdownMenuSeparator: ({ className, ...props }: any) => <hr className={className} {...props} />,

@@ -165,8 +165,11 @@ export const authApi = {
 
 // Content endpoints
 export const contentApi = {
-  listPosts: (params?: { status?: string; page?: number; page_size?: number }) =>
-    api.get('/content/posts', { params }),
+  listPosts: (params?: { status?: string; page?: number; page_size?: number }) => {
+    const p = { ...params }
+    if (!p.status) delete p.status
+    return api.get('/content/posts', { params: p })
+  },
   getPost: (id: string) => api.get(`/content/posts/${id}`),
   createPost: (data: {
     content_text?: string
@@ -211,8 +214,11 @@ export const contentApi = {
 
 // Media endpoints
 export const mediaApi = {
-  list: (params?: { page?: number; page_size?: number; type?: string }) =>
-    api.get('/media', { params }),
+  list: (params?: { page?: number; page_size?: number; type?: string }) => {
+    const p = { ...params }
+    if (!p.type) delete p.type
+    return api.get('/media/assets', { params: p })
+  },
   upload: (file: File, alt_text?: string, tags?: string) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -222,7 +228,7 @@ export const mediaApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  delete: (id: string) => api.delete(`/media/${id}`),
+  delete: (id: string) => api.delete(`/media/assets/${id}`),
   generateImage: (prompt: string, options?: {
     width?: number
     height?: number
@@ -230,7 +236,7 @@ export const mediaApi = {
     negative_prompt?: string
     steps?: number
     cfg_scale?: number
-  }) => api.post('/media/generate', { prompt, ...options }),
+  }) => api.post('/media/generate-image', { prompt, ...options }),
 }
 
 // Workflow endpoints

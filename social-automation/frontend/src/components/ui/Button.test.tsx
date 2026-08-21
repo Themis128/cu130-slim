@@ -81,8 +81,7 @@ describe('Button', () => {
     expect(screen.getByRole('button')).toHaveClass('custom-class')
   })
 
-  // Skip asChild test due to Radix Slot compatibility in jsdom
-  it.skip('renders as child component when asChild', () => {
+  it('renders as child component when asChild', () => {
     render(
       <Button asChild>
         <a href="/test">Link</a>

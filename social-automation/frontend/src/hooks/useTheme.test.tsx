@@ -129,8 +129,7 @@ describe('useTheme', () => {
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(false))
   })
 
-  // Skip system theme change listener test due to jsdom limitations with matchMedia event listeners
-  it.skip('listens to system theme changes when theme is system', async () => {
+  it('listens to system theme changes when theme is system', async () => {
     let mediaQueryListener: (event: MediaQueryListEvent) => void
     window.matchMedia = vi.fn().mockImplementation(query => ({
       matches: false,

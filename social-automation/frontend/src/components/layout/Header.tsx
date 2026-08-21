@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Bell, Moon, Sun, Search, Command, Settings } from 'lucide-react'
+import { Bell, Moon, Sun, Search, Command, Settings, Map } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -11,10 +11,12 @@ import { Separator } from '@/components/ui/Separator'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
+import { useTour } from '@/hooks/useTour'
 
 export function Header() {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const { start: startTour } = useTour()
   const [searchQuery, setSearchQuery] = useState('')
   const [showNotifications, setShowNotifications] = useState(false)
 
@@ -141,6 +143,10 @@ export function Header() {
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={startTour}>
+                <Map className="mr-2 h-4 w-4" />
+                Take Tour
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem inset onClick={() => logout()}>

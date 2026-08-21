@@ -29,7 +29,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.2.0",
-    "pytest-asyncio==0.23.3",
+    "pytest-asyncio>=0.23.7",
     "pytest-cov==5.0.0",
     "ruff==0.4.3",
     "mypy==1.10.0",
@@ -65,6 +65,10 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning:passlib",
+    "ignore::DeprecationWarning:jose",
+]
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",

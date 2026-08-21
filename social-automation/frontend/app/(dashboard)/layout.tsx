@@ -4,6 +4,10 @@ import { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { Layout } from '@/components/layout'
+import { TourProvider } from '@/hooks/useTour'
+import { AdvisorProvider } from '@/hooks/useAdvisor'
+import { TourOverlay } from '@/components/tour/TourOverlay'
+import { AdvisorCard } from '@/components/advisor/AdvisorCard'
 import { Loader2 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -30,5 +34,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     return null
   }
 
-  return <Layout>{children}</Layout>
+  return (
+    <TourProvider>
+      <AdvisorProvider>
+        <Layout>{children}</Layout>
+        <TourOverlay />
+        <AdvisorCard />
+      </AdvisorProvider>
+    </TourProvider>
+  )
 }

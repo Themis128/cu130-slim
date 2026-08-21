@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Image as ImageIcon, Smile, Hash, Sparkles, Loader2, Send, Calendar, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -18,6 +18,7 @@ import { useAccounts } from '@/hooks/useQueries'
 import type { SocialAccount } from '@/types'
 import { useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { useAuth } from '@/hooks/useAuth'
+import { useAdvisor } from '@/hooks/useAdvisor'
 import toast from 'react-hot-toast'
 
 const platforms = [
@@ -34,6 +35,7 @@ export default function NewPostPage() {
   const { data: accounts } = useAccounts()
   const createPostMutation = useCreatePost()
   const uploadMediaMutation = useUploadMedia()
+  const { setCtx } = useAdvisor()
 
   const [content, setContent] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
@@ -41,8 +43,19 @@ export default function NewPostPage() {
   const [isScheduling, setIsScheduling] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiUsed, setAiUsed] = useState(false)
 
   const connectedPlatforms = accounts?.map((a: SocialAccount) => a.platform) || []
+
+  // Keep advisor informed of editor state
+  useEffect(() => {
+    setCtx({
+      content,
+      selectedPlatforms,
+      hasMedia: mediaFiles.length > 0,
+      aiUsed,
+    })
+  }, [content, selectedPlatforms, mediaFiles, aiUsed, setCtx])
 
   const handlePlatformToggle = (platformId: string) => {
     if (!connectedPlatforms.includes(platformId)) {
@@ -95,7 +108,7 @@ export default function NewPostPage() {
       const postData = {
         content,
         platforms: selectedPlatforms,
-        media_urls: mediaFiles.map((_, i) => `media-${i}`), // placeholder, actual URLs would come from upload
+        media_urls: mediaFiles.map((_, i) => `media-${i}`),
         status: action === 'draft' ? 'draft' : action === 'schedule' ? 'scheduled' : 'publishing',
         scheduled_at: action === 'schedule' ? new Date(scheduleDate).toISOString() : undefined,
       }
@@ -110,10 +123,9 @@ export default function NewPostPage() {
   const handleAIGenerate = async () => {
     setAiGenerating(true)
     try {
-      // In a real app, this would call the AI API
-      // For now, we'll simulate with a placeholder
       await new Promise(r => setTimeout(r, 1000))
       setContent('🚀 Exciting news! We\'re launching our new social media automation platform. Stay tuned for more updates! #SocialMedia #Automation #Tech')
+      setAiUsed(true)
       toast.success('AI content generated')
     } catch {
       toast.error('Failed to generate content')
@@ -133,7 +145,7 @@ export default function NewPostPage() {
       </div>
 
       {/* Platform selector */}
-      <Card>
+      <Card data-tour="platform-selector">
         <CardHeader>
           <CardTitle>Select Platforms</CardTitle>
         </CardHeader>
@@ -180,16 +192,22 @@ export default function NewPostPage() {
       </Card>
 
       {/* Content editor */}
-      <Card>
+      <Card data-tour="content-editor">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Content</CardTitle>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleAIGenerate} disabled={aiGenerating}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAIGenerate}
+              disabled={aiGenerating}
+              data-tour="ai-assist"
+            >
               <Sparkles className="mr-2 h-4 w-4" />
               {aiGenerating ? 'Generating...' : 'AI Assist'}
             </Button>
             <div className="text-sm text-muted-foreground">
-              {content.length} / {Math.min(...selectedPlatforms.map(p => platforms.find(pl => pl.id === p)?.maxChars || 3000))} chars
+              {content.length} / {Math.min(...(selectedPlatforms.length > 0 ? selectedPlatforms.map(p => platforms.find(pl => pl.id === p)?.maxChars || 3000) : [3000]))} chars
             </div>
           </div>
         </CardHeader>
@@ -300,7 +318,10 @@ export default function NewPostPage() {
       )}
 
       {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-end border-t pt-6">
+      <div
+        className="flex flex-col sm:flex-row gap-4 justify-end border-t pt-6"
+        data-tour="publish-actions"
+      >
         <Button variant="outline" onClick={(e) => handleSubmit(e, 'draft')}>
           <Save className="mr-2 h-4 w-4" />
           Save Draft

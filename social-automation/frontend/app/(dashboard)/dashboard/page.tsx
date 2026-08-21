@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { TrendingUp, Users, FileText, Clock, ExternalLink, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useOverviewMetrics, useTopPosts } from '@/hooks/useQueries'
+import { useAdvisor } from '@/hooks/useAdvisor'
 import type { PostAnalytics } from '@/types'
 import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
@@ -21,6 +23,17 @@ const stats = [
 export default function DashboardPage() {
   const { data: metrics, isLoading: metricsLoading } = useOverviewMetrics(30)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(5)
+  const { setCtx } = useAdvisor()
+
+  // Feed advisor with dashboard state
+  useEffect(() => {
+    if (!metrics) return
+    setCtx({
+      connectedAccountsCount: metrics.connected_accounts ?? 0,
+      publishedCount: metrics.published_posts ?? 0,
+      scheduledCount: metrics.scheduled_posts ?? 0,
+    })
+  }, [metrics, setCtx])
 
   if (metricsLoading) {
     return (
@@ -61,7 +74,7 @@ export default function DashboardPage() {
             Overview of your social media automation
           </p>
         </div>
-        <Button asChild>
+        <Button asChild data-tour="create-post">
           <Link href="/content/new">
             <Plus className="mr-2 h-4 w-4" />
             New Post
@@ -70,7 +83,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" data-tour="stats">
         {stats.map((stat) => {
           const value = metrics?.[stat.value as keyof typeof metrics] ?? 0
           return (
@@ -92,7 +105,7 @@ export default function DashboardPage() {
       {/* Top posts and quick actions */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Top performing posts */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2" data-tour="top-posts">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Top Performing Posts</CardTitle>
             <Button variant="ghost" size="sm" asChild>
@@ -144,7 +157,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Quick actions */}
-        <Card>
+        <Card data-tour="quick-actions">
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>

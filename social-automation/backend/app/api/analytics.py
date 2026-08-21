@@ -206,6 +206,71 @@ async def get_account_metrics(
     )
 
 
+class TopPost(BaseModel):
+    post_id: uuid.UUID
+    content_text: str | None
+    platform: str
+    impressions: int
+    engagement: int
+    engagement_rate: float
+    published_at: datetime | None
+
+
+@router.get("/top-posts", response_model=list[TopPost])
+async def get_top_posts(
+    limit: int = Query(10, ge=1, le=50),
+    platform: str | None = None,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    query = (
+        select(Post)
+        .where(Post.team_id == team.id, Post.status == PostStatus.PUBLISHED, Post.created_at >= since)
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+    )
+    posts_result = await db.execute(query)
+    posts = posts_result.scalars().all()
+
+    top: list[TopPost] = []
+    for post in posts:
+        for target in post.targets:
+            if platform and target.social_account.platform != platform:
+                continue
+            events = await db.execute(
+                select(AnalyticsEvent.event_type, func.count(AnalyticsEvent.id))
+                .where(
+                    AnalyticsEvent.post_id == post.id,
+                    AnalyticsEvent.social_account_id == target.social_account_id,
+                )
+                .group_by(AnalyticsEvent.event_type)
+            )
+            event_counts = {et: c for et, c in events.all()}
+            impressions = event_counts.get("impression", 0)
+            engagement = sum(event_counts.get(e, 0) for e in ["like", "comment", "share", "click"])
+            top.append(TopPost(
+                post_id=post.id,
+                content_text=post.content_text,
+                platform=target.social_account.platform,
+                impressions=impressions,
+                engagement=engagement,
+                engagement_rate=engagement / impressions if impressions > 0 else 0.0,
+                published_at=target.published_at,
+            ))
+
+    top.sort(key=lambda p: p.engagement, reverse=True)
+    return top[:limit]
+
+
 @router.get("/reports/export")
 async def export_report(
     format: str = Query("csv", pattern="^(csv|json)$"),
