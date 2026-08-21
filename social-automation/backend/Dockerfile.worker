@@ -18,4 +18,4 @@ RUN pip install --no-cache-dir -e .
 COPY . .
 
 # Start Celery worker
-CMD ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
