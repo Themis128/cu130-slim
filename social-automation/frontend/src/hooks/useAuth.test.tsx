@@ -66,6 +66,8 @@ describe('useAuth', () => {
       data: { access_token: 'new-access', refresh_token: 'new-refresh', user: { id: '1', email: 'test@test.com', name: 'Test User' } },
     })
     vi.mocked(authApi.me).mockResolvedValue({ data: { id: '1', email: 'test@test.com', name: 'Test User' } })
+    // After login, getAccessToken should return the new token
+    vi.mocked(getAccessToken).mockReturnValue('new-access')
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
 
@@ -104,6 +106,7 @@ describe('useAuth', () => {
       data: { access_token: 'new-access', refresh_token: 'new-refresh', user: { id: '1', email: 'new@test.com', name: 'New User' } },
     })
     vi.mocked(authApi.me).mockResolvedValue({ data: { id: '1', email: 'new@test.com', name: 'New User' } })
+    vi.mocked(getAccessToken).mockReturnValue('new-access')
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
 
