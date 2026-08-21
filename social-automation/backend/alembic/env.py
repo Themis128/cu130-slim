@@ -1,19 +1,20 @@
-import sys
 import os
+import sys
 from logging.config import fileConfig
+
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
 from alembic import context
 
 # Add the app directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from app.db.base import Base
 from app.core.config import settings
+from app.db.base import Base
 
 # Import all models to register them
-from app.models import user, social_account, content, workflow, queue, analytics
 
 # this is the Alembic Config object
 config = context.config

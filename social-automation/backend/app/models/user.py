@@ -1,13 +1,16 @@
-import uuid
-from datetime import datetime, UTC
-from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
-from app.db.base import Base
 import enum
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
     OWNER = "owner"
     ADMIN = "admin"
     EDITOR = "editor"

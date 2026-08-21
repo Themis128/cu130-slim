@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime, UTC
-from typing import List
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
+
 from app.db.base import Base
 
 
@@ -21,7 +22,7 @@ class PromptTemplate(Base):
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)  # with {{variables}}
     n8n_workflow_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # portfolio, announcement, thread, carousel, video
-    tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
     is_public: Mapped[bool] = mapped_column(default=False, nullable=False)
     usage_count: Mapped[int] = mapped_column(default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

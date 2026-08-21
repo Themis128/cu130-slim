@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime, UTC
-from typing import List
-from sqlalchemy import String, DateTime, ForeignKey, Text, UniqueConstraint, Index
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, BYTEA, ARRAY, JSONB
+
 from app.db.base import Base
 
 
@@ -24,7 +25,7 @@ class SocialAccount(Base):
     access_token_enc: Mapped[bytes] = mapped_column(BYTEA, nullable=False)
     refresh_token_enc: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    scopes: Mapped[List[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active, expired, revoked, error
     meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

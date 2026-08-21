@@ -1,26 +1,26 @@
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel, EmailStr
-from httpx_oauth.clients.linkedin import LinkedInOAuth2
 from httpx_oauth.clients.facebook import FacebookOAuth2
+from httpx_oauth.clients.linkedin import LinkedInOAuth2
 from httpx_oauth.oauth2 import BaseOAuth2
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
 from app.core.security import (
-    verify_password,
-    hash_password,
     create_access_token,
     create_refresh_token,
     decode_token,
     encrypt_token,
-    decrypt_token,
+    hash_password,
+    verify_password,
 )
 from app.db.session import get_db
-from app.models.user import User, Team, TeamMember, UserRole
 from app.models.social_account import SocialAccount
-import uuid
+from app.models.user import Team, TeamMember, User, UserRole
 
 settings = get_settings()
 

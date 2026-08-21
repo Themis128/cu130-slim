@@ -1,17 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
-from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, HttpUrl
-from typing import Optional
-from datetime import datetime, UTC
 import uuid
+from datetime import UTC, datetime
 
-from app.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.api.auth import get_current_user
-from app.models.user import User, Team, TeamMember
-from app.models.content import Post, PostStatus, MediaAsset, PostTarget
-from app.models.social_account import SocialAccount
+from app.db.session import get_db
+from app.models.content import Post, PostStatus, PostTarget
+from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 

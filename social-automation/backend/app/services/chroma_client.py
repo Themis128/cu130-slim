@@ -1,5 +1,6 @@
 """Thin async client for ChromaDB's HTTP API and Ollama embeddings."""
 import httpx
+
 from app.core.config import get_settings
 
 settings = get_settings()

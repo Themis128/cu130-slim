@@ -1,10 +1,10 @@
-from celery import shared_task
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 import httpx
-import json
+from celery import shared_task
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
@@ -17,7 +17,7 @@ async def execute_workflow(self, workflow_id: str, input_data: dict):
     """Execute an n8n workflow"""
     async with async_session() as db:
         from app.models.workflow import Workflow, WorkflowExecution
-        
+
         workflow_result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
         workflow = workflow_result.scalar_one_or_none()
         if not workflow:
@@ -55,7 +55,7 @@ async def execute_workflow(self, workflow_id: str, input_data: dict):
             execution.error_message = str(e)
             execution.completed_at = datetime.now(UTC)
             await db.commit()
-            
+
             raise self.retry(exc=e)
 
 
@@ -64,7 +64,7 @@ async def deploy_workflow(workflow_id: str):
     """Deploy a workflow to n8n"""
     async with async_session() as db:
         from app.models.workflow import Workflow
-        
+
         workflow_result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
         workflow = workflow_result.scalar_one_or_none()
         if not workflow:

@@ -1,16 +1,14 @@
 import asyncio
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from celery import shared_task
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
 from app.db.session import async_session_maker
 from app.models.content import Post, PostStatus, PostTarget
-from app.models.social_account import SocialAccount
 from app.models.queue import PublishQueue, QueueStatus
+from app.models.social_account import SocialAccount
 from app.services.publishing import publish_to_platform
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -86,7 +84,7 @@ async def _process_publish_queue_async() -> None:
 
                 await db.commit()
 
-            except Exception as exc:
+            except Exception:
                 item.attempts += 1
                 item.status = QueueStatus.FAILED if item.attempts >= item.max_attempts else QueueStatus.PENDING
                 item.locked_at = None

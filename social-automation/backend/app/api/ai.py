@@ -1,20 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
-import httpx
 import json
 import uuid
-from datetime import datetime, UTC
 
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_db
 from app.api.auth import get_current_user
 from app.core.config import get_settings
-from app.models.user import User, Team, TeamMember
+from app.db.session import get_db
 from app.models.social_account import SocialAccount
-from app.models.workflow import PromptTemplate, GeneratedWorkflow
+from app.models.user import Team, TeamMember, User
+from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
 
 router = APIRouter()
@@ -32,7 +30,7 @@ class GenerateContentRequest(BaseModel):
 
 class GenerateContentResponse(BaseModel):
     content: str
-    hashtags: List[str]
+    hashtags: list[str]
     suggested_media: str | None = None
 
 
@@ -43,7 +41,7 @@ class SuggestHashtagsRequest(BaseModel):
 
 
 class SuggestHashtagsResponse(BaseModel):
-    hashtags: List[str]
+    hashtags: list[str]
 
 
 class BestTimeRequest(BaseModel):
@@ -51,7 +49,7 @@ class BestTimeRequest(BaseModel):
 
 
 class BestTimeResponse(BaseModel):
-    best_times: List[dict]
+    best_times: list[dict]
 
 
 class ImproveContentRequest(BaseModel):
@@ -62,7 +60,7 @@ class ImproveContentRequest(BaseModel):
 
 class ImproveContentResponse(BaseModel):
     improved_content: str
-    changes: List[str]
+    changes: list[str]
 
 
 class GenerateWorkflowRequest(BaseModel):
@@ -421,7 +419,7 @@ Return JSON with:
         # Search for template by category
         result = await db.execute(
             select(PromptTemplate)
-            .where(PromptTemplate.category == intent.get("intent"), PromptTemplate.is_public == True)
+            .where(PromptTemplate.category == intent.get("intent"), PromptTemplate.is_public)
             .limit(1)
         )
         template = result.scalar_one_or_none()

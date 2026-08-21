@@ -1,14 +1,16 @@
-import uuid
-from datetime import datetime, UTC
-from typing import List
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
-from app.db.base import Base
 import enum
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
 
 
-class PostStatus(str, enum.Enum):
+class PostStatus(enum.StrEnum):
     DRAFT = "draft"
     SCHEDULED = "scheduled"
     PUBLISHING = "publishing"
@@ -29,10 +31,10 @@ class Post(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[PostStatus] = mapped_column(SQLEnum(PostStatus), default=PostStatus.DRAFT, nullable=False, index=True)
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    media_ids: Mapped[List[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=[], nullable=False)
+    media_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=[], nullable=False)
     platform_specific: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)  # per-platform overrides
-    hashtags: Mapped[List[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
-    mention_accounts: Mapped[List[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    hashtags: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    mention_accounts: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
     link_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     link_preview_override: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
@@ -67,7 +69,7 @@ class MediaAsset(Base):
     height: Mapped[int | None] = mapped_column(nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(nullable=True)
     alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
     source: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload, comfyui, url, ai-generated
     generation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     comfyui_workflow_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

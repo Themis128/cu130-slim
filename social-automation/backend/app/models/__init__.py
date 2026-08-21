@@ -1,9 +1,9 @@
-from app.models.user import User, Team, TeamMember
-from app.models.social_account import SocialAccount
-from app.models.content import Post, MediaAsset, PostTarget
-from app.models.workflow import PromptTemplate, GeneratedWorkflow
-from app.models.queue import PublishQueue
 from app.models.analytics import AnalyticsEvent
+from app.models.content import MediaAsset, Post, PostTarget
+from app.models.queue import PublishQueue
+from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember, User
+from app.models.workflow import GeneratedWorkflow, PromptTemplate
 
 __all__ = [
     "User",
