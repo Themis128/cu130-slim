@@ -63,61 +63,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build social-api image
-        run: |
-          cat > .env.test << 'EOF'
-POSTGRES_USER=test
-POSTGRES_PASSWORD=test
-POSTGRES_DB=test
-POSTGRES_PORT=5432
-METABASE_DB_USER=test
-METABASE_DB_PASS=test
-METABASE_DB_DBNAME=metabase
-METABASE_DB_PORT=5432
-N8N_ENCRYPTION_KEY=test-encryption-key-32-bytes-long!!
-N8N_USER=admin
-N8N_PASSWORD=password
-REDIS_PASSWORD=redis_password
-COMFYUI_PORT=8188
-OLLAMA_PORT=11434
-CHROMA_PORT=8000
-MINIO_PORT=9000
-MINIO_CONSOLE_PORT=9001
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=minioadmin
-PORTAL_PORT=3000
-PORTAL_API_PORT=8080
-ENV_MANAGER_PORT=8081
-SECRET_KEY=test-secret-key-for-testing-only
-ENCRYPTION_KEY=test-encryption-key-32-bytes-long!!
-JWT_SECRET_KEY=test-jwt-secret-key-for-testing-only
-DATABASE_URL=postgresql+asyncpg://test:test@social-postgres:5432/social
-REDIS_URL=redis://:redis_password@redis:6379/0
-N8N_URL=http://n8n:5678
-COMFYUI_URL=http://comfyui:8188
-OLLAMA_URL=http://ollama:11434
-CHROMA_URL=http://chroma:8000
-FAL_KEY=
-REPLICATE_API_TOKEN=
-TWITTER_CLIENT_ID=
-TWITTER_CLIENT_SECRET=
-TWITTER_REDIRECT_URI=http://localhost:3000/api/auth/callback/twitter
-LINKEDIN_CLIENT_ID=
-LINKEDIN_CLIENT_SECRET=
-LINKEDIN_REDIRECT_URI=http://localhost:3000/api/auth/callback/linkedin
-INSTAGRAM_CLIENT_ID=
-INSTAGRAM_CLIENT_SECRET=
-INSTAGRAM_REDIRECT_URI=http://localhost:3000/api/auth/callback/instagram
-FACEBOOK_CLIENT_ID=
-FACEBOOK_CLIENT_SECRET=
-FACEBOOK_REDIRECT_URI=http://localhost:3000/api/auth/callback/facebook
-DEBUG=true
-LOG_LEVEL=INFO
-EOF
-          docker compose --env-file .env.test build social-api
-          rm .env.test
+        run: docker compose --env-file .github/test.env build social-api
 
       - name: Scan images with Trivy
-        uses: aquasecurity/trivy-action@v0.38.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           image-ref: 'cu130-slim-social-api:latest'
