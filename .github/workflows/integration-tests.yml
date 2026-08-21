@@ -44,11 +44,29 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Cache backend dependencies
+        uses: actions/cache@v4
+        with:
+          path: social-automation/backend
+          key: ${{ runner.os }}-pip-${{ hashFiles('social-automation/backend/pyproject.toml', 'social-automation/backend/poetry.lock', 'social-automation/backend/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Cache frontend dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            env-manager/frontend/node_modules
+            social-automation/frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('env-manager/frontend/package-lock.json', 'social-automation/frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install backend dependencies
         run: |
