@@ -11,17 +11,25 @@ interface TabsProps {
   activationMode?: "automatic" | "manual"
 }
 
-const Tabs: React.FC<TabsProps> = ({ value, onValueChange, children, className, orientation = "horizontal" }) => (
-  <div
-    className={cn(
-      "flex",
-      orientation === "horizontal" ? "flex-col" : "flex-row",
-      className
-    )}
-    data-orientation={orientation}
-  >
-    {children}
-  </div>
+const Tabs: React.FC<TabsProps> = ({
+  value,
+  onValueChange,
+  children,
+  className,
+  orientation = "horizontal",
+}) => (
+  <TabsContext.Provider value={{ value, onValueChange }}>
+    <div
+      className={cn(
+        "flex",
+        orientation === "horizontal" ? "flex-col" : "flex-row",
+        className
+      )}
+      data-orientation={orientation}
+    >
+      {children}
+    </div>
+  </TabsContext.Provider>
 )
 
 interface TabsListProps extends React.HTMLAttributes<HTMLDivElement> {}

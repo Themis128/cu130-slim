@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/Header"
 import { EnvTable } from "@/components/env/EnvTable"
 import { LoginPage } from "@/components/auth/LoginPage"
 import { EnvCategory, EnvVariable, Toast } from "@/types/env"
+import { useToasts } from "@/hooks/use-toasts"
 import { cn } from "@/lib/utils"
 import { Loader2, Save, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/Button"
@@ -133,27 +134,6 @@ function useEnvData(auth: { user: string; token: string } | null) {
   return { categories, setCategories, loading, error, fetchEnv, saveEnv }
 }
 
-function useToasts() {
-  const [toasts, setToasts] = useState<Toast[]>([])
-
-  const addToast = useCallback((toast: Omit<Toast, "id">) => {
-    const id = Math.random().toString(36).substr(2, 9)
-    setToasts(prev => [...prev, { ...toast, id }])
-    if (toast.duration !== 0) {
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id))
-      }, toast.duration || 5000)
-    }
-    return id
-  }, [])
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id))
-  }, [])
-
-  return { toasts, addToast, removeToast }
-}
-
 function Dashboard() {
   const { auth, logout } = useAuth()
   const { categories, setCategories, loading, error, saveEnv } = useEnvData(auth)
@@ -196,7 +176,7 @@ function Dashboard() {
       )
     })))
     setDirty(true)
-  }, [])
+  }, [setCategories])
 
   const handleMaskToggle = useCallback((key: string) => {
     setCategories(prev => prev.map(cat => ({
@@ -205,7 +185,7 @@ function Dashboard() {
         v.key === key ? { ...v, masked: !v.masked } : v
       )
     })))
-  }, [])
+  }, [setCategories])
 
   const handleSave = useCallback(async () => {
     try {

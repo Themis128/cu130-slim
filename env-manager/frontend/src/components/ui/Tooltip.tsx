@@ -26,17 +26,17 @@ const Tooltip = React.forwardRef<HTMLDivElement, TooltipProps>(
     }
 
     const sideStyles = {
-      top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
-      right: "left-full top-1/2 -translate-y-1/2 ml-2",
-      bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
-      left: "right-full top-1/2 -translate-y-1/2 mr-2",
+      top: `bottom-full left-1/2 -translate-x-1/2 mb-[${sideOffset}px]`,
+      right: `left-full top-1/2 -translate-y-1/2 ml-[${sideOffset}px]`,
+      bottom: `top-full left-1/2 -translate-x-1/2 mt-[${sideOffset}px]`,
+      left: `right-full top-1/2 -translate-y-1/2 mr-[${sideOffset}px]`,
     }
 
     const arrowStyles = {
-      top: "top-full left-1/2 -translate-x-1/2 border-t-border",
-      right: "right-full top-1/2 -translate-y-1/2 border-l-border",
-      bottom: "bottom-full left-1/2 -translate-x-1/2 border-b-border",
-      left: "left-full top-1/2 -translate-y-1/2 border-r-border",
+      top: `top-full left-1/2 -translate-x-1/2 border-t-border`,
+      right: `right-full top-1/2 -translate-y-1/2 border-l-border`,
+      bottom: `bottom-full left-1/2 -translate-x-1/2 border-b-border`,
+      left: `left-full top-1/2 -translate-y-1/2 border-r-border`,
     }
 
     if (!React.isValidElement(children)) {
@@ -47,7 +47,7 @@ const Tooltip = React.forwardRef<HTMLDivElement, TooltipProps>(
 
     return (
       <div ref={ref} className={cn("relative inline-block", className)} {...props}>
-        {React.cloneElement(children as React.ReactElement<any>, {
+        {React.cloneElement(children as React.ReactElement, {
           ref: childRef,
           onMouseEnter: (e: React.MouseEvent<HTMLElement>) => { showTooltip(); childProps.onMouseEnter?.(e) },
           onMouseLeave: (e: React.MouseEvent<HTMLElement>) => { hideTooltip(); childProps.onMouseLeave?.(e) },

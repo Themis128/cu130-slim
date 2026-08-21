@@ -3,10 +3,6 @@ import { cn } from "@/lib/utils"
 import { X } from "lucide-react"
 
 interface DialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  children: React.ReactNode
-}
 
 const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
   if (!open) return null
@@ -31,6 +27,11 @@ const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
       </div>
     </div>
   )
+}
+Dialog.displayName = "Dialog"
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  children: React.ReactNode
 }
 
 interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {}

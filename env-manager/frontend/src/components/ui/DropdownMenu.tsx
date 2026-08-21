@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { ChevronDown, Check, Circle } from "lucide-react"
+import { Check } from "lucide-react"
 
 interface DropdownMenuProps {
   children: React.ReactNode
@@ -45,7 +45,7 @@ const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, trigger, align = 
         >
           {React.Children.map(children, (child) => {
             if (!React.isValidElement(child)) return child
-            return React.cloneElement(child as React.ReactElement<any>, { onSelect: () => setIsOpen(false) })
+            return React.cloneElement(child as React.ReactElement, { onSelect: () => setIsOpen(false) })
           })}
         </div>
       )}

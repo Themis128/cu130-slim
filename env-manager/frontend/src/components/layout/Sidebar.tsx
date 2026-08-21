@@ -1,7 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { 
-  LayoutDashboard, 
   Key, 
   Database, 
   Cloud, 
@@ -9,8 +8,6 @@ import {
   Shield, 
   Zap,
   ChevronLeft,
-  ChevronRight,
-  Menu
 } from "lucide-react"
 import { EnvCategory } from "@/types/env"
 import { Button } from "@/components/ui/Button"

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Sun, Moon, Bell, LogOut, User, Menu, ChevronDown } from "lucide-react"
+import { Sun, Moon, Bell, LogOut, Menu } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/DropdownMenu"
 import { Tooltip } from "@/components/ui/Tooltip"

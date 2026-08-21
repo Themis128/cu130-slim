@@ -66,24 +66,3 @@ export const Toaster: React.FC<ToasterProps> = ({ toasts, onRemove }) => {
     </div>
   )
 }
-
-export const useToasts = () => {
-  const [toasts, setToasts] = React.useState<Toast[]>([])
-
-  const addToast = React.useCallback((toast: Omit<Toast, "id">) => {
-    const id = Math.random().toString(36).substr(2, 9)
-    setToasts(prev => [...prev, { ...toast, id }])
-    if (toast.duration !== 0) {
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id))
-      }, toast.duration || 5000)
-    }
-    return id
-  }, [])
-
-  const removeToast = React.useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id))
-  }, [])
-
-  return { toasts, addToast, removeToast }
-}
