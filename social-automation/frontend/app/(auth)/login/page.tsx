@@ -41,8 +41,8 @@ export default function LoginPage() {
 
     setIsLoading(true)
     try {
-      await login({ email, password })
-      toast.success('Welcome back!')
+      const ok = await login({ email, password })
+      if (!ok) return
       router.push(callbackUrl)
       router.refresh()
     } catch (error) {

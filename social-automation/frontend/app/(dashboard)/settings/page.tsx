@@ -82,7 +82,7 @@ export default function SettingsPage() {
         // Would call delete account API
         toast.success('Account deleted')
         logout()
-        router.push('/auth/login')
+        router.push('/login')
       } catch {
         toast.error('Failed to delete account')
       }

@@ -42,13 +42,12 @@ export default function RegisterPage() {
 
     setIsLoading(true)
     try {
-      await register({ name: formData.full_name, email: formData.email, password: formData.password })
-      toast.success('Account created successfully!')
+      const ok = await register({ name: formData.full_name, email: formData.email, password: formData.password })
+      if (!ok) return
       router.push('/dashboard')
       router.refresh()
-    } catch (error) {
-      const axiosError = error as { response?: { data?: { detail?: string } } }
-      toast.error(axiosError.response?.data?.detail || 'Registration failed')
+    } catch {
+      // errors are handled inside useAuth.register
     } finally {
       setIsLoading(false)
     }

@@ -186,14 +186,14 @@ describe('Auth Pages', () => {
       render(<LoginPage />, { wrapper })
       
       expect(screen.getByText('Forgot password?')).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/auth/forgot-password')
+      expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/forgot-password')
     })
 
     it('should show sign up link', () => {
       render(<LoginPage />, { wrapper })
       
       expect(screen.getByText("Don't have an account?")).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /sign up/i })).toHaveAttribute('href', '/auth/register')
+      expect(screen.getByRole('link', { name: /sign up/i })).toHaveAttribute('href', '/register')
     })
 
     it('should validate email field', async () => {
@@ -347,7 +347,7 @@ describe('Auth Pages', () => {
       render(<RegisterPage />, { wrapper })
       
       expect(screen.getByText('Already have an account?')).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/auth/login')
+      expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login')
     })
 
     it('should validate full name field', async () => {

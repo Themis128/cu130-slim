@@ -48,8 +48,8 @@ export default function ContentPage() {
   const publishMutation = usePublishPost()
   const scheduleMutation = useSchedulePost()
 
-  const posts = data?.items || []
-  const totalPages = data?.pages || 1
+  const posts = data?.posts || []
+  const totalPages = data?.total ? Math.ceil(data.total / 20) : 1
 
   const handlePublish = async (id: string) => {
     try {

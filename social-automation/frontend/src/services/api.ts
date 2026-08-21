@@ -147,7 +147,7 @@ export const authApi = {
   register: (data: { email: string; password: string; name: string }) =>
     api.post('/auth/register', data),
   login: (data: { email: string; password: string }) =>
-    api.post('/auth/login', new URLSearchParams(data), {
+    api.post('/auth/login', new URLSearchParams({ username: data.email, password: data.password }), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     }),
   refresh: (refresh_token: string) =>

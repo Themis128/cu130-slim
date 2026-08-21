@@ -481,7 +481,7 @@ describe('Dashboard Pages', () => {
       
       await waitFor(() => {
         expect(mockLogout).toHaveBeenCalled()
-        expect(mockPush).toHaveBeenCalledWith('/auth/login')
+        expect(mockPush).toHaveBeenCalledWith('/login')
       })
     })
   })
