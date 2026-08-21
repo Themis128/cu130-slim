@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@v3.55.0
+        uses: trufflesecurity/trufflehog@v3.97.0
         with:
           path: ./
           base: main
@@ -38,7 +38,7 @@ jobs:
             dependency-check-
 
       - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@v1.0.5
+        uses: dependency-check/Dependency-Check_Action@v2.1.0
         with:
           project: 'cu130-slim'
           path: '.'
@@ -67,7 +67,7 @@ jobs:
           docker compose build
 
       - name: Scan images with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@v0.38.0
         with:
           scan-type: 'image'
           image-ref: 'cu130-slim-social-api:latest'
@@ -89,7 +89,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Cache node modules
@@ -98,9 +98,9 @@ jobs:
           path: |
             social-automation/frontend/node_modules
             env-manager/frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('social-automation/frontend/package-lock.json', 'env-manager/frontend/package-lock.json') }}
+          key: ${{ runner.os }}-node24-${{ hashFiles('social-automation/frontend/package-lock.json', 'env-manager/frontend/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-node24-
 
       - name: Install frontend dependencies
         run: |
@@ -116,7 +116,3 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-        with:
-          category: '/language:python'
-          category: '/language:javascript'
-          category: '/language:typescript'

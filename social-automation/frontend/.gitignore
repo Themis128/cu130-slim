@@ -15,3 +15,5 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+# TypeScript build info (build artifact)
+*.tsbuildinfo
