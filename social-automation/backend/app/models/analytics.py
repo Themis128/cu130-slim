@@ -1,8 +1,10 @@
 import uuid
-from datetime import datetime, UTC
-from sqlalchemy import String, DateTime, ForeignKey, Index
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+
 from app.db.base import Base
 
 
@@ -17,7 +19,7 @@ class AnalyticsEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     post_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="SET NULL"), nullable=True, index=True)
-    social_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    social_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True, index=True)  # noqa: E501
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)  # impression, click, like, comment, share, follow
     platform: Mapped[str] = mapped_column(String(30), nullable=False)
     platform_event_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

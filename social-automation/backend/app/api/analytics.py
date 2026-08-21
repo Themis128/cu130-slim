@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
-from sqlalchemy.orm import selectinload
-from pydantic import BaseModel
-from typing import Optional
 import uuid
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 
-from app.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.api.auth import get_current_user
-from app.models.user import User, Team, TeamMember
+from app.db.session import get_db
+from app.models.analytics import AnalyticsEvent
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
-from app.models.analytics import AnalyticsEvent
+from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 
@@ -276,4 +276,3 @@ async def export_report(
     return {"content": rows, "filename": f"analytics_{datetime.now().strftime('%Y%m%d')}.json", "media_type": "application/json"}
 
 
-from app.models.user import User

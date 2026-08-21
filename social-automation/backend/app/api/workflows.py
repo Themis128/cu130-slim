@@ -1,18 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from pydantic import BaseModel
-from typing import Optional
 import uuid
-import json
-import httpx
-from datetime import datetime, UTC
+from datetime import datetime
 
-from app.db.session import get_db
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.api.auth import get_current_user
 from app.core.config import get_settings
-from app.models.user import User, Team, TeamMember
-from app.models.workflow import PromptTemplate, GeneratedWorkflow
+from app.db.session import get_db
+from app.models.user import Team, TeamMember, User
+from app.models.workflow import GeneratedWorkflow, PromptTemplate
 
 router = APIRouter()
 settings = get_settings()
@@ -233,4 +232,3 @@ async def execute_workflow(
     return {"message": "Execution started", "execution_id": execution.get("id")}
 
 
-from app.models.user import User

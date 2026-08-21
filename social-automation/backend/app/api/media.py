@@ -1,17 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel
-from typing import Optional
-import uuid
 import os
-import aiofiles
-from datetime import datetime, UTC
+import uuid
+from datetime import datetime
 
-from app.db.session import get_db
+import aiofiles
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.api.auth import get_current_user
-from app.models.user import User, Team, TeamMember
+from app.db.session import get_db
 from app.models.content import MediaAsset
+from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 
@@ -180,4 +180,3 @@ async def generate_image(
 
 
 # Need to import User
-from app.models.user import User

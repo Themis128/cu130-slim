@@ -1,17 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel
-from typing import Optional
 import uuid
 
-from app.db.session import get_db
-from app.api.auth import get_current_user, decrypt_token
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.auth import get_current_user
 from app.core.config import get_settings
-from app.core.security import encrypt_token
-from app.models.user import User, Team, TeamMember
+from app.db.session import get_db
 from app.models.social_account import SocialAccount
-import httpx
+from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 settings = get_settings()
@@ -86,7 +84,6 @@ async def connect_account(
         raise HTTPException(status_code=403, detail="Not a member of this team")
 
     # Redirect to auth endpoint
-    from app.api.auth import linkedin_client, twitter_client, facebook_client, instagram_client
 
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = getattr(globals(), f"{platform}_client", None)
@@ -177,4 +174,3 @@ async def validate_account(
     return {"valid": account.status == "active", "status": account.status}
 
 
-from app.models.user import User

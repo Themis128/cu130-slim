@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update
-from sqlalchemy.orm import selectinload
-from pydantic import BaseModel
-from typing import Optional
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime
 
-from app.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.api.auth import get_current_user
-from app.models.user import User, Team, TeamMember
+from app.db.session import get_db
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 
@@ -121,7 +121,6 @@ async def list_queue(
     if status_filter:
         query = query.where(PublishQueue.status == status_filter)
 
-    from sqlalchemy import func
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
@@ -253,4 +252,3 @@ async def _queue_to_response(queue_item: PublishQueue, db: AsyncSession) -> Queu
     )
 
 
-from app.models.user import User

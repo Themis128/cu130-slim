@@ -1,13 +1,14 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { 
-  Key, 
-  Database, 
-  Cloud, 
-  Settings, 
-  Shield, 
+import {
+  Key,
+  Database,
+  Cloud,
+  Settings,
+  Shield,
   Zap,
   ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { EnvCategory } from "@/types/env"
 import { Button } from "@/components/ui/Button"

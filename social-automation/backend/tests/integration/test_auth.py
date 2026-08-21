@@ -1,6 +1,5 @@
 import pytest
 
-
 TEST_USER = {"email": "ci-test@example.com", "password": "TestPass123!", "name": "CI Test"}
 
 

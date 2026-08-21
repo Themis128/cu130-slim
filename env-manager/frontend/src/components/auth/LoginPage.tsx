@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Loader2, Lock, Unlock, Eye, EyeOff, Shield, AlertCircle, CheckCircle, Unlock } from "lucide-react"
+import { Loader2, Lock, Unlock, Eye, EyeOff, Shield, AlertCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
