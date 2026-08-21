@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Image, Smile, Hash, Sparkles, Loader2, Send, Calendar, Save } from 'lucide-react'
+import { X, Image as ImageIcon, Smile, Hash, Sparkles, Loader2, Send, Calendar, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
@@ -204,7 +204,7 @@ export default function NewPostPage() {
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => {}}>
-                <Image className="mr-2 h-4 w-4" />
+                <ImageIcon className="mr-2 h-4 w-4" />
                 Add Media
               </Button>
               <Button variant="outline" size="sm">
@@ -226,7 +226,7 @@ export default function NewPostPage() {
                   {file.type.startsWith('image/') && (
                     <img
                       src={URL.createObjectURL(file)}
-                      alt="Preview"
+                      alt={`Preview of ${file.name}`}
                       className="h-full w-full object-cover"
                     />
                   )}

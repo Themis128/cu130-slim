@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Image, Upload, Trash2, MoreVertical, Loader2, Download, Eye } from 'lucide-react'
+import { Search, Image as ImageIcon, Upload, Trash2, MoreVertical, Loader2, Download, Eye, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Textarea } from '@/components/ui/Textarea'
 import { useMedia, useUploadMedia, useDeleteMedia, useGenerateImage } from '@/hooks/useQueries'
 import type { MediaAsset } from '@/types'
 import toast from 'react-hot-toast'
@@ -162,7 +163,7 @@ export default function MediaPage() {
             </div>
           ) : media.length === 0 ? (
             <div className="py-16 text-center">
-              <Image className="mx-auto h-12 w-12 text-muted-foreground/50" />
+              <ImageIcon className="mx-auto h-12 w-12 text-muted-foreground/50" />
               <p className="mt-4 text-muted-foreground">No media found</p>
               <Button className="mt-4" onClick={() => document.getElementById('file-upload')?.click()}>
                 <Upload className="mr-2 h-4 w-4" />
@@ -185,7 +186,7 @@ export default function MediaPage() {
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center text-muted-foreground">
-                        <Image className="h-8 w-8" />
+                        <ImageIcon className="h-8 w-8" />
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -247,7 +248,3 @@ export default function MediaPage() {
     </div>
   )
 }
-
-// Need to import these
-import { Textarea } from '@/components/ui/Textarea'
-import { Sparkles } from 'lucide-react'
