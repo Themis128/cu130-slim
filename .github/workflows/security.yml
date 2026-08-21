@@ -21,8 +21,13 @@ jobs:
         uses: trufflesecurity/trufflehog@v3.97.0
         with:
           path: ./
-          base: master
-          head: HEAD
+          base: >-
+            ${{
+              github.event_name == 'pull_request' && github.event.pull_request.base.sha ||
+              github.event_name == 'push' && github.event.before ||
+              ''
+            }}
+          head: ${{ github.sha }}
 
   dependency-scan:
     runs-on: ubuntu-latest
@@ -38,7 +43,7 @@ jobs:
             dependency-check-
 
       - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@v2.1.0
+        uses: dependency-check/Dependency-Check_Action@1.1.0
         with:
           project: 'cu130-slim'
           path: '.'
@@ -56,6 +61,8 @@ jobs:
 
   container-scan:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -82,6 +89,8 @@ jobs:
 
   sast-scan:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
