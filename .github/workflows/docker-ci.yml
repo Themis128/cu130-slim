@@ -26,8 +26,9 @@ jobs:
       with:
         context: .
         push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        load: ${{ github.event_name == 'pull_request' }}
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
-        
+
     - name: Scan image for vulnerabilities
       uses: aquasecurity/trivy-action@v0.38.0
       with:
