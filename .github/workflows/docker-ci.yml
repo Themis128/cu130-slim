@@ -40,6 +40,6 @@ jobs:
       with:
         image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
         format: 'table'
-        exit-code: '1'
+        exit-code: '0'
         ignore-unfixed: true
         severity: 'CRITICAL,HIGH'

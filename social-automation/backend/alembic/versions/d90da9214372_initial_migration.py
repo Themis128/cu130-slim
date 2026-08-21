@@ -19,9 +19,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("DO $$ BEGIN CREATE TYPE userrole AS ENUM ('owner', 'admin', 'editor', 'viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-    op.execute("DO $$ BEGIN CREATE TYPE poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-    op.execute("DO $$ BEGIN CREATE TYPE queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE userrole AS ENUM ('owner', 'admin', 'editor', 'viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
+    op.execute("DO $$ BEGIN CREATE TYPE poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
+    op.execute("DO $$ BEGIN CREATE TYPE queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
 
     op.create_table(
         "users",
@@ -48,7 +48,7 @@ def upgrade() -> None:
         "team_members",
         sa.Column("team_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("role", sa.Enum("owner", "admin", "editor", "viewer", name="userrole", create_type=False), nullable=False, server_default="editor"),
+        sa.Column("role", postgresql.ENUM(name="userrole", create_type=False), nullable=False, server_default="editor"),
         sa.UniqueConstraint("team_id", "user_id", name="uq_team_member"),
     )
 
@@ -79,7 +79,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("team_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("teams.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("status", sa.Enum("draft", "scheduled", "publishing", "published", "failed", "archived", name="poststatus", create_type=False), nullable=False, server_default="draft"),  # noqa: E501
+        sa.Column("status", postgresql.ENUM(name="poststatus", create_type=False), nullable=False, server_default="draft"),
         sa.Column("content_text", sa.Text(), nullable=True),
         sa.Column("media_ids", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), nullable=False, server_default="{}"),
         sa.Column("platform_specific", postgresql.JSONB(), nullable=False, server_default="{}"),
@@ -145,7 +145,7 @@ def upgrade() -> None:
         sa.Column("priority", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("max_attempts", sa.Integer(), nullable=False, server_default="3"),
-        sa.Column("status", sa.Enum("pending", "processing", "completed", "failed", name="queuestatus", create_type=False), nullable=False, server_default="pending"),  # noqa: E501
+        sa.Column("status", postgresql.ENUM(name="queuestatus", create_type=False), nullable=False, server_default="pending"),
         sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("locked_by", sa.String(100), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
