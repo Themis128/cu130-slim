@@ -93,7 +93,7 @@ export default function MediaPage() {
               <div className="py-4">
                 <Textarea
                   value={generatePrompt}
-                  onChange={(e) => setGeneratePrompt(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setGeneratePrompt(e.target.value)}
                   placeholder="A professional photo of a modern office workspace..."
                   rows={4}
                 />
