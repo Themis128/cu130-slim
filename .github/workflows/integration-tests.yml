@@ -48,7 +48,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
 
       - name: Cache frontend dependencies
         uses: actions/cache@v4
@@ -92,7 +91,7 @@ jobs:
       - name: Test backend API endpoints
         run: |
           # Test auth endpoints
-          curl -X POST http://localhost:8083/api/auth/register \
+          curl -X POST http://localhost:8083/api/v1/auth/register \
             -H "Content-Type: application/json" \
             -d '{"email": "test@example.com", "password": "testpass123", "name": "Test User"}' \
             -f
@@ -109,10 +108,21 @@ jobs:
           cd env-manager/frontend
           npm run build
 
+      - name: Run unit tests
+        run: |
+          cd social-automation/backend
+          pytest tests/unit -v --tb=short
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-testing-only
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-long!!
+          JWT_SECRET_KEY: test-jwt-secret-key-for-testing-only
+
       - name: Run integration tests
         run: |
           cd social-automation/backend
-          pytest tests/integration -v --tb=short || echo "Integration tests not yet implemented"
+          pytest tests/integration -v --tb=short
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
           REDIS_URL: redis://localhost:6379/0
