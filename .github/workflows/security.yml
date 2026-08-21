@@ -21,7 +21,7 @@ jobs:
         uses: trufflesecurity/trufflehog@v3.97.0
         with:
           path: ./
-          base: main
+          base: master
           head: HEAD
 
   dependency-scan:
@@ -106,7 +106,7 @@ jobs:
         run: |
           cd social-automation/frontend
           npm ci
-          cd ../env-manager/frontend
+          cd ../../env-manager/frontend
           npm ci
 
       - name: Initialize CodeQL

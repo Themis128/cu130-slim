@@ -47,7 +47,7 @@ jobs:
       - name: Run tests
         run: |
           cd env-manager/frontend
-          npm run test -- --run
+          npm run test
 
       - name: Build
         run: |

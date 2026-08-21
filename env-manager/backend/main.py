@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Body
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -130,6 +130,31 @@ def update_env(request: EnvUpdateRequest, username: str = Depends(verify_credent
             current[key] = value
     save_env(current)
     return {"status": "saved", "updated": list(request.updates.keys())}
+
+@app.put("/api/env/{key}")
+def update_single_env(
+    key: str,
+    value: str = Body(..., embed=True),
+    username: str = Depends(verify_credentials),
+):
+    """Update a single environment variable by key."""
+    if key not in ENV_DEFINITIONS:
+        raise HTTPException(status_code=404, detail=f"Unknown environment variable: {key}")
+    current = load_env()
+    current[key] = value
+    save_env(current)
+    return {"status": "saved", "key": key}
+
+
+@app.delete("/api/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_single_env(key: str, username: str = Depends(verify_credentials)):
+    """Remove a single environment variable."""
+    current = load_env()
+    if key not in current:
+        raise HTTPException(status_code=404, detail=f"Key not found: {key}")
+    del current[key]
+    save_env(current)
+
 
 @app.get("/health")
 def health():

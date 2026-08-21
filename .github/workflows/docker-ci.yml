@@ -25,7 +25,7 @@ jobs:
       uses: docker/build-push-action@v4
       with:
         context: .
-        push: true
+        push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
         
     - name: Scan image for vulnerabilities

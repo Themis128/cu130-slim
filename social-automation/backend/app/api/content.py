@@ -96,7 +96,7 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
         link_url=post_data.link_url,
         link_preview_override=post_data.link_preview_override,
         scheduled_at=post_data.scheduled_at,
-        metadata={},
+        meta_data={},
     )
     db.add(post)
     await db.flush()
@@ -147,6 +147,44 @@ async def list_posts(
     post_responses = [await _post_to_response(p, db) for p in posts]
 
     return PostListResponse(posts=post_responses, total=total, page=page, page_size=page_size)
+
+
+@router.get("/posts/calendar", response_model=list[dict])
+async def get_calendar(
+    start: datetime,
+    end: datetime,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return []
+
+    result = await db.execute(
+        select(Post)
+        .where(
+            Post.team_id == team.id,
+            Post.scheduled_at >= start,
+            Post.scheduled_at <= end,
+            Post.status.in_([PostStatus.SCHEDULED, PostStatus.PUBLISHED]),
+        )
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+    )
+    posts = result.scalars().all()
+
+    return [
+        {
+            "id": str(p.id),
+            "title": (p.content_text[:50] + "...") if p.content_text and len(p.content_text) > 50 else p.content_text or "Untitled",
+            "start": p.scheduled_at.isoformat() if p.scheduled_at else p.created_at.isoformat(),
+            "status": p.status.value,
+            "platforms": [t.social_account.platform for t in p.targets],
+        }
+        for p in posts
+    ]
 
 
 @router.get("/posts/{post_id}", response_model=PostResponse)
@@ -263,7 +301,7 @@ async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_cu
         mention_accounts=post.mention_accounts,
         link_url=post.link_url,
         link_preview_override=post.link_preview_override,
-        metadata={},
+        meta_data={},
     )
     db.add(new_post)
     await db.flush()
@@ -275,44 +313,6 @@ async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_cu
     await db.refresh(new_post)
 
     return await _post_to_response(new_post, db)
-
-
-@router.get("/posts/calendar", response_model=list[dict])
-async def get_calendar(
-    start: datetime,
-    end: datetime,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
-    if not team:
-        return []
-
-    result = await db.execute(
-        select(Post)
-        .where(
-            Post.team_id == team.id,
-            Post.scheduled_at >= start,
-            Post.scheduled_at <= end,
-            Post.status.in_([PostStatus.SCHEDULED, PostStatus.PUBLISHED]),
-        )
-        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
-    )
-    posts = result.scalars().all()
-
-    return [
-        {
-            "id": str(p.id),
-            "title": (p.content_text[:50] + "...") if p.content_text and len(p.content_text) > 50 else p.content_text or "Untitled",
-            "start": p.scheduled_at.isoformat() if p.scheduled_at else p.created_at.isoformat(),
-            "status": p.status.value,
-            "platforms": [t.social_account.platform for t in p.targets],
-        }
-        for p in posts
-    ]
 
 
 async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
@@ -338,7 +338,7 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         failure_reason=post.failure_reason,
         workflow_id=post.workflow_id,
         workflow_run_id=post.workflow_run_id,
-        metadata=post.metadata,
+        metadata=post.meta_data,
         created_at=post.created_at,
         updated_at=post.updated_at,
         targets=[

@@ -44,14 +44,6 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Cache backend dependencies
-        uses: actions/cache@v4
-        with:
-          path: social-automation/backend
-          key: ${{ runner.os }}-pip-${{ hashFiles('social-automation/backend/pyproject.toml', 'social-automation/backend/poetry.lock', 'social-automation/backend/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -121,3 +113,9 @@ jobs:
         run: |
           cd social-automation/backend
           pytest tests/integration -v --tb=short || echo "Integration tests not yet implemented"
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-testing-only
+          ENCRYPTION_KEY: test-encryption-key-32-bytes-long!!
+          JWT_SECRET_KEY: test-jwt-secret-key-for-testing-only
