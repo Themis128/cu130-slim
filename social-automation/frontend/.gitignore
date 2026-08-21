@@ -1,0 +1,17 @@
+# Next.js build outputs
+.next/
+out/
+build/
+# Next.js cache
+.cache/
+# Temporary files
+.tmp/
+# Logs
+*.log
+# Environment files
+.env
+.env.local
+.env.*.local
+# OS
+.DS_Store
+Thumbs.db
