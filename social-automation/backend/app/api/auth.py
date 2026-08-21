@@ -30,7 +30,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login
 
 linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
 # Twitter OAuth2 (using BaseOAuth2)
-twitter_client = BaseOAuth2(
+twitter_client: BaseOAuth2 = BaseOAuth2(
     settings.TWITTER_CLIENT_ID,
     settings.TWITTER_CLIENT_SECRET,
     authorize_endpoint="https://twitter.com/i/oauth2/authorize",
