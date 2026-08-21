@@ -19,9 +19,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE IF NOT EXISTS userrole AS ENUM ('owner', 'admin', 'editor', 'viewer')")
-    op.execute("CREATE TYPE IF NOT EXISTS poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived')")
-    op.execute("CREATE TYPE IF NOT EXISTS queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed')")
+    op.execute("DO $$ BEGIN CREATE TYPE userrole AS ENUM ('owner', 'admin', 'editor', 'viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
 
     op.create_table(
         "users",
