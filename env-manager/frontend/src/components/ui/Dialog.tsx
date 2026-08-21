@@ -3,6 +3,10 @@ import { cn } from "@/lib/utils"
 import { X } from "lucide-react"
 
 interface DialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  children: React.ReactNode
+}
 
 const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
   if (!open) return null
@@ -27,11 +31,6 @@ const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
       </div>
     </div>
   )
-}
-Dialog.displayName = "Dialog"
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  children: React.ReactNode
 }
 
 interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {}
@@ -70,10 +69,9 @@ interface DialogTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {}
 const DialogTitle = React.forwardRef<HTMLHeadingElement, DialogTitleProps>(
   ({ className, ...props }, ref) => (
     <h2
-      ref={ref}
       className={cn("text-lg font-semibold leading-none tracking-tight", className)}
       {...props}
-    />
+    )
   )
 )
 DialogTitle.displayName = "DialogTitle"
@@ -86,7 +84,7 @@ const DialogDescription = React.forwardRef<HTMLParagraphElement, DialogDescripti
       ref={ref}
       className={cn("text-sm text-muted-foreground", className)}
       {...props}
-    />
+    )
   )
 )
 DialogDescription.displayName = "DialogDescription"
@@ -99,7 +97,7 @@ const DialogFooter = React.forwardRef<HTMLDivElement, DialogFooterProps>(
       ref={ref}
       className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
       {...props}
-    />
+    )
   )
 )
 DialogFooter.displayName = "DialogFooter"
