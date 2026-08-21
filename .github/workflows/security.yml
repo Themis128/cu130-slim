@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.55.0
         with:
           path: ./
           base: main
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@v1.0.5
         with:
           project: 'cu130-slim'
           path: '.'
@@ -59,7 +59,7 @@ jobs:
           docker compose build
 
       - name: Scan images with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           image-ref: 'cu130-slim-social-api:latest'
