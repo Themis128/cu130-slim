@@ -25,6 +25,7 @@ class PostCreate(BaseModel):
     link_preview_override: dict | None = None
     scheduled_at: datetime | None = None
     target_account_ids: list[uuid.UUID] = []
+    metadata: dict = {}
 
 
 class PostUpdate(BaseModel):
@@ -95,7 +96,7 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
         link_url=post_data.link_url,
         link_preview_override=post_data.link_preview_override,
         scheduled_at=post_data.scheduled_at,
-        meta_data={},
+        meta_data=post_data.metadata,
     )
     db.add(post)
     await db.flush()
@@ -352,3 +353,72 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
             for t in post.targets
         ],
     )
+
+
+# ── /content/media aliases (proxies to media router behaviour) ────────────────
+from fastapi import UploadFile, File as FastAPIFile
+import shutil, os, pathlib
+
+MEDIA_DIR = pathlib.Path("/app/media")
+
+
+class MediaItem(BaseModel):
+    id: str
+    filename: str
+    url: str
+    media_type: str
+    size: int
+
+
+@router.get("/media")
+async def list_content_media(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    media_type: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Returns uploaded media available for attaching to posts."""
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    items = []
+    for f in sorted(MEDIA_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if f.is_file():
+            mt = "image" if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"} else "video"
+            if media_type and mt != media_type:
+                continue
+            items.append({
+                "id": f.name,
+                "filename": f.name,
+                "url": f"/media/files/{f.name}",
+                "media_type": mt,
+                "size": f.stat().st_size,
+            })
+    start = (page - 1) * per_page
+    return {"items": items[start:start + per_page], "total": len(items), "page": page, "per_page": per_page}
+
+
+@router.post("/media/upload")
+async def upload_content_media(
+    file: UploadFile = FastAPIFile(...),
+    current_user: User = Depends(get_current_user),
+):
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{uuid.uuid4()}_{file.filename}"
+    dest = MEDIA_DIR / safe_name
+    with dest.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+    return {
+        "id": safe_name,
+        "filename": file.filename,
+        "url": f"/media/files/{safe_name}",
+        "size": dest.stat().st_size,
+    }
+
+
+@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_content_media(
+    media_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    target = MEDIA_DIR / media_id
+    if target.exists() and target.is_file():
+        target.unlink()

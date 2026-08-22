@@ -1,11 +1,22 @@
+import base64
+import hashlib
+import json
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import (
+    get_current_user,
+    linkedin_client,
+    twitter_client,
+    facebook_client,
+    instagram_client,
+    threads_client,
+)
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
@@ -13,6 +24,39 @@ from app.models.user import Team, TeamMember, User
 
 router = APIRouter()
 settings = get_settings()
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """Return (code_verifier, code_challenge) for S256 PKCE."""
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def _encode_state(team_id: uuid.UUID, code_verifier: str | None = None) -> str:
+    if code_verifier is None:
+        return str(team_id)
+    payload = json.dumps({"t": str(team_id), "cv": code_verifier})
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_state(state: str) -> tuple[uuid.UUID, str | None]:
+    try:
+        data = json.loads(base64.urlsafe_b64decode(state + "==").decode())
+        return uuid.UUID(data["t"]), data.get("cv")
+    except Exception:
+        return uuid.UUID(state), None
+
+
+PLATFORM_CLIENTS = {
+    "linkedin": linkedin_client,
+    "twitter": twitter_client,
+    "facebook": facebook_client,
+    "instagram": instagram_client,
+    "threads": threads_client,
+}
 
 
 class SocialAccountResponse(BaseModel):
@@ -69,6 +113,68 @@ async def list_accounts(
     ]
 
 
+class ConnectBodyRequest(BaseModel):
+    platform: str
+    team_id: uuid.UUID | None = None
+
+    @field_validator("team_id", mode="before")
+    @classmethod
+    def coerce_team_id(cls, v):
+        if v is None:
+            return None
+        try:
+            return uuid.UUID(str(v))
+        except (ValueError, AttributeError):
+            return None
+
+
+@router.post("/connect", response_model=ConnectResponse)
+async def connect_account_body(
+    data: ConnectBodyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Body-based alias for /connect/{platform} — used by the frontend."""
+    # Auto-resolve team from current user if not provided
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=403, detail="No team found for user")
+    team_id = data.team_id or team.id
+
+    redirect_uri = getattr(settings, f"{data.platform.upper()}_REDIRECT_URI", None)
+    client = PLATFORM_CLIENTS.get(data.platform)
+
+    if not client or not redirect_uri:
+        raise HTTPException(status_code=400, detail=f"Unsupported platform: {data.platform}")
+
+    scopes = {
+        "linkedin": ["openid", "profile", "email", "w_member_social"],
+        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+        "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
+        "threads": ["threads_basic", "threads_content_publish"],
+    }.get(data.platform, [])
+
+    # Twitter OAuth 2.0 requires PKCE
+    code_verifier: str | None = None
+    code_challenge: str | None = None
+    if data.platform == "twitter":
+        code_verifier, code_challenge = _pkce_pair()
+
+    state = _encode_state(team_id, code_verifier)
+    authorization_url = await client.get_authorization_url(
+        redirect_uri,
+        state=state,
+        scope=scopes,
+        code_challenge=code_challenge,
+        code_challenge_method="S256" if code_challenge else None,
+    )
+    return ConnectResponse(authorization_url=authorization_url)
+
+
 @router.post("/connect/{platform}", response_model=ConnectResponse)
 async def connect_account(
     platform: str,
@@ -86,7 +192,7 @@ async def connect_account(
     # Redirect to auth endpoint
 
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
-    client = getattr(globals(), f"{platform}_client", None)
+    client = PLATFORM_CLIENTS.get(platform)
 
     if not client:
         raise HTTPException(status_code=400, detail="Unsupported platform")
@@ -95,7 +201,7 @@ async def connect_account(
         "linkedin": ["r_liteprofile", "r_emailaddress", "w_member_social"],
         "twitter": ["tweet.read", "tweet.write", "users.read"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
-        "instagram": ["instagram_basic", "instagram_content_publish"],
+        "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
     }.get(platform, [])
 
     authorization_url = await client.get_authorization_url(

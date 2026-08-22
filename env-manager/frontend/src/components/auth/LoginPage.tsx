@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
 import { Loader2, Lock, Unlock, Eye, EyeOff, Shield, AlertCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
@@ -8,7 +7,6 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Separator } from "@/components/ui/Separator"
 
 export const LoginPage: React.FC = () => {
-  const navigate = useNavigate()
   const [username, setUsername] = useState("admin")
   const [password, setPassword] = useState("admin")
   const [showPassword, setShowPassword] = useState(false)
@@ -37,8 +35,8 @@ export const LoginPage: React.FC = () => {
       const token = btoa(`${username}:${password}`)
       const auth = { user: username, token }
       localStorage.setItem("env_manager_auth", JSON.stringify(auth))
-      
-      navigate("/")
+
+      window.location.replace("/")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
@@ -132,7 +130,7 @@ export const LoginPage: React.FC = () => {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full py-3 text-lg font-medium disabled={loading}">
+              <Button type="submit" className="w-full py-3 text-lg font-medium" disabled={loading}>
                 {loading ? (
                   <>
                     <Loader2 className="mr-3 h-5 w-5 animate-spin" />

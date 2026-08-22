@@ -1,13 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Search, Image as ImageIcon, Upload, Trash2, MoreVertical, Loader2, Download, Eye, Sparkles } from 'lucide-react'
+import { Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -27,7 +25,6 @@ export default function MediaPage() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [page, setPage] = useState(1)
-  const [selectedMedia, setSelectedMedia] = useState<string | null>(null)
   const [generatePrompt, setGeneratePrompt] = useState('')
   const [generateOpen, setGenerateOpen] = useState(false)
 
@@ -36,7 +33,13 @@ export default function MediaPage() {
   const deleteMutation = useDeleteMedia()
   const generateMutation = useGenerateImage()
 
-  const media = data?.items || []
+  const allMedia = data?.items || []
+  const media = search
+    ? allMedia.filter((a: MediaAsset) =>
+        a.filename?.toLowerCase().includes(search.toLowerCase()) ||
+        a.alt_text?.toLowerCase().includes(search.toLowerCase())
+      )
+    : allMedia
   const totalPages = data?.pages || 1
 
   const handleFileUpload = async (files: FileList) => {

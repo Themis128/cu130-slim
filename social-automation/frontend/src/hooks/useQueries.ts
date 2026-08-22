@@ -7,12 +7,13 @@ import {
   publishingApi,
   analyticsApi,
   aiApi,
+  aiProvidersApi,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 
 // Content hooks
-export function usePosts(params?: { status?: string; page?: number; page_size?: number }) {
+export function usePosts(params?: { status?: string; platform?: string; page?: number; page_size?: number }) {
   return useQuery({
     queryKey: ['posts', params],
     queryFn: () => contentApi.listPosts(params),
@@ -47,7 +48,7 @@ export function useCreatePost() {
 export function useUpdatePost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Post> }) => contentApi.updatePost(id, data as any),
+    mutationFn: ({ id, data }: { id: string; data: Partial<Post> }) => contentApi.updatePost(id, data as Parameters<typeof contentApi.updatePost>[1]),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['posts'] })
       queryClient.invalidateQueries({ queryKey: ['post', id] })
@@ -309,5 +310,67 @@ export function useAnalyzeContent() {
     onSuccess: () => {
       toast.success('Analysis complete')
     },
+  })
+}
+
+// AI Providers hooks
+export function useAIProviderCatalog() {
+  return useQuery({
+    queryKey: ['ai-provider-catalog'],
+    queryFn: () => aiProvidersApi.getCatalog(),
+    select: (r) => r.data as Array<{
+      name: string; display_name: string; base_url: string; default_model: string
+      requires_key: boolean; description: string; model_examples: string[]
+    }>,
+    staleTime: 10 * 60 * 1000,  // 10 min — static data, but not infinite so auth errors can retry
+    retry: 1,
+  })
+}
+
+export function useAIProviders() {
+  return useQuery({
+    queryKey: ['ai-providers'],
+    queryFn: () => aiProvidersApi.list(),
+    select: (r) => r.data as Array<{
+      id: string; name: string; display_name: string; base_url: string
+      default_model: string; is_enabled: boolean; is_default: boolean; has_key: boolean; updated_at: string
+    }>,
+    retry: 1,
+  })
+}
+
+export function useUpsertAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: Parameters<typeof aiProvidersApi.upsert>[1] }) =>
+      aiProvidersApi.upsert(name, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-providers'] })
+      toast.success('Provider saved')
+    },
+    onError: () => toast.error('Failed to save provider'),
+  })
+}
+
+export function useDeleteAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => aiProvidersApi.delete(name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-providers'] })
+      toast.success('Provider removed')
+    },
+  })
+}
+
+export function useTestAIProvider() {
+  return useMutation({
+    mutationFn: (name: string) => aiProvidersApi.test(name),
+    onSuccess: (r) => {
+      const d = r.data as { ok: boolean; response?: string; error?: string }
+      if (d.ok) toast.success(`Connected! "${d.response}"`)
+      else toast.error(`Test failed: ${d.error}`)
+    },
+    onError: () => toast.error('Test request failed — check your session and try again'),
   })
 }

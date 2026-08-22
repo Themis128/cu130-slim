@@ -1,13 +1,12 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { Loader2 } from 'lucide-react'
 
 export default function HomePage() {
   const router = useRouter()
-  const pathname = usePathname()
   const { user, isLoading } = useAuth()
 
   useEffect(() => {

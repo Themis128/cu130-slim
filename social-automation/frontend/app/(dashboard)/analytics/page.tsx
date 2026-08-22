@@ -1,16 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { TrendingUp, TrendingDown, Minus, Calendar, Download, ExternalLink } from 'lucide-react'
+import { TrendingUp, TrendingDown, Download } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
-import { Separator } from '@/components/ui/Separator'
 import { useOverviewMetrics, usePlatformMetrics, useTopPosts } from '@/hooks/useQueries'
 import type { PlatformMetrics, PostAnalytics } from '@/types'
 import { formatRelativeTime } from '@/lib/utils'
@@ -26,8 +23,6 @@ import {
   Line,
   AreaChart,
   Area,
-  PieChart,
-  Pie,
   Cell,
 } from 'recharts'
 import { format } from 'date-fns'
@@ -66,32 +61,36 @@ export default function AnalyticsPage() {
 
   const metrics = [
     {
-      name: 'Total Impressions',
-      value: overview?.total_impressions?.toLocaleString() || '0',
-      change: overview?.impressions_change || 0,
+      name: 'Connected Accounts',
+      value: overview?.connected_accounts?.toLocaleString() || '0',
+      change: 0,
       icon: TrendingUp,
       color: 'text-blue-500',
+      bg: 'bg-blue-500/10',
     },
     {
       name: 'Total Engagement',
       value: overview?.total_engagement?.toLocaleString() || '0',
-      change: overview?.engagement_change || 0,
+      change: 0,
       icon: TrendingUp,
       color: 'text-green-500',
+      bg: 'bg-green-500/10',
     },
     {
-      name: 'Followers Gained',
-      value: overview?.followers_gained?.toLocaleString() || '0',
-      change: overview?.followers_change || 0,
+      name: 'Total Followers',
+      value: overview?.total_followers?.toLocaleString() || '0',
+      change: 0,
       icon: TrendingUp,
       color: 'text-purple-500',
+      bg: 'bg-purple-500/10',
     },
     {
       name: 'Posts Published',
-      value: overview?.posts_published?.toLocaleString() || '0',
-      change: overview?.posts_change || 0,
+      value: overview?.published_posts?.toLocaleString() || '0',
+      change: 0,
       icon: TrendingUp,
       color: 'text-orange-500',
+      bg: 'bg-orange-500/10',
     },
   ]
 
@@ -150,7 +149,7 @@ export default function AnalyticsPage() {
                   <p className="text-sm font-medium text-muted-foreground">{metric.name}</p>
                   <p className="text-3xl font-bold mt-1">{metric.value}</p>
                 </div>
-                <div className={cn('p-3 rounded-full', metric.color + '/10')}>
+                <div className={cn('p-3 rounded-full', metric.bg)}>
                   <metric.icon className={cn('h-6 w-6', metric.color)} />
                 </div>
               </div>
@@ -185,7 +184,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={overview?.engagement_timeline || []}>
+                <AreaChart data={(overview as unknown as Record<string, unknown>)?.['engagement_timeline'] as unknown[] || []}>
                   <defs>
                     <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -250,7 +249,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={overview?.impressions_timeline || []}>
+                <LineChart data={(overview as unknown as Record<string, unknown>)?.['impressions_timeline'] as unknown[] || []}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                   <XAxis dataKey="date" tickFormatter={(v) => format(new Date(v), 'MMM d')} className="text-xs" />
                   <YAxis className="text-xs" />
@@ -316,9 +315,9 @@ export default function AnalyticsPage() {
                     <TableHead>Platform</TableHead>
                     <TableHead className="text-right">Impressions</TableHead>
                     <TableHead className="text-right">Engagement</TableHead>
-                    <TableHead className="text-right">Engagement Rate</TableHead>
-                    <TableHead className="text-right">Followers</TableHead>
-                    <TableHead className="text-right">Posts</TableHead>
+                    <TableHead className="text-right">Eng. Rate</TableHead>
+                    <TableHead className="text-right">Published</TableHead>
+                    <TableHead className="text-right">Total Posts</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -326,18 +325,18 @@ export default function AnalyticsPage() {
                     <TableRow key={p.platform}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold', COLORS[i % COLORS.length])}>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: COLORS[i % COLORS.length] }}>
                             {p.platform[0].toUpperCase()}
                           </div>
                           <span className="font-medium capitalize">{p.platform}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono">{p.impressions?.toLocaleString() || '0'}</TableCell>
-                      <TableCell className="text-right font-mono">{p.engagements?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-right font-mono">{p.total_impressions?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-right font-mono">{p.total_engagement?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-right font-mono">
                         {p.engagement_rate ? `${p.engagement_rate.toFixed(2)}%` : '0%'}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{p.followers?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-right font-mono">{p.published_count || 0}</TableCell>
                       <TableCell className="text-right font-mono">{p.posts_count || 0}</TableCell>
                     </TableRow>
                   ))}

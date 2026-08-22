@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, Loader2, Sparkles, Brain } from 'lucide-react'
+import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, ExternalLink, Sparkles, Brain, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/Card'
@@ -14,7 +13,8 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
-import { useTemplates, useCreateTemplate, useGenerateWorkflow, useWorkflows, useDeployWorkflow } from '@/hooks/useQueries'
+import { useTemplates, useGenerateWorkflow, useWorkflows, useDeployWorkflow } from '@/hooks/useQueries'
+import { workflowApi } from '@/services/api'
 import type { PromptTemplate, GeneratedWorkflow } from '@/types'
 import toast from 'react-hot-toast'
 
@@ -33,10 +33,11 @@ export default function WorkflowsPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [generatePrompt, setGeneratePrompt] = useState('')
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [generateModel, setGenerateModel] = useState('llama3')
+  const [generateComplexity, setGenerateComplexity] = useState('moderate')
 
-  const { data: templatesData, isLoading: templatesLoading } = useTemplates(categoryFilter)
+  const { data: templatesData, isLoading: templatesLoading, refetch: refetchTemplates } = useTemplates(categoryFilter)
   const { data: workflowsData, isLoading: workflowsLoading } = useWorkflows()
-  const createTemplateMutation = useCreateTemplate()
   const generateMutation = useGenerateWorkflow()
   const deployMutation = useDeployWorkflow()
 
@@ -46,7 +47,7 @@ export default function WorkflowsPage() {
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
     try {
-      await generateMutation.mutateAsync({ prompt: generatePrompt })
+      await generateMutation.mutateAsync({ prompt: generatePrompt, model: generateModel, complexity: generateComplexity })
       setGeneratePrompt('')
       setGenerateOpen(false)
       setActiveTab('templates')
@@ -60,6 +61,34 @@ export default function WorkflowsPage() {
       await deployMutation.mutateAsync(templateId)
     } catch {
       toast.error('Failed to deploy workflow')
+    }
+  }
+
+  const handleDeleteTemplate = async (id: string) => {
+    if (!confirm('Delete this template?')) return
+    try {
+      await workflowApi.deleteTemplate(id)
+      toast.success('Template deleted')
+      refetchTemplates()
+    } catch {
+      toast.error('Failed to delete template')
+    }
+  }
+
+  const handleDuplicateTemplate = async (template: PromptTemplate) => {
+    try {
+      await workflowApi.createTemplate({
+        name: `${template.name} (copy)`,
+        description: template.description ?? undefined,
+        prompt_template: template.prompt_template,
+        n8n_workflow_json: template.n8n_workflow_json,
+        category: template.category ?? undefined,
+        tags: template.tags ?? undefined,
+      })
+      toast.success('Template duplicated')
+      refetchTemplates()
+    } catch {
+      toast.error('Failed to duplicate template')
     }
   }
 
@@ -123,11 +152,9 @@ export default function WorkflowsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button asChild>
-            <a href="/workflows/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New Template
-            </a>
+          <Button onClick={() => setGenerateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Template
           </Button>
         </div>
       </div>
@@ -199,8 +226,8 @@ export default function WorkflowsPage() {
                   {search || categoryFilter ? 'Try adjusting your filters' : 'Create your first workflow template'}
                 </p>
                 {!search && !categoryFilter && (
-                  <Button className="mt-4" asChild>
-                    <a href="/workflows/new">Create Template</a>
+                  <Button className="mt-4" onClick={() => setGenerateOpen(true)}>
+                    Create Template
                   </Button>
                 )}
               </CardContent>
@@ -233,11 +260,9 @@ export default function WorkflowsPage() {
                     </div>
                   </CardContent>
                   <CardFooter className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1" asChild>
-                      <a href={`/workflows/${template.id}`}>
-                        <Edit className="mr-1.5 h-3.5 w-3.5" />
-                        Edit
-                      </a>
+                    <Button variant="outline" size="sm" className="flex-1" onClick={() => toast('Template editing coming soon')}>
+                      <Edit className="mr-1.5 h-3.5 w-3.5" />
+                      Edit
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => handleDeploy(template.id)} disabled={deployMutation.isPending}>
                       <Play className="mr-1.5 h-3.5 w-3.5" />
@@ -250,22 +275,20 @@ export default function WorkflowsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                          <a href={`/workflows/${template.id}`}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </a>
+                        <DropdownMenuItem onClick={() => toast('Template editing coming soon')}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleDeploy(template.id)} disabled={deployMutation.isPending}>
                           <Play className="mr-2 h-4 w-4" />
                           Deploy
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDuplicateTemplate(template)}>
                           <Copy className="mr-2 h-4 w-4" />
                           Duplicate
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive">
+                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTemplate(template.id)}>
                           <Trash2 className="mr-2 h-4 w-4" />
                           Delete
                         </DropdownMenuItem>
@@ -321,12 +344,14 @@ export default function WorkflowsPage() {
                       </div>
                       <div className="flex items-center gap-4">
                         {statusBadge(workflow.status)}
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={`/workflows/${workflow.id}`} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                            Open in n8n
-                          </a>
-                        </Button>
+                        {workflow.n8n_workflow_id && (
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={`http://localhost:5678/workflow/${workflow.n8n_workflow_id}`} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                              Open in n8n
+                            </a>
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -363,7 +388,7 @@ export default function WorkflowsPage() {
                 <div className="grid gap-4 md:grid-cols-2 mt-4">
                   <div>
                     <Label htmlFor="model">AI Model</Label>
-                    <Select>
+                    <Select value={generateModel} onValueChange={setGenerateModel}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select model" />
                       </SelectTrigger>
@@ -376,7 +401,7 @@ export default function WorkflowsPage() {
                   </div>
                   <div>
                     <Label htmlFor="complexity">Complexity</Label>
-                    <Select>
+                    <Select value={generateComplexity} onValueChange={setGenerateComplexity}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select complexity" />
                       </SelectTrigger>
@@ -450,4 +475,3 @@ export default function WorkflowsPage() {
   )
 }
 
-import { ExternalLink } from 'lucide-react'

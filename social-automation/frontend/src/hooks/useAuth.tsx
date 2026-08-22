@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { authApi, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/services/api'
 import type { User, AuthState, LoginCredentials, RegisterData, TokenResponse } from '@/types'
 import toast from 'react-hot-toast'
@@ -40,14 +40,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
       }))
-    } catch (error) {
-      clearTokens()
-      setState(prev => ({
-        ...prev,
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-      }))
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (!status || status === 401) {
+        clearTokens()
+        setState(prev => ({
+          ...prev,
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
+        }))
+      } else {
+        // non-auth error (500, network) — don't wipe tokens
+        setState(prev => ({ ...prev, isLoading: false }))
+      }
     }
   }, [])
 
@@ -139,8 +145,10 @@ export function useAuth() {
 
 export function useRequireAuth() {
   const auth = useAuth()
-  if (!auth.isLoading && !auth.isAuthenticated) {
-    window.location.href = '/login'
-  }
+  useEffect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      window.location.href = '/login'
+    }
+  }, [auth.isLoading, auth.isAuthenticated])
   return auth
 }

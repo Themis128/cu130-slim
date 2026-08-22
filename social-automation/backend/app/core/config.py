@@ -46,7 +46,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:8083", "http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:8083",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:8082",
+    ]
 
     # Social OAuth
     LINKEDIN_CLIENT_ID: str = ""
@@ -64,6 +69,10 @@ class Settings(BaseSettings):
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
     FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/facebook"
+
+    THREADS_CLIENT_ID: str = ""
+    THREADS_CLIENT_SECRET: str = ""
+    THREADS_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/threads"
 
 
 settings = Settings()

@@ -1,23 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Image as ImageIcon, Smile, Hash, Sparkles, Loader2, Send, Calendar, Save } from 'lucide-react'
+import { X, Image as ImageIcon, Sparkles, Send, Calendar, Save, LayoutTemplate, AlignLeft, List, BarChart2, PlaySquare, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
-import { Label } from '@/components/ui/Label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem } from '@/components/ui/DropdownMenu'
 import { Badge } from '@/components/ui/Badge'
-import { Separator } from '@/components/ui/Separator'
 import { Input } from '@/components/ui/Input'
-import { useAccounts } from '@/hooks/useQueries'
+import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
+import { contentApi } from '@/services/api'
 import type { SocialAccount } from '@/types'
-import { useCreatePost, useUploadMedia } from '@/hooks/useQueries'
-import { useAuth } from '@/hooks/useAuth'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import toast from 'react-hot-toast'
 
@@ -31,16 +26,16 @@ const platforms = [
 
 export default function NewPostPage() {
   const router = useRouter()
-  const { user } = useAuth()
   const { data: accounts } = useAccounts()
   const createPostMutation = useCreatePost()
   const uploadMediaMutation = useUploadMedia()
+  const generateContentMutation = useGenerateContent()
   const { setCtx } = useAdvisor()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [content, setContent] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
-  const [isScheduling, setIsScheduling] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
@@ -105,15 +100,22 @@ export default function NewPostPage() {
     }
 
     try {
-      const postData = {
-        content,
-        platforms: selectedPlatforms,
-        media_urls: mediaFiles.map((_, i) => `media-${i}`),
-        status: action === 'draft' ? 'draft' : action === 'schedule' ? 'scheduled' : 'publishing',
+      const connectedAccounts = (accounts as SocialAccount[] | undefined) || []
+      const targets = connectedAccounts
+        .filter(a => selectedPlatforms.includes(a.platform))
+        .map(a => ({ social_account_id: a.id }))
+      const post = await createPostMutation.mutateAsync({
+        content_text: content,
+        targets,
         scheduled_at: action === 'schedule' ? new Date(scheduleDate).toISOString() : undefined,
+      })
+      if (action === 'publish') {
+        const postId = (post as unknown as { data?: { id?: string } })?.data?.id
+        if (postId) await contentApi.publishNow(postId)
+        toast.success('Post published')
+      } else {
+        toast.success(action === 'draft' ? 'Draft saved' : 'Post scheduled')
       }
-      await createPostMutation.mutateAsync(postData)
-      toast.success(action === 'draft' ? 'Draft saved' : action === 'schedule' ? 'Post scheduled' : 'Post published')
       router.push('/content')
     } catch {
       toast.error('Failed to create post')
@@ -123,8 +125,22 @@ export default function NewPostPage() {
   const handleAIGenerate = async () => {
     setAiGenerating(true)
     try {
-      await new Promise(r => setTimeout(r, 1000))
-      setContent('🚀 Exciting news! We\'re launching our new social media automation platform. Stay tuned for more updates! #SocialMedia #Automation #Tech')
+      const platform = selectedPlatforms[0] || 'linkedin'
+      const result = await generateContentMutation.mutateAsync({
+        prompt: content || 'Write an engaging social media post',
+        platform,
+        tone: 'professional',
+        length: 'medium',
+        include_hashtags: true,
+        include_emojis: true,
+      })
+      const data = result.data
+      const generated = data.content || ''
+      const hashtags: string[] = data.hashtags || []
+      const withHashtags = hashtags.length
+        ? `${generated}\n\n${hashtags.map((h: string) => `#${h}`).join(' ')}`
+        : generated
+      setContent(withHashtags)
       setAiUsed(true)
       toast.success('AI content generated')
     } catch {
@@ -143,6 +159,41 @@ export default function NewPostPage() {
           <p className="text-muted-foreground mt-1">Create and schedule content across platforms</p>
         </div>
       </div>
+
+      {/* Content type picker */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Content Type</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {[
+              { label: 'Single Post', icon: AlignLeft, href: null, active: true, desc: 'All platforms' },
+              { label: 'Carousel', icon: LayoutTemplate, href: '/content/carousel/new', active: false, desc: 'LinkedIn · Instagram' },
+              { label: 'Thread', icon: List, href: '/content/thread/new', active: false, desc: 'Twitter/X · Threads' },
+              { label: 'Poll', icon: BarChart2, href: '/content/poll/new', active: false, desc: 'Twitter/X · LinkedIn' },
+              { label: 'Story', icon: PlaySquare, href: '/content/story/new', active: false, desc: 'Instagram · Facebook' },
+              { label: 'Article', icon: BookOpen, href: '/content/article/new', active: false, desc: 'LinkedIn only' },
+            ].map(({ label, icon: Icon, href, active, desc }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => href && router.push(href)}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-colors text-center',
+                  active
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-muted bg-muted/30 text-muted-foreground hover:border-primary/60 hover:text-foreground'
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                <span>{label}</span>
+                <span className="text-[10px] font-normal opacity-60 leading-tight">{desc}</span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Platform selector */}
       <Card data-tour="platform-selector">
@@ -221,17 +272,17 @@ export default function NewPostPage() {
           />
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => {}}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => e.target.files && handleMediaUpload(e.target.files)}
+              />
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={mediaFiles.length >= 10}>
                 <ImageIcon className="mr-2 h-4 w-4" />
-                Add Media
-              </Button>
-              <Button variant="outline" size="sm">
-                <Smile className="mr-2 h-4 w-4" />
-                Emoji
-              </Button>
-              <Button variant="outline" size="sm">
-                <Hash className="mr-2 h-4 w-4" />
-                Hashtags
+                Add Media {mediaFiles.length > 0 && `(${mediaFiles.length})`}
               </Button>
             </div>
           </div>
@@ -258,16 +309,6 @@ export default function NewPostPage() {
                   </Button>
                 </div>
               ))}
-              <label className="h-20 w-20 rounded-lg border-2 border-dashed border-muted flex items-center justify-center cursor-pointer">
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => e.target.files && handleMediaUpload(e.target.files)}
-                />
-                <span className="text-muted-foreground">+</span>
-              </label>
             </div>
           )}
         </CardContent>
@@ -347,8 +388,8 @@ export default function NewPostPage() {
               />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsScheduling(false)}>Cancel</Button>
-              <Button onClick={(e) => { handleSubmit(e, 'schedule'); setIsScheduling(false); }}>
+              <Button variant="outline">Cancel</Button>
+              <Button onClick={(e) => handleSubmit(e, 'schedule')}>
                 Schedule
               </Button>
             </DialogFooter>

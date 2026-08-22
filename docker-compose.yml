@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   comfyui:
     build:
@@ -91,6 +89,13 @@ services:
     volumes:
       - ./ollama:/root/.ollama
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   chroma:
     image: chromadb/chroma:latest
@@ -176,22 +181,22 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - N8N_URL=http://n8n:5678
-      - N8N_API_KEY=testkey123
+      - N8N_API_KEY=${N8N_API_KEY}
       - COMFYUI_URL=http://comfyui:8000
       - OLLAMA_URL=http://ollama:11434
       - CHROMA_URL=http://chroma:8000
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
-      - LINKEDIN_REDIRECT_URI=http://localhost:8080/auth/callback/linkedin
+      - LINKEDIN_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/linkedin/callback
       - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
       - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
-      - TWITTER_REDIRECT_URI=http://localhost:8080/auth/callback/twitter
+      - TWITTER_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/twitter/callback
       - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
       - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
-      - INSTAGRAM_REDIRECT_URI=http://localhost:8080/auth/callback/instagram
+      - INSTAGRAM_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/instagram/callback
       - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
       - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-      - FACEBOOK_REDIRECT_URI=http://localhost:8080/auth/callback/facebook
+      - FACEBOOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/facebook/callback
     volumes:
       - ./social-automation/backend/app:/app/app
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -215,7 +220,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - N8N_URL=http://n8n:5678
-      - N8N_API_KEY=testkey123
+      - N8N_API_KEY=${N8N_API_KEY}
       - COMFYUI_URL=http://comfyui:8000
       - OLLAMA_URL=http://ollama:11434
     volumes:

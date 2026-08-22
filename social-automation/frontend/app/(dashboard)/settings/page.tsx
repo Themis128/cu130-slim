@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Mail, Lock, Bell, Shield, Palette, Database, Trash2, Loader2, Download } from 'lucide-react'
+import { User, Bell, Shield, Palette, Database, Trash2, Download, Cpu } from 'lucide-react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -119,6 +120,12 @@ export default function SettingsPage() {
             <Trash2 className="mr-2 h-4 w-4" />
             Danger Zone
           </TabsTrigger>
+          <Button variant="outline" size="sm" asChild className="ml-2">
+            <Link href="/settings/ai-providers">
+              <Cpu className="mr-2 h-4 w-4" />
+              AI Providers
+            </Link>
+          </Button>
         </TabsList>
 
         {/* Profile Tab */}
@@ -234,7 +241,7 @@ export default function SettingsPage() {
                   <p className="font-medium">Authenticator App</p>
                   <p className="text-sm text-muted-foreground">Use Google Authenticator, Authy, or 1Password</p>
                 </div>
-                <Button variant="outline">Enable 2FA</Button>
+                <Button variant="outline" onClick={() => toast('Two-factor authentication coming soon')}>Enable 2FA</Button>
               </div>
             </CardContent>
           </Card>
@@ -268,7 +275,7 @@ export default function SettingsPage() {
                       <p className="text-sm text-muted-foreground">iOS • 2 days ago</p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm">Revoke</Button>
+                  <Button variant="ghost" size="sm" onClick={() => toast('Session management coming soon')}>Revoke</Button>
                 </div>
               </div>
             </CardContent>
@@ -365,6 +372,7 @@ export default function SettingsPage() {
                     key={d}
                     variant="outline"
                     className="h-24 flex-col gap-3 p-6"
+                    onClick={() => toast('Density setting coming soon')}
                   >
                     <span className="capitalize">{d}</span>
                   </Button>
@@ -405,7 +413,7 @@ export default function SettingsPage() {
               <CardDescription>Download all your data in JSON format</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => toast('Data export coming soon')}>
                 <Download className="mr-2 h-4 w-4" />
                 Request Data Export
               </Button>
@@ -417,4 +425,3 @@ export default function SettingsPage() {
   )
 }
 
-// Need to add Switch component

@@ -175,7 +175,7 @@ async def get_account_metrics(
 
     # Posts count
     posts_count = await db.execute(
-        select(func.count(PostTarget.id))
+        select(func.count(PostTarget.post_id))
         .where(PostTarget.social_account_id == account_id, PostTarget.status == "published")
     )
     posts_count = posts_count.scalar() or 0
@@ -269,6 +269,215 @@ async def get_top_posts(
 
     top.sort(key=lambda p: p.engagement, reverse=True)
     return top[:limit]
+
+
+class EngagementPoint(BaseModel):
+    date: str
+    likes: int
+    comments: int
+    shares: int
+    clicks: int
+    total: int
+
+
+class FollowerPoint(BaseModel):
+    platform: str
+    followers: int
+    change: int
+
+
+@router.get("/engagement", response_model=list[EngagementPoint])
+async def get_engagement_trends(
+    days: int = Query(30, ge=1, le=365),
+    platform: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return []
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    query = (
+        select(
+            func.date_trunc("day", AnalyticsEvent.occurred_at).label("day"),
+            AnalyticsEvent.event_type,
+            func.count(AnalyticsEvent.id).label("cnt"),
+        )
+        .where(AnalyticsEvent.team_id == team.id, AnalyticsEvent.occurred_at >= since)
+        .group_by("day", AnalyticsEvent.event_type)
+        .order_by("day")
+    )
+    if platform:
+        query = query.join(SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id).where(
+            SocialAccount.platform == platform
+        )
+
+    rows = await db.execute(query)
+    by_day: dict[str, dict] = {}
+    for day, event_type, cnt in rows.all():
+        key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
+        if key not in by_day:
+            by_day[key] = {"likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+        if event_type in by_day[key]:
+            by_day[key][event_type] = cnt
+
+    return [
+        EngagementPoint(
+            date=d,
+            likes=v["likes"],
+            comments=v["comments"],
+            shares=v["shares"],
+            clicks=v["clicks"],
+            total=sum(v.values()),
+        )
+        for d, v in sorted(by_day.items())
+    ]
+
+
+@router.get("/followers", response_model=list[FollowerPoint])
+async def get_follower_counts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return []
+
+    accounts_result = await db.execute(
+        select(SocialAccount).where(SocialAccount.team_id == team.id, SocialAccount.status == "active")
+    )
+    accounts = accounts_result.scalars().all()
+
+    # Real follower counts require live platform API calls (OAuth token needed).
+    # Return zeros as placeholders until accounts are connected and synced.
+    return [
+        FollowerPoint(platform=a.platform, followers=0, change=0)
+        for a in accounts
+    ]
+
+
+class PlatformMetrics(BaseModel):
+    platform: str
+    posts_count: int
+    published_count: int
+    scheduled_count: int
+    total_engagement: int
+    total_impressions: int
+    engagement_rate: float
+
+
+@router.get("/platforms", response_model=list[PlatformMetrics])
+async def get_platform_metrics(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return []
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    # Get connected accounts grouped by platform
+    accounts_result = await db.execute(
+        select(SocialAccount).where(SocialAccount.team_id == team.id)
+    )
+    accounts = accounts_result.scalars().all()
+    platforms_seen = {a.platform for a in accounts}
+
+    # Also include platforms that have posts even without connected accounts
+    posts_platforms = await db.execute(
+        select(PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(Post.team_id == team.id, Post.created_at >= since)
+        .distinct()
+    )
+
+    metrics: list[PlatformMetrics] = []
+    for platform in platforms_seen or ['linkedin', 'twitter', 'instagram', 'facebook', 'threads']:
+        platform_accounts = [a for a in accounts if a.platform == platform]
+        account_ids = [a.id for a in platform_accounts]
+
+        # Post counts via targets linked to this platform's accounts
+        if account_ids:
+            post_count_result = await db.execute(
+                select(func.count(PostTarget.post_id))
+                .join(Post, Post.id == PostTarget.post_id)
+                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+                .where(
+                    SocialAccount.platform == platform,
+                    SocialAccount.team_id == team.id,
+                    Post.created_at >= since,
+                )
+            )
+            posts_count = post_count_result.scalar() or 0
+
+            published_result = await db.execute(
+                select(func.count(PostTarget.post_id))
+                .join(Post, Post.id == PostTarget.post_id)
+                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+                .where(
+                    SocialAccount.platform == platform,
+                    SocialAccount.team_id == team.id,
+                    Post.created_at >= since,
+                    Post.status == PostStatus.PUBLISHED,
+                )
+            )
+            published_count = published_result.scalar() or 0
+
+            scheduled_result = await db.execute(
+                select(func.count(PostTarget.post_id))
+                .join(Post, Post.id == PostTarget.post_id)
+                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+                .where(
+                    SocialAccount.platform == platform,
+                    SocialAccount.team_id == team.id,
+                    Post.created_at >= since,
+                    Post.status == PostStatus.SCHEDULED,
+                )
+            )
+            scheduled_count = scheduled_result.scalar() or 0
+
+            events_result = await db.execute(
+                select(AnalyticsEvent.event_type, func.count(AnalyticsEvent.id))
+                .join(SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id)
+                .where(
+                    SocialAccount.platform == platform,
+                    SocialAccount.team_id == team.id,
+                    AnalyticsEvent.occurred_at >= since,
+                )
+                .group_by(AnalyticsEvent.event_type)
+            )
+            event_counts = {et: c for et, c in events_result.all()}
+        else:
+            posts_count = published_count = scheduled_count = 0
+            event_counts = {}
+
+        impressions = event_counts.get("impression", 0)
+        engagement = sum(event_counts.get(e, 0) for e in ["like", "comment", "share", "click"])
+
+        metrics.append(PlatformMetrics(
+            platform=platform,
+            posts_count=posts_count,
+            published_count=published_count,
+            scheduled_count=scheduled_count,
+            total_engagement=engagement,
+            total_impressions=impressions,
+            engagement_rate=engagement / impressions if impressions > 0 else 0.0,
+        ))
+
+    return metrics
 
 
 @router.get("/reports/export")

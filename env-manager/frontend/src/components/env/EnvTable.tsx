@@ -196,7 +196,7 @@ export const EnvTable: React.FC<EnvTableProps> = ({
                           <Button
                             size="sm"
                             variant="default"
-                            onClick={() => handleSave(variable.key)} disabled={!dirty}
+                            onClick={() => handleSave(variable.key)}
                             aria-label="Save"
                           >
                             <CheckCircle2 className="h-4 w-4" />

@@ -57,6 +57,44 @@ class WorkflowGenerateResponse(BaseModel):
     template_id: uuid.UUID | None
 
 
+class GeneratedWorkflowResponse(BaseModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    user_id: uuid.UUID | None
+    prompt_text: str
+    n8n_workflow_json: dict
+    n8n_workflow_id: str | None
+    status: str
+    template_id: uuid.UUID | None
+    variables_used: dict
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("", response_model=list[GeneratedWorkflowResponse])
+async def list_workflows(
+    status: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return []
+
+    query = select(GeneratedWorkflow).where(GeneratedWorkflow.team_id == team.id)
+    if status:
+        query = query.where(GeneratedWorkflow.status == status)
+    query = query.order_by(GeneratedWorkflow.created_at.desc())
+
+    rows = await db.execute(query)
+    return rows.scalars().all()
+
+
 @router.get("/templates", response_model=list[PromptTemplateResponse])
 async def list_templates(
     category: str | None = None,

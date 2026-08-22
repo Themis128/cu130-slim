@@ -159,22 +159,21 @@ export interface OverviewMetrics {
   total_posts: number
   published_posts: number
   scheduled_posts: number
+  draft_posts: number
   failed_posts: number
-  total_impressions: number
-  total_engagements: number
-  engagement_rate: number
-  follower_count: number
-  follower_change: number
+  connected_accounts: number
+  total_followers: number
+  total_engagement: number
 }
 
 export interface PlatformMetrics {
   platform: string
   posts_count: number
-  impressions: number
-  engagements: number
+  published_count: number
+  scheduled_count: number
+  total_impressions: number
+  total_engagement: number
   engagement_rate: number
-  followers: number
-  follower_change: number
 }
 
 export interface PostAnalytics {

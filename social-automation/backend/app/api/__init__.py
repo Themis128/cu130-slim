@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import accounts, ai, analytics, auth, content, media, publishing, workflows
+from app.api import accounts, ai, ai_providers, analytics, auth, content, media, publishing, workflows
 
 api_router = APIRouter()
 
@@ -12,3 +12,4 @@ api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"]
 api_router.include_router(publishing.router, prefix="/publishing", tags=["publishing"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+api_router.include_router(ai_providers.router, prefix="/ai-providers", tags=["ai-providers"])

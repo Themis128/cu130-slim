@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { TrendingUp, Users, FileText, Clock, ExternalLink, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -39,8 +38,8 @@ export default function DashboardPage() {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {stats.map(() => (
-            <Card key={Math.random()} className="h-24">
+          {stats.map((s, i) => (
+            <Card key={i} className="h-24">
               <CardContent className="flex items-center justify-between p-6">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-12 w-12 rounded-full" />

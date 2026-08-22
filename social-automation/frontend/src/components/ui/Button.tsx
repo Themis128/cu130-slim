@@ -1,5 +1,5 @@
 import { ButtonHTMLAttributes, forwardRef } from 'react'
-import { Slot, Slottable } from '@radix-ui/react-slot'
+import { Slot } from '@radix-ui/react-slot'
 import { cn } from '@/lib/utils'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -28,6 +28,19 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       sm: 'h-9 rounded-md px-3',
       lg: 'h-11 rounded-md px-8',
       icon: 'h-10 w-10',
+    }
+
+    if (asChild) {
+      return (
+        <Comp
+          ref={ref}
+          className={cn(baseStyles, variants[variant], sizes[size], className)}
+          disabled={disabled || isLoading}
+          {...props}
+        >
+          {children}
+        </Comp>
+      )
     }
 
     return (
@@ -59,7 +72,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             />
           </svg>
         )}
-        <Slottable>{children}</Slottable>
+        {children}
       </Comp>
     )
   }

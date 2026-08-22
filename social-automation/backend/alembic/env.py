@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.db.base import Base
 
 # Import all models to register them
+from app.models import ai_provider  # noqa: F401
 
 # this is the Alembic Config object
 config = context.config

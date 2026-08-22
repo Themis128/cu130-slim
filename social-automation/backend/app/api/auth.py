@@ -1,5 +1,6 @@
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
@@ -38,16 +39,27 @@ twitter_client: BaseOAuth2 = BaseOAuth2(
     refresh_token_endpoint="https://api.twitter.com/2/oauth2/token",
     base_scopes=["tweet.read", "tweet.write", "users.read", "offline.access"],
     name="twitter",
+    token_endpoint_auth_method="client_secret_basic",
 )
 facebook_client = FacebookOAuth2(settings.FACEBOOK_CLIENT_ID, settings.FACEBOOK_CLIENT_SECRET)
-# Instagram OAuth2 (using BaseOAuth2)
+# Threads OAuth 2.0
+threads_client: BaseOAuth2 = BaseOAuth2(
+    settings.THREADS_CLIENT_ID,
+    settings.THREADS_CLIENT_SECRET,
+    authorize_endpoint="https://threads.net/oauth/authorize",
+    access_token_endpoint="https://graph.threads.net/oauth/access_token",
+    refresh_token_endpoint="https://graph.threads.net/oauth/access_token",
+    base_scopes=["threads_basic", "threads_content_publish"],
+    name="threads",
+)
+# Instagram via Facebook Graph API (Basic Display API deprecated Dec 2024)
 instagram_client = BaseOAuth2(
     settings.INSTAGRAM_CLIENT_ID,
     settings.INSTAGRAM_CLIENT_SECRET,
-    authorize_endpoint="https://api.instagram.com/oauth/authorize",
-    access_token_endpoint="https://api.instagram.com/oauth/access_token",
-    refresh_token_endpoint="https://api.instagram.com/oauth/access_token",
-    base_scopes=["instagram_basic", "instagram_content_publish"],
+    authorize_endpoint="https://www.facebook.com/dialog/oauth",
+    access_token_endpoint="https://graph.facebook.com/oauth/access_token",
+    refresh_token_endpoint="https://graph.facebook.com/oauth/access_token",
+    base_scopes=["instagram_basic", "instagram_content_publish", "pages_show_list"],
     name="instagram",
 )
 
@@ -186,16 +198,58 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    data: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.full_name is not None:
+        current_user.name = data.full_name
+    if data.email is not None:
+        current_user.email = data.email
+    if data.avatar_url is not None:
+        current_user.avatar_url = data.avatar_url
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.security import verify_password, get_password_hash
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    current_user.hashed_password = get_password_hash(data.new_password)
+    await db.commit()
+    return {"message": "Password updated"}
+
+
 # OAuth endpoints
 @router.get("/oauth/{platform}/authorize")
 async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User = Depends(get_current_user)):
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
-    client = getattr(globals(), f"{platform}_client")
+    client = globals()[f"{platform}_client"]
 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=str(team_id),
-        scope=["r_liteprofile", "r_emailaddress", "w_member_social"] if platform == "linkedin" else None,
+        scope=["openid", "profile", "email", "w_member_social"] if platform == "linkedin" else None,
     )
 
     return {"authorization_url": authorization_url}
@@ -204,55 +258,100 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
 @router.get("/oauth/{platform}/callback")
 async def oauth_callback(
     platform: str,
-    code: str,
     state: str,
     db: AsyncSession = Depends(get_db),
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
 ):
-    team_id = uuid.UUID(state)
-    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
-    client = getattr(globals(), f"{platform}_client")
+    if error:
+        raise HTTPException(status_code=400, detail=f"OAuth error from {platform}: {error} — {error_description}")
+    if not code:
+        raise HTTPException(status_code=400, detail=f"No authorization code returned by {platform}")
+    # Decode state — may be plain UUID or base64-JSON with PKCE verifier
+    try:
+        import base64 as _b64, json as _json
+        _data = _json.loads(_b64.urlsafe_b64decode(state + "==").decode())
+        team_id = uuid.UUID(_data["t"])
+        code_verifier: str | None = _data.get("cv")
+    except Exception:
+        team_id = uuid.UUID(state)
+        code_verifier = None
 
-    token = await client.get_access_token(code, redirect_uri)
+    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
+    client = globals()[f"{platform}_client"]
+
+    token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
 
     # Get user info from platform
-    if platform == "linkedin":
-        async with client.get_async_session(token["access_token"]) as session:
-            resp = await session.get("https://api.linkedin.com/v2/userinfo")
+    access_token = token["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with httpx.AsyncClient() as http:
+        if platform == "linkedin":
+            resp = await http.get("https://api.linkedin.com/v2/userinfo", headers=headers)
             user_info = resp.json()
             account_id = user_info["sub"]
             username = user_info.get("email")
             display_name = f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip()
             avatar_url = user_info.get("picture")
-            scopes = ["r_liteprofile", "r_emailaddress", "w_member_social"]
-    elif platform == "twitter":
-        async with client.get_async_session(token["access_token"]) as session:
-            resp = await session.get("https://api.twitter.com/2/users/me")
+            scopes = ["openid", "profile", "email", "w_member_social"]
+        elif platform == "twitter":
+            resp = await http.get("https://api.twitter.com/2/users/me", headers=headers)
             user_info = resp.json()
             account_id = user_info["data"]["id"]
             username = user_info["data"]["username"]
             display_name = user_info["data"]["name"]
             avatar_url = None
             scopes = ["tweet.read", "tweet.write", "users.read"]
-    elif platform == "facebook":
-        async with client.get_async_session(token["access_token"]) as session:
-            resp = await session.get("https://graph.facebook.com/me", params={"fields": "id,name,email,picture"})
+        elif platform == "facebook":
+            resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,email,picture"})
             user_info = resp.json()
             account_id = user_info["id"]
             username = user_info.get("email")
             display_name = user_info["name"]
             avatar_url = user_info.get("picture", {}).get("data", {}).get("url")
             scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]
-    elif platform == "instagram":
-        async with client.get_async_session(token["access_token"]) as session:
-            resp = await session.get("https://graph.facebook.com/me", params={"fields": "id,username,account_type,media_count"})
+        elif platform == "threads":
+            resp = await http.get(
+                "https://graph.threads.net/me",
+                headers=headers,
+                params={"fields": "id,username,name,threads_profile_picture_url"},
+            )
             user_info = resp.json()
             account_id = user_info["id"]
-            username = user_info["username"]
-            display_name = user_info["username"]
-            avatar_url = None
-            scopes = ["instagram_basic", "instagram_content_publish"]
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported platform")
+            username = user_info.get("username")
+            display_name = user_info.get("name") or username or ""
+            avatar_url = user_info.get("threads_profile_picture_url")
+            scopes = ["threads_basic", "threads_content_publish"]
+        elif platform == "instagram":
+            # Get Facebook user, then find linked Instagram business account
+            resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,picture"})
+            fb_info = resp.json()
+            # Try to get linked Instagram account via pages
+            ig_resp = await http.get(
+                "https://graph.facebook.com/me/accounts",
+                headers=headers,
+                params={"fields": "instagram_business_account{id,username,profile_picture_url,name}"}
+            )
+            ig_data = ig_resp.json()
+            ig_account = None
+            for page in ig_data.get("data", []):
+                if page.get("instagram_business_account"):
+                    ig_account = page["instagram_business_account"]
+                    break
+            if ig_account:
+                account_id = ig_account["id"]
+                username = ig_account.get("username")
+                display_name = ig_account.get("name") or ig_account.get("username", "")
+                avatar_url = ig_account.get("profile_picture_url")
+            else:
+                account_id = fb_info["id"]
+                username = fb_info.get("name")
+                display_name = fb_info.get("name", "")
+                avatar_url = fb_info.get("picture", {}).get("data", {}).get("url")
+            scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list"]
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported platform")
 
     # Save or update social account
     result = await db.execute(

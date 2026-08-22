@@ -33,9 +33,20 @@ export default function ForgotPasswordPage() {
 
     setIsLoading(true)
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setSubmitted(true)
-      toast.success('Password reset email sent!')
+      const res = await fetch('/api/v1/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (res.ok) {
+        setSubmitted(true)
+        toast.success('Password reset email sent!')
+      } else if (res.status === 404) {
+        setError('Password reset is not yet available. Please contact support.')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data?.detail || 'Failed to send reset email. Please try again.')
+      }
     } catch {
       setError('Failed to send reset email. Please try again.')
     } finally {

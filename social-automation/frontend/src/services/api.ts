@@ -48,8 +48,12 @@ const processQueue = (error: Error | null, token: string | null = null) => {
 
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`
+    // Always read the freshest token — module-level var may be null if the module
+    // initialised before login (e.g. SSR context or pre-auth import).
+    const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('access_token') : null)
+    if (token) {
+      accessToken = token  // keep module var in sync
+      config.headers.Authorization = `Bearer ${token}`
     }
     return config
   },
@@ -62,6 +66,14 @@ api.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      // Read the freshest refresh token — same staleness issue as access token
+      const currentRefreshToken = refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null)
+
+      if (!currentRefreshToken) {
+        logout()
+        return Promise.reject(error)
+      }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject })
@@ -78,7 +90,7 @@ api.interceptors.response.use(
 
       try {
         const response = await axios.post<TokenResponse>(`${API_BASE}/auth/refresh`, {
-          refresh_token: refreshToken,
+          refresh_token: currentRefreshToken,
         })
 
         accessToken = response.data.access_token
@@ -165,9 +177,10 @@ export const authApi = {
 
 // Content endpoints
 export const contentApi = {
-  listPosts: (params?: { status?: string; page?: number; page_size?: number }) => {
+  listPosts: (params?: { status?: string; platform?: string; page?: number; page_size?: number }) => {
     const p = { ...params }
     if (!p.status) delete p.status
+    if (!p.platform) delete p.platform
     return api.get('/content/posts', { params: p })
   },
   getPost: (id: string) => api.get(`/content/posts/${id}`),
@@ -181,6 +194,7 @@ export const contentApi = {
     link_preview_override?: Record<string, unknown>
     scheduled_at?: string
     targets?: Array<{ social_account_id: string }>
+    metadata?: Record<string, unknown>
   }) => api.post('/content/posts', data),
   updatePost: (id: string, data: Partial<{
     content_text: string
@@ -195,7 +209,7 @@ export const contentApi = {
   }>) => api.patch(`/content/posts/${id}`, data),
   deletePost: (id: string) => api.delete(`/content/posts/${id}`),
   duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),
-  publishNow: (id: string) => api.post(`/content/posts/${id}/publish`),
+  publishNow: (id: string) => api.post(`/content/posts/${id}/publish-now`),
   schedulePost: (id: string, scheduled_at: string) =>
     api.post(`/content/posts/${id}/schedule`, { scheduled_at }),
   getMedia: (params?: { page?: number; page_size?: number; type?: string }) =>
@@ -263,13 +277,12 @@ export const workflowApi = {
     is_public: boolean
   }>) => api.patch(`/workflows/templates/${id}`, data),
   deleteTemplate: (id: string) => api.delete(`/workflows/templates/${id}`),
-  generateWorkflow: (data: { prompt: string; template_id?: string }) =>
+  generateWorkflow: (data: { prompt: string; template_id?: string; model?: string; complexity?: string }) =>
     api.post('/workflows/generate', data),
   listWorkflows: (params?: { status?: string }) =>
     api.get('/workflows', { params }),
   getWorkflow: (id: string) => api.get(`/workflows/${id}`),
-  deployWorkflow: (id: string) => api.post(`/workflows/${id}/deploy`),
-  undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
+  deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
 }
 
@@ -281,7 +294,7 @@ export const accountsApi = {
     api.post('/accounts/connect', { platform, team_id: teamId }),
   disconnect: (id: string) => api.delete(`/accounts/${id}`),
   refresh: (id: string) => api.post(`/accounts/${id}/refresh`),
-  test: (id: string) => api.post(`/accounts/${id}/test`),
+  validate: (id: string) => api.get(`/accounts/${id}/validate`),
 }
 
 // Publishing endpoints
@@ -289,8 +302,8 @@ export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
     api.get('/publishing/queue', { params }),
   getQueueItem: (id: string) => api.get(`/publishing/queue/${id}`),
-  retryQueueItem: (id: string) => api.post(`/publishing/queue/${id}/retry`),
-  cancelQueueItem: (id: string) => api.post(`/publishing/queue/${id}/cancel`),
+  retryQueueItem: (id: string) => api.post(`/publishing/retry/${id}`),
+  cancelQueueItem: (id: string) => api.delete(`/publishing/queue/${id}`),
   getHistory: (params?: { page?: number; page_size?: number }) =>
     api.get('/publishing/history', { params }),
 }
@@ -302,7 +315,7 @@ export const analyticsApi = {
   getPlatformMetrics: (params?: { days?: number }) =>
     api.get('/analytics/platforms', { params }),
   getPostAnalytics: (postId: string) =>
-    api.get(`/analytics/posts/${postId}`),
+    api.get(`/analytics/posts/${postId}/metrics`),
   getEngagementTrends: (params?: { days?: number; platform?: string }) =>
     api.get('/analytics/engagement', { params }),
   getFollowerGrowth: (params?: { days?: number; platform?: string }) =>
@@ -310,10 +323,25 @@ export const analyticsApi = {
   getTopPosts: (params?: { limit?: number; platform?: string }) =>
     api.get('/analytics/top-posts', { params }),
   exportReport: (params: { format: 'csv' | 'json'; days: number; platform?: string }) =>
-    api.get('/analytics/export', { params, responseType: 'blob' }),
+    api.get('/analytics/reports/export', { params, responseType: 'blob' }),
 }
 
 // AI endpoints
+export const aiProvidersApi = {
+  getCatalog: () => api.get('/ai-providers/catalog'),
+  list: () => api.get('/ai-providers'),
+  upsert: (name: string, data: {
+    display_name?: string
+    api_key?: string
+    base_url?: string
+    default_model?: string
+    is_enabled?: boolean
+    is_default?: boolean
+  }) => api.put(`/ai-providers/${name}`, data),
+  delete: (name: string) => api.delete(`/ai-providers/${name}`),
+  test: (name: string) => api.post(`/ai-providers/${name}/test`),
+}
+
 export const aiApi = {
   generateContent: (data: {
     prompt: string
@@ -337,6 +365,14 @@ export const aiApi = {
     api.post('/ai/generate-image-prompt', data),
   analyzeContent: (data: { content: string; platform: string }) =>
     api.post('/ai/analyze-content', data),
+  generateCarousel: (data: {
+    topic: string
+    num_slides?: number
+    platform?: string
+    tone?: string
+    include_cta?: boolean
+    provider?: string
+  }) => api.post('/ai/generate-carousel', data),
 }
 
 export default api
