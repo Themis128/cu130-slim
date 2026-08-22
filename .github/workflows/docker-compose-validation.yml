@@ -7,11 +7,22 @@ on:
       - 'docker-compose*.yml'
       - '.github/workflows/docker-compose-validation.yml'
       - '.github/test.env'
+      - '.env.example'
   pull_request:
     branches: [ master ]
     paths:
       - 'docker-compose*.yml'
+      - '.github/workflows/docker-compose-validation.yml'
+      - '.github/test.env'
+      - '.env.example'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -25,16 +36,7 @@ jobs:
 
       - name: Check for required environment variables
         run: |
-          if [ ! -f .env.example ]; then
-            echo "WARNING: .env.example not found"
-            echo "Required variables for docker-compose.yml:"
-            grep -oE '\$\{[A-Z_]+' docker-compose.yml | sed 's/${//' | sort -u
-          fi
-
-      - name: Validate docker-compose with sample env
-        run: |
-          docker compose --env-file .github/test.env config > /dev/null
-          echo "docker-compose.yml validates with test env"
+          scripts/validate-compose-env.sh
 
       - name: Check service definitions
         run: |
@@ -43,5 +45,4 @@ jobs:
 
       - name: Check for port conflicts
         run: |
-          echo "Port mappings:"
-          docker compose --env-file .github/test.env config | grep -A2 "ports:" | head -30
+          docker compose --env-file .github/test.env config --format json | python3 scripts/check-compose-ports.py

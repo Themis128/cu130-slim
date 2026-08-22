@@ -17,7 +17,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE INDEX ix_posts_scheduled ON posts (scheduled_at) WHERE status = 'SCHEDULED'::poststatus")
+    op.execute("CREATE INDEX ix_posts_scheduled ON posts (scheduled_at) WHERE status = 'scheduled'::poststatus")
 
 
 def downgrade() -> None:

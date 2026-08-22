@@ -7,6 +7,13 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   integration-test:
     runs-on: ubuntu-latest
@@ -74,8 +81,23 @@ jobs:
       - name: Start backend server
         run: |
           cd social-automation/backend
-          uvicorn app.main:app --host 0.0.0.0 --port 8083 &
-          sleep 10
+          uvicorn app.main:app --host 0.0.0.0 --port 8083 > "$RUNNER_TEMP/uvicorn.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/uvicorn.pid"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:8083/health > /dev/null; then
+              echo "Backend is ready after ${attempt} attempt(s)"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/uvicorn.pid")" 2>/dev/null; then
+              echo "Backend exited before becoming ready" >&2
+              cat "$RUNNER_TEMP/uvicorn.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Backend did not become ready within 30 seconds" >&2
+          cat "$RUNNER_TEMP/uvicorn.log"
+          exit 1
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
           REDIS_URL: redis://localhost:6379/0
@@ -87,6 +109,13 @@ jobs:
       - name: Test backend health endpoint
         run: |
           curl -f http://localhost:8083/health || exit 1
+
+      - name: Dump backend server log on failure
+        if: ${{ failure() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/uvicorn.log" ]; then
+            cat "$RUNNER_TEMP/uvicorn.log"
+          fi
 
       - name: Test backend API endpoints
         run: |

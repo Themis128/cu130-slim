@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ master ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,18 +35,30 @@ jobs:
         context: .
         push: false
         load: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
+        tags: cu130-slim:ci
 
-    - name: Push to Docker Hub
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      continue-on-error: true
-      run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
-
-    - name: Scan image for vulnerabilities
+    - name: Report high vulnerabilities
       uses: aquasecurity/trivy-action@v0.36.0
       with:
-        image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
+        image-ref: cu130-slim:ci
         format: 'table'
         exit-code: '0'
         ignore-unfixed: true
-        severity: 'CRITICAL,HIGH'
+        severity: 'HIGH'
+
+    - name: Scan image for critical vulnerabilities
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: cu130-slim:ci
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        severity: 'CRITICAL'
+
+    - name: Tag image for Docker Hub
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: docker tag cu130-slim:ci ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
+
+    - name: Push to Docker Hub
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim:latest
