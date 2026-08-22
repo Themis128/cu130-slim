@@ -8,15 +8,14 @@ services:
       - "8000:8000"
     volumes:
       # Mount data directories individually to avoid overwriting ComfyUI source code
-      - ./storage/custom_nodes:/home/user/ComfyUI/custom_nodes
-      - ./storage/models:/home/user/ComfyUI/models
-      - ./storage/user:/home/user/ComfyUI/user
+      - ./storage-user/custom_nodes:/home/user/ComfyUI/custom_nodes
+      - ./storage-models/models:/home/user/ComfyUI/models
+      - ./storage-user/user:/home/user/ComfyUI/user
       # Output directory for generated images (symlinked to host in workflow)
-      - ./storage/output:/home/user/ComfyUI/output
+      - ./storage-user/output:/home/user/ComfyUI/output
       # Input directory for uploads
-      - ./storage/input:/home/user/ComfyUI/input
+      - ./storage-user/input:/home/user/ComfyUI/input
     environment:
-      - N8N_API_KEY=testkey123
       - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
@@ -40,10 +39,10 @@ services:
     volumes:
       - ./n8n-data:/home/node/.n8n
     environment:
-      - N8N_API_KEY=testkey123
+      - N8N_API_KEY=${N8N_API_KEY}
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=password
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
       - N8N_SANDBOX_ENABLED=false
@@ -57,9 +56,9 @@ services:
     image: postgres:16-alpine
     container_name: postgres
     environment:
-      - POSTGRES_DB=metabase
-      - POSTGRES_USER=metabase
-      - POSTGRES_PASSWORD=metabase
+      - POSTGRES_DB=${METABASE_DB_DBNAME}
+      - POSTGRES_USER=${METABASE_DB_USER}
+      - POSTGRES_PASSWORD=${METABASE_DB_PASS}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -71,12 +70,11 @@ services:
       - "3000:3000"
     environment:
       - MB_DB_TYPE=postgres
-      - MB_DB_DBNAME=metabase
+      - MB_DB_DBNAME=${METABASE_DB_DBNAME}
       - MB_DB_PORT=5432
-      - MB_DB_USER=metabase
-      - MB_DB_PASS=metabase
+      - MB_DB_USER=${METABASE_DB_USER}
+      - MB_DB_PASS=${METABASE_DB_PASS}
       - MB_DB_HOST=postgres
-      - N8N_API_KEY=testkey123
     depends_on:
       - postgres
     restart: unless-stopped
@@ -127,8 +125,8 @@ services:
     volumes:
       - ./.env:/app/.env:rw
     environment:
-      - ENV_MANAGER_USER=admin
-      - ENV_MANAGER_PASS=admin
+      - ENV_MANAGER_USER=${ENV_MANAGER_USER}
+      - ENV_MANAGER_PASS=${ENV_MANAGER_PASS}
     restart: unless-stopped
 
   env-manager-frontend:
@@ -147,9 +145,9 @@ services:
     image: postgres:16-alpine
     container_name: social-postgres
     environment:
-      - POSTGRES_DB=social_automation
-      - POSTGRES_USER=social_user
-      - POSTGRES_PASSWORD=social_pass
+      - POSTGRES_DB=${SOCIAL_POSTGRES_DB}
+      - POSTGRES_USER=${SOCIAL_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${SOCIAL_POSTGRES_PASSWORD}
     volumes:
       - social_postgres_data:/var/lib/postgresql/data
     ports:
@@ -163,7 +161,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     restart: unless-stopped
 
   social-api:
@@ -174,8 +172,8 @@ services:
     ports:
       - "8083:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://social_user:social_pass@social-postgres:5432/social_automation
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -216,8 +214,8 @@ services:
       dockerfile: Dockerfile.worker
     container_name: social-worker
     environment:
-      - DATABASE_URL=postgresql+asyncpg://social_user:social_pass@social-postgres:5432/social_automation
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - N8N_URL=http://n8n:5678
