@@ -45,4 +45,4 @@ jobs:
 
       - name: Check for port conflicts
         run: |
-          docker compose --env-file .github/test.env config --format json | python scripts/check-compose-ports.py
+          docker compose --env-file .github/test.env config --format json | python3 scripts/check-compose-ports.py
