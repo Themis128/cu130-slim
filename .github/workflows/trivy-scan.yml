@@ -52,8 +52,8 @@ jobs:
       - name: Build Docker image for scanning
         uses: docker/build-push-action@v5
         with:
-          context: ./cu130-slim
-          file: ./cu130-slim/Dockerfile
+          context: .
+          file: Dockerfile
           push: false
           load: true
           tags: comfyui-cu130-slim:test
@@ -64,7 +64,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
-          scan-ref: './cu130-slim'
+          scan-ref: '.'
           format: 'sarif'
           output: 'trivy-fs-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
@@ -169,8 +169,8 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./cu130-slim
-          file: ./cu130-slim/Dockerfile
+          context: .
+          file: Dockerfile
           push: false
           load: true
           tags: comfyui-cu130-slim:sbom
