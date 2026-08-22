@@ -68,9 +68,11 @@ coverage/
 metabase-data/metabase.db.mv.db
 metabase-data/metabase.db.mv.db.trace.db
 
-# N8N
+# N8N runtime state (logs, generated encryption key, local db)
 n8n-data/*.sqlite*
 n8n-data/crash.journal
+n8n-data/n8nEventLog*.log
+n8n-data/config
 
 # Ollama models
 ollama/models/
