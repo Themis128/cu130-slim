@@ -199,6 +199,7 @@ services:
       - FACEBOOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/facebook/callback
     volumes:
       - ./social-automation/backend/app:/app/app
+      - social_uploads:/app/uploads
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       - social-postgres
@@ -225,6 +226,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
     volumes:
       - ./social-automation/backend/app:/app/app
+      - social_uploads:/app/uploads
     depends_on:
       - social-postgres
       - redis
@@ -252,5 +254,6 @@ volumes:
   postgres_data:
   social_postgres_data:
   redis_data:
+  social_uploads:
 
 

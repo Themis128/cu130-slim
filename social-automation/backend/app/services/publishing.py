@@ -162,14 +162,15 @@ async def _publish_linkedin(
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "X-Restli-Protocol-Version": "2.0.0",
+        "Linkedin-Version": "202608",
     }
 
     if media_paths:
-        # Post as LinkedIn Document carousel (PDF)
+        # Post as LinkedIn Document carousel (PDF) using new Documents API
         pdf_bytes = _images_to_pdf(media_paths)
         return await _publish_linkedin_document(access_token, text, author_urn, pdf_bytes, headers)
 
-    # Text-only post
+    # Text-only post using new Posts API
     payload: dict = {
         "author": author_urn,
         "lifecycleState": "PUBLISHED",
@@ -200,29 +201,20 @@ async def _publish_linkedin_document(
     headers: dict,
 ) -> PublishResult:
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Step 1: Register upload
+        # Step 1: Initialize document upload using new Documents API
         reg_resp = await client.post(
-            "https://api.linkedin.com/v2/assets?action=registerUpload",
+            "https://api.linkedin.com/rest/documents?action=initializeUpload",
             headers=headers,
             json={
-                "registerUploadRequest": {
-                    "recipes": ["urn:li:digitalmediaRecipe:feedshare-document"],
-                    "owner": author_urn,
-                    "serviceRelationships": [
-                        {
-                            "relationshipType": "OWNER",
-                            "identifier": "urn:li:userGeneratedContent",
-                        }
-                    ],
+                "initializeUploadRequest": {
+                    "owner": author_urn
                 }
             },
         )
         reg_resp.raise_for_status()
         reg_data = reg_resp.json()
-        upload_url = reg_data["value"]["uploadMechanism"][
-            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
-        ]["uploadUrl"]
-        asset_urn = reg_data["value"]["asset"]
+        upload_url = reg_data["value"]["uploadUrl"]
+        document_urn = reg_data["value"]["document"]
 
         # Step 2: Upload PDF bytes
         upload_resp = await client.put(
@@ -232,7 +224,23 @@ async def _publish_linkedin_document(
         )
         upload_resp.raise_for_status()
 
-        # Step 3: Post with document
+        # Step 3: Wait for document to be processed
+        import asyncio
+        max_retries = 10
+        for i in range(max_retries):
+            await asyncio.sleep(2)
+            status_resp = await client.get(
+                f"https://api.linkedin.com/rest/documents/{document_urn}",
+                headers=headers,
+            )
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            if status_data.get("status") == "AVAILABLE":
+                break
+            if i == max_retries - 1:
+                return PublishResult(success=False, error="Document processing timeout")
+
+        # Step 4: Post with document using UGC Posts API
         payload = {
             "author": author_urn,
             "lifecycleState": "PUBLISHED",
@@ -243,7 +251,7 @@ async def _publish_linkedin_document(
                     "media": [
                         {
                             "status": "READY",
-                            "media": asset_urn,
+                            "media": document_urn,
                             "title": {"text": "Carousel"},
                         }
                     ],
