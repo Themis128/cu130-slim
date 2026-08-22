@@ -14,7 +14,8 @@ fi
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
-grep -oE '\$\{[A-Z_][A-Z0-9_]*|\$[A-Z_][A-Z0-9_]*' "$compose_file" |
+sed 's/\$\$//g' "$compose_file" |
+  grep -oE '\$\{[A-Z_][A-Z0-9_]*|\$[A-Z_][A-Z0-9_]*' |
   sed -E 's/^\$\{//; s/^\$//' |
   sort -u > "$tmp_dir/referenced"
 grep -oE '^[A-Z_][A-Z0-9_]*=' "$example_file" |
