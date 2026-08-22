@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Bell, Moon, Sun, Search, Command, Settings, Map } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Bell, Moon, Sun, Search, Command, Settings, Map, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
@@ -10,15 +11,26 @@ import { Separator } from '@/components/ui/Separator'
 import { CommandPalette } from '@/components/ui/CommandPalette'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
+import { useNotifications } from '@/hooks/useNotifications'
+import type { AppNotification } from '@/hooks/useNotifications'
 import { cn } from '@/lib/utils'
 import { useTour } from '@/hooks/useTour'
 
+function NotifIcon({ type }: { type: AppNotification['type'] }) {
+  if (type === 'success') return <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-green-500" />
+  if (type === 'error')   return <AlertCircle   className="h-4 w-4 flex-shrink-0 text-destructive" />
+  if (type === 'warning') return <AlertTriangle  className="h-4 w-4 flex-shrink-0 text-amber-500" />
+  return <Info className="h-4 w-4 flex-shrink-0 text-blue-500" />
+}
+
 export function Header() {
+  const router = useRouter()
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { start: startTour } = useTour()
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [showNotifications, setShowNotifications] = useState(false)
+
+  const { notifications, unreadCount, markAllRead, markRead } = useNotifications()
 
   // Global ⌘K / Ctrl+K shortcut
   useEffect(() => {
@@ -31,15 +43,6 @@ export function Header() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
-
-  // Mock notifications
-  const notifications = [
-    { id: '1', title: 'Post published', message: 'Your LinkedIn post has been published', time: '2m ago', read: false },
-    { id: '2', title: 'Workflow completed', message: 'AI content generation finished', time: '15m ago', read: false },
-    { id: '3', title: 'New follower', message: 'You gained 5 new followers on Twitter', time: '1h ago', read: true },
-  ]
-
-  const unreadCount = notifications.filter(n => !n.read).length
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
@@ -78,20 +81,20 @@ export function Header() {
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative h-10 w-10">
+              <Button variant="ghost" size="icon" className="relative h-10 w-10" aria-label="Notifications">
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs text-destructive-foreground">
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs text-destructive-foreground font-medium">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80">
-              <div className="flex items-center justify-between px-2 py-2">
-                <h4 className="font-medium">Notifications</h4>
+              <div className="flex items-center justify-between px-3 py-2">
+                <h4 className="font-semibold text-sm">Notifications</h4>
                 {unreadCount > 0 && (
-                  <Button variant="ghost" size="sm" className="text-xs">
+                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={markAllRead}>
                     Mark all read
                   </Button>
                 )}
@@ -99,35 +102,41 @@ export function Header() {
               <Separator />
               <div className="max-h-96 overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    No notifications
+                  <div className="py-10 text-center text-sm text-muted-foreground">
+                    <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    All caught up
                   </div>
                 ) : (
-                  notifications.map((notification) => (
+                  notifications.map((n) => (
                     <DropdownMenuItem
-                      key={notification.id}
+                      key={n.id}
                       className={cn(
-                        'flex flex-col items-start gap-1 p-3',
-                        !notification.read && 'bg-accent/50'
+                        'flex items-start gap-3 px-3 py-2.5 cursor-pointer focus:bg-accent',
+                        !n.read && 'bg-accent/30'
                       )}
-                      onClick={() => setShowNotifications(false)}
-                      inset
+                      onClick={() => {
+                        markRead(n.id)
+                        if (n.href) router.push(n.href)
+                      }}
                     >
-                      <div className="flex w-full items-start justify-between gap-2">
-                        <p className="font-medium text-sm">{notification.title}</p>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">{notification.time}</span>
+                      <NotifIcon type={n.type} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium text-sm leading-snug">{n.title}</p>
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">{n.time}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
                       </div>
-                      <p className="text-sm text-muted-foreground">{notification.message}</p>
-                      {!notification.read && (
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      {!n.read && (
+                        <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                       )}
                     </DropdownMenuItem>
                   ))
                 )}
               </div>
               <Separator />
-              <DropdownMenuItem className="text-center text-primary" inset>
-                View all notifications
+              <DropdownMenuItem asChild className="justify-center text-primary text-sm font-medium">
+                <Link href="/content">View all activity</Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
