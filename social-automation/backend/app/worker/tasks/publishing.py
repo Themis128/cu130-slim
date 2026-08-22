@@ -1,19 +1,35 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from celery import shared_task
 from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
-from app.db.session import async_session_maker
+from app.core.config import get_settings
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.publishing import publish_to_platform
 
+
+@asynccontextmanager
+async def _worker_db():
+    """Fresh connection per task invocation — NullPool avoids event-loop conflicts in Celery."""
+    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 async def _process_publish_queue_async() -> None:
-    async with async_session_maker() as db:
+    async with _worker_db() as db:
         result = await db.execute(
             select(PublishQueue)
             .where(
@@ -93,7 +109,7 @@ async def _process_publish_queue_async() -> None:
 
 
 async def _check_scheduled_posts_async() -> None:
-    async with async_session_maker() as db:
+    async with _worker_db() as db:
         now = datetime.now(UTC)
         result = await db.execute(
             select(Post).where(
@@ -137,7 +153,7 @@ async def _check_scheduled_posts_async() -> None:
 
 
 async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
-    async with async_session_maker() as db:
+    async with _worker_db() as db:
         post_result = await db.execute(select(Post).where(Post.id == post_id))
         post = post_result.scalar_one_or_none()
         if not post:

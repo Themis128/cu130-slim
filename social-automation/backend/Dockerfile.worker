@@ -17,5 +17,5 @@ RUN pip install --no-cache-dir -e .
 # Copy application code
 COPY . .
 
-# Start Celery worker
-CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+# Start Celery worker with embedded beat scheduler
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4", "--beat", "--scheduler=celery.beat:PersistentScheduler"]

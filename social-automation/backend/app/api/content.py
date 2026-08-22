@@ -269,7 +269,9 @@ async def schedule_post(post_id: uuid.UUID, scheduled_at: datetime, current_user
 
 @router.post("/posts/{post_id}/publish-now", response_model=PostResponse)
 async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Post).where(Post.id == post_id))
+    from app.worker.tasks.publishing import process_publish_queue, publish_post_now
+
+    result = await db.execute(select(Post).where(Post.id == post_id).options(selectinload(Post.targets)))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -279,7 +281,14 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
     await db.commit()
     await db.refresh(post)
 
-    # TODO: Trigger immediate publish via worker
+    account_ids = [str(t.social_account_id) for t in post.targets]
+    if account_ids:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        pid_str = str(post_id)
+        loop.run_in_executor(None, lambda: publish_post_now.delay(pid_str, account_ids))
+        loop.run_in_executor(None, lambda: process_publish_queue.apply_async(countdown=2))
+
     return await _post_to_response(post, db)
 
 
