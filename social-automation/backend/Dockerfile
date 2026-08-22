@@ -4,15 +4,18 @@ WORKDIR /app
 
 # Install system dependencies and apply OS security patches.
 # apt-get upgrade fixes OS-level CVEs: perl (#641,#639,#638,#644,#645,#643),
-# util-linux/libblkid (#664,#663,#662,#661)
+# openssl (#633,#631,#579,#577), ncurses (#629,#627,#588,#499), acl (#192),
+# gzip (#190), util-linux/libblkid (#664,#663,#662,#661)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and wheel to latest versions (security fixes for pip #683 and wheel #704)
-RUN pip install --no-cache-dir --upgrade pip wheel
+# Upgrade pip, wheel, setuptools, and msgpack to patched versions.
+# Security fixes: wheel 0.46.2 (CVE-2026-24049), setuptools 78.1.1 (CVE-2025-47273),
+# msgpack 1.2.1 (CVE-2026-57585), jaraco.context 6.1.0 (CVE-2026-23949)
+RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0"
 
 # Copy dependency files
 COPY pyproject.toml .
