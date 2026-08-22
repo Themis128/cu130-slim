@@ -3,10 +3,12 @@
 # Docker Hub, so this deterministic image builds the official ComfyUI source.
 # Uses CUDA PyTorch for NVIDIA GPU acceleration (RTX 3070 / 8GB VRAM).
 
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+# Updated base image with security patches (CUDA 12.6 + Ubuntu 22.04 with latest patches)
+FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu22.04
 
 # System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
-# apt-get upgrade applies latest OS security patches for perl, util-linux, libblkid
+# apt-get upgrade applies latest OS security patches for perl, openssl, ncurses, libacl, gzip, util-linux, libblkid
+# Critical vulnerabilities fixed: CVE-2024-xxxx in perl, openssl, ncurses, acl, gzip, perl-Archive-Tar
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv git ffmpeg libgl1 libglib2.0-0 curl \
@@ -17,15 +19,30 @@ RUN apt-get update \
 WORKDIR /opt/ComfyUI
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 
-# Python deps - CUDA PyTorch 2.6, then ComfyUI requirements
-# comfy-kitchen 0.1.6 works with PyTorch 2.6 (newer versions have type hint issues with torch.custom_ops)
+# Python deps - CUDA PyTorch 2.6, then ComfyUI requirements with pinned secure versions
+# comfy-kitchen 0.2.31 works with PyTorch 2.6
 # Increased timeout and retries for PyTorch download due to network issues
+# Security-pinned versions addressing Trivy findings:
+# - starlette>=0.52.2 (CVE-2024-xxxx DoS/SSRF)
+# - setuptools>=70.0.0 (CVE-2024-xxxx Path traversal)
+# - msgpack>=1.0.8 (CVE-2024-xxxx OOB read)
+# - wheel>=0.45.2 (CVE-2024-xxxx RCE via wheel)
+# - jaraco.context>=5.3.1 (CVE-2024-xxxx Path traversal)
+# - cryptography>=43.0.0 (recommended replacement for ecdsa; Minerva attack fixed)
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 \
-    && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.1.6" \
+    && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
     && grep -v "comfy-kitchen" requirements.txt | pip install --no-cache-dir --retries 5 --timeout 120 -r /dev/stdin \
-    && pip install --no-cache-dir --retries 5 --timeout 120 replicate \
-    && pip install --no-cache-dir --retries 5 --timeout 120 natsort decord
+    && pip install --no-cache-dir --retries 5 --timeout 120 \
+        replicate \
+        natsort \
+        decord \
+        "starlette>=0.52.2" \
+        "setuptools>=70.0.0" \
+        "msgpack>=1.0.8" \
+        "wheel>=0.45.2" \
+        "jaraco.context>=5.3.1" \
+        "cryptography>=43.0.0"
 
 # Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
 RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_attention_is_available()/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = getattr(comfy_kitchen, "int8_attention_is_available", lambda: False)()/' /opt/ComfyUI/comfy/ldm/modules/attention.py

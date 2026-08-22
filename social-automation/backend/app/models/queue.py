@@ -30,7 +30,7 @@ class PublishQueue(Base):
     priority: Mapped[int] = mapped_column(default=0, nullable=False)
     attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(default=3, nullable=False)
-    status: Mapped[QueueStatus] = mapped_column(SQLEnum(QueueStatus), default=QueueStatus.PENDING, nullable=False, index=True)
+    status: Mapped[QueueStatus] = mapped_column(SQLEnum(QueueStatus, values_callable=lambda obj: [e.value for e in obj]), default=QueueStatus.PENDING, nullable=False, index=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
