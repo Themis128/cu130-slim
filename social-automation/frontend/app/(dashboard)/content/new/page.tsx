@@ -603,7 +603,7 @@ export default function NewPostPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {mediaFiles.map((file, index) => (
                     <div key={index} className="relative h-16 w-16 rounded-lg overflow-hidden border">
-                      {file.type.startsWith('image/') && <img src={URL.createObjectURL(file)} alt={file.name} className="h-full w-full object-cover" />}
+                      {file.type.startsWith('image/') && <img src={URL.createObjectURL(file)} alt="Media preview" className="h-full w-full object-cover" />}
                       <button className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
                         onClick={() => setMediaFiles(prev => prev.filter((_, i) => i !== index))}>
                         <X className="h-3 w-3" />
