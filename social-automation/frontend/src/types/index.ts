@@ -67,6 +67,8 @@ export interface Post {
 export interface PostTarget {
   post_id: string
   social_account_id: string
+  platform?: string
+  username?: string
   platform_post_id: string | null
   platform_url: string | null
   status: 'pending' | 'published' | 'failed'
@@ -115,7 +117,7 @@ export interface GeneratedWorkflow {
   team_id: string
   user_id: string | null
   template_id: string | null
-  prompt: string
+  prompt_text: string
   n8n_workflow_json: Record<string, unknown>
   variables_used: Record<string, unknown>
   status: 'draft' | 'deployed' | 'active' | 'archived'

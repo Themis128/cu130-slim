@@ -1,15 +1,18 @@
 'use client'
 
 import { useEffect } from 'react'
-import { TrendingUp, Users, FileText, Clock, ExternalLink, Plus } from 'lucide-react'
+import { TrendingUp, Users, FileText, Clock, ExternalLink, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useOverviewMetrics, useTopPosts } from '@/hooks/useQueries'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { WeekCalendar } from '@/components/ui/WeekCalendar'
+import { PostingHeatmap } from '@/components/ui/PostingHeatmap'
+import { useOverviewMetrics, useTopPosts, useScheduledPosts } from '@/hooks/useQueries'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import type { PostAnalytics } from '@/types'
-import { formatRelativeTime } from '@/lib/utils'
+import { formatRelativeTime, cn } from '@/lib/utils'
 import Link from 'next/link'
 
 const stats = [
@@ -22,6 +25,7 @@ const stats = [
 export default function DashboardPage() {
   const { data: metrics, isLoading: metricsLoading } = useOverviewMetrics(30)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(5)
+  const { data: scheduledPosts = [] } = useScheduledPosts()
   const { setCtx } = useAdvisor()
 
   // Feed advisor with dashboard state
@@ -101,6 +105,41 @@ export default function DashboardPage() {
         })}
       </div>
 
+      {/* Week calendar */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base">This Week</CardTitle>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/content/new">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Schedule
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <WeekCalendar posts={scheduledPosts} />
+        </CardContent>
+      </Card>
+
+      {/* Best posting window heatmap */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div>
+            <CardTitle className="text-base">Best Time to Post</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Engagement score by day and time</p>
+          </div>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/analytics">
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+              Analytics
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <PostingHeatmap topPosts={topPosts ?? []} />
+        </CardContent>
+      </Card>
+
       {/* Top posts and quick actions */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Top performing posts */}
@@ -121,9 +160,13 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : topPosts?.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground">
-                No posts yet. <Link href="/content/new" className="text-primary hover:underline">Create your first post</Link>
-              </div>
+              <EmptyState
+                icon={Sparkles}
+                title="No published posts yet"
+                description="Create and publish your first post to see engagement metrics here."
+                primaryAction={{ label: 'Create a post', href: '/content/new', icon: Plus }}
+                className="py-8"
+              />
             ) : (
               <div className="space-y-3">
                 {topPosts?.map((post: PostAnalytics) => (
@@ -198,6 +241,3 @@ export default function DashboardPage() {
   )
 }
 
-function cn(...classes: (string | undefined | null | false)[]) {
-  return classes.filter(Boolean).join(' ')
-}

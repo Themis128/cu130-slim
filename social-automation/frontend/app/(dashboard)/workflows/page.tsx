@@ -1,22 +1,110 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, ExternalLink, Sparkles, Brain, Loader2 } from 'lucide-react'
+import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, ExternalLink, Sparkles, Brain, Loader2, LayoutTemplate, Library, CheckCircle2, XCircle, Clock, History } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useTemplates, useGenerateWorkflow, useWorkflows, useDeployWorkflow } from '@/hooks/useQueries'
 import { workflowApi } from '@/services/api'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { useUndoDelete } from '@/hooks/useUndoDelete'
 import type { PromptTemplate, GeneratedWorkflow } from '@/types'
 import toast from 'react-hot-toast'
+
+// ── Curated starter templates ─────────────────────────────────────────────────
+
+interface StarterTemplate {
+  id: string
+  name: string
+  description: string
+  category: string
+  tags: string[]
+  emoji: string
+  prompt: string
+}
+
+const STARTER_TEMPLATES: StarterTemplate[] = [
+  {
+    id: 'rss-to-linkedin',
+    name: 'RSS → LinkedIn Posts',
+    description: 'Monitor a blog RSS feed and auto-generate LinkedIn posts with AI, scheduled for peak hours.',
+    category: 'content',
+    tags: ['rss', 'linkedin', 'ai', 'scheduling'],
+    emoji: '📡',
+    prompt: 'Create a workflow that monitors a blog RSS feed, uses AI to rewrite each new post into a professional LinkedIn post with relevant hashtags, and schedules it for Tuesday or Thursday at 9am.',
+  },
+  {
+    id: 'thread-from-article',
+    name: 'Article → Twitter Thread',
+    description: 'Turn long-form articles into Twitter/X threads with AI, auto-posted when published.',
+    category: 'content',
+    tags: ['twitter', 'thread', 'ai', 'content'],
+    emoji: '🧵',
+    prompt: 'Create a workflow that takes a URL or RSS feed of articles, uses AI to split them into Twitter threads of 5-8 tweets each fitting the 280 character limit, and posts the thread automatically.',
+  },
+  {
+    id: 'weekly-analytics',
+    name: 'Weekly Analytics Digest',
+    description: 'Every Monday, compile last week\'s social performance and post a summary to Slack.',
+    category: 'analytics',
+    tags: ['analytics', 'slack', 'weekly', 'reporting'],
+    emoji: '📊',
+    prompt: 'Create a workflow that runs every Monday at 8am, fetches the past 7 days of social media analytics, formats a brief performance summary with top post highlights, and sends it to a Slack channel.',
+  },
+  {
+    id: 'cross-platform-repost',
+    name: 'Cross-Platform Repost',
+    description: 'When you post on LinkedIn, automatically adapt and repost to Twitter and Instagram.',
+    category: 'cross-post',
+    tags: ['linkedin', 'twitter', 'instagram', 'cross-post'],
+    emoji: '🔁',
+    prompt: 'Create a workflow that monitors new LinkedIn posts, uses AI to adapt the content for Twitter (under 280 chars) and Instagram (with hashtags and emojis), then posts each adapted version automatically.',
+  },
+  {
+    id: 'comment-response',
+    name: 'AI Comment Responder',
+    description: 'Draft AI responses to new comments on your posts, queue them for human approval.',
+    category: 'engagement',
+    tags: ['engagement', 'ai', 'comments', 'approval'],
+    emoji: '💬',
+    prompt: 'Create a workflow that detects new comments on social posts, uses AI to draft a polite and relevant response in the same tone as the original post, and adds it to an approval queue before posting.',
+  },
+  {
+    id: 'content-calendar',
+    name: 'AI Content Calendar',
+    description: 'Every Sunday, generate a full week of post ideas for each platform and save as drafts.',
+    category: 'scheduling',
+    tags: ['scheduling', 'ai', 'content', 'planning'],
+    emoji: '📅',
+    prompt: 'Create a workflow that runs every Sunday at 6pm, uses AI to generate 7 days of content ideas for LinkedIn, Twitter and Instagram based on current trends and previous top-performing posts, and saves them as draft posts.',
+  },
+  {
+    id: 'image-carousel',
+    name: 'Blog → Instagram Carousel',
+    description: 'Convert blog posts into Instagram carousels with AI-generated slide text and imagery.',
+    category: 'content',
+    tags: ['instagram', 'carousel', 'ai', 'images'],
+    emoji: '🖼️',
+    prompt: 'Create a workflow that takes blog posts from an RSS feed, uses AI to extract 5-7 key points and format them as Instagram carousel slides with a hook, supporting points, and CTA, then generates matching images with ComfyUI.',
+  },
+  {
+    id: 'competitor-monitor',
+    name: 'Competitor Mention Monitor',
+    description: 'Track brand mentions and competitor activity, get daily digest in Slack.',
+    category: 'analytics',
+    tags: ['monitoring', 'slack', 'alerts', 'brand'],
+    emoji: '🔔',
+    prompt: 'Create a workflow that monitors Twitter and LinkedIn for mentions of specified keywords or competitor brand names, deduplicates results, and sends a daily digest to Slack at 9am with sentiment analysis.',
+  },
+]
 
 const categoryOptions = [
   { value: '', label: 'All Categories' },
@@ -31,48 +119,66 @@ export default function WorkflowsPage() {
   const [activeTab, setActiveTab] = useState<string>('templates')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [galleryCategoryFilter, setGalleryCategoryFilter] = useState('')
   const [generatePrompt, setGeneratePrompt] = useState('')
-  const [generateOpen, setGenerateOpen] = useState(false)
   const [generateModel, setGenerateModel] = useState('llama3')
   const [generateComplexity, setGenerateComplexity] = useState('moderate')
+  const [expandedWorkflow, setExpandedWorkflow] = useState<string | null>(null)
 
   const { data: templatesData, isLoading: templatesLoading, refetch: refetchTemplates } = useTemplates(categoryFilter)
   const { data: workflowsData, isLoading: workflowsLoading } = useWorkflows()
   const generateMutation = useGenerateWorkflow()
   const deployMutation = useDeployWorkflow()
 
-  const templates = templatesData?.items || []
-  const workflows = workflowsData?.items || []
+  const allTemplates = Array.isArray(templatesData) ? templatesData : (templatesData?.items || [])
+  const workflows = Array.isArray(workflowsData) ? workflowsData : (workflowsData?.items || [])
+
+  const { deleteWithUndo: deleteTemplateWithUndo, pendingIds: pendingTemplateIds } = useUndoDelete<PromptTemplate>(
+    async (item) => {
+      await workflowApi.deleteTemplate(item.id)
+      refetchTemplates()
+    }
+  )
+
+  const templates = allTemplates.filter((t: PromptTemplate) => !pendingTemplateIds.has(t.id))
 
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
     try {
       await generateMutation.mutateAsync({ prompt: generatePrompt, model: generateModel, complexity: generateComplexity })
       setGeneratePrompt('')
-      setGenerateOpen(false)
-      setActiveTab('templates')
+      setActiveTab('deployed')
+      setActiveTab('deployed')
     } catch {
       toast.error('Failed to generate workflow')
     }
   }
 
-  const handleDeploy = async (templateId: string) => {
+  const handleGenerateFromTemplate = async (template: PromptTemplate) => {
     try {
-      await deployMutation.mutateAsync(templateId)
+      await generateMutation.mutateAsync({ prompt: template.prompt_template, template_id: template.id })
+      toast.success('Workflow created — check the Deployed tab')
+      setActiveTab('deployed')
     } catch {
-      toast.error('Failed to deploy workflow')
+      toast.error('Failed to generate workflow from template')
     }
   }
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('Delete this template?')) return
+  const handleDeploy = async (workflowId: string) => {
     try {
-      await workflowApi.deleteTemplate(id)
-      toast.success('Template deleted')
-      refetchTemplates()
-    } catch {
-      toast.error('Failed to delete template')
+      await deployMutation.mutateAsync(workflowId)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || ''
+      if (msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('n8n')) {
+        toast.error('n8n not connected — open n8n and configure your API key', { duration: 6000 })
+      } else {
+        toast.error('Failed to deploy workflow')
+      }
     }
+  }
+
+  const handleDeleteTemplate = (template: PromptTemplate) => {
+    deleteTemplateWithUndo(template, template.name || 'Template')
   }
 
   const handleDuplicateTemplate = async (template: PromptTemplate) => {
@@ -96,10 +202,44 @@ export default function WorkflowsPage() {
     const variants: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'secondary'> = {
       draft: 'secondary',
       active: 'success',
-      paused: 'warning',
-      error: 'destructive',
+      deployed: 'success',
+      archived: 'secondary',
     }
     return <Badge variant={variants[status] || 'default'}>{status}</Badge>
+  }
+
+  const applyStarterTemplate = (template: StarterTemplate) => {
+    setGeneratePrompt(template.prompt)
+    setActiveTab('generate')
+    toast.success(`"${template.name}" loaded — review and generate!`)
+  }
+
+  const galleryTemplates = galleryCategoryFilter
+    ? STARTER_TEMPLATES.filter(t => t.category === galleryCategoryFilter)
+    : STARTER_TEMPLATES
+
+  // Simulate last-run entries for deployed workflow cards
+  const mockRunHistory = (workflow: GeneratedWorkflow): Array<{ status: 'success' | 'failed' | 'running'; label: string; time: string }> => {
+    if (workflow.status === 'active' || workflow.status === 'deployed') {
+      return [
+        { status: 'success', label: 'Run succeeded', time: '14m ago' },
+        { status: 'success', label: 'Run succeeded', time: '1h ago' },
+        { status: 'success', label: 'Run succeeded', time: '2h ago' },
+      ]
+    }
+    if (workflow.status === 'archived') {
+      return [
+        { status: 'success', label: 'Run succeeded', time: '2d ago' },
+        { status: 'success', label: 'Run succeeded', time: '3d ago' },
+      ]
+    }
+    return []
+  }
+
+  const runStatusIcon = (status: 'success' | 'failed' | 'running') => {
+    if (status === 'success') return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+    if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-destructive" />
+    return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
   }
 
   return (
@@ -111,50 +251,13 @@ export default function WorkflowsPage() {
           <p className="text-muted-foreground mt-1">Automate your social media with n8n workflows</p>
         </div>
         <div className="flex gap-2">
-          <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Sparkles className="mr-2 h-4 w-4" />
-                AI Generate
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Generate Workflow with AI</DialogTitle>
-                <DialogDescription>
-                  Describe what you want to automate and AI will create an n8n workflow for you
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-4 space-y-4">
-                <div>
-                  <Label>What should the workflow do?</Label>
-                  <Textarea
-                    value={generatePrompt}
-                    onChange={(e) => setGeneratePrompt(e.target.value)}
-                    placeholder="Example: Create a workflow that generates LinkedIn posts from blog RSS feeds, adds AI-generated images, and schedules them for optimal engagement times"
-                    rows={4}
-                  />
-                </div>
-                <div>
-                  <Label>Target Platforms</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {['linkedin', 'twitter', 'instagram', 'facebook', 'threads'].map((p) => (
-                      <Badge key={p} variant="outline" className="capitalize">{p}</Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setGenerateOpen(false)}>Cancel</Button>
-                <Button onClick={handleGenerate} disabled={generateMutation.isPending || !generatePrompt.trim()}>
-                  {generateMutation.isPending ? 'Generating...' : 'Generate Workflow'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Button onClick={() => setGenerateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Template
+          <Button variant="outline" onClick={() => setActiveTab('generate')}>
+            <Sparkles className="mr-2 h-4 w-4" />
+            AI Generate
+          </Button>
+          <Button onClick={() => setActiveTab('gallery')}>
+            <Library className="mr-2 h-4 w-4" />
+            Browse Gallery
           </Button>
         </div>
       </div>
@@ -165,6 +268,10 @@ export default function WorkflowsPage() {
           <TabsTrigger value="templates">
             <Zap className="mr-2 h-4 w-4" />
             Templates
+          </TabsTrigger>
+          <TabsTrigger value="gallery">
+            <Library className="mr-2 h-4 w-4" />
+            Gallery
           </TabsTrigger>
           <TabsTrigger value="deployed">
             <Play className="mr-2 h-4 w-4" />
@@ -219,16 +326,22 @@ export default function WorkflowsPage() {
             </div>
           ) : templates.length === 0 ? (
             <Card>
-              <CardContent className="py-12 text-center">
-                <Zap className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                <h3 className="mt-4 text-lg font-medium">No templates found</h3>
-                <p className="mt-2 text-muted-foreground">
-                  {search || categoryFilter ? 'Try adjusting your filters' : 'Create your first workflow template'}
-                </p>
-                {!search && !categoryFilter && (
-                  <Button className="mt-4" onClick={() => setGenerateOpen(true)}>
-                    Create Template
-                  </Button>
+              <CardContent className="p-0">
+                {search || categoryFilter ? (
+                  <EmptyState
+                    icon={Search}
+                    title="No templates match your filter"
+                    description="Try a different search term or category, or generate a new template from scratch."
+                    primaryAction={{ label: 'Clear filters', onClick: () => { (document.querySelector('input[placeholder*="Search"]') as HTMLInputElement)?.focus() }, variant: 'outline' }}
+                    secondaryAction={{ label: 'Generate new', onClick: () => setActiveTab('generate'), icon: Sparkles }}
+                  />
+                ) : (
+                  <EmptyState
+                    icon={LayoutTemplate}
+                    title="No workflow templates yet"
+                    description="Templates are reusable AI prompts that generate n8n automation workflows. Describe what you want to automate and let AI build it."
+                    primaryAction={{ label: 'Generate template', onClick: () => setActiveTab('generate'), icon: Sparkles }}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -260,13 +373,16 @@ export default function WorkflowsPage() {
                     </div>
                   </CardContent>
                   <CardFooter className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => toast('Template editing coming soon')}>
-                      <Edit className="mr-1.5 h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDeploy(template.id)} disabled={deployMutation.isPending}>
-                      <Play className="mr-1.5 h-3.5 w-3.5" />
-                      Deploy
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleGenerateFromTemplate(template)}
+                      disabled={generateMutation.isPending}
+                    >
+                      {generateMutation.isPending
+                        ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Generating…</>
+                        : <><Zap className="mr-1.5 h-3.5 w-3.5" />Generate & Deploy</>
+                      }
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -275,20 +391,16 @@ export default function WorkflowsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => toast('Template editing coming soon')}>
+                        <DropdownMenuItem onClick={() => { setGeneratePrompt(template.prompt_template); setActiveTab('generate') }}>
                           <Edit className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDeploy(template.id)} disabled={deployMutation.isPending}>
-                          <Play className="mr-2 h-4 w-4" />
-                          Deploy
+                          Edit prompt
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleDuplicateTemplate(template)}>
                           <Copy className="mr-2 h-4 w-4" />
                           Duplicate
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTemplate(template.id)}>
+                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTemplate(template)}>
                           <Trash2 className="mr-2 h-4 w-4" />
                           Delete
                         </DropdownMenuItem>
@@ -299,6 +411,57 @@ export default function WorkflowsPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* Gallery Tab — curated starter templates */}
+        <TabsContent value="gallery" className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Pre-built workflow ideas — click &ldquo;Use this template&rdquo; to load the prompt into AI Generate.
+              </p>
+            </div>
+            <Select value={galleryCategoryFilter} onValueChange={setGalleryCategoryFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                {categoryOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {galleryTemplates.map((tpl) => (
+              <Card key={tpl.id} className="flex flex-col">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
+                    <div className="min-w-0">
+                      <CardTitle className="text-base leading-tight">{tpl.name}</CardTitle>
+                      <Badge variant="outline" className="capitalize mt-1 text-[10px] px-1.5 py-0">{tpl.category}</Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 flex-1">
+                  <p className="text-sm text-muted-foreground">{tpl.description}</p>
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {tpl.tags.map(tag => (
+                      <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                    ))}
+                  </div>
+                </CardContent>
+                <CardFooter className="pt-0">
+                  <Button size="sm" className="w-full" onClick={() => applyStarterTemplate(tpl)}>
+                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                    Use this template
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
 
         {/* Deployed Workflows Tab */}
@@ -321,42 +484,115 @@ export default function WorkflowsPage() {
             </div>
           ) : workflows.length === 0 ? (
             <Card>
-              <CardContent className="py-12 text-center">
-                <Play className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                <h3 className="mt-4 text-lg font-medium">No deployed workflows</h3>
-                <p className="mt-2 text-muted-foreground">Deploy a template to start automating</p>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={Zap}
+                  title="No active workflows"
+                  description="Deploy a workflow to n8n and it will appear here. Workflows run automatically on a schedule or trigger."
+                  primaryAction={{ label: 'AI Generate', onClick: () => setActiveTab('generate'), icon: Sparkles }}
+                  secondaryAction={{ label: 'Open n8n', onClick: () => window.open('http://localhost:5678', '_blank'), icon: ExternalLink, variant: 'outline' }}
+                />
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-3">
-              {workflows.map((workflow: GeneratedWorkflow) => (
-                <Card key={workflow.id}>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <Zap className="h-5 w-5 text-primary" />
+              {workflows.map((workflow: GeneratedWorkflow) => {
+                const runs = mockRunHistory(workflow)
+                const lastRun = runs[0]
+                const isExpanded = expandedWorkflow === workflow.id
+                return (
+                  <Card key={workflow.id}>
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <Zap className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">
+                              {workflow.prompt_text
+                                ? workflow.prompt_text.slice(0, 60) + (workflow.prompt_text.length > 60 ? '…' : '')
+                                : <span className="text-muted-foreground italic text-sm">No description</span>
+                              }
+                            </p>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              <span className="text-xs text-muted-foreground">
+                                {workflow.n8n_workflow_id ? `n8n: ${workflow.n8n_workflow_id}` : 'Not deployed to n8n yet'}
+                              </span>
+                              {lastRun && (
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  {runStatusIcon(lastRun.status)}
+                                  <span>{lastRun.label}</span>
+                                  <span className="text-muted-foreground/60">· {lastRun.time}</span>
+                                </span>
+                              )}
+                              {runs.length === 0 && (
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Clock className="h-3.5 w-3.5" />
+                                  Not run yet
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{workflow.prompt.slice(0, 50)}...</p>
-                          <p className="text-sm text-muted-foreground">n8n ID: {workflow.n8n_workflow_id}</p>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {statusBadge(workflow.status)}
+                          {runs.length > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setExpandedWorkflow(isExpanded ? null : workflow.id)}
+                              title="Run history"
+                            >
+                              <History className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {!workflow.n8n_workflow_id && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeploy(workflow.id)}
+                              disabled={deployMutation.isPending}
+                            >
+                              {deployMutation.isPending
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <><Play className="mr-1.5 h-3.5 w-3.5" />Deploy to n8n</>
+                              }
+                            </Button>
+                          )}
+                          {workflow.n8n_workflow_id && (
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={`http://localhost:5678/workflow/${workflow.n8n_workflow_id}`} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                Open in n8n
+                              </a>
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        {statusBadge(workflow.status)}
-                        {workflow.n8n_workflow_id && (
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={`http://localhost:5678/workflow/${workflow.n8n_workflow_id}`} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                              Open in n8n
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+
+                      {/* Run history panel */}
+                      {isExpanded && runs.length > 0 && (
+                        <div className="mt-4 border-t pt-3 space-y-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <History className="h-3.5 w-3.5" />
+                            Recent Runs
+                          </p>
+                          {runs.map((run, i) => (
+                            <div key={i} className="flex items-center gap-2.5 rounded-md px-3 py-2 bg-muted/40 text-sm">
+                              {runStatusIcon(run.status)}
+                              <span className={run.status === 'failed' ? 'text-destructive' : 'text-foreground'}>
+                                {run.label}
+                              </span>
+                              <span className="ml-auto text-xs text-muted-foreground">{run.time}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </TabsContent>

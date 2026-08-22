@@ -1,16 +1,18 @@
 'use client'
 
-import { useState } from 'react'
-import { TrendingUp, TrendingDown, Download } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts } from '@/hooks/useQueries'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends } from '@/hooks/useQueries'
 import type { PlatformMetrics, PostAnalytics } from '@/types'
-import { formatRelativeTime } from '@/lib/utils'
+import { formatRelativeTime, cn } from '@/lib/utils'
 import {
   BarChart,
   Bar,
@@ -24,6 +26,7 @@ import {
   AreaChart,
   Area,
   Cell,
+  Legend,
 } from 'recharts'
 import { format } from 'date-fns'
 
@@ -32,10 +35,37 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
   const [platformFilter, setPlatformFilter] = useState('')
+  const [compareMode, setCompareMode] = useState(false)
 
   const { data: overview, isLoading: overviewLoading } = useOverviewMetrics(days)
   const { data: platformData, isLoading: platformLoading } = usePlatformMetrics(days)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(10, platformFilter || undefined)
+  // When compare mode is on, fetch 2× the period so we can split it
+  const { data: rawTrend } = useEngagementTrends(
+    compareMode ? days * 2 : days,
+    platformFilter || undefined
+  )
+
+  // Split trend into current / previous halves for comparison
+  const { currentTrend, previousTrend, currentSum, previousSum, deltaEngagement } = useMemo(() => {
+    const trend = (rawTrend || []) as Array<{ date: string; value: number }>
+    if (!compareMode || trend.length < 2) {
+      return { currentTrend: trend, previousTrend: [], currentSum: 0, previousSum: 0, deltaEngagement: 0 }
+    }
+    const half = Math.ceil(trend.length / 2)
+    const prev = trend.slice(0, half)
+    const curr = trend.slice(half)
+    const sumArr = (a: typeof trend) => a.reduce((acc, d) => acc + (d.value ?? 0), 0)
+    const cs = sumArr(curr)
+    const ps = sumArr(prev)
+    const delta = ps === 0 ? 0 : ((cs - ps) / ps) * 100
+    // Normalise previous period labels to match current period labels
+    const normalised = prev.map((d, i) => ({ date: curr[i]?.date ?? d.date, prev: d.value ?? 0 }))
+    const merged = curr.map((d, i) => ({ date: d.date, value: d.value ?? 0, prev: normalised[i]?.prev ?? 0 }))
+    return { currentTrend: merged, previousTrend: normalised, currentSum: cs, previousSum: ps, deltaEngagement: delta }
+  }, [rawTrend, compareMode])
+
+  const engagementTrend = compareMode ? currentTrend : ((rawTrend || []) as Array<{ date: string; value: number }>)
 
   if (overviewLoading) {
     return (
@@ -63,7 +93,7 @@ export default function AnalyticsPage() {
     {
       name: 'Connected Accounts',
       value: overview?.connected_accounts?.toLocaleString() || '0',
-      change: 0,
+      change: null as number | null,
       icon: TrendingUp,
       color: 'text-blue-500',
       bg: 'bg-blue-500/10',
@@ -71,7 +101,7 @@ export default function AnalyticsPage() {
     {
       name: 'Total Engagement',
       value: overview?.total_engagement?.toLocaleString() || '0',
-      change: 0,
+      change: compareMode ? deltaEngagement : null,
       icon: TrendingUp,
       color: 'text-green-500',
       bg: 'bg-green-500/10',
@@ -79,7 +109,7 @@ export default function AnalyticsPage() {
     {
       name: 'Total Followers',
       value: overview?.total_followers?.toLocaleString() || '0',
-      change: 0,
+      change: null as number | null,
       icon: TrendingUp,
       color: 'text-purple-500',
       bg: 'bg-purple-500/10',
@@ -87,7 +117,7 @@ export default function AnalyticsPage() {
     {
       name: 'Posts Published',
       value: overview?.published_posts?.toLocaleString() || '0',
-      change: 0,
+      change: null as number | null,
       icon: TrendingUp,
       color: 'text-orange-500',
       bg: 'bg-orange-500/10',
@@ -132,7 +162,15 @@ export default function AnalyticsPage() {
               <SelectItem value="threads">Threads</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline">
+          <Button
+            variant={compareMode ? 'default' : 'outline'}
+            onClick={() => setCompareMode(v => !v)}
+            className="gap-1.5"
+          >
+            <ArrowLeftRight className="h-4 w-4" />
+            {compareMode ? 'Comparing periods' : 'Compare periods'}
+          </Button>
+          <Button variant="outline" onClick={() => toast('Export coming soon')}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -153,21 +191,26 @@ export default function AnalyticsPage() {
                   <metric.icon className={cn('h-6 w-6', metric.color)} />
                 </div>
               </div>
-              <div className="mt-4 flex items-center gap-1 text-sm">
-                {metric.change >= 0 ? (
-                  <>
-                    <TrendingUp className="h-3.5 w-3.5 text-green-500" />
-                    <span className="text-green-500">{metric.change.toFixed(1)}%</span>
-                    <span className="text-muted-foreground">vs previous period</span>
-                  </>
-                ) : (
-                  <>
-                    <TrendingDown className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-red-500">{Math.abs(metric.change).toFixed(1)}%</span>
-                    <span className="text-muted-foreground">vs previous period</span>
-                  </>
-                )}
-              </div>
+              {metric.change !== null && (
+                <div className="mt-4 flex items-center gap-1 text-sm">
+                  {metric.change >= 0 ? (
+                    <>
+                      <TrendingUp className="h-3.5 w-3.5 text-green-500" />
+                      <span className="text-green-500">+{metric.change.toFixed(1)}%</span>
+                      <span className="text-muted-foreground">vs prev {days}d</span>
+                    </>
+                  ) : (
+                    <>
+                      <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                      <span className="text-red-500">{metric.change.toFixed(1)}%</span>
+                      <span className="text-muted-foreground">vs prev {days}d</span>
+                    </>
+                  )}
+                </div>
+              )}
+              {metric.change === null && compareMode && (
+                <div className="mt-4 text-xs text-muted-foreground">—</div>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -178,13 +221,26 @@ export default function AnalyticsPage() {
         {/* Engagement Over Time */}
         <Card>
           <CardHeader>
-            <CardTitle>Engagement Over Time</CardTitle>
-            <CardDescription>Daily engagement across all platforms</CardDescription>
+            <div className="flex items-start justify-between">
+              <div>
+                <CardTitle>Engagement Over Time</CardTitle>
+                <CardDescription>
+                  Daily engagement across all platforms
+                  {compareMode && ` — current vs prev ${days}d`}
+                </CardDescription>
+              </div>
+              {compareMode && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-5 bg-blue-500 rounded" />Current</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-blue-300 rounded" />Previous</span>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={(overview as unknown as Record<string, unknown>)?.['engagement_timeline'] as unknown[] || []}>
+                <AreaChart data={engagementTrend}>
                   <defs>
                     <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -192,11 +248,11 @@ export default function AnalyticsPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
-                  <XAxis dataKey="date" tickFormatter={(v) => format(new Date(v), 'MMM d')} className="text-xs" />
+                  <XAxis dataKey="date" tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }} className="text-xs" />
                   <YAxis className="text-xs" />
                   <Tooltip
                     contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
-                    formatter={(value: number) => [value.toLocaleString(), 'Engagements']}
+                    formatter={(value: number, name: string) => [value.toLocaleString(), name === 'prev' ? 'Prev period' : 'Engagements']}
                   />
                   <Area
                     type="monotone"
@@ -206,6 +262,16 @@ export default function AnalyticsPage() {
                     fillOpacity={1}
                     fill="url(#colorEngagement)"
                   />
+                  {compareMode && (
+                    <Line
+                      type="monotone"
+                      dataKey="prev"
+                      stroke="#93c5fd"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                      dot={false}
+                    />
+                  )}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -229,7 +295,7 @@ export default function AnalyticsPage() {
                     contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
                     formatter={(value: number) => [value.toLocaleString(), 'Engagements']}
                   />
-                  <Bar dataKey="engagement" radius={[0, 4, 4, 0]}>
+                  <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]}>
                     {platformMetrics.map((_: PlatformMetrics, i: number) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
@@ -240,56 +306,29 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Impressions Trend */}
+        {/* Impressions by Platform */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Impressions Trend</CardTitle>
-            <CardDescription>Daily impressions by platform</CardDescription>
+            <CardTitle>Impressions by Platform</CardTitle>
+            <CardDescription>Total impressions per platform for the selected period</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={(overview as unknown as Record<string, unknown>)?.['impressions_timeline'] as unknown[] || []}>
+                <BarChart data={platformMetrics}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
-                  <XAxis dataKey="date" tickFormatter={(v) => format(new Date(v), 'MMM d')} className="text-xs" />
+                  <XAxis dataKey="platform" className="text-xs" />
                   <YAxis className="text-xs" />
                   <Tooltip
                     contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
                     formatter={(value: number) => [value.toLocaleString(), 'Impressions']}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="linkedin"
-                    stroke="#0a66c2"
-                    strokeWidth={2}
-                    dot={false}
-                    name="LinkedIn"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="twitter"
-                    stroke="#1da1f2"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Twitter/X"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="instagram"
-                    stroke="#e4405f"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Instagram"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="facebook"
-                    stroke="#1877f2"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Facebook"
-                  />
-                </LineChart>
+                  <Bar dataKey="total_impressions" radius={[4, 4, 0, 0]}>
+                    {platformMetrics.map((_: PlatformMetrics, i: number) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
@@ -361,9 +400,13 @@ export default function AnalyticsPage() {
               ))}
             </div>
           ) : topPosts?.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">
-              No posts found for the selected period
-            </div>
+            <EmptyState
+              icon={BarChart3}
+              title="No data for this period"
+              description="Publish posts to start seeing engagement metrics. Data appears within 24 hours of publishing."
+              primaryAction={{ label: 'Create a post', href: '/content/new', icon: Plus }}
+              className="py-8"
+            />
           ) : (
             <div className="space-y-3">
               {topPosts?.map((post: PostAnalytics, index: number) => (
@@ -398,6 +441,3 @@ export default function AnalyticsPage() {
   )
 }
 
-function cn(...classes: (string | undefined | null | false)[]) {
-  return classes.filter(Boolean).join(' ')
-}

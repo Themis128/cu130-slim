@@ -203,7 +203,6 @@ export function useConnectAccount() {
     mutationFn: ({ platform, teamId }: { platform: string; teamId: string }) => accountsApi.connect(platform, teamId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      toast.success('Account connected')
     },
   })
 }
@@ -240,6 +239,19 @@ export function useRetryQueueItem() {
   })
 }
 
+export function useScheduledPosts() {
+  return useQuery({
+    queryKey: ['posts', 'scheduled'],
+    queryFn: () => contentApi.listPosts({ status: 'scheduled', page_size: 100 }),
+    select: (response) => {
+      const data = response.data
+      const posts: Post[] = data?.posts ?? data?.items ?? (Array.isArray(data) ? data : [])
+      return posts
+    },
+    refetchInterval: 60000,
+  })
+}
+
 // Analytics hooks
 export function useOverviewMetrics(days?: number) {
   return useQuery({
@@ -273,6 +285,14 @@ export function useTopPosts(limit?: number, platform?: string) {
     queryKey: ['analytics', 'top-posts', limit, platform],
     queryFn: () => analyticsApi.getTopPosts({ limit, platform }),
     select: (response) => response.data,
+  })
+}
+
+export function useEngagementTrends(days?: number, platform?: string) {
+  return useQuery({
+    queryKey: ['analytics', 'engagement', days, platform],
+    queryFn: () => analyticsApi.getEngagementTrends({ days, platform }),
+    select: (response) => response.data as unknown[],
   })
 }
 

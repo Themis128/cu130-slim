@@ -99,6 +99,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <div className="flex items-center gap-2 mb-4">
         <TabsList>
           <TabsTrigger value="profile">
             <User className="mr-2 h-4 w-4" />
@@ -120,13 +121,14 @@ export default function SettingsPage() {
             <Trash2 className="mr-2 h-4 w-4" />
             Danger Zone
           </TabsTrigger>
-          <Button variant="outline" size="sm" asChild className="ml-2">
+        </TabsList>
+          <Button variant="outline" size="sm" asChild>
             <Link href="/settings/ai-providers">
               <Cpu className="mr-2 h-4 w-4" />
               AI Providers
             </Link>
           </Button>
-        </TabsList>
+        </div>
 
         {/* Profile Tab */}
         <TabsContent value="profile" className="space-y-6">

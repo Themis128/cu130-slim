@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Bell, Moon, Sun, Search, Command, Settings, Map } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
 import { Separator } from '@/components/ui/Separator'
+import { CommandPalette } from '@/components/ui/CommandPalette'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
@@ -17,8 +17,20 @@ export function Header() {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { start: startTour } = useTour()
-  const [searchQuery, setSearchQuery] = useState('')
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+
+  // Global ⌘K / Ctrl+K shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Mock notifications
   const notifications = [
@@ -32,24 +44,24 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
       <div className="flex h-full items-center justify-between px-4 gap-4">
-        {/* Mobile menu button */}
-        <Button variant="ghost" size="icon" className="lg:hidden">
+        {/* Mobile search button */}
+        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setPaletteOpen(true)}>
           <Search className="h-5 w-5" />
         </Button>
 
-        {/* Search */}
-        <div className="flex-1 max-w-md hidden md:block">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search posts, templates, workflows..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 h-9"
-            />
-            <kbd className="hidden absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">⌘K</kbd>
-          </div>
-        </div>
+        {/* Command palette trigger */}
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="flex-1 max-w-md hidden md:flex items-center gap-2 h-9 rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <Search className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1 text-left">Search pages, actions...</span>
+          <kbd className="inline-flex items-center gap-0.5 rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium">
+            <Command className="h-2.5 w-2.5" />K
+          </kbd>
+        </button>
+
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
 
         {/* Right side actions */}
         <div className="flex items-center gap-2">

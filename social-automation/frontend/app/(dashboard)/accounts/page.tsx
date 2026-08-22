@@ -5,15 +5,17 @@ import {
   Linkedin, Twitter, Instagram, Facebook, Hash,
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
+  ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useAccounts, useConnectAccount, useDisconnectAccount } from '@/hooks/useQueries'
-import type { SocialAccount } from '@/types'
+import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts } from '@/hooks/useQueries'
+import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
+import Link from 'next/link'
 
 // ── platform metadata ─────────────────────────────────────────────────────────
 
@@ -345,12 +347,28 @@ export default function AccountsPage() {
   const disconnectMutation = useDisconnectAccount()
 
   const connectedAccounts = accounts || []
+  const { data: scheduledPosts = [] } = useScheduledPosts()
+
+  const upcomingForPlatform = (platformId: string): Post[] => {
+    const now = new Date()
+    return (scheduledPosts as Post[])
+      .filter(p =>
+        p.scheduled_at &&
+        new Date(p.scheduled_at) > now &&
+        p.targets?.some((t: PostTarget) =>
+          t.platform === platformId ||
+          (t.social_account as SocialAccount | undefined)?.platform === platformId
+        )
+      )
+      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
+      .slice(0, 3)
+  }
 
   const handleConnect = async (platformId: string) => {
     setConnectingPlatform(platformId)
     try {
       const result = await connectMutation.mutateAsync({ platform: platformId, teamId: 'default' })
-      const authUrl = (result as { authorization_url?: string })?.authorization_url
+      const authUrl = (result as { data?: { authorization_url?: string } })?.data?.authorization_url
       if (authUrl) {
         window.location.href = authUrl
       } else {
@@ -374,14 +392,26 @@ export default function AccountsPage() {
     }
   }
 
+  const EXPIRY_WARN_DAYS = 7
+
   const getAccountStatus = (platformId: string) => {
     const account = connectedAccounts.find((a: SocialAccount) => a.platform === platformId)
-    if (!account) return { connected: false }
-    if (account.token_expires_at && new Date(account.token_expires_at) < new Date()) {
-      return { connected: true, expired: true, account }
+    if (!account) return { connected: false as const, expired: false, expiringSoon: false, daysLeft: null as number | null, account: null }
+    const now = new Date()
+    if (account.token_expires_at) {
+      const exp = new Date(account.token_expires_at)
+      if (exp < now) return { connected: true as const, expired: true, expiringSoon: false, daysLeft: 0, account }
+      const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
+      if (daysLeft <= EXPIRY_WARN_DAYS) return { connected: true as const, expired: false, expiringSoon: true, daysLeft, account }
+      return { connected: true as const, expired: false, expiringSoon: false, daysLeft, account }
     }
-    return { connected: true, account }
+    return { connected: true as const, expired: false, expiringSoon: false, daysLeft: null, account }
   }
+
+  const healthStats = platforms.map(p => ({ platform: p, status: getAccountStatus(p.id) }))
+  const expiredCount = healthStats.filter(h => h.status.expired).length
+  const expiringSoonCount = healthStats.filter(h => h.status.expiringSoon).length
+  const healthyCount = healthStats.filter(h => h.status.connected && !h.status.expired && !h.status.expiringSoon).length
 
   return (
     <div className="space-y-6">
@@ -398,6 +428,65 @@ export default function AccountsPage() {
           </a>
         </Button>
       </div>
+
+      {/* Connection health banner */}
+      {activeTab === 'connections' && connectedAccounts.length > 0 && (
+        <div className={`rounded-xl border p-4 ${
+          expiredCount > 0 ? 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30'
+          : expiringSoonCount > 0 ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'
+          : 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30'
+        }`}>
+          <div className="flex items-center gap-3 flex-wrap">
+            {expiredCount > 0
+              ? <ShieldX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0" />
+              : expiringSoonCount > 0
+                ? <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                : <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+            }
+            <div className="flex-1 min-w-0">
+              <p className={`font-semibold text-sm ${
+                expiredCount > 0 ? 'text-red-800 dark:text-red-300'
+                : expiringSoonCount > 0 ? 'text-amber-800 dark:text-amber-300'
+                : 'text-green-800 dark:text-green-300'
+              }`}>
+                {expiredCount > 0
+                  ? `${expiredCount} token${expiredCount > 1 ? 's' : ''} expired — reconnect required`
+                  : expiringSoonCount > 0
+                    ? `${expiringSoonCount} token${expiringSoonCount > 1 ? 's' : ''} expiring within ${EXPIRY_WARN_DAYS} days`
+                    : `All ${healthyCount} connection${healthyCount !== 1 ? 's' : ''} healthy`
+                }
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {healthyCount} healthy · {expiringSoonCount} expiring soon · {expiredCount} expired
+              </p>
+            </div>
+            {/* Platform health dots */}
+            <div className="flex items-center gap-2">
+              {healthStats.map(({ platform, status }) => {
+                const Icon = platform.icon
+                return (
+                  <div key={platform.id} className="relative" title={`${platform.name}: ${status.expired ? 'expired' : status.expiringSoon ? `${status.daysLeft}d left` : status.connected ? 'active' : 'not connected'}`}>
+                    <div className={`p-1.5 rounded-full ${platform.color.startsWith('bg-gradient') ? '' : platform.color} ${!status.connected ? 'opacity-20' : ''}`}
+                      style={platform.color.startsWith('bg-gradient') ? { background: 'linear-gradient(135deg,#9333ea,#ec4899)', opacity: status.connected ? 1 : 0.2 } : undefined}
+                    >
+                      <Icon className="h-3 w-3 text-white" />
+                    </div>
+                    {status.expired && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 border border-background" />
+                    )}
+                    {status.expiringSoon && !status.expired && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 border border-background" />
+                    )}
+                    {status.connected && !status.expired && !status.expiringSoon && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-green-500 border border-background" />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab toggle */}
       <div className="flex gap-2 border-b">
@@ -449,9 +538,15 @@ export default function AccountsPage() {
                     {status.connected ? (
                       <>
                         {status.expired && (
+                          <div className="mb-3 flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded px-2 py-1.5">
+                            <ShieldX className="h-3 w-3 flex-shrink-0" />
+                            Token expired — reconnect to continue posting
+                          </div>
+                        )}
+                        {status.expiringSoon && !status.expired && (
                           <div className="mb-3 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1.5">
-                            <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                            Token expired — reconnect required
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            Token expires in {status.daysLeft} day{status.daysLeft !== 1 ? 's' : ''} — reconnect soon
                           </div>
                         )}
                         <div className="space-y-2 text-sm">
@@ -463,12 +558,26 @@ export default function AccountsPage() {
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-muted-foreground">Status</span>
-                            <Badge variant={status.expired ? 'destructive' : 'success'}>
-                              {status.expired ? 'Expired' : 'Active'}
+                            <Badge variant={status.expired ? 'destructive' : status.expiringSoon ? 'outline' : 'success'}>
+                              {status.expired ? 'Expired' : status.expiringSoon ? `${status.daysLeft}d left` : 'Active'}
                             </Badge>
                           </div>
                         </div>
                         <div className="mt-4 flex gap-2">
+                          {(status.expired || status.expiringSoon) && (
+                            <Button
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => handleConnect(platform.id)}
+                              disabled={connectingPlatform === platform.id}
+                            >
+                              {connectingPlatform === platform.id
+                                ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                              }
+                              Reconnect
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -480,6 +589,39 @@ export default function AccountsPage() {
                             Disconnect
                           </Button>
                         </div>
+
+                        {/* Queue peek — upcoming scheduled posts for this platform */}
+                        {(() => {
+                          const upcoming = upcomingForPlatform(platform.id)
+                          if (upcoming.length === 0) return null
+                          return (
+                            <div className="mt-4 border-t pt-3 space-y-1.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Next up ({upcoming.length})
+                              </p>
+                              {upcoming.map(post => (
+                                <Link
+                                  key={post.id}
+                                  href={`/content/${post.id}/edit`}
+                                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/60 transition-colors group"
+                                >
+                                  <span className="text-[10px] tabular-nums text-muted-foreground w-[52px] flex-shrink-0">
+                                    {post.scheduled_at
+                                      ? new Date(post.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                      : '—'}
+                                  </span>
+                                  <span className="text-xs text-foreground truncate flex-1">
+                                    {post.content_text?.slice(0, 36) ?? '—'}{(post.content_text?.length ?? 0) > 36 ? '…' : ''}
+                                  </span>
+                                </Link>
+                              ))}
+                              <Link href="/calendar" className="block text-[10px] text-muted-foreground hover:text-primary transition-colors pt-1 pl-1">
+                                View full calendar →
+                              </Link>
+                            </div>
+                          )
+                        })()}
                       </>
                     ) : (
                       <div className="text-center py-4">

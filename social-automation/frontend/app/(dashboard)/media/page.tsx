@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles, FolderOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -10,9 +10,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
 import { useMedia, useUploadMedia, useDeleteMedia, useGenerateImage } from '@/hooks/useQueries'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { useUndoDelete } from '@/hooks/useUndoDelete'
+import { aiApi } from '@/services/api'
 import type { MediaAsset } from '@/types'
 import toast from 'react-hot-toast'
+
+interface PendingFile {
+  file: File
+  preview: string
+  altText: string
+  generating: boolean
+}
 
 const typeOptions = [
   { value: '', label: 'All Types' },
@@ -27,39 +38,87 @@ export default function MediaPage() {
   const [page, setPage] = useState(1)
   const [generatePrompt, setGeneratePrompt] = useState('')
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useMedia({ type: typeFilter, page, page_size: 20 })
   const uploadMutation = useUploadMedia()
   const deleteMutation = useDeleteMedia()
   const generateMutation = useGenerateImage()
 
-  const allMedia = data?.items || []
+  const allMedia = data?.assets || data?.items || (Array.isArray(data) ? data : [])
+
+  const { deleteWithUndo, pendingIds } = useUndoDelete<MediaAsset>(
+    async (item) => { await deleteMutation.mutateAsync(item.id) }
+  )
+
+  const visibleMedia = allMedia.filter((a: MediaAsset) => !pendingIds.has(a.id))
   const media = search
-    ? allMedia.filter((a: MediaAsset) =>
+    ? visibleMedia.filter((a: MediaAsset) =>
         a.filename?.toLowerCase().includes(search.toLowerCase()) ||
         a.alt_text?.toLowerCase().includes(search.toLowerCase())
       )
-    : allMedia
+    : visibleMedia
   const totalPages = data?.pages || 1
 
-  const handleFileUpload = async (files: FileList) => {
-    for (const file of Array.from(files)) {
-      try {
-        await uploadMutation.mutateAsync({ file, alt_text: '', tags: '' })
-      } catch {
-        toast.error(`Failed to upload ${file.name}`)
+  const generateAltText = async (file: File, index: number) => {
+    setPendingFiles(prev => prev.map((f, i) => i === index ? { ...f, generating: true } : f))
+    try {
+      const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+      const res = await aiApi.generateContent({
+        prompt: `Write a concise, descriptive image alt text (under 125 characters) for an image file named "${baseName}". Output only the alt text, no quotes or extra explanation.`,
+        platform: 'linkedin',
+        tone: 'professional',
+        length: 'short',
+        include_hashtags: false,
+        include_emojis: false,
+      })
+      const text = (res as { data?: { content?: string } })?.data?.content
+        || (res as { content?: string })?.content
+        || ''
+      const clean = text.replace(/^["']|["']$/g, '').trim().slice(0, 125)
+      setPendingFiles(prev => prev.map((f, i) => i === index ? { ...f, altText: clean, generating: false } : f))
+    } catch {
+      setPendingFiles(prev => prev.map((f, i) => i === index ? { ...f, generating: false } : f))
+    }
+  }
+
+  const handleFileSelect = async (files: FileList) => {
+    const fileArray = Array.from(files)
+    const initial: PendingFile[] = fileArray.map(file => ({
+      file,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      altText: '',
+      generating: false,
+    }))
+    setPendingFiles(initial)
+    setUploadDialogOpen(true)
+    // Generate alt text for each image file
+    for (let i = 0; i < fileArray.length; i++) {
+      if (fileArray[i].type.startsWith('image/')) {
+        generateAltText(fileArray[i], i)
       }
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Delete this media?')) {
+  const handleConfirmUpload = async () => {
+    setUploading(true)
+    let successCount = 0
+    for (const pf of pendingFiles) {
       try {
-        await deleteMutation.mutateAsync(id)
+        await uploadMutation.mutateAsync({ file: pf.file, alt_text: pf.altText, tags: '' })
+        successCount++
       } catch {
-        toast.error('Failed to delete')
+        toast.error(`Failed to upload ${pf.file.name}`)
       }
     }
+    setUploading(false)
+    setUploadDialogOpen(false)
+    setPendingFiles([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (successCount > 0) toast.success(`${successCount} file${successCount > 1 ? 's' : ''} uploaded`)
   }
 
   const handleGenerate = async () => {
@@ -109,7 +168,7 @@ export default function MediaPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button onClick={() => document.getElementById('file-upload')?.click()}>
+          <Button onClick={() => fileInputRef.current?.click()}>
             <Upload className="mr-2 h-4 w-4" />
             Upload
           </Button>
@@ -118,13 +177,74 @@ export default function MediaPage() {
 
       {/* Hidden file input */}
       <input
-        id="file-upload"
+        ref={fileInputRef}
         type="file"
         accept="image/*,video/*"
         multiple
         className="hidden"
-        onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+        onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
       />
+
+      {/* Upload confirmation dialog with AI alt text */}
+      <Dialog open={uploadDialogOpen} onOpenChange={open => { if (!uploading) { setUploadDialogOpen(open); if (!open) setPendingFiles([]) } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Review & Upload — AI Alt Text
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {pendingFiles.map((pf, i) => (
+              <div key={i} className="flex gap-4 rounded-lg border p-3">
+                {pf.preview ? (
+                  <img src={pf.preview} alt="" className="h-20 w-20 rounded-md object-cover flex-shrink-0 border" />
+                ) : (
+                  <div className="h-20 w-20 rounded-md bg-muted flex items-center justify-center flex-shrink-0 border">
+                    <ImageIcon className="h-7 w-7 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0 space-y-2">
+                  <p className="text-sm font-medium truncate">{pf.file.name}</p>
+                  <div>
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                      Alt text
+                      {pf.generating && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+                      {!pf.generating && pf.altText && <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1"><Sparkles className="h-2.5 w-2.5 mr-0.5" />AI</Badge>}
+                    </Label>
+                    <Input
+                      value={pf.altText}
+                      onChange={e => setPendingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, altText: e.target.value } : f))}
+                      placeholder={pf.generating ? 'Generating alt text…' : 'Enter alt text (optional)'}
+                      disabled={pf.generating}
+                      maxLength={125}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1 text-right">{pf.altText.length}/125</p>
+                  </div>
+                  {!pf.generating && !pf.altText && pf.file.type.startsWith('image/') && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => generateAltText(pf.file, i)}>
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      Regenerate
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setUploadDialogOpen(false); setPendingFiles([]) }} disabled={uploading}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmUpload} disabled={uploading || pendingFiles.some(f => f.generating)}>
+              {uploading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</>
+              ) : (
+                <><Upload className="mr-2 h-4 w-4" />Upload {pendingFiles.length} file{pendingFiles.length > 1 ? 's' : ''}</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Filters */}
       <Card>
@@ -165,14 +285,22 @@ export default function MediaPage() {
               ))}
             </div>
           ) : media.length === 0 ? (
-            <div className="py-16 text-center">
-              <ImageIcon className="mx-auto h-12 w-12 text-muted-foreground/50" />
-              <p className="mt-4 text-muted-foreground">No media found</p>
-              <Button className="mt-4" onClick={() => document.getElementById('file-upload')?.click()}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload your first file
-              </Button>
-            </div>
+            search ? (
+              <EmptyState
+                icon={FolderOpen}
+                title={`No results for "${search}"`}
+                description="Try a different search term, or clear the filter to browse all assets."
+                primaryAction={{ label: 'Clear search', onClick: () => {}, variant: 'outline' }}
+              />
+            ) : (
+              <EmptyState
+                icon={ImageIcon}
+                title="Your media library is empty"
+                description="Upload images and videos to reuse across posts, or generate visuals with AI."
+                primaryAction={{ label: 'Upload files', onClick: () => fileInputRef.current?.click(), icon: Upload }}
+                secondaryAction={{ label: 'Generate with AI', onClick: () => setGenerateOpen(true), icon: Sparkles, variant: 'outline' }}
+              />
+            )
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
@@ -202,8 +330,7 @@ export default function MediaPage() {
                         variant="ghost"
                         size="icon"
                         className="bg-white/90"
-                        onClick={() => handleDelete(item.id)}
-                        disabled={deleteMutation.isPending}
+                        onClick={() => deleteWithUndo(item, item.filename || 'Media')}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2 } from 'lucide-react'
+import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2, Heart, MessageCircle, Share2, Eye, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -10,11 +10,12 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia } from '@/hooks/useQueries'
+import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia, usePostAnalytics } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
 import type { Post } from '@/types'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
+import { Undo2 } from 'lucide-react'
 
 export default function EditPostPage() {
   const router = useRouter()
@@ -22,6 +23,7 @@ export default function EditPostPage() {
   const id = (params?.id ?? '') as string
 
   const { data: post, isLoading } = usePost(id)
+  const { data: analytics } = usePostAnalytics(id)
   const updateMutation = useUpdatePost()
   const deleteMutation = useDeletePost()
   const publishMutation = usePublishPost()
@@ -88,14 +90,46 @@ export default function EditPostPage() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!confirm('Delete this post? This cannot be undone.')) return
-    try {
-      await deleteMutation.mutateAsync(id)
-      router.push('/content')
-    } catch {
-      // mutation already toasts
+  const handleDelete = () => {
+    const DELAY = 5000
+    let cancelled = false
+    const toastId = `delete-post-${id}`
+
+    const commit = async () => {
+      if (cancelled) return
+      toast.dismiss(toastId)
+      try {
+        await deleteMutation.mutateAsync(id)
+        router.push('/content')
+      } catch {
+        toast.error('Failed to delete post')
+      }
     }
+
+    const timer = setTimeout(commit, DELAY)
+
+    toast.custom(
+      (t) => (
+        <div className={[
+          'flex flex-col w-72 rounded-lg border bg-background shadow-lg overflow-hidden transition-all duration-200',
+          t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2',
+        ].join(' ')}>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-sm font-medium">Post will be deleted</span>
+            <button
+              onClick={() => { cancelled = true; clearTimeout(timer); toast.dismiss(toastId) }}
+              className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:opacity-80 transition-opacity"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              Undo
+            </button>
+          </div>
+          <div className="h-0.5 bg-muted"><div className="h-full bg-primary" style={{ animation: `undo-drain ${DELAY}ms linear forwards` }} /></div>
+          <style>{`@keyframes undo-drain { from { width:100% } to { width:0% } }`}</style>
+        </div>
+      ),
+      { id: toastId, duration: DELAY + 400 }
+    )
   }
 
   const handleMediaUpload = async (files: FileList) => {
@@ -251,6 +285,84 @@ export default function EditPostPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Performance card — only for published posts with analytics */}
+      {typedPost.status === 'published' && (() => {
+        const a = analytics as { likes?: number; comments?: number; shares?: number; impressions?: number; reach?: number; engagement_rate?: number } | undefined
+        if (!a) return null
+        const likes = a.likes ?? 0
+        const comments = a.comments ?? 0
+        const shares = a.shares ?? 0
+        const impressions = a.impressions ?? 0
+        const totalEngagement = likes + comments + shares
+        const engRate = a.engagement_rate ?? (impressions > 0 ? (totalEngagement / impressions) * 100 : 0)
+        // Visual score: 0-100 based on engagement rate benchmarks
+        // avg industry: 1-3% is good, 5%+ excellent
+        const score = Math.min(100, Math.round((engRate / 5) * 100))
+        const scoreColor = score >= 80 ? '#22c55e' : score >= 50 ? '#f59e0b' : score >= 20 ? '#3b82f6' : '#94a3b8'
+        const scoreLabel = score >= 80 ? 'Excellent' : score >= 50 ? 'Good' : score >= 20 ? 'Average' : 'Low'
+        const circR = 44
+        const circ = 2 * Math.PI * circR
+        const stats = [
+          { icon: Heart,          label: 'Likes',       value: likes.toLocaleString(),        color: 'text-red-500',  bg: 'bg-red-500/10' },
+          { icon: MessageCircle,  label: 'Comments',    value: comments.toLocaleString(),      color: 'text-blue-500', bg: 'bg-blue-500/10' },
+          { icon: Share2,         label: 'Shares',      value: shares.toLocaleString(),        color: 'text-green-500',bg: 'bg-green-500/10' },
+          { icon: Eye,            label: 'Impressions', value: impressions.toLocaleString(),   color: 'text-purple-500',bg:'bg-purple-500/10' },
+        ]
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                Post Performance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-6 items-center">
+                {/* Score ring */}
+                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                  <div className="relative">
+                    <svg width={104} height={104} className="-rotate-90">
+                      <circle cx={52} cy={52} r={circR} fill="none" stroke="currentColor" strokeWidth={8} className="text-muted/20" />
+                      <circle
+                        cx={52} cy={52} r={circR}
+                        fill="none" stroke={scoreColor} strokeWidth={8}
+                        strokeDasharray={circ}
+                        strokeDashoffset={circ * (1 - score / 100)}
+                        strokeLinecap="round"
+                        style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-bold tabular-nums" style={{ color: scoreColor }}>{score}</span>
+                      <span className="text-[10px] text-muted-foreground">/ 100</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-center" style={{ color: scoreColor }}>{scoreLabel}</p>
+                    <p className="text-xs text-muted-foreground text-center">{engRate.toFixed(2)}% eng. rate</p>
+                  </div>
+                </div>
+
+                {/* Stat tiles */}
+                <div className="grid grid-cols-2 gap-3 flex-1 w-full">
+                  {stats.map(({ icon: Icon, label, value, color, bg }) => (
+                    <div key={label} className="flex items-center gap-3 rounded-lg border p-3">
+                      <div className={`p-2 rounded-full ${bg}`}>
+                        <Icon className={`h-4 w-4 ${color}`} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-lg font-bold tabular-nums">{value}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3 justify-end border-t pt-6">
