@@ -71,6 +71,13 @@ vi.mock('lucide-react', () => ({
   Lightbulb: () => <svg data-testid="lightbulb-icon" />,
   ArrowLeft: () => <svg data-testid="arrow-left-icon" />,
   ArrowRight: () => <svg data-testid="arrow-right-icon" />,
+  CalendarDays: () => <svg data-testid="calendar-icon" />,
+  CheckCircle2: () => <svg data-testid="check-circle-icon" />,
+  AlertTriangle: () => <svg data-testid="alert-triangle-icon" />,
+  Info: () => <svg data-testid="info-icon" />,
+  Upload: () => <svg data-testid="upload-icon" />,
+  LogOut: () => <svg data-testid="log-out-icon" />,
+  Cpu: () => <svg data-testid="cpu-icon" />,
 }))
 
 // Mock next/navigation
@@ -248,7 +255,7 @@ describe('Layout Components', () => {
     it('should render header with search input', () => {
       render(<Header />, { wrapper })
       
-      expect(screen.getByPlaceholderText('Search posts, templates, workflows...')).toBeInTheDocument()
+      expect(screen.getByText('Search pages, actions...')).toBeInTheDocument()
     })
 
     it('should render theme toggle button', () => {
@@ -287,7 +294,7 @@ it('should render notifications dropdown trigger', () => {
     it('should render search input', () => {
       render(<Header />, { wrapper })
       
-      const searchInput = screen.getByPlaceholderText('Search posts, templates, workflows...')
+      const searchInput = screen.getByText('Search pages, actions...')
       expect(searchInput).toBeInTheDocument()
     })
   })
@@ -343,7 +350,7 @@ it('should render notifications dropdown trigger', () => {
       )
       
       expect(screen.getByText('Dashboard')).toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Search posts, templates, workflows...')).toBeInTheDocument()
+      expect(screen.getByText('Search pages, actions...')).toBeInTheDocument()
       expect(screen.getByText('Main Content')).toBeInTheDocument()
     })
 

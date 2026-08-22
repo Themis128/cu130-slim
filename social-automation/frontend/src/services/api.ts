@@ -209,7 +209,7 @@ export const contentApi = {
   }>) => api.patch(`/content/posts/${id}`, data),
   deletePost: (id: string) => api.delete(`/content/posts/${id}`),
   duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),
-  publishNow: (id: string) => api.post(`/content/posts/${id}/publish-now`),
+  publishNow: (id: string) => api.post(`/content/posts/${id}/publish`),
   schedulePost: (id: string, scheduled_at: string) =>
     api.post(`/content/posts/${id}/schedule`, { scheduled_at }),
   getMedia: (params?: { page?: number; page_size?: number; type?: string }) =>
@@ -282,8 +282,9 @@ export const workflowApi = {
   listWorkflows: (params?: { status?: string }) =>
     api.get('/workflows', { params }),
   getWorkflow: (id: string) => api.get(`/workflows/${id}`),
-  deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
+  deployWorkflow: (id: string) => api.post(`/workflows/${id}/deploy`),
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
+undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
 }
 
 // Accounts endpoints
@@ -295,6 +296,7 @@ export const accountsApi = {
   disconnect: (id: string) => api.delete(`/accounts/${id}`),
   refresh: (id: string) => api.post(`/accounts/${id}/refresh`),
   validate: (id: string) => api.get(`/accounts/${id}/validate`),
+test: (id: string) => api.post(`/accounts/${id}/test`),
 }
 
 // Publishing endpoints
@@ -302,8 +304,8 @@ export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
     api.get('/publishing/queue', { params }),
   getQueueItem: (id: string) => api.get(`/publishing/queue/${id}`),
-  retryQueueItem: (id: string) => api.post(`/publishing/retry/${id}`),
-  cancelQueueItem: (id: string) => api.delete(`/publishing/queue/${id}`),
+retryQueueItem: (id: string) => api.post(`/publishing/queue/${id}/retry`),
+cancelQueueItem: (id: string) => api.post(`/publishing/queue/${id}/cancel`),
   getHistory: (params?: { page?: number; page_size?: number }) =>
     api.get('/publishing/history', { params }),
 }
@@ -315,7 +317,7 @@ export const analyticsApi = {
   getPlatformMetrics: (params?: { days?: number }) =>
     api.get('/analytics/platforms', { params }),
   getPostAnalytics: (postId: string) =>
-    api.get(`/analytics/posts/${postId}/metrics`),
+    api.get(`/analytics/posts/${postId}`),
   getEngagementTrends: (params?: { days?: number; platform?: string }) =>
     api.get('/analytics/engagement', { params }),
   getFollowerGrowth: (params?: { days?: number; platform?: string }) =>
@@ -323,7 +325,7 @@ export const analyticsApi = {
   getTopPosts: (params?: { limit?: number; platform?: string }) =>
     api.get('/analytics/top-posts', { params }),
   exportReport: (params: { format: 'csv' | 'json'; days: number; platform?: string }) =>
-    api.get('/analytics/reports/export', { params, responseType: 'blob' }),
+    api.get('/analytics/export', { params, responseType: 'blob' }),
 }
 
 // AI endpoints
