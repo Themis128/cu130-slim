@@ -79,7 +79,7 @@ jobs:
           output: 'trivy-image-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           ignore-unfixed: true
-          exit-code: '${{ github.event.inputs.severity || 'HIGH' }}'
+          exit-code: 'HIGH'
           # Vulnerability types to scan
           vuln-type: 'os,library'
           # Security checks

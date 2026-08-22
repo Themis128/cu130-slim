@@ -1,11 +1,11 @@
 from functools import lru_cache
-
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://metabase:metabase@postgres:5432/metabase"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres_password@social-postgres:5432/social"
 
     # JWT
     JWT_SECRET_KEY: str = "change-me-in-production"

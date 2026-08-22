@@ -10,8 +10,9 @@ from app.main import app
 
 settings = get_settings()
 
-TEST_DB_URL = settings.DATABASE_URL.replace("/social_test", "/social_test")
-
+# Use the existing social database, but connect via host
+TEST_DB_URL = settings.DATABASE_URL.replace("social-postgres:5432", "localhost:5433")
+print("TEST_DB_URL:", TEST_DB_URL)
 
 @pytest_asyncio.fixture(scope="session")
 async def engine():
