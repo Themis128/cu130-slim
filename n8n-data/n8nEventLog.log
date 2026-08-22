@@ -1,2 +1,0 @@
-{"__type":"$$EventMessageAudit","id":"49a4fbb2-1ce6-4378-b2ce-0de429d9695f","ts":"2026-08-22T16:43:27.930+00:00","eventName":"n8n.audit.workflow.activated","message":"n8n.audit.workflow.activated","payload":{"workflowId":"1","workflowName":"Marketing Image Generation Hybrid","activeVersionId":"42bed63d-ce46-4da0-9477-2cb61c160322","activationMode":"init"}}
-{"__type":"$$EventMessageConfirm","confirm":"49a4fbb2-1ce6-4378-b2ce-0de429d9695f","ts":"2026-08-22T16:43:27.931+00:00","source":{"id":"0","name":"eventBus"}}

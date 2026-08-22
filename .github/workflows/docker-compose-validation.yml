@@ -21,7 +21,7 @@ jobs:
 
       - name: Validate docker-compose.yml syntax
         run: |
-          docker compose -f docker-compose.yml config > /dev/null && echo "docker-compose.yml is valid"
+          docker compose --env-file .github/test.env -f docker-compose.yml config > /dev/null && echo "docker-compose.yml is valid"
 
       - name: Check for required environment variables
         run: |
