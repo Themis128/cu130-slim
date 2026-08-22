@@ -25,9 +25,9 @@ dependencies = [
     "structlog==24.1.0",
     "aiofiles==24.1.0",
     # Security: pin ecdsa to latest to mitigate Minerva attack (CVE-2024-2364)
-    "ecdsa>=0.24.0",
+    "ecdsa",
     # Security: pin jaraco.context to fix path traversal via tar archives (GHSA)
-    "jaraco.context>=6.2.0",
+    "jaraco.context",
     "Pillow>=10.4.0",
 ]
 
