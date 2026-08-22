@@ -6,9 +6,11 @@
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 # System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
+# apt-get upgrade applies latest OS security patches for perl, util-linux, libblkid
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv git ffmpeg libgl1 libglib2.0-0 curl \
+    && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 # App code lives OUTSIDE the data mount so the mounted storage stays clean
