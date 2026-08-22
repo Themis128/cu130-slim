@@ -29,7 +29,7 @@ class Post(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    status: Mapped[PostStatus] = mapped_column(SQLEnum(PostStatus), default=PostStatus.DRAFT, nullable=False, index=True)
+    status: Mapped[PostStatus] = mapped_column(SQLEnum(PostStatus, values_callable=lambda obj: [e.value for e in obj]), default=PostStatus.DRAFT, nullable=False, index=True)
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=[], nullable=False)
     platform_specific: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)  # per-platform overrides

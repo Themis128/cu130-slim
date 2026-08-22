@@ -61,7 +61,7 @@ class TeamMember(Base):
 
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), default=UserRole.EDITOR, nullable=False)
+    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj]), default=UserRole.EDITOR, nullable=False)
 
     team: Mapped["Team"] = relationship("Team", back_populates="members")
     user: Mapped["User"] = relationship("User", back_populates="team_memberships")
