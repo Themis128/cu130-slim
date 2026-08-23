@@ -109,6 +109,15 @@ PROVIDER_CATALOG = [
         "description": "NVIDIA hosted FLUX.1-dev text-to-image generation (no local GPU needed)",
         "model_examples": ["flux.1-dev"],
     },
+    {
+        "name": "local-sd35",
+        "display_name": "Local Stable Diffusion 3.5",
+        "base_url": "",  # Will be set from environment variable
+        "default_model": "stable-diffusion-3.5-large",
+        "requires_key": False,
+        "description": "Local NVIDIA NIM for Stable Diffusion 3.5 (requires local GPU)",
+        "model_examples": ["stable-diffusion-3.5-large"],
+    },
 ]
 
 
@@ -120,6 +129,11 @@ async def _get_provider_config(
     """Return (base_url, model, api_key) for the requested provider."""
     if provider_name == "ollama":
         return settings.OLLAMA_URL, settings.OLLAMA_DEFAULT_MODEL, None
+    
+    if provider_name == "local-sd35":
+        # Use environment variable for local NIM URL
+        local_nim_url = getattr(settings, 'LOCAL_NIM_URL', 'http://host.docker.internal:8000/v1/infer')
+        return local_nim_url, "stable-diffusion-3.5-large", None
 
     if db and team_id:
         result = await db.execute(
@@ -157,7 +171,7 @@ async def call_inference(
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:
         model = model_override
-    if not api_key:
+    if not api_key and provider_name != "local-sd35":
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
@@ -323,6 +337,54 @@ async def _call_nvidia_flux_dev(
     image_b64 = response_data.get("image", "")
     if not image_b64:
         raise HTTPException(status_code=502, detail="NVIDIA FLUX.1-dev API returned no image data")
+    
+    return base64.b64decode(image_b64)
+
+
+async def _call_local_sd35(
+    prompt: str,
+    base_url: str,
+    negative_prompt: str = "",
+    cfg_scale: float = 5.0,
+    seed: int = 0,
+    steps: int = 30,
+    mode: str = "base",
+) -> bytes:
+    """Call local Stable Diffusion 3.5 NIM for text-to-image generation.
+    Returns binary image data (PNG).
+    """
+    payload = {
+        "prompt": prompt,
+        "mode": mode,
+        "seed": seed,
+        "steps": steps,
+    }
+    
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
+    if cfg_scale:
+        payload["cfg_scale"] = cfg_scale
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(base_url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Local SD3.5 NIM error {resp.status_code}: {resp.text[:400]}")
+
+    # Local NIM returns JSON with artifacts array containing base64 data
+    import base64
+    response_data = resp.json()
+    artifacts = response_data.get("artifacts", [])
+    if not artifacts:
+        raise HTTPException(status_code=502, detail="Local SD3.5 NIM returned no artifacts")
+    
+    image_b64 = artifacts[0].get("base64", "")
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="Local SD3.5 NIM artifact has no base64 data")
     
     return base64.b64decode(image_b64)
 

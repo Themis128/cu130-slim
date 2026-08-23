@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     OLLAMA_URL: str = "http://ollama:11434"
     OLLAMA_DEFAULT_MODEL: str = "llama3"
 
+    # Local NVIDIA NIM for Stable Diffusion 3.5
+    LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
+
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"
 

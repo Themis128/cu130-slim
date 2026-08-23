@@ -15,7 +15,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline
+from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline, _call_local_sd35
 
 router = APIRouter()
 settings = get_settings()
@@ -234,7 +234,7 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate image using NVIDIA's hosted FLUX.1-dev API (text-to-image)."""
+    """Generate image using NVIDIA's hosted FLUX.1-dev API or local Stable Diffusion 3.5 NIM (text-to-image)."""
     import base64
     
     team_result = await db.execute(
@@ -248,27 +248,38 @@ async def generate_image(
     if team:
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
 
-    # Get provider config for FLUX.1-dev (text-to-image)
+    # Get provider config - default to local SD3.5
+    provider_name = "local-sd35"  # Default to local SD3.5
     from app.services.inference import _get_provider_config
-    base_url, model, api_key = await _get_provider_config("nvidia-flux-dev", team_id, db)
+    base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="No API key configured for NVIDIA FLUX.1-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux-dev')."
+    if provider_name == "local-sd35":
+        # Call local Stable Diffusion 3.5 NIM
+        image_bytes = await _call_local_sd35(
+            prompt=request.prompt,
+            base_url=base_url,
+            negative_prompt=request.negative_prompt,
+            cfg_scale=request.cfg_scale,
+            seed=request.seed,
+            steps=request.steps,
         )
-
-    # Call NVIDIA FLUX.1-dev API - returns binary image data
-    from app.services.inference import _call_nvidia_flux_dev
-    image_bytes = await _call_nvidia_flux_dev(
-        prompt=request.prompt,
-        base_url=base_url,
-        api_key=api_key,
-        negative_prompt=request.negative_prompt,
-        cfg_scale=request.cfg_scale,
-        seed=request.seed,
-        steps=request.steps,
-    )
+    else:
+        # Call NVIDIA FLUX.1-dev API (cloud)
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No API key configured for {provider_name}. Add it in Settings → AI Providers."
+            )
+        from app.services.inference import _call_nvidia_flux_dev
+        image_bytes = await _call_nvidia_flux_dev(
+            prompt=request.prompt,
+            base_url=base_url,
+            api_key=api_key,
+            negative_prompt=request.negative_prompt,
+            cfg_scale=request.cfg_scale,
+            seed=request.seed,
+            steps=request.steps,
+        )
 
     # Convert to base64 for response
     image_base64 = base64.b64encode(image_bytes).decode('utf-8')
