@@ -61,12 +61,25 @@ async def upload_media(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    content = await file.read()
+    # Determine date-based subfolder
+    now = datetime.utcnow()
+    date_folder = now.strftime("%Y/%m/%d")
+    # Ensure the directory exists
+    target_dir = os.path.join(UPLOAD_DIR, date_folder)
+    os.makedirs(target_dir, exist_ok=True)
+
+    # Generate unique filename
     file_ext = os.path.splitext(file.filename)[1] if file.filename else ""
     filename = f"{uuid.uuid4()}{file_ext}"
-    storage_path = os.path.join(UPLOAD_DIR, filename)
+    # Relative path from UPLOAD_DIR (for storage)
+    relative_path = os.path.join(date_folder, filename)
+    # Absolute disk path
+    storage_path = os.path.join(UPLOAD_DIR, relative_path)
 
+    # Read file content
+    content = await file.read()
+
+    # Write file to disk
     async with aiofiles.open(storage_path, "wb") as f:
         await f.write(content)
 
@@ -76,7 +89,7 @@ async def upload_media(
         filename=file.filename,
         mime_type=file.content_type,
         size_bytes=len(content),
-        storage_path=storage_path,
+        storage_path=relative_path,  # Store relative path
         alt_text=alt_text,
         tags=tags.split(",") if tags else [],
         source="upload",
@@ -152,7 +165,7 @@ async def generate_image(
     db: AsyncSession = Depends(get_db),
 ):
     # TODO: Call ComfyUI API to generate image
-    # For now, return a placeholder
+    # For now, create a placeholder image and store it
     result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -160,13 +173,38 @@ async def generate_image(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
+    # Determine date-based subfolder
+    now = datetime.utcnow()
+    date_folder = now.strftime("%Y/%m/%d")
+    target_dir = os.path.join(UPLOAD_DIR, date_folder)
+    os.makedirs(target_dir, exist_ok=True)
+
+    filename = f"generated_{uuid.uuid4().hex[:8]}.png"
+    relative_path = os.path.join(date_folder, filename)
+    storage_path = os.path.join(UPLOAD_DIR, relative_path)
+
+    # Create a placeholder image (1x1 white pixel) PNG binary
+    placeholder_png = bytes([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+        0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9C, 0x63, 0x60, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, 0x0D,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x4D,
+        0xAE, 0x42, 0x60, 0x82
+    ])
+    async with aiofiles.open(storage_path, "wb") as f:
+        await f.write(placeholder_png)
+
     asset = MediaAsset(
         team_id=team.id,
         user_id=current_user.id,
-        filename=f"generated_{uuid.uuid4().hex[:8]}.png",
+        filename=filename,
         mime_type="image/png",
-        size_bytes=0,
-        storage_path="",
+        size_bytes=len(placeholder_png),
+        storage_path=relative_path,
         alt_text=prompt,
         tags=["ai-generated"],
         source="comfyui",
