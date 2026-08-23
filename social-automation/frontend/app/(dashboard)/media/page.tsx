@@ -311,7 +311,7 @@ export default function MediaPage() {
                   >
                     {item.storage_path ? (
                       <img
-                        src={item.storage_path}
+                        src={`${process.env.NEXT_PUBLIC_API_URL}/uploads/${item/storage_path}`}
                         alt={item.filename || 'Media'}
                         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                       />
