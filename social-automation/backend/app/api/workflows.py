@@ -215,64 +215,59 @@ async def generate_workflow(
 
 
 @router.post("/deploy/{workflow_id}")
-    async def deploy_workflow(
-        workflow_id: uuid.UUID,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db),
-    ):
-        result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
-        workflow = result.scalar_one_or_none()
-        if not workflow:
-            raise HTTPException(status_code=404, detail="Workflow not found")
+async def deploy_workflow(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
 
-        # Deploy to n8n
-        async with httpx.AsyncClient() as client:
-            credentials = f"{settings.N8N_USER}:{settings.N8N_PASSWORD}"
-            encoded_credentials = base64.b64encode(credentials.encode()).decode()
-            headers = {"Authorization": f"Basic {encoded_credentials}"}
-            resp = await client.post(
-                f"{settings.N8N_API_URL}/api/v1/workflows",
-                headers=headers,
-                json=workflow.n8n_workflow_json,
-            )
-            if resp.status_code not in (200, 201):
-                raise HTTPException(status_code=500, detail=f"n8n deploy failed: {resp.text}")
+    # Deploy to n8n
+    async with httpx.AsyncClient() as client:
+        headers = {"X-N8N-API-KEY": settings.N8N_API_KEY}
+        resp = await client.post(
+            f"{settings.N8N_API_URL}/api/v1/workflows",
+            headers=headers,
+            json=workflow.n8n_workflow_json,
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=500, detail=f"n8n deploy failed: {resp.text}")
 
-            n8n_workflow = resp.json()
-            workflow.n8n_workflow_id = n8n_workflow.get("id")
-            workflow.status = "deployed"
-            await db.commit()
+        n8n_workflow = resp.json()
+        workflow.n8n_workflow_id = n8n_workflow.get("id")
+        workflow.status = "deployed"
+        await db.commit()
 
-        return {"message": "Workflow deployed", "n8n_workflow_id": workflow.n8n_workflow_id}
+    return {"message": "Workflow deployed", "n8n_workflow_id": workflow.n8n_workflow_id}
 
 
 @router.post("/execute/{workflow_id}")
-@router.post("/execute/{workflow_id}")
-    async def execute_workflow(
-        workflow_id: uuid.UUID,
-        data: dict = {},
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db),
-    ):
-        result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
-        workflow = result.scalar_one_or_none()
-        if not workflow or not workflow.n8n_workflow_id:
-            raise HTTPException(status_code=404, detail="Workflow not found or not deployed")
+async def execute_workflow(
+    workflow_id: uuid.UUID,
+    data: dict = {},
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+    if not workflow or not workflow.n8n_workflow_id:
+        raise HTTPException(status_code=404, detail="Workflow not found or not deployed")
 
-        async with httpx.AsyncClient() as client:
-            credentials = f"{settings.N8N_USER}:{settings.N8N_PASSWORD}"
-            encoded_credentials = base64.b64encode(credentials.encode()).decode()
-            headers = {"Authorization": f"Basic {encoded_credentials}"}
-            resp = await client.post(
-                f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
-                headers=headers,
-                json={"data": data},
-            )
-            if resp.status_code not in (200, 201):
-                raise HTTPException(status_code=500, detail=f"n8n execute failed: {resp.text}")
+    async with httpx.AsyncClient() as client:
+        headers = {"X-N8N-API-KEY": settings.N8N_API_KEY}
+        resp = await client.post(
+            f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
+            headers=headers,
+            json={"data": data},
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=500, detail=f"n8n execute failed: {resp.text}")
 
-            execution = resp.json()
-            workflow.workflow_run_id = execution.get("id")
-            await db.commit()
+        execution = resp.json()
+        workflow.workflow_run_id = execution.get("id")
+        await db.commit()
 
-        return {"message": "Execution started", "execution_id": execution.get("id")}
+    return {"message": "Execution started", "execution_id": execution.get("id")}
