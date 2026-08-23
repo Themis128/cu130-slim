@@ -32,6 +32,9 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 \
     && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
+    && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
+    && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
+    && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && grep -v "comfy-kitchen" requirements.txt | pip install --no-cache-dir --retries 5 --timeout 120 -r /dev/stdin \
     && pip install --no-cache-dir --retries 5 --timeout 120 \
         replicate \

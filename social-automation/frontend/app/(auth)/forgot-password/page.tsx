@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Mail, ArrowLeft, CheckCircle } from 'lucide-react'
+import { Mail, ArrowLeft, CheckCircle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -17,6 +17,7 @@ export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [debugToken, setDebugToken] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,13 +39,17 @@ export default function ForgotPasswordPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       })
+      const data = await res.json().catch(() => ({}))
+      
       if (res.ok) {
         setSubmitted(true)
+        if (data.debug_token) {
+          setDebugToken(data.debug_token)
+        }
         toast.success('Password reset email sent!')
       } else if (res.status === 404) {
         setError('Password reset is not yet available. Please contact support.')
       } else {
-        const data = await res.json().catch(() => ({}))
         setError(data?.detail || 'Failed to send reset email. Please try again.')
       }
     } catch {
@@ -73,6 +78,24 @@ export default function ForgotPasswordPage() {
                   We've sent a password reset link to <strong>{email}</strong>
                 </p>
               </div>
+              {debugToken && (
+                <div className="mt-4 p-3 bg-muted rounded-lg text-left space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Development mode - Debug token:</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-background p-2 rounded border break-all">{debugToken}</code>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => router.push(`/reset-password?token=${debugToken}`)}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Click the link icon to test the reset flow
+                  </p>
+                </div>
+              )}
               <Button variant="outline" className="w-full" onClick={() => router.push('/login')}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Sign in

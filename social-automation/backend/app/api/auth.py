@@ -232,12 +232,64 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.core.security import verify_password, get_password_hash
-    if not verify_password(data.current_password, current_user.hashed_password):
+    from app.core.security import verify_password, hash_password
+    if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
-    current_user.hashed_password = get_password_hash(data.new_password)
+    current_user.password_hash = hash_password(data.new_password)
     await db.commit()
     return {"message": "Password updated"}
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    from app.core.security import create_reset_token
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If the email exists, a password reset link has been sent"}
+
+    reset_token = create_reset_token({"sub": str(user.id), "email": user.email})
+
+    # TODO: Send email with reset link
+    # For now, log the token (in production, send via email service)
+    print(f"Password reset token for {user.email}: {reset_token}")
+
+    # In debug mode, return the token for testing
+    if settings.DEBUG:
+        return {"message": "If the email exists, a password reset link has been sent", "debug_token": reset_token}
+
+    return {"message": "If the email exists, a password reset link has been sent"}
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/reset-password")
+async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    from app.core.security import decode_token, hash_password
+    payload = decode_token(data.token)
+    if not payload or payload.get("type") != "reset":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user.password_hash = hash_password(data.new_password)
+    await db.commit()
+
+    return {"message": "Password has been reset successfully"}
 
 
 # OAuth endpoints
