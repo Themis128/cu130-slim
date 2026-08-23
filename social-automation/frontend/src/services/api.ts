@@ -282,7 +282,7 @@ export const workflowApi = {
   listWorkflows: (params?: { status?: string }) =>
     api.get('/workflows', { params }),
   getWorkflow: (id: string) => api.get(`/workflows/${id}`),
-  deployWorkflow: (id: string) => api.post(`/workflows/${id}/deploy`),
+  deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
 undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
 }
