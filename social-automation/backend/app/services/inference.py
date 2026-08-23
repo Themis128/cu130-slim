@@ -91,6 +91,15 @@ PROVIDER_CATALOG = [
             "Qwen/Qwen2.5-72B-Instruct-Turbo",
         ],
     },
+    {
+        "name": "nvidia-flux",
+        "display_name": "NVIDIA FLUX.1-Kontext-dev",
+        "base_url": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev",
+        "default_model": "flux.1-kontext-dev",
+        "requires_key": True,
+        "description": "NVIDIA hosted FLUX.1-Kontext-dev text-to-image (no local GPU needed)",
+        "model_examples": ["flux.1-kontext-dev"],
+    },
 ]
 
 
@@ -220,6 +229,40 @@ def _parse_json_response(text: str) -> dict:
             except json.JSONDecodeError:
                 pass
     raise HTTPException(status_code=500, detail="Provider returned invalid JSON")
+
+
+async def _call_nvidia_flux(
+    prompt: str,
+    base_url: str,
+    api_key: str,
+    negative_prompt: str = "",
+    cfg_scale: float = 3.5,
+    seed: int = 0,
+    steps: int = 20,
+) -> bytes:
+    """Call NVIDIA's FLUX.1-Kontext-dev API for text-to-image generation.
+    Returns binary image data (PNG).
+    """
+    payload = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "cfg_scale": cfg_scale,
+        "seed": seed,
+        "steps": steps,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "image/png",
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(base_url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"NVIDIA FLUX API error {resp.status_code}: {resp.text[:400]}")
+
+    # API returns binary image data
+    return resp.content
 
 
 async def get_team_id_for_user(user_id: uuid.UUID, db: AsyncSession) -> uuid.UUID | None:

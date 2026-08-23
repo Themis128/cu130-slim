@@ -255,42 +255,6 @@ services:
       - social-api
     restart: unless-stopped
 
-  flux-kontext-dev:
-    image: nvcr.io/nim/black-forest-labs/flux.1-kontext-dev:latest
-    container_name: flux-kontext-dev
-    user: root
-    ports:
-      - "8003:8000"
-    volumes:
-      - /home/tbaltzakis/.cache/nim-flux:/opt/nim/.cache
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - NGC_API_KEY=${NGC_API_KEY}
-      - HF_TOKEN=${HF_TOKEN}
-      - NIM_MODEL_NAME=flux.1-kontext-dev
-      - NIM_HTTP_API_PORT=8000
-      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
-      - VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
-      - VLLM_USE_V1=1
-      - VLLM_LOGGING_LEVEL=INFO
-      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
-      - VLLM_TORCH_PROFILER_DIR=/tmp/vllm_profile
-      - NIM_GPU_MEMORY_UTILIZATION=0.85
-      - NIM_MAX_MODEL_LEN=2048
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    shm_size: 67108864
-    ulimits:
-      nofile: 64000
-    restart: unless-stopped
-
 volumes:
   portainer_data:
   postgres_data:

@@ -14,7 +14,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import call_inference, get_team_id_for_user
+from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux
 
 router = APIRouter()
 settings = get_settings()
@@ -215,16 +215,15 @@ Return JSON with:
 class GenerateImageRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""
-    width: int = 1024
-    height: int = 1024
+    cfg_scale: float = 3.5
+    seed: int = 0
     steps: int = 20
-    cfg_scale: float = 7.0
 
 
 class GenerateImageResponse(BaseModel):
-    job_id: str
-    status: str
-    image_url: str | None = None
+    image_base64: str
+    format: str = "base64"
+    prompt: str
     similar_content: list[str] = []
 
 
@@ -234,60 +233,54 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API (default)."""
+    import base64
+    
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
     team = team_result.scalars().first()
+    team_id = team.id if team else None
 
     # Check chroma for similar generated images before submitting
     similar: list[str] = []
     if team:
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
 
-    # Submit prompt to ComfyUI queue directly
-    comfyui_prompt = {
-        "3": {
-            "class_type": "KSampler",
-            "inputs": {
-                "cfg": request.cfg_scale,
-                "denoise": 1,
-                "latent_image": ["5", 0],
-                "model": ["4", 0],
-                "negative": ["7", 0],
-                "positive": ["6", 0],
-                "sampler_name": "euler",
-                "scheduler": "normal",
-                "seed": 42,
-                "steps": request.steps,
-            },
-        },
-        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "v1-5-pruned-emaonly.safetensors"}},
-        "5": {
-            "class_type": "EmptyLatentImage",
-            "inputs": {"batch_size": 1, "height": request.height, "width": request.width},
-        },
-        "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": request.prompt}},
-        "7": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": request.negative_prompt}},
-        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "social_", "images": ["8", 0]}},
-    }
+    # Get provider config for FLUX
+    from app.services.inference import _get_provider_config
+    base_url, model, api_key = await _get_provider_config("nvidia-flux", team_id, db)
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key configured for NVIDIA FLUX. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
+        )
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{settings.COMFYUI_URL}/prompt",
-                json={"prompt": comfyui_prompt, "client_id": str(current_user.id)},
-            )
-            resp.raise_for_status()
-            job_id = resp.json().get("prompt_id", "")
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {exc}")
+    # Call NVIDIA FLUX API - returns binary image data
+    image_bytes = await _call_nvidia_flux(
+        prompt=request.prompt,
+        base_url=base_url,
+        api_key=api_key,
+        negative_prompt=request.negative_prompt,
+        cfg_scale=request.cfg_scale,
+        seed=request.seed,
+        steps=request.steps,
+    )
+
+    # Convert to base64 for response
+    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
     # Store prompt in chroma so future generations can detect duplicates
     if team and request.prompt:
-        await chroma_client.add_content(str(team.id), job_id, request.prompt)
+        await chroma_client.add_content(str(team.id), str(uuid.uuid4()), request.prompt)
 
-    return GenerateImageResponse(job_id=job_id, status="queued", similar_content=similar)
+    return GenerateImageResponse(
+        image_base64=image_base64,
+        format="base64",
+        prompt=request.prompt,
+        similar_content=similar,
+    )
 
 
 @router.get("/generate-image/{job_id}")
@@ -315,6 +308,72 @@ async def get_image_status(
     except Exception:
         pass
     return {"job_id": job_id, "status": "unknown"}
+
+
+class GenerateImageFluxRequest(BaseModel):
+    """Request for NVIDIA FLUX.1-Kontext-dev text-to-image generation."""
+    prompt: str
+    negative_prompt: str = ""
+    cfg_scale: float = 3.5
+    seed: int = 0
+    steps: int = 20
+
+
+class GenerateImageFluxResponse(BaseModel):
+    """Response for NVIDIA FLUX text-to-image generation."""
+    image_base64: str
+    format: str = "base64"
+    prompt: str
+
+
+@router.post("/generate-image-flux")
+async def generate_image_flux(
+    request: GenerateImageFluxRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API."""
+    import base64
+    
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    team_id = team.id if team else None
+
+    # Get provider config
+    from app.services.inference import _get_provider_config
+    base_url, model, api_key = await _get_provider_config("nvidia-flux", team_id, db)
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key configured for NVIDIA FLUX. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
+        )
+
+    # Call NVIDIA FLUX API - returns binary image data
+    image_bytes = await _call_nvidia_flux(
+        prompt=request.prompt,
+        base_url=base_url,
+        api_key=api_key,
+        negative_prompt=request.negative_prompt,
+        cfg_scale=request.cfg_scale,
+        seed=request.seed,
+        steps=request.steps,
+    )
+
+    # Convert to base64 for response
+    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+    # Store prompt in chroma for deduplication
+    if team and request.prompt:
+        await chroma_client.add_content(str(team.id), str(uuid.uuid4()), request.prompt)
+
+    return GenerateImageFluxResponse(
+        image_base64=image_base64,
+        format="base64",
+        prompt=request.prompt,
+    )
 
 
 @router.post("/generate-content", response_model=GenerateContentResponse)
