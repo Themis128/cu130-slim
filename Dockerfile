@@ -4,7 +4,7 @@
 # Uses CUDA PyTorch for NVIDIA GPU acceleration (RTX 3070 / 8GB VRAM).
 
 # Updated base image with security patches (CUDA 12.6 + Ubuntu 22.04 with latest patches)
-FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu22.04
 
 # System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
 # apt-get upgrade applies latest OS security patches for perl, openssl, ncurses, libacl, gzip, util-linux, libblkid

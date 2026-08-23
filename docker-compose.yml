@@ -1,8 +1,6 @@
 services:
   comfyui:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: baltzakist/cu130-slim-comfyui:v2
     container_name: social-media-comfyui-gpu
     ports:
       - "8000:8000"
