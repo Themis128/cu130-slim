@@ -68,24 +68,25 @@ PROVIDER_CATALOG = [
         "name": "groq",
         "display_name": "Groq",
         "base_url": "https://api.groq.com/openai/v1",
-        "default_model": "llama-3.3-70b-versatile",
+        "default_model": "openai/gpt-oss-20b",
         "requires_key": True,
         "description": "Ultra-fast inference — best Ollama drop-in for speed",
         "model_examples": [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it",
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.6-27b",
+            "groq/compound",
         ],
     },
     {
         "name": "together",
         "display_name": "Together AI",
         "base_url": "https://api.together.xyz/v1",
-        "default_model": "meta-llama/Llama-3.1-70B-Instruct-Turbo",
+        "default_model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "requires_key": True,
         "description": "Together AI — pay-per-token open model hosting",
         "model_examples": [
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             "meta-llama/Llama-3.1-70B-Instruct-Turbo",
             "mistralai/Mixtral-8x22B-Instruct-v0.1",
             "Qwen/Qwen2.5-72B-Instruct-Turbo",
@@ -148,16 +149,30 @@ async def _get_provider_config(
             api_key = decrypt_token(record.api_key_enc) if record.api_key_enc else None
             return record.base_url, record.default_model, api_key
 
-    # Fallback to catalog defaults (key must be set via UI first)
+    # Fallback to catalog defaults with env var API keys
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == provider_name), None)
     if not catalog:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider_name}")
-    return catalog["base_url"], catalog["default_model"], None
+    
+    # Get API key from environment variables
+    env_key_map = {
+        "groq": settings.GROQ_API_KEY,
+        "together": settings.TOGETHER_API_KEY,
+        "nvidia": settings.NVIDIA_API_KEY,
+        "huggingface": settings.HUGGINGFACE_API_KEY,
+        "openai": settings.OPENAI_API_KEY,
+        "nvidia-flux": settings.NVIDIA_API_KEY,
+        "nvidia-flux-dev": settings.NVIDIA_API_KEY,
+    }
+    api_key = env_key_map.get(provider_name, "")
+    api_key = api_key if api_key else None
+    
+    return catalog["base_url"], catalog["default_model"], api_key
 
 
 async def call_inference(
     prompt: str,
-    provider_name: str = "ollama",
+    provider_name: str = "groq",
     db: AsyncSession | None = None,
     team_id: uuid.UUID | None = None,
     schema: dict | None = None,

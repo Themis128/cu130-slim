@@ -97,35 +97,6 @@ services:
               count: all
               capabilities: [gpu]
 
-  # Local Stable Diffusion 3.5 NIM for image generation
-  stable-diffusion-nim:
-    image: nvcr.io/nim/stabilityai/stable-diffusion-3.5-large:latest
-    container_name: stable-diffusion-nim
-    ports:
-      - "8002:8000"
-    volumes:
-      - ./.env:/app/.env:rw
-      - ./nim-cache:/opt/nim/.cache
-    environment:
-      - NGC_API_KEY=${NGC_API_KEY}
-      - HF_TOKEN=${HF_TOKEN}
-      - NIM_MODEL_VARIANT=base
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/v1/health/live || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 180s
-
   chroma:
     image: chromadb/chroma:latest
     container_name: chroma
@@ -218,7 +189,6 @@ services:
       - COMFYUI_URL=http://comfyui:8000
       - OLLAMA_URL=http://ollama:11434
       - CHROMA_URL=http://chroma:8000
-      - LOCAL_NIM_URL=http://stable-diffusion-nim:8000/v1/infer
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
       - LINKEDIN_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/linkedin/callback
@@ -243,7 +213,6 @@ services:
       - comfyui
       - ollama
       - chroma
-      - stable-diffusion-nim
     restart: unless-stopped
 
   social-worker:
@@ -292,6 +261,5 @@ volumes:
   social_postgres_data:
   redis_data:
   social_uploads:
-  nim_cache:
 
 

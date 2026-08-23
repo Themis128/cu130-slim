@@ -168,7 +168,7 @@ async def test_provider(
     # the user's configured default (reasoning models take 60-90s on "Say hello")
     FAST_TEST_MODELS: dict[str, str] = {
         "nvidia": "meta/llama-3.1-8b-instruct",
-        "groq": "llama-3.1-8b-instant",
+        "groq": "openai/gpt-oss-20b",
     }
     test_model = FAST_TEST_MODELS.get(name)
     try:

@@ -1,11 +1,16 @@
 from functools import lru_cache
 import os
+from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Compute env file path: /app/.env (mounted from host)
+ENV_FILE_PATH = "/app/.env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'),
+        env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -45,16 +50,23 @@ class Settings(BaseSettings):
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
 
+    # Cloud AI Provider API Keys
+    GROQ_API_KEY: str = ""
+    TOGETHER_API_KEY: str = ""
+    NVIDIA_API_KEY: str = ""
+    HUGGINGFACE_API_KEY: str = ""
+    FAL_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"
 
-    # CORS
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:8083",
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:8082",
-    ]
+    # CORS - stored as comma-separated string in env, parsed to list
+    CORS_ORIGINS_STR: str = "http://localhost:8083,http://localhost:3000,http://localhost:3001,http://localhost:8082"
+
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",")]
 
     # Social OAuth
     LINKEDIN_CLIENT_ID: str = ""
