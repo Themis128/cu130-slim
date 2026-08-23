@@ -1,6 +1,6 @@
 services:
   comfyui:
-    image: baltzakist/cu130-slim-comfyui:v2
+    image: baltzakist/cu130-slim-comfyui:2.0.0
     container_name: social-media-comfyui-gpu
     ports:
       - "8000:8000"
