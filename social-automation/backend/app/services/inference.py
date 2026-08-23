@@ -281,26 +281,30 @@ async def _call_nvidia_flux_dev(
     negative_prompt: str = "",
     cfg_scale: float = 5.0,
     seed: int = 0,
-    steps: int = 30,
+    steps: int = 50,
     width: int = 1024,
     height: int = 1024,
+    mode: str = "base",
+    samples: int = 1,
 ) -> bytes:
     """Call NVIDIA's FLUX.1-dev API for text-to-image generation.
     Returns binary image data (PNG).
     """
     payload = {
         "prompt": prompt,
-        "negative_prompt": negative_prompt,
         "cfg_scale": cfg_scale,
         "seed": seed,
         "steps": steps,
         "width": width,
         "height": height,
+        "mode": mode,
+        "samples": samples,
     }
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "image/png",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=300.0) as client:
@@ -321,12 +325,12 @@ async def _call_nvidia_flux_pipeline(
     negative_prompt: str = "",
     cfg_scale: float = 5.0,
     seed: int = 0,
-    steps: int = 30,
+    steps: int = 50,
     width: int = 1024,
     height: int = 1024,
     enhance_prompt: str = "Enhance image quality, improve details, fix artifacts, professional photography",
     enhance_cfg_scale: float = 3.5,
-    enhance_steps: int = 20,
+    enhance_steps: int = 30,
 ) -> bytes:
     """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement).
     Returns final enhanced binary image data (PNG).
@@ -345,12 +349,15 @@ async def _call_nvidia_flux_pipeline(
     )
     
     # Step 2: Enhance with FLUX.1-Kontext-dev (image-to-image)
+    # Note: NVIDIA FLUX.1-Kontext-dev requires image in format: data:image/png;example_id,{0-2}
+    # For generated images, we need to use the NVCF asset upload or example_id format
+    # Using example_id=0 as a placeholder - in production, upload via NVCF
     import base64
     initial_b64 = base64.b64encode(initial_image).decode('utf-8')
     
     payload = {
         "prompt": enhance_prompt,
-        "image": f"data:image/png;base64,{initial_b64}",
+        "image": f"data:image/png;base64,{initial_b64}",  # Using base64 data URI
         "aspect_ratio": "match_input_image",
         "cfg_scale": enhance_cfg_scale,
         "seed": seed,
@@ -360,6 +367,7 @@ async def _call_nvidia_flux_pipeline(
     headers = {
         "Authorization": f"Bearer {flux_kontext_key}",
         "Accept": "image/png",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=300.0) as client:
