@@ -253,8 +253,7 @@ async def _call_nvidia_flux(
     Returns binary image data (PNG).
     """
     payload = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
+        "text_prompts": [{"text": prompt, "weight": 1}],
         "cfg_scale": cfg_scale,
         "seed": seed,
         "steps": steps,
@@ -262,7 +261,8 @@ async def _call_nvidia_flux(
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Accept": "image/png",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=300.0) as client:
@@ -270,8 +270,14 @@ async def _call_nvidia_flux(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX API error {resp.status_code}: {resp.text[:400]}")
 
-    # API returns binary image data
-    return resp.content
+    # API returns JSON with base64-encoded image
+    import base64
+    response_data = resp.json()
+    image_b64 = response_data.get("image", "")
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="NVIDIA FLUX API returned no image data")
+    
+    return base64.b64decode(image_b64)
 
 
 async def _call_nvidia_flux_dev(
@@ -291,19 +297,18 @@ async def _call_nvidia_flux_dev(
     Returns binary image data (PNG).
     """
     payload = {
-        "prompt": prompt,
+        "text_prompts": [{"text": prompt, "weight": 1}],
         "cfg_scale": cfg_scale,
         "seed": seed,
         "steps": steps,
         "width": width,
         "height": height,
         "mode": mode,
-        "samples": samples,
     }
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Accept": "image/png",
+        "Accept": "application/json",
         "Content-Type": "application/json",
     }
 
@@ -312,8 +317,14 @@ async def _call_nvidia_flux_dev(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX.1-dev API error {resp.status_code}: {resp.text[:400]}")
 
-    # API returns binary image data
-    return resp.content
+    # API returns JSON with base64-encoded image
+    import base64
+    response_data = resp.json()
+    image_b64 = response_data.get("image", "")
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="NVIDIA FLUX.1-dev API returned no image data")
+    
+    return base64.b64decode(image_b64)
 
 
 async def _call_nvidia_flux_pipeline(
@@ -356,7 +367,7 @@ async def _call_nvidia_flux_pipeline(
     initial_b64 = base64.b64encode(initial_image).decode('utf-8')
     
     payload = {
-        "prompt": enhance_prompt,
+        "text_prompts": [{"text": enhance_prompt, "weight": 1}],
         "image": f"data:image/png;base64,{initial_b64}",  # Using base64 data URI
         "aspect_ratio": "match_input_image",
         "cfg_scale": enhance_cfg_scale,
@@ -366,7 +377,7 @@ async def _call_nvidia_flux_pipeline(
 
     headers = {
         "Authorization": f"Bearer {flux_kontext_key}",
-        "Accept": "image/png",
+        "Accept": "application/json",
         "Content-Type": "application/json",
     }
 
@@ -375,8 +386,13 @@ async def _call_nvidia_flux_pipeline(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX Kontext API error {resp.status_code}: {resp.text[:400]}")
 
-    # API returns binary image data
-    return resp.content
+    # API returns JSON with base64-encoded image
+    response_data = resp.json()
+    image_b64 = response_data.get("image", "")
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="NVIDIA FLUX Kontext API returned no image data")
+    
+    return base64.b64decode(image_b64)
 
 
 async def get_team_id_for_user(user_id: uuid.UUID, db: AsyncSession) -> uuid.UUID | None:

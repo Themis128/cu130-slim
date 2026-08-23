@@ -250,7 +250,7 @@ export const mediaApi = {
     negative_prompt?: string
     steps?: number
     cfg_scale?: number
-  }) => api.post('/media/generate-image', { prompt, ...options }),
+  }) => api.post('/ai/generate-image', { prompt, ...options }),
 }
 
 // Workflow endpoints

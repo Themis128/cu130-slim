@@ -15,7 +15,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_pipeline
+from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline
 
 router = APIRouter()
 settings = get_settings()
@@ -1014,6 +1014,19 @@ async def generate_carousel(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Check chroma for similar existing carousel content before generating
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if team:
+        similar = await chroma_client.query_similar(str(team.id), request.topic, n_results=3)
+        if similar:
+            # Surface similar content in prompt so AI can differentiate
+            request = request.model_copy(
+                update={"topic": f"{request.topic}\n\n[Note: avoid repeating these similar carousels: {similar[:2]}]"}
+            )
+
     platform_guides = {
         "linkedin": "LinkedIn professional audience. Each slide should deliver one clear insight.",
         "instagram": "Instagram visual storytelling. Keep text concise and punchy.",
@@ -1084,6 +1097,15 @@ Return JSON with:
         )
         for s in result.get("slides", [])
     ]
+
+    # Index generated carousel content in chroma for future dedup
+    if team and result.get("slides"):
+        carousel_content = f"CAROUSEL:{request.platform}:{request.topic}:" + "|".join([s.get("title", "") for s in result.get("slides", [])])
+        await chroma_client.add_content(
+            str(team.id),
+            str(uuid.uuid4()),
+            carousel_content,
+        )
 
     return GenerateCarouselResponse(
         slides=slides,
