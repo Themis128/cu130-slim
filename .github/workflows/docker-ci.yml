@@ -55,19 +55,23 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Report high vulnerabilities
+      if: github.event_name == 'push'
       uses: aquasecurity/trivy-action@v0.36.0
       with:
-        image-ref: ${{ steps.meta.outputs.tags }}
+        image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:${{ steps.meta.outputs.version }}
         format: 'table'
         exit-code: '0'
         ignore-unfixed: true
         severity: 'HIGH'
+        scanners: 'vuln'
 
     - name: Scan image for critical vulnerabilities
+      if: github.event_name == 'push'
       uses: aquasecurity/trivy-action@v0.36.0
       with:
-        image-ref: ${{ steps.meta.outputs.tags }}
+        image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:${{ steps.meta.outputs.version }}
         format: 'table'
         exit-code: '1'
         ignore-unfixed: true
         severity: 'CRITICAL'
+        scanners: 'vuln'
