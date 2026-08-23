@@ -97,8 +97,17 @@ PROVIDER_CATALOG = [
         "base_url": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev",
         "default_model": "flux.1-kontext-dev",
         "requires_key": True,
-        "description": "NVIDIA hosted FLUX.1-Kontext-dev text-to-image (no local GPU needed)",
+        "description": "NVIDIA hosted FLUX.1-Kontext-dev image-to-image editing (no local GPU needed)",
         "model_examples": ["flux.1-kontext-dev"],
+    },
+    {
+        "name": "nvidia-flux-dev",
+        "display_name": "NVIDIA FLUX.1-dev",
+        "base_url": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev",
+        "default_model": "flux.1-dev",
+        "requires_key": True,
+        "description": "NVIDIA hosted FLUX.1-dev text-to-image generation (no local GPU needed)",
+        "model_examples": ["flux.1-dev"],
     },
 ]
 
@@ -240,7 +249,7 @@ async def _call_nvidia_flux(
     seed: int = 0,
     steps: int = 20,
 ) -> bytes:
-    """Call NVIDIA's FLUX.1-Kontext-dev API for text-to-image generation.
+    """Call NVIDIA's FLUX.1-Kontext-dev API for image-to-image editing.
     Returns binary image data (PNG).
     """
     payload = {
@@ -260,6 +269,103 @@ async def _call_nvidia_flux(
         resp = await client.post(base_url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX API error {resp.status_code}: {resp.text[:400]}")
+
+    # API returns binary image data
+    return resp.content
+
+
+async def _call_nvidia_flux_dev(
+    prompt: str,
+    base_url: str,
+    api_key: str,
+    negative_prompt: str = "",
+    cfg_scale: float = 5.0,
+    seed: int = 0,
+    steps: int = 30,
+    width: int = 1024,
+    height: int = 1024,
+) -> bytes:
+    """Call NVIDIA's FLUX.1-dev API for text-to-image generation.
+    Returns binary image data (PNG).
+    """
+    payload = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "cfg_scale": cfg_scale,
+        "seed": seed,
+        "steps": steps,
+        "width": width,
+        "height": height,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "image/png",
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(base_url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"NVIDIA FLUX.1-dev API error {resp.status_code}: {resp.text[:400]}")
+
+    # API returns binary image data
+    return resp.content
+
+
+async def _call_nvidia_flux_pipeline(
+    prompt: str,
+    flux_dev_url: str,
+    flux_dev_key: str,
+    flux_kontext_url: str,
+    flux_kontext_key: str,
+    negative_prompt: str = "",
+    cfg_scale: float = 5.0,
+    seed: int = 0,
+    steps: int = 30,
+    width: int = 1024,
+    height: int = 1024,
+    enhance_prompt: str = "Enhance image quality, improve details, fix artifacts, professional photography",
+    enhance_cfg_scale: float = 3.5,
+    enhance_steps: int = 20,
+) -> bytes:
+    """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement).
+    Returns final enhanced binary image data (PNG).
+    """
+    # Step 1: Generate initial image with FLUX.1-dev
+    initial_image = await _call_nvidia_flux_dev(
+        prompt=prompt,
+        base_url=flux_dev_url,
+        api_key=flux_dev_key,
+        negative_prompt=negative_prompt,
+        cfg_scale=cfg_scale,
+        seed=seed,
+        steps=steps,
+        width=width,
+        height=height,
+    )
+    
+    # Step 2: Enhance with FLUX.1-Kontext-dev (image-to-image)
+    import base64
+    initial_b64 = base64.b64encode(initial_image).decode('utf-8')
+    
+    payload = {
+        "prompt": enhance_prompt,
+        "image": f"data:image/png;base64,{initial_b64}",
+        "aspect_ratio": "match_input_image",
+        "cfg_scale": enhance_cfg_scale,
+        "seed": seed,
+        "steps": enhance_steps,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {flux_kontext_key}",
+        "Accept": "image/png",
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(flux_kontext_url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"NVIDIA FLUX Kontext API error {resp.status_code}: {resp.text[:400]}")
 
     # API returns binary image data
     return resp.content

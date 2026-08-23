@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,7 +15,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux
+from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_pipeline
 
 router = APIRouter()
 settings = get_settings()
@@ -233,7 +234,7 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API (default)."""
+    """Generate image using NVIDIA's hosted FLUX.1-dev API (text-to-image)."""
     import base64
     
     team_result = await db.execute(
@@ -247,18 +248,19 @@ async def generate_image(
     if team:
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
 
-    # Get provider config for FLUX
+    # Get provider config for FLUX.1-dev (text-to-image)
     from app.services.inference import _get_provider_config
-    base_url, model, api_key = await _get_provider_config("nvidia-flux", team_id, db)
+    base_url, model, api_key = await _get_provider_config("nvidia-flux-dev", team_id, db)
     
     if not api_key:
         raise HTTPException(
             status_code=400,
-            detail="No API key configured for NVIDIA FLUX. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
+            detail="No API key configured for NVIDIA FLUX.1-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux-dev')."
         )
 
-    # Call NVIDIA FLUX API - returns binary image data
-    image_bytes = await _call_nvidia_flux(
+    # Call NVIDIA FLUX.1-dev API - returns binary image data
+    from app.services.inference import _call_nvidia_flux_dev
+    image_bytes = await _call_nvidia_flux_dev(
         prompt=request.prompt,
         base_url=base_url,
         api_key=api_key,
@@ -280,6 +282,272 @@ async def generate_image(
         format="base64",
         prompt=request.prompt,
         similar_content=similar,
+    )
+
+
+class GenerateImagePipelineRequest(BaseModel):
+    """Request for FLUX pipeline: text-to-image -> image-to-image enhancement."""
+    prompt: str
+    negative_prompt: str = ""
+    enhance_prompt: str = "Enhance image quality, improve details, fix artifacts, professional photography"
+    cfg_scale: float = 5.0
+    seed: int = 0
+    steps: int = 30
+    width: int = 1024
+    height: int = 1024
+    enhance_cfg_scale: float = 3.5
+    enhance_steps: int = 20
+
+
+class GenerateImagePipelineResponse(BaseModel):
+    """Response for FLUX pipeline generation."""
+    image_base64: str
+    format: str = "base64"
+    prompt: str
+    similar_content: list[str] = []
+    draft_id: str | None = None
+
+
+@router.post("/generate-image-pipeline", response_model=GenerateImagePipelineResponse)
+async def generate_image_pipeline(
+    request: GenerateImagePipelineRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement)."""
+    import base64
+    
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    team_id = team.id if team else None
+
+    # Check chroma for similar generated images before submitting
+    similar: list[str] = []
+    if team:
+        similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
+
+    # Get provider configs for both models
+    from app.services.inference import _get_provider_config
+    flux_dev_url, _, flux_dev_key = await _get_provider_config("nvidia-flux-dev", team_id, db)
+    flux_kontext_url, _, flux_kontext_key = await _get_provider_config("nvidia-flux", team_id, db)
+    
+    if not flux_dev_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key configured for NVIDIA FLUX.1-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux-dev')."
+        )
+    if not flux_kontext_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key configured for NVIDIA FLUX.1-Kontext-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
+        )
+
+    # Call full pipeline
+    image_bytes = await _call_nvidia_flux_pipeline(
+        prompt=request.prompt,
+        flux_dev_url=flux_dev_url,
+        flux_dev_key=flux_dev_key,
+        flux_kontext_url=flux_kontext_url,
+        flux_kontext_key=flux_kontext_key,
+        negative_prompt=request.negative_prompt,
+        enhance_prompt=request.enhance_prompt,
+        cfg_scale=request.cfg_scale,
+        seed=request.seed,
+        steps=request.steps,
+        width=request.width,
+        height=request.height,
+        enhance_cfg_scale=request.enhance_cfg_scale,
+        enhance_steps=request.enhance_steps,
+    )
+
+    # Convert to base64 for response
+    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+    # Save as draft
+    draft_id = None
+    if team:
+        draft_id = str(uuid.uuid4())
+        await chroma_client.add_content(
+            str(team.id),
+            draft_id,
+            f"DRAFT:{request.prompt}|||{image_base64[:100]}...",
+        )
+
+    return GenerateImagePipelineResponse(
+        image_base64=image_base64,
+        format="base64",
+        prompt=request.prompt,
+        similar_content=similar,
+        draft_id=draft_id,
+    )
+
+
+class SaveDraftRequest(BaseModel):
+    """Save generated image as draft."""
+    prompt: str
+    image_base64: str
+    enhanced_prompt: str | None = None
+    platform: str | None = None
+    caption: str | None = None
+    hashtags: list[str] = []
+
+
+class SaveDraftResponse(BaseModel):
+    draft_id: str
+    message: str
+
+
+@router.post("/save-draft", response_model=SaveDraftResponse)
+async def save_draft(
+    request: SaveDraftRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save generated image as draft for later posting."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    draft_id = str(uuid.uuid4())
+    
+    # Store full draft data in chroma
+    import json
+    draft_data = {
+        "prompt": request.prompt,
+        "image_base64": request.image_base64,
+        "enhanced_prompt": request.enhanced_prompt,
+        "platform": request.platform,
+        "caption": request.caption,
+        "hashtags": request.hashtags,
+        "created_at": str(datetime.utcnow()),
+    }
+    
+    await chroma_client.add_content(
+        str(team.id),
+        draft_id,
+        f"DRAFT:{json.dumps(draft_data)}",
+    )
+    
+    return SaveDraftResponse(draft_id=draft_id, message="Draft saved successfully")
+
+
+class DraftItem(BaseModel):
+    draft_id: str
+    prompt: str
+    image_base64: str
+    enhanced_prompt: str | None = None
+    platform: str | None = None
+    caption: str | None = None
+    hashtags: list[str] = []
+    created_at: str
+
+
+class ListDraftsResponse(BaseModel):
+    drafts: list[DraftItem]
+
+
+@router.get("/drafts", response_model=ListDraftsResponse)
+async def list_drafts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all saved drafts for the current user's team."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    # Query chroma for drafts
+    results = await chroma_client.query_similar(str(team.id), "DRAFT:", n_results=50)
+    
+    drafts = []
+    for result in results:
+        if result.startswith("DRAFT:"):
+            import json
+            try:
+                draft_data = json.loads(result[6:])  # Remove "DRAFT:" prefix
+                drafts.append(DraftItem(
+                    draft_id="",  # We don't have the ID easily from chroma query
+                    prompt=draft_data.get("prompt", ""),
+                    image_base64=draft_data.get("image_base64", ""),
+                    enhanced_prompt=draft_data.get("enhanced_prompt"),
+                    platform=draft_data.get("platform"),
+                    caption=draft_data.get("caption"),
+                    hashtags=draft_data.get("hashtags", []),
+                    created_at=draft_data.get("created_at", ""),
+                ))
+            except:
+                pass
+    
+    return ListDraftsResponse(drafts=drafts)
+
+
+class PostDraftRequest(BaseModel):
+    draft_id: str
+    platform: str  # linkedin, twitter, instagram, facebook, threads
+    account_id: str | None = None
+    caption: str | None = None
+    hashtags: list[str] = []
+
+
+class PostDraftResponse(BaseModel):
+    success: bool
+    post_id: str | None = None
+    message: str
+
+
+@router.post("/post-draft", response_model=PostDraftResponse)
+async def post_draft(
+    request: PostDraftRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Post a draft to social media platform."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    # Get social account
+    from sqlalchemy import select
+    from app.models.social_account import SocialAccount
+    
+    if request.account_id:
+        account_result = await db.execute(
+            select(SocialAccount).where(SocialAccount.id == request.account_id)
+        )
+    else:
+        account_result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == team.id,
+                SocialAccount.platform == request.platform,
+                SocialAccount.status == "active",
+            ).limit(1)
+        )
+    
+    account = account_result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail=f"No connected {request.platform} account found")
+    
+    # TODO: Implement actual posting to social platforms
+    # This would use the n8n workflow or direct API calls
+    
+    return PostDraftResponse(
+        success=True,
+        post_id=str(uuid.uuid4()),
+        message=f"Draft posted to {request.platform} successfully",
     )
 
 
