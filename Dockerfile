@@ -11,7 +11,7 @@ FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu22.04
 # Critical vulnerabilities fixed: CVE-2024-xxxx in perl, openssl, ncurses, acl, gzip, perl-Archive-Tar
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv git ffmpeg libgl1 libglib2.0-0 curl \
+        python3 python3-pip python3-venv git ffmpeg libgl1 libglib2.0-0 curl build-essential \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
