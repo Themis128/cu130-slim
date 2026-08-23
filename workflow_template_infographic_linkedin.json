@@ -1,0 +1,279 @@
+{
+  "name": "Automated Infographic Creation & LinkedIn Posting",
+  "description": "Workflow that automatically generates an infographic about a given topic, creates accompanying LinkedIn post copy, and publishes it to LinkedIn",
+  "prompt_template": "Create a professional 7-slide infographic about {{topic}} for a business audience. The infographic should cover: 1) Title and value proposition, 2) Business challenges, 3) Solutions/benefits, 4) Technical advantages, 5) Transformation impact, 6) Integrated value, 7) Call to action. Use clean, modern design with appropriate icons and minimal text.",
+  "n8n_workflow_json": {
+    "nodes": [
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "start"
+        },
+        "name": "Start",
+        "type": "n8n-nodes-base.start",
+        "typeVersion": 1,
+        "position": [
+          250,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "set",
+          "name": "Set Topic",
+          "values": {
+            "string": [
+              {
+                "name": "topic",
+                "value": "={{ $json[\"topic\"] || \"cloudless.gr services\" }}",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Set Topic",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 2,
+        "position": [
+          450,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "generateImagePrompt",
+          "url": "/ai/generate-image-prompt",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {
+            "bodyContent": {
+              "description": "Professional 7-slide infographic about {{$json.topic}} for business audience. Clean modern design with blue/white gradient background. Each slide has clear headline, concise bullet points, and simple icons. Slide 1: Title with cloud/serverless/AI icons. Slide 2: Three challenge icons. Slide 3: Cloud architecture with security/cost/monitoring icons. Slide 4: Serverless flow diagram. Slide 5: AI connected to marketing channels. Slide 6: Venn diagram showing Cloud/Serverless/AI integration. Slide 7: Call-to-action button with website URL. Professional, corporate style suitable for LinkedIn.",
+              "style": "corporate infographic, flat design, minimal text, icon-based, blue and white color scheme",
+              "platform": "linkedin"
+            }
+          }
+        },
+        "name": "Generate Image Prompt",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          650,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "generateImage",
+          "url": "/media/generate-image",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {
+            "bodyContent": {
+              "prompt": "={{ $json[\"response\"] }}",
+              "options": {
+                "width": 1080,
+                "height": 1350,
+                "model": "stable-diffusion-xl-base-1.0",
+                "negative_prompt": "text watermark, logo, blurry, low quality, distorted, cluttered",
+                "steps": 30,
+                "cfg_scale": 7.5
+              }
+            }
+          }
+        },
+        "name": "Generate Infographic Image",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          850,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "generatePostCopy",
+          "url": "/ai/generate-content",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {
+            "bodyContent": {
+              "prompt": "Write a professional LinkedIn post introducing {{$json.topic}}. Highlight how businesses can benefit from these services, reduce costs, and gain competitive advantage. Include a call-to-action to learn more. Keep it engaging but professional, suitable for business decision-makers. Length: medium.",
+              "platform": "linkedin",
+              "tone": "professional",
+              "length": "medium",
+              "include_hashtags": true
+            }
+          }
+        },
+        "name": "Generate LinkedIn Post Copy",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          850,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "getLinkedInAccount",
+          "url": "/accounts",
+          "method": "GET",
+          "options": {}
+        },
+        "name": "Get LinkedIn Account",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          1050,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "postToLinkedIn",
+          "url": "/publishing/queue",
+          "method": "POST",
+          "jsonParameters": true,
+          "options": {
+            "bodyContent": {
+              "content_text": "={{ $json[\"response\"] }}",
+              "media_ids": [
+                "={{ $node[\"Generate Infographic Image\"].json[\"id\"] }}"
+              ],
+              "targets": [
+                {
+                  "social_account_id": "={{ $node[\"Get LinkedIn Account\"].json.find(acc => acc.platform === \"linkedin\").id }}"
+                }
+              ],
+              "scheduled_at": "={{ new Date().toISOString() }}"
+            }
+          }
+        },
+        "name": "Post to LinkedIn",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          1250,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "invoke",
+          "functionName": "end"
+        },
+        "name": "End",
+        "type": "n8n-nodes-base.end",
+        "typeVersion": 1,
+        "position": [
+          1450,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Start": {
+        "main": [
+          [
+            {
+              "node": "Set Topic",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Topic": {
+        "main": [
+          [
+            {
+              "node": "Generate Image Prompt",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Generate LinkedIn Post Copy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate Image Prompt": {
+        "main": [
+          [
+            {
+              "node": "Generate Infographic Image",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate Infographic Image": {
+        "main": [
+          [
+            {
+              "node": "Post to LinkedIn",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate LinkedIn Post Copy": {
+        "main": [
+          [
+            {
+              "node": "Get LinkedIn Account",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get LinkedIn Account": {
+        "main": [
+          [
+            {
+              "node": "Post to LinkedIn",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Post to LinkedIn": {
+        "main": [
+          [
+            {
+              "node": "End",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "id": "1",
+    "name": "Automated Infographic Creation & LinkedIn Posting"
+  },
+  "category": "Marketing",
+  "tags": [
+    "infographic",
+    "linkedin",
+    "automation",
+    "content-creation"
+  ],
+  "is_public": false
+}
