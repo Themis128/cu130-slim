@@ -4,8 +4,6 @@ import uuid
 from datetime import datetime
 
 import aiofiles
-from PIL import Image
-import io
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -81,17 +79,6 @@ async def upload_media(
     # Read file content
     content = await file.read()
 
-    # Extract image dimensions if applicable
-    width = None
-    height = None
-    if file.content_type and file.content_type.startswith('image/'):
-        try:
-            image = Image.open(io.BytesIO(content))
-            width, height = image.size
-        except Exception:
-            # If we cannot read the image, leave dimensions as None
-            pass
-
     # Write file to disk
     async with aiofiles.open(storage_path, "wb") as f:
         await f.write(content)
@@ -102,8 +89,6 @@ async def upload_media(
         filename=file.filename,
         mime_type=file.content_type,
         size_bytes=len(content),
-        width=width,
-        height=height,
         storage_path=relative_path,  # Store relative path
         alt_text=alt_text,
         tags=tags.split(",") if tags else [],
@@ -114,6 +99,8 @@ async def upload_media(
     await db.refresh(asset)
 
     return asset
+
+
 @router.get("/assets", response_model=MediaListResponse)
 async def list_media(
     page: int = Query(1, ge=1),
@@ -211,24 +198,12 @@ async def generate_image(
     async with aiofiles.open(storage_path, "wb") as f:
         await f.write(placeholder_png)
 
-    # Extract image dimensions from the placeholder
-    width = None
-    height = None
-    try:
-        image = Image.open(io.BytesIO(placeholder_png))
-        width, height = image.size
-    except Exception:
-        # If we cannot read the image, leave dimensions as None
-        pass
-
     asset = MediaAsset(
         team_id=team.id,
         user_id=current_user.id,
         filename=filename,
         mime_type="image/png",
         size_bytes=len(placeholder_png),
-        width=width,
-        height=height,
         storage_path=relative_path,
         alt_text=prompt,
         tags=["ai-generated"],
@@ -241,5 +216,6 @@ async def generate_image(
     await db.refresh(asset)
 
     return asset
+
 
 # Need to import User
