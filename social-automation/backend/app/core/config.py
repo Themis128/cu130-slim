@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     # n8n
     N8N_API_URL: str = "http://n8n:5678"
     N8N_API_KEY: str = ""
+    N8N_USER: str = ""
+    N8N_PASSWORD: str = ""
 
     # ComfyUI
     COMFYUI_URL: str = "http://comfyui:8000"

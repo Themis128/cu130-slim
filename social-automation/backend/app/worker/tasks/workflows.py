@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from datetime import UTC, datetime
 
 import httpx
@@ -27,9 +28,12 @@ async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
 
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
+                credentials = f"{settings.N8N_USER}:{settings.N8N_PASSWORD}"
+                encoded_credentials = base64.b64encode(credentials.encode()).decode()
+                headers = {"Authorization": f"Basic {encoded_credentials}"}
                 response = await client.post(
                     f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
-                    headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
+                    headers=headers,
                     json=input_data,
                 )
                 response.raise_for_status()
@@ -60,16 +64,19 @@ async def _deploy_workflow_async(workflow_id: str) -> dict:
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
+                credentials = f"{settings.N8N_USER}:{settings.N8N_PASSWORD}"
+                encoded_credentials = base64.b64encode(credentials.encode()).decode()
+                headers = {"Authorization": f"Basic {encoded_credentials}"}
                 if workflow.n8n_workflow_id:
                     response = await client.put(
                         f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}",
-                        headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
+                        headers=headers,
                         json=workflow.n8n_workflow_json,
                     )
                 else:
                     response = await client.post(
                         f"{settings.N8N_API_URL}/api/v1/workflows",
-                        headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
+                        headers=headers,
                         json=workflow.n8n_workflow_json,
                     )
                 response.raise_for_status()
