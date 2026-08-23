@@ -14,15 +14,14 @@ settings = get_settings()
 TEST_DB_URL = settings.DATABASE_URL.replace("social-postgres:5432", "localhost:5433")
 print("TEST_DB_URL:", TEST_DB_URL)
 
-@pytest_asyncio.fixture(scope="session")
+
+@pytest_asyncio.fixture(scope="function")
 async def engine():
     eng = create_async_engine(TEST_DB_URL, echo=False)
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield eng
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     await eng.dispose()
 
 
