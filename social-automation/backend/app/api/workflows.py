@@ -227,7 +227,7 @@ async def deploy_workflow(
     # Deploy to n8n
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{settings.N8N_API_URL}/api/v1/workflows",
+            f"{settings.N8N_API_URL}/api/workflows",
             headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
             json=workflow.n8n_workflow_json,
         )
@@ -256,7 +256,7 @@ async def execute_workflow(
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/execute",
+            f"{settings.N8N_API_URL}/api/workflows/{workflow.n8n_workflow_id}/execute",
             headers={"X-N8N-API-KEY": settings.N8N_API_KEY},
             json={"data": data},
         )
