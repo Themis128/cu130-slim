@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      CI: "true"
       DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: test-secret-key-for-testing-only
