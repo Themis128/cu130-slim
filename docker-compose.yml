@@ -39,11 +39,22 @@ services:
       - ./.env:/app/.env:rw
       - ./n8n-data:/home/node/.n8n
     environment:
-      - N8N_API_KEY=test123
+      # Instance owner pre-provisioning (n8n v2.17+) - avoids manual setup wizard
+      - N8N_INSTANCE_OWNER_MANAGED_BY_ENV=true
+      - N8N_INSTANCE_OWNER_EMAIL=admin@localhost
+      - N8N_INSTANCE_OWNER_FIRST_NAME=Admin
+      - N8N_INSTANCE_OWNER_LAST_NAME=User
+      - N8N_INSTANCE_OWNER_PASSWORD_HASH=$2b$12$9kMykgEABlE6Ac6fUYQFL.TeQgz4IIU7UZcGrbxTcfY6jaRkpWTSG
+      # Encryption key (must be set before first start, especially in queue mode)
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      # Public REST API - enable for programmatic access
+      - N8N_PUBLIC_API_DISABLED=false
+      - N8N_PUBLIC_API_SWAGGERUI_DISABLED=false
+      # Basic auth for web UI (separate from API key auth)
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      # Other settings
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
       - N8N_SANDBOX_ENABLED=false
@@ -186,7 +197,7 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - N8N_API_URL=http://n8n:5678
-      - N8N_API_KEY=test123
+      - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://comfyui:8000
@@ -229,7 +240,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - N8N_API_URL=http://n8n:5678
-      - N8N_API_KEY=test123
+      - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://comfyui:8000
