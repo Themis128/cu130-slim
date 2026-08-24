@@ -4,12 +4,12 @@ on:
   push:
     branches: [master, main]
     paths:
-      - 'cu130-slim/**'
+      - '**'
       - '.github/workflows/trivy-scan.yml'
   pull_request:
     branches: [master, main]
     paths:
-      - 'cu130-slim/**'
+      - '**'
       - '.github/workflows/trivy-scan.yml'
   schedule:
     # Run daily at 3 AM UTC to catch new vulnerabilities
