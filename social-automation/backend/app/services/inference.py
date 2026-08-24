@@ -488,8 +488,6 @@ async def retrieve_workers_ai_batch(
 
 
 async def call_inference(
-
-async def call_inference(
     prompt: str,
     provider_name: str = "groq",
     db: AsyncSession | None = None,

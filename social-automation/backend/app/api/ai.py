@@ -250,9 +250,6 @@ async def retrieve_batch_inference(
 
 
 class GenerateImagePromptRequest(BaseModel):
-
-
-class GenerateImagePromptRequest(BaseModel):
     description: str
     style: str = "photorealistic"
 
