@@ -342,6 +342,7 @@ export const aiProvidersApi = {
   }) => api.put(`/ai-providers/${name}`, data),
   delete: (name: string) => api.delete(`/ai-providers/${name}`),
   test: (name: string) => api.post(`/ai-providers/${name}/test`),
+  listModels: (name: string) => api.get(`/ai-providers/${name}/models`),
 }
 
 export const aiApi = {

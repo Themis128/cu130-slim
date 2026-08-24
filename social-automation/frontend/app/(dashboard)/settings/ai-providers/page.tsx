@@ -1,12 +1,79 @@
 'use client'
 
-import { useState } from 'react'
-import { Loader2, Plug, Zap, Trash2, TestTube, CheckCircle, XCircle, Eye, EyeOff } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Loader2, Plug, Zap, Trash2, TestTube, CheckCircle, XCircle, Eye, EyeOff, Search } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { useAIProviderCatalog, useAIProviders, useUpsertAIProvider, useDeleteAIProvider, useTestAIProvider } from '@/hooks/useQueries'
+import { useAIProviderCatalog, useAIProviders, useUpsertAIProvider, useDeleteAIProvider, useTestAIProvider, useAIProviderModels } from '@/hooks/useQueries'
+
+function ModelBrowser({ onPick }: { onPick: (id: string) => void }) {
+  const { data: models = [], isLoading, isError } = useAIProviderModels('cloudflare')
+  const [search, setSearch] = useState('')
+  const [taskFilter, setTaskFilter] = useState('all')
+
+  const tasks = useMemo(
+    () => Array.from(new Set(models.map(m => m.task).filter(Boolean) as string[])).sort(),
+    [models],
+  )
+  const filtered = models.filter(m =>
+    (taskFilter === 'all' || m.task === taskFilter) &&
+    (!search ||
+      m.id.toLowerCase().includes(search.toLowerCase()) ||
+      (m.description || '').toLowerCase().includes(search.toLowerCase())),
+  )
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading Workers AI catalog…
+      </div>
+    )
+  }
+  if (isError) {
+    return <p className="text-sm text-destructive py-2">Failed to load model catalog — check Cloudflare credentials.</p>
+  }
+
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search models…"
+          className="h-8 text-xs"
+        />
+        <select
+          value={taskFilter}
+          onChange={e => setTaskFilter(e.target.value)}
+          className="h-8 text-xs rounded-md border bg-background px-2"
+        >
+          <option value="all">All tasks</option>
+          {tasks.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {filtered.length} of {models.length} models — click one to set it as the Default Model
+      </p>
+      <div className="max-h-64 overflow-y-auto divide-y divide-border rounded">
+        {filtered.map(m => (
+          <button
+            key={m.id}
+            type="button"
+            className="w-full text-left px-2 py-1.5 hover:bg-muted rounded transition-colors"
+            onClick={() => onPick(m.id)}
+          >
+            <span className="text-xs font-medium font-mono">{m.id}</span>
+            <span className="block text-[11px] text-muted-foreground truncate">
+              {m.task || 'Unknown task'}{m.description ? ` — ${m.description}` : ''}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const PROVIDER_ICONS: Record<string, string> = {
   ollama: '🦙',
@@ -30,6 +97,7 @@ export default function AIProvidersPage() {
 
   // Local state per provider form
   const [testingProvider, setTestingProvider] = useState<string | null>(null)
+  const [browsingModels, setBrowsingModels] = useState<string | null>(null)
 
   const [forms, setForms] = useState<Record<string, {
     api_key: string; base_url: string; default_model: string; is_enabled: boolean; is_default: boolean; showKey: boolean
@@ -198,6 +266,24 @@ export default function AIProvidersPage() {
                     </datalist>
                   </div>
                 </div>
+
+                {/* Cloudflare: browse the full live Workers AI model catalog */}
+                {entry.name === 'cloudflare' && (
+                  <div className="space-y-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => setBrowsingModels(prev => (prev === 'cloudflare' ? null : 'cloudflare'))}
+                    >
+                      <Search className="mr-2 h-3.5 w-3.5" />
+                      {browsingModels === 'cloudflare' ? 'Hide model catalog' : 'Browse Workers AI models'}
+                    </Button>
+                    {browsingModels === 'cloudflare' && (
+                      <ModelBrowser onPick={id => setField('cloudflare', 'default_model', id)} />
+                    )}
+                  </div>
+                )}
 
                 {/* Toggles */}
                 <div className="flex items-center gap-4">

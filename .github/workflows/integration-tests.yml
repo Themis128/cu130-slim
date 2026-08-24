@@ -74,6 +74,8 @@ jobs:
             social-automation/frontend/node_modules
           key: ${{ runner.os }}-node22-${{ hashFiles('env-manager/frontend/package-lock.json', 'social-automation/frontend/package-lock.json') }}
           restore-keys: |
+            ${{ runner.os }}-node22-${{ hashFiles('env-manager/frontend/package-lock.json') }}-
+            ${{ runner.os }}-node22-${{ hashFiles('social-automation/frontend/package-lock.json') }}-
             ${{ runner.os }}-node22-
 
       - name: Install backend dependencies

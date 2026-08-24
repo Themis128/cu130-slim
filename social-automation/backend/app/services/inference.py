@@ -123,15 +123,19 @@ PROVIDER_CATALOG = [
         "name": "cloudflare",
         "display_name": "Cloudflare Workers AI",
         "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
-        "default_model": "@cf/black-forest-labs/flux-1",
+        "default_model": "@cf/meta/llama-3.1-8b-instruct",
         "requires_key": True,
-        "description": "Cloudflare Workers AI — free tier with LLM, FLUX image and Whisper speech-to-text models",
+        "description": "Cloudflare Workers AI — LLMs (Llama/Qwen/GLM/GPT-OSS), Whisper/Nova STT, FLUX images. Full live catalog browsable in this panel.",
         "model_examples": [
             "@cf/openai/whisper",
-            "@cf/facebook/wav2vec2-base-960h",
-            "@cf/speechbrain/asr-cnn-transformer",
+            "@cf/openai/whisper-large-v3-turbo",
+            "@cf/deepgram/nova-3",
             "@cf/meta/llama-3.1-8b-instruct",
-            "@cf/black-forest-labs/flux-1",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
+            "@cf/openai/gpt-oss-120b",
+            "@cf/qwen/qwen3-30b-a3b-fp8",
+            "@cf/zhipuai/glm-4.7-flash",
+            "@cf/black-forest-labs/flux-1-schnell",
             "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         ],
     },
@@ -197,9 +201,62 @@ def _resolve_base_url(provider_name: str, base_url: str) -> str:
 # Speech-to-text model identifiers available on Cloudflare Workers AI
 STT_MODELS: dict[str, str] = {
     "whisper": "@cf/openai/whisper",
+    "whisper-large-v3-turbo": "@cf/openai/whisper-large-v3-turbo",
+    "whisper-tiny-en": "@cf/openai/whisper-tiny-en",
     "wav2vec2": "@cf/facebook/wav2vec2-base-960h",
     "speechbrain": "@cf/speechbrain/asr-cnn-transformer",
+    "nova-3": "@cf/deepgram/nova-3",
+    "flux": "@cf/deepgram/flux",
 }
+
+
+async def list_workers_ai_models() -> list[dict]:
+    """Fetch the live Workers AI model catalog for the configured account.
+
+    Returns a normalized ``[{id, task, description}]`` covering every model the
+    account can run — LLMs, speech-to-text, text-to-speech, image generation,
+    embeddings, etc. Uses the paginated ``/ai/models/search`` endpoint.
+    """
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    api_key = (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    if not account_id or not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured to list Workers AI models.",
+        )
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/models/search"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    models: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        page = 1
+        while True:
+            resp = await client.get(url, headers=headers, params={"per_page": 100, "page": page})
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Cloudflare models listing error {resp.status_code}: {resp.text[:400]}",
+                )
+            payload = resp.json()
+            for m in payload.get("result") or []:
+                task = m.get("task")
+                if isinstance(task, dict):
+                    task = task.get("name")
+                models.append(
+                    {
+                        "id": m.get("name"),
+                        "task": task,
+                        "description": (m.get("description") or "")[:200],
+                    }
+                )
+            info = payload.get("result_info") or {}
+            total_pages = info.get("total_pages") or 1
+            if page >= int(total_pages):
+                break
+            page += 1
+
+    return models
 
 
 async def transcribe_workers_ai(

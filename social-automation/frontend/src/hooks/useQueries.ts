@@ -394,3 +394,14 @@ export function useTestAIProvider() {
     onError: () => toast.error('Test request failed — check your session and try again'),
   })
 }
+
+export function useAIProviderModels(name: string | null) {
+  return useQuery({
+    queryKey: ['ai-provider-models', name],
+    queryFn: () => aiProvidersApi.listModels(name!),
+    select: (r) =>
+      r.data as Array<{ id: string; task: string | null; description: string }>,
+    enabled: !!name,
+    staleTime: 10 * 60 * 1000, // live vendor catalog — cache for 10 min
+  })
+}

@@ -137,6 +137,19 @@ async def upsert_provider(
     )
 
 
+@router.get("/{name}/models")
+async def list_provider_models(
+    name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """List every model available on this provider (live catalog from the vendor)."""
+    from app.services.inference import list_workers_ai_models
+
+    if name != "cloudflare":
+        raise HTTPException(status_code=400, detail=f"Live model listing is not supported for provider: {name}")
+    return await list_workers_ai_models()
+
+
 @router.delete("/{name}", status_code=204)
 async def delete_provider(
     name: str,
@@ -163,10 +176,10 @@ async def test_provider(
     from app.services.inference import call_inference, get_team_id_for_user
 
     team_id = await get_team_id_for_user(current_user.id, db)
-    
+
     # Image generation providers need different test approach
     IMAGE_GEN_PROVIDERS = {"nvidia-flux", "nvidia-flux-dev", "local-sd35", "nvidia-flux-pipeline"}
-    
+
     # Use a fast non-reasoning model for LLM providers
     FAST_TEST_MODELS: dict[str, str] = {
         "nvidia": "meta/llama-3.1-8b-instruct",
@@ -174,13 +187,13 @@ async def test_provider(
         "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
     }
     test_model = FAST_TEST_MODELS.get(name)
-    
+
     try:
         if name in IMAGE_GEN_PROVIDERS:
             # For image generation, just verify the API key works with a minimal request
             # Return success if provider is configured (actual generation tested via generate-image endpoint)
             return {"ok": True, "response": "Image generation provider configured. Use generate-image endpoint to test."}
-        
+
         result = await call_inference(
             "Say hi.",
             provider_name=name,

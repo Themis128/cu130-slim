@@ -50,7 +50,7 @@ jobs:
             dependency-check-
 
       - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@1.1.0
+        uses: dependency-check/Dependency-Check_Action@4.0.3
         with:
           project: 'cu130-slim'
           path: '.'
@@ -81,7 +81,7 @@ jobs:
         run: docker compose --project-name cu130-slim --env-file .github/test.env build social-api
 
       - name: Scan images with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@v0.58.1
         with:
           scan-type: 'image'
           image-ref: 'cu130-slim-social-api:latest'
@@ -106,7 +106,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
 
       - name: Cache node modules
         uses: actions/cache@v4
@@ -114,9 +114,9 @@ jobs:
           path: |
             social-automation/frontend/node_modules
             env-manager/frontend/node_modules
-          key: ${{ runner.os }}-node24-${{ hashFiles('social-automation/frontend/package-lock.json', 'env-manager/frontend/package-lock.json') }}
+          key: ${{ runner.os }}-node22-${{ hashFiles('social-automation/frontend/package-lock.json', 'env-manager/frontend/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node24-
+            ${{ runner.os }}-node22-
 
       - name: Install frontend dependencies
         run: |

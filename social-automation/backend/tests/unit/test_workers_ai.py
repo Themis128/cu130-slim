@@ -54,6 +54,25 @@ class _FakeAsyncClient:
         return self._resp
 
 
+class _FakeGetClient:
+    """Context-manager stand-in for httpx.AsyncClient capturing GETs."""
+
+    def __init__(self, responses: dict[int, _FakeResponse]):
+        self._responses = responses
+        self.calls: list[dict] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None, params=None):
+        self.calls.append({"url": url, "headers": headers, "params": params})
+        page = int((params or {}).get("page", 1))
+        return self._responses[page]
+
+
 @pytest.mark.asyncio
 async def test_transcribe_workers_ai_success(monkeypatch, cf_settings):
     fake = _FakeAsyncClient(200, {"result": {"text": "hello world", "language": "en"}})
@@ -189,3 +208,48 @@ async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         await inference._call_workers_ai_chat("hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456")
     assert exc_info.value.status_code == 400
+@pytest.mark.asyncio
+async def test_list_workers_ai_models_paginates_and_normalizes(monkeypatch, cf_settings):
+    page1 = _FakeResponse(
+        200,
+        {
+            "result": [
+                {"name": "@cf/meta/llama-3.1-8b-instruct", "task": {"name": "Text Generation"}, "description": "Llama"},
+                {"name": "@cf/openai/whisper", "task": "Automatic Speech Recognition", "description": "Whisper STT"},
+            ],
+            "result_info": {"page": 1, "total_pages": 2},
+        },
+    )
+    page2 = _FakeResponse(
+        200,
+        {
+            "result": [{"name": "@cf/deepgram/nova-3", "task": None, "description": "Deepgram ASR"}],
+            "result_info": {"page": 2, "total_pages": 2},
+        },
+    )
+    fake = _FakeGetClient({1: page1, 2: page2})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=60.0: fake)
+
+    models = await inference.list_workers_ai_models()
+
+    assert [m["id"] for m in models] == [
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/openai/whisper",
+        "@cf/deepgram/nova-3",
+    ]
+    assert models[0]["task"] == "Text Generation"
+    assert models[1]["task"] == "Automatic Speech Recognition"
+    assert models[2]["task"] is None
+    # Both pages fetched with bearer auth
+    assert len(fake.calls) == 2
+    assert all(c["headers"]["Authorization"] == "Bearer tok-456" for c in fake.calls)
+    assert "account-123" in fake.calls[0]["url"]
+
+
+@pytest.mark.asyncio
+async def test_list_workers_ai_models_requires_credentials(monkeypatch):
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
+    with pytest.raises(HTTPException) as exc:
+        await inference.list_workers_ai_models()
+    assert exc.value.status_code == 400
