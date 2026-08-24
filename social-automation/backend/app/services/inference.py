@@ -386,6 +386,108 @@ async def _call_workers_ai_chat(
         return _parse_json_response(response_text)
     return {"text": response_text}
 
+# ---------------------------------------------------------------------------
+# Workers AI Batch Inference (queueRequest=true)
+# ---------------------------------------------------------------------------
+
+
+def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
+    """Return ``(account_id, api_key)`` for Workers AI, raising 400 if unset."""
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    key = (api_key or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    if not account_id:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_ACCOUNT_ID is not configured. Add it to the root `.env` and restart social-api.",
+        )
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+        )
+    return account_id, key
+
+
+async def submit_workers_ai_batch(
+    model: str,
+    requests: list[dict],
+    api_key: str | None = None,
+) -> dict:
+    """Submit a batch of inference requests to a Workers AI model queue.
+
+    POSTs ``{"requests": [...]}`` to
+    ``/accounts/{account_id}/ai/run/{model}?queueRequest=true``. Each item is a
+    model-specific payload and may carry an optional ``external_reference``
+    echoed back in the batch response. Returns
+    ``{"request_id", "status", "model"}`` on successful queueing.
+    """
+    if not requests:
+        raise HTTPException(status_code=400, detail="Batch request must contain at least one item.")
+    account_id, key = _workers_ai_credentials(api_key)
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}?queueRequest=true"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, json={"requests": requests})
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cloudflare Workers AI batch submission error {resp.status_code}: {resp.text[:400]}",
+        )
+
+    data = resp.json()
+    if not data.get("success", True):
+        raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI batch submission failed: {data.get('errors')}")
+
+    result = data.get("result") or {}
+    return {
+        "request_id": result.get("request_id"),
+        "status": result.get("status") or "queued",
+        "model": result.get("model") or model,
+    }
+
+
+async def retrieve_workers_ai_batch(
+    model: str,
+    request_id: str,
+    api_key: str | None = None,
+) -> dict:
+    """Poll/retrieve the results of a previously submitted batch request.
+
+    POSTs ``{"request_id": ...}`` to the same ``?queueRequest=true`` endpoint.
+    Returns ``{"status", "responses": [...], "usage": {...}, "model"}``. While
+    still processing, ``responses`` is empty/absent — poll again later.
+    """
+    account_id, key = _workers_ai_credentials(api_key)
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}?queueRequest=true"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, json={"request_id": request_id})
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cloudflare Workers AI batch retrieval error {resp.status_code}: {resp.text[:400]}",
+        )
+
+    data = resp.json()
+    if not data.get("success", True):
+        raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI batch retrieval failed: {data.get('errors')}")
+
+    result = data.get("result") or {}
+    return {
+        "status": result.get("status"),
+        "responses": result.get("responses") or [],
+        "usage": result.get("usage"),
+        "model": result.get("model") or model,
+    }
+
+
+async def call_inference(
 
 async def call_inference(
     prompt: str,

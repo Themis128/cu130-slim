@@ -22,6 +22,8 @@ from app.services.inference import (
     _call_nvidia_flux_pipeline,
     call_inference,
     get_team_id_for_user,
+    retrieve_workers_ai_batch,
+    submit_workers_ai_batch,
     transcribe_workers_ai,
 )
 
@@ -180,6 +182,74 @@ async def transcribe_audio(
         or result.get("duration_seconds"),
         detections=extra or None,
     )
+# ---------------------------------------------------------------------------
+# Workers AI Batch Inference
+# ---------------------------------------------------------------------------
+
+
+class BatchInferenceItem(BaseModel):
+    """A single request inside a batch — model-specific payload fields plus an
+    optional ``external_reference`` echoed back in the batch response."""
+
+    external_reference: str | None = None
+
+    model_config = {"extra": "allow"}  # allow arbitrary model-specific inputs
+
+
+class BatchInferenceSubmitRequest(BaseModel):
+    model: str  # Workers AI model id, e.g. @cf/baai/bge-m3
+    requests: list[BatchInferenceItem]
+
+
+class BatchInferenceRetrieveRequest(BaseModel):
+    model: str
+    request_id: str
+
+
+class BatchInferenceSubmitResponse(BaseModel):
+    request_id: str | None
+    status: str
+    model: str
+
+
+@router.post("/workers-ai/batch", response_model=BatchInferenceSubmitResponse)
+async def submit_batch_inference(
+    payload: BatchInferenceSubmitRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Queue a batch of inference requests against a Cloudflare Workers AI model.
+
+    Returns a ``request_id`` — poll ``POST /ai/workers-ai/batch/retrieve`` with it
+    to fetch the results once processing completes.
+    """
+    items = [
+        {k: v for k, v in item.model_dump(exclude_none=True).items()}
+        for item in payload.requests
+    ]
+    try:
+        result = await submit_workers_ai_batch(payload.model, items)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Batch submission error: {exc}")
+    return BatchInferenceSubmitResponse(**result)
+
+
+@router.post("/workers-ai/batch/retrieve")
+async def retrieve_batch_inference(
+    payload: BatchInferenceRetrieveRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve (or poll) the results of a previously submitted batch request."""
+    try:
+        return await retrieve_workers_ai_batch(payload.model, payload.request_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Batch retrieval error: {exc}")
+
+
+class GenerateImagePromptRequest(BaseModel):
 
 
 class GenerateImagePromptRequest(BaseModel):
