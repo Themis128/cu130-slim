@@ -98,6 +98,17 @@ async def test_submit_batch_success(monkeypatch, cf_settings):
 
 
 @pytest.mark.asyncio
+async def test_submit_batch_requires_account_id(monkeypatch):
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await inference.submit_workers_ai_batch("@cf/baai/bge-m3", [{"query": "hi"}])
+    assert exc_info.value.status_code == 400
+    assert "CLOUDFLARE_ACCOUNT_ID" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
 async def test_submit_batch_rejects_empty_requests(monkeypatch, cf_settings):
     with pytest.raises(HTTPException) as exc_info:
         await inference.submit_workers_ai_batch("@cf/baai/bge-m3", [])
