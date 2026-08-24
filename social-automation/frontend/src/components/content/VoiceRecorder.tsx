@@ -73,6 +73,7 @@ async function toWav16k(blob: Blob): Promise<Blob> {
   } finally {
     void ctx.close()
   }
+}
 export function VoiceRecorder({ onTranscript, model, disabled, className }: VoiceRecorderProps) {
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   X, Image as ImageIcon, Sparkles, Send, Calendar, Save,
@@ -524,6 +524,10 @@ export default function NewPostPage() {
                       {repurposing ? 'Repurposing…' : 'Repurpose'}
                     </Button>
                   )}
+                  <VoiceRecorder
+                    onTranscript={handleTranscript}
+                    disabled={aiGenerating || repurposing}
+                  />
                   <Button
                     variant="outline"
                     size="sm"
