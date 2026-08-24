@@ -63,9 +63,9 @@ const platforms: PlatformSetup[] = [
         note: 'Click "Generate" next to Client Secret if it\'s empty.',
       },
 {
-	        text: 'Under "OAuth 2.0 Settings", add this Redirect URL:',
-	        code: 'http://localhost:8000/api/v1/auth/oauth/linkedin/callback',
-	      },
+        text: 'Under "OAuth 2.0 Settings", add this Redirect URL:',
+        code: 'http://localhost:8083/api/v1/auth/oauth/linkedin/callback',
+      },
       {
         text: 'Open the "Products" tab and request both "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect".',
         note: 'Approval is instant for most products.',
