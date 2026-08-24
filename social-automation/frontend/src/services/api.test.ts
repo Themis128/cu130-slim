@@ -539,7 +539,7 @@ describe('API Service', () => {
         height: 768,
       })
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/media/generate-image', {
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/ai/generate-image', {
         prompt: 'A beautiful sunset',
         width: 1024,
         height: 768,
@@ -638,7 +638,7 @@ describe('API Service', () => {
       
       const result = await apiModule.workflowApi.deployWorkflow('1')
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/workflows/1/deploy')
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/workflows/deploy/1')
       expect(result.data).toEqual({ success: true })
     })
 
