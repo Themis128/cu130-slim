@@ -17,13 +17,17 @@ os.environ["UPLOAD_DIR"] = "/tmp/uploads"
 # Ensure the uploads directory exists
 os.makedirs(os.environ["UPLOAD_DIR"], exist_ok=True)
 
-# Override the database URL to use the host port for the social-postgres container
-# The social-postgres container is mapped to port 5433 on the host
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres_password@localhost:5433/social"
+# Only override database URL if not already set (e.g., by CI)
+if "DATABASE_URL" not in os.environ:
+    # Override the database URL to use the host port for the social-postgres container
+    # The social-postgres container is mapped to port 5433 on the host
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres_password@localhost:5433/social"
 
-# Override the redis URL to use the host port for the redis container
-# The redis container is mapped to port 6379 on the host
-os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
+# Only override redis URL if not already set (e.g., by CI)
+if "REDIS_URL" not in os.environ:
+    # Override the redis URL to use the host port for the redis container
+    # The redis container is mapped to port 6379 on the host
+    os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
 
 # Now import the app and other modules
 import pytest
