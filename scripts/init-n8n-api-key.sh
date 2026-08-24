@@ -5,7 +5,7 @@
 set -e
 
 N8N_URL="http://localhost:5678"
-N8N_USER="admin"
+N8N_USER="admin@n8n.local"
 N8N_PASSWORD="secure_password"
 API_KEY_LABEL="social-automation-api-key"
 API_KEY_EXPIRY_DAYS=365
