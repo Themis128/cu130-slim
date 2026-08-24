@@ -1,14 +1,13 @@
 import uuid
 from datetime import UTC, datetime
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.core.security import decrypt_token, encrypt_token
+from app.core.security import encrypt_token
 from app.db.session import get_db
 from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember, User

@@ -130,7 +130,7 @@ async def _get_provider_config(
     """Return (base_url, model, api_key) for the requested provider."""
     if provider_name == "ollama":
         return settings.OLLAMA_URL, settings.OLLAMA_DEFAULT_MODEL, None
-    
+
     if provider_name == "local-sd35":
         # Use environment variable for local NIM URL
         local_nim_url = getattr(settings, 'LOCAL_NIM_URL', 'http://host.docker.internal:8000/v1/infer')
@@ -153,7 +153,7 @@ async def _get_provider_config(
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == provider_name), None)
     if not catalog:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider_name}")
-    
+
     # Get API key from environment variables
     env_key_map = {
         "groq": settings.GROQ_API_KEY,
@@ -166,7 +166,7 @@ async def _get_provider_config(
     }
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
-    
+
     return catalog["base_url"], catalog["default_model"], api_key
 
 
@@ -305,7 +305,7 @@ async def _call_nvidia_flux(
     image_b64 = response_data.get("image", "")
     if not image_b64:
         raise HTTPException(status_code=502, detail="NVIDIA FLUX API returned no image data")
-    
+
     return base64.b64decode(image_b64)
 
 
@@ -352,7 +352,7 @@ async def _call_nvidia_flux_dev(
     image_b64 = response_data.get("image", "")
     if not image_b64:
         raise HTTPException(status_code=502, detail="NVIDIA FLUX.1-dev API returned no image data")
-    
+
     return base64.b64decode(image_b64)
 
 
@@ -374,7 +374,7 @@ async def _call_local_sd35(
         "seed": seed,
         "steps": steps,
     }
-    
+
     if negative_prompt:
         payload["negative_prompt"] = negative_prompt
     if cfg_scale:
@@ -396,11 +396,11 @@ async def _call_local_sd35(
     artifacts = response_data.get("artifacts", [])
     if not artifacts:
         raise HTTPException(status_code=502, detail="Local SD3.5 NIM returned no artifacts")
-    
+
     image_b64 = artifacts[0].get("base64", "")
     if not image_b64:
         raise HTTPException(status_code=502, detail="Local SD3.5 NIM artifact has no base64 data")
-    
+
     return base64.b64decode(image_b64)
 
 
@@ -435,14 +435,14 @@ async def _call_nvidia_flux_pipeline(
         width=width,
         height=height,
     )
-    
+
     # Step 2: Enhance with FLUX.1-Kontext-dev (image-to-image)
     # Note: NVIDIA FLUX.1-Kontext-dev requires image in format: data:image/png;example_id,{0-2}
     # For generated images, we need to use the NVCF asset upload or example_id format
     # Using example_id=0 as a placeholder - in production, upload via NVCF
     import base64
     initial_b64 = base64.b64encode(initial_image).decode('utf-8')
-    
+
     payload = {
         "text_prompts": [{"text": enhance_prompt, "weight": 1}],
         "image": f"data:image/png;base64,{initial_b64}",  # Using base64 data URI
@@ -468,7 +468,7 @@ async def _call_nvidia_flux_pipeline(
     image_b64 = response_data.get("image", "")
     if not image_b64:
         raise HTTPException(status_code=502, detail="NVIDIA FLUX Kontext API returned no image data")
-    
+
     return base64.b64decode(image_b64)
 
 

@@ -1,10 +1,11 @@
 import os
-import re
 from datetime import datetime
+
 from sqlalchemy import select, update
+
 from app.db.session import get_db
 from app.models.content import MediaAsset
-from app.core.config import get_settings
+
 
 async def migrate():
     async for db in get_db():

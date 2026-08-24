@@ -261,7 +261,7 @@ async def schedule_post(post_id: uuid.UUID, scheduled_at: str, current_user: Use
         dt = datetime.fromisoformat(scheduled_at)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid datetime format")
-    
+
     result = await db.execute(select(Post).where(Post.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
@@ -373,8 +373,11 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
 
 
 # ── /content/media aliases (proxies to media router behaviour) ────────────────
-from fastapi import UploadFile, File as FastAPIFile
-import shutil, os, pathlib
+import pathlib
+import shutil
+
+from fastapi import File as FastAPIFile
+from fastapi import UploadFile
 
 MEDIA_DIR = pathlib.Path("/app/media")
 

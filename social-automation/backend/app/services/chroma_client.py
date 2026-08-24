@@ -43,7 +43,7 @@ async def _get_collection_id(client: httpx.AsyncClient, col: str) -> str | None:
             return resp.json().get("id")
     except Exception:
         pass
-    
+
     # Create collection
     try:
         resp = await client.post(

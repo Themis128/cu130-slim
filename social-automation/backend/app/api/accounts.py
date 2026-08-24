@@ -10,12 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import (
-    get_current_user,
-    linkedin_client,
-    twitter_client,
     facebook_client,
+    get_current_user,
     instagram_client,
+    linkedin_client,
     threads_client,
+    twitter_client,
 )
 from app.core.config import get_settings
 from app.db.session import get_db

@@ -1,12 +1,12 @@
+import io
 import json
 import os
 import uuid
 from datetime import datetime
 
 import aiofiles
-from PIL import Image
-import io
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

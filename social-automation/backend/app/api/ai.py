@@ -15,7 +15,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import call_inference, get_team_id_for_user, _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline, _call_local_sd35
+from app.services.inference import _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline, call_inference, get_team_id_for_user
 
 router = APIRouter()
 settings = get_settings()
@@ -174,7 +174,6 @@ async def analyze_content(
         "facebook": 63206, "threads": 500,
     }
     limit = platform_limits.get(request.platform, 3000)
-    fill_pct = char_count / limit if limit else 0
 
     prompt = f"""Analyze this {request.platform} post and return a quality assessment:
 
@@ -237,7 +236,7 @@ async def generate_image(
 ):
     """Generate image using NVIDIA's hosted FLUX.1-dev API (cloud text-to-image)."""
     import base64
-    
+
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -253,15 +252,14 @@ async def generate_image(
     provider_name = "nvidia-flux-dev"  # Default to cloud FLUX.1-dev
     from app.services.inference import _get_provider_config
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
-    
+
     if not api_key:
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for {provider_name}. Add NVIDIA_API_KEY in .env or configure in Settings → AI Providers."
         )
-    
+
     # Call NVIDIA FLUX.1-dev API (cloud)
-    from app.services.inference import _call_nvidia_flux_dev
     image_bytes = await _call_nvidia_flux_dev(
         prompt=request.prompt,
         base_url=base_url,
@@ -318,7 +316,7 @@ async def generate_image_pipeline(
 ):
     """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement)."""
     import base64
-    
+
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -334,7 +332,7 @@ async def generate_image_pipeline(
     from app.services.inference import _get_provider_config
     flux_dev_url, _, flux_dev_key = await _get_provider_config("nvidia-flux-dev", team_id, db)
     flux_kontext_url, _, flux_kontext_key = await _get_provider_config("nvidia-flux", team_id, db)
-    
+
     if not flux_dev_key:
         raise HTTPException(
             status_code=400,
@@ -412,14 +410,13 @@ async def save_draft(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
     team = team_result.scalars().first()
-    
+
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    
+
     draft_id = str(uuid.uuid4())
-    
+
     # Store full draft data in chroma
-    import json
     draft_data = {
         "prompt": request.prompt,
         "image_base64": request.image_base64,
@@ -429,13 +426,13 @@ async def save_draft(
         "hashtags": request.hashtags,
         "created_at": str(datetime.utcnow()),
     }
-    
+
     await chroma_client.add_content(
         str(team.id),
         draft_id,
         f"DRAFT:{json.dumps(draft_data)}",
     )
-    
+
     return SaveDraftResponse(draft_id=draft_id, message="Draft saved successfully")
 
 
@@ -464,13 +461,13 @@ async def list_drafts(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
     team = team_result.scalars().first()
-    
+
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    
+
     # Query chroma for drafts
     results = await chroma_client.query_similar(str(team.id), "DRAFT:", n_results=50)
-    
+
     drafts = []
     for result in results:
         if result.startswith("DRAFT:"):
@@ -489,7 +486,7 @@ async def list_drafts(
                 ))
             except:
                 pass
-    
+
     return ListDraftsResponse(drafts=drafts)
 
 
@@ -518,14 +515,15 @@ async def post_draft(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
     team = team_result.scalars().first()
-    
+
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    
+
     # Get social account
     from sqlalchemy import select
+
     from app.models.social_account import SocialAccount
-    
+
     if request.account_id:
         account_result = await db.execute(
             select(SocialAccount).where(SocialAccount.id == request.account_id)
@@ -538,14 +536,14 @@ async def post_draft(
                 SocialAccount.status == "active",
             ).limit(1)
         )
-    
+
     account = account_result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail=f"No connected {request.platform} account found")
-    
+
     # TODO: Implement actual posting to social platforms
     # This would use the n8n workflow or direct API calls
-    
+
     return PostDraftResponse(
         success=True,
         post_id=str(uuid.uuid4()),
@@ -604,7 +602,7 @@ async def generate_image_flux(
 ):
     """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API."""
     import base64
-    
+
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -614,7 +612,7 @@ async def generate_image_flux(
     # Get provider config
     from app.services.inference import _get_provider_config
     base_url, model, api_key = await _get_provider_config("nvidia-flux", team_id, db)
-    
+
     if not api_key:
         raise HTTPException(
             status_code=400,

@@ -1,7 +1,5 @@
 from functools import lru_cache
-import os
-from typing import List
-from pydantic import field_validator
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Compute env file path: /app/.env (mounted from host)
@@ -68,7 +66,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS_STR: str = "http://localhost:8083,http://localhost:3000,http://localhost:3001,http://localhost:8082"
 
     @property
-    def CORS_ORIGINS(self) -> List[str]:
+    def CORS_ORIGINS(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",")]
 
     # Social OAuth

@@ -33,7 +33,6 @@ if not is_ci and "REDIS_URL" not in os.environ:
     os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
 
 # Now import the app and other modules
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

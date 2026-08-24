@@ -1,5 +1,4 @@
 import asyncio
-import base64
 from datetime import UTC, datetime
 
 import httpx
