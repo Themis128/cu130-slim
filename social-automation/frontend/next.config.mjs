@@ -9,8 +9,8 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/api/:path*`,
+        source: '/api/v1/:path*',
+        destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/api/v1/:path*`,
       },
     ]
   },

@@ -68,14 +68,14 @@ PROVIDER_CATALOG = [
         "name": "groq",
         "display_name": "Groq",
         "base_url": "https://api.groq.com/openai/v1",
-        "default_model": "openai/gpt-oss-20b",
+        "default_model": "qwen/qwen3.6-27b",
         "requires_key": True,
         "description": "Ultra-fast inference — best Ollama drop-in for speed",
         "model_examples": [
-            "openai/gpt-oss-20b",
-            "openai/gpt-oss-120b",
             "qwen/qwen3.6-27b",
             "groq/compound",
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
         ],
     },
     {
@@ -273,20 +273,23 @@ async def _call_nvidia_flux(
     prompt: str,
     base_url: str,
     api_key: str,
-    negative_prompt: str = "",
+    image: str = "",  # Required for image-to-image (base64 data URI or example_id)
     cfg_scale: float = 3.5,
     seed: int = 0,
-    steps: int = 20,
+    steps: int = 30,
 ) -> bytes:
     """Call NVIDIA's FLUX.1-Kontext-dev API for image-to-image editing.
     Returns binary image data (PNG).
     """
     payload = {
-        "text_prompts": [{"text": prompt, "weight": 1}],
+        "prompt": prompt,
         "cfg_scale": cfg_scale,
         "seed": seed,
         "steps": steps,
+        "aspect_ratio": "match_input_image",
     }
+    if image:
+        payload["image"] = image
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -326,7 +329,7 @@ async def _call_nvidia_flux_dev(
     Returns binary image data (PNG).
     """
     payload = {
-        "text_prompts": [{"text": prompt, "weight": 1}],
+        "prompt": prompt,
         "cfg_scale": cfg_scale,
         "seed": seed,
         "steps": steps,
@@ -334,6 +337,8 @@ async def _call_nvidia_flux_dev(
         "height": height,
         "mode": mode,
     }
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
 
     headers = {
         "Authorization": f"Bearer {api_key}",

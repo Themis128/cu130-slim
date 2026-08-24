@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     THREADS_CLIENT_SECRET: str = ""
     THREADS_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/threads/callback"
 
+    # Admin user auto-seeding
+    SOCIAL_ADMIN_EMAIL: str = ""
+    SOCIAL_ADMIN_PASSWORD: str = ""
+    SOCIAL_ADMIN_NAME: str = "Admin User"
+
 
 settings = Settings()
 
