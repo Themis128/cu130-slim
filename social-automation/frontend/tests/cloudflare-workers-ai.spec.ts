@@ -19,7 +19,7 @@ const CF_CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct'
 const CF_EMBED_MODEL = '@cf/baai/bge-m3'
 
 // A unique test user is registered per worker (Playwright runs workers in parallel).
-const TEST_EMAIL = `cf-e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`
+const TEST_EMAIL = `cf-e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`
 const TEST_PASSWORD = 'CloudflareE2E!1234'
 
 let accessToken = ''
@@ -334,8 +334,18 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     page,
     browserName,
   }) => {
-    // Fake-device microphone capture is Chromium-only for the bundled browsers.
+        // Fake-device microphone capture is Chromium-only for the bundled browsers.
     test.skip(browserName !== 'chromium', 'fake audio device is Chromium-only')
+    test.use({
+      permissions: ['microphone'],
+      launchOptions: {
+        args: [
+          '--use-fake-device-for-media-stream',
+          '--use-fake-ui-for-media-stream',
+          '--autoplay-policy=user-gesture-required',
+        ],
+      },
+    })
     test.setTimeout(120_000)
 
     const transcribeResp = page.waitForResponse(
