@@ -63,7 +63,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
 
       - name: Cache frontend dependencies
         uses: actions/cache@v4
@@ -71,9 +71,9 @@ jobs:
           path: |
             env-manager/frontend/node_modules
             social-automation/frontend/node_modules
-          key: ${{ runner.os }}-node24-${{ hashFiles('env-manager/frontend/package-lock.json', 'social-automation/frontend/package-lock.json') }}
+          key: ${{ runner.os }}-node22-${{ hashFiles('env-manager/frontend/package-lock.json', 'social-automation/frontend/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node24-
+            ${{ runner.os }}-node22-
 
       - name: Install backend dependencies
         run: |
@@ -128,16 +128,47 @@ jobs:
             -d '{"email": "test@example.com", "password": "testpass123", "name": "Test User"}' \
             -f
 
-      - name: Install frontend dependencies
+      - name: Install env-manager frontend dependencies
         if: ${{ hashFiles('env-manager/frontend/package.json') != '' }}
         run: |
           cd env-manager/frontend
           npm ci
 
-      - name: Build frontend
+      - name: Build env-manager frontend
         if: ${{ hashFiles('env-manager/frontend/package.json') != '' }}
         run: |
           cd env-manager/frontend
+          npm run build
+
+      - name: Test env-manager frontend
+        if: ${{ hashFiles('env-manager/frontend/package.json') != '' }}
+        run: |
+          cd env-manager/frontend
+          npm run test
+
+      - name: Install social-automation frontend dependencies
+        run: |
+          cd social-automation/frontend
+          npm ci
+
+      - name: Run social-automation frontend linting
+        run: |
+          cd social-automation/frontend
+          npm run lint
+
+      - name: Run social-automation frontend type checking
+        run: |
+          cd social-automation/frontend
+          npm run typecheck
+
+      - name: Run social-automation frontend tests
+        run: |
+          cd social-automation/frontend
+          npm run test
+
+      - name: Build social-automation frontend
+        run: |
+          cd social-automation/frontend
           npm run build
 
       - name: Run unit tests
