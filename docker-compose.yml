@@ -39,8 +39,9 @@ services:
       - ./.env:/app/.env:rw
       - ./n8n-data:/home/node/.n8n
     environment:
-      - N8N_API_KEY=${N8N_API_KEY}
-      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_API_KEY=test123
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
@@ -185,7 +186,9 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - N8N_API_URL=http://n8n:5678
-      - N8N_API_KEY=${N8N_API_KEY}
+      - N8N_API_KEY=test123
+      - N8N_USER=${N8N_USER}
+      - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://comfyui:8000
       - OLLAMA_URL=http://ollama:11434
       - CHROMA_URL=http://chroma:8000
@@ -226,7 +229,9 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - N8N_API_URL=http://n8n:5678
-      - N8N_API_KEY=${N8N_API_KEY}
+      - N8N_API_KEY=test123
+      - N8N_USER=${N8N_USER}
+      - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://comfyui:8000
       - OLLAMA_URL=http://ollama:11434
     volumes:

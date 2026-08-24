@@ -253,14 +253,22 @@ async def delete_post(post_id: uuid.UUID, current_user: User = Depends(get_curre
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)
-async def schedule_post(post_id: uuid.UUID, scheduled_at: datetime, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def schedule_post(post_id: uuid.UUID, scheduled_at: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Parse ISO 8601 string, support Z suffix
+    try:
+        if scheduled_at.endswith('Z'):
+            scheduled_at = scheduled_at[:-1] + '+00:00'
+        dt = datetime.fromisoformat(scheduled_at)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid datetime format")
+    
     result = await db.execute(select(Post).where(Post.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
     post.status = PostStatus.SCHEDULED
-    post.scheduled_at = scheduled_at
+    post.scheduled_at = dt
     await db.commit()
     await db.refresh(post)
 
