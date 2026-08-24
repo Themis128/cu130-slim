@@ -91,6 +91,8 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: Themis128/cu130-slim
           files: ./social-automation/backend/coverage.xml
 
   build:
