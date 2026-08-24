@@ -9,16 +9,16 @@ test.describe('Login Page', () => {
 
   test('should show error for invalid email', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabelText('Email').fill('invalid-email');
-    await page.getByLabelText('Password').fill('password123');
+    await page.getByRole('textbox', { name: 'Email' }).fill('invalid-email');
+    await page.getByRole('textbox', { name: 'Password' }).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
     await expect(page.getByText(/invalid email address/i)).toBeVisible();
   });
 
   test('should show error for short password', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('123');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Password' }).fill('123');
     await page.getByRole('button', { name: /sign in/i }).click();
     await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
   });
@@ -34,8 +34,8 @@ test.describe('Login Page', () => {
     });
 
     await page.goto('/login');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('password123');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Password' }).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // Wait for navigation to dashboard (or the callbackUrl)
@@ -53,8 +53,8 @@ test.describe('Login Page', () => {
     });
 
     await page.goto('/login');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('wrongpassword');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Password' }).fill('wrongpassword');
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // Expect error toast or message

@@ -32,8 +32,8 @@ test.describe('Reset Password Page', () => {
 
   test('should show error for short password', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabelText('New Password').fill('123');
-    await page.getByLabelText('Confirm New Password').fill('123');
+    await page.getByRole('textbox', { name: 'New Password' }).fill('123');
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('123');
     await page.getByRole('button', { name: /reset password/i }).click();
     await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
   });
@@ -49,8 +49,8 @@ test.describe('Reset Password Page', () => {
     });
 
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabelText('New Password').fill('newpassword123');
-    await page.getByLabelText('Confirm New Password').fill('newpassword123');
+    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
     // Wait for success message (toast) and then the submitted state
@@ -71,8 +71,8 @@ test.describe('Reset Password Page', () => {
     });
 
     await page.goto('/reset-password?token=invalid-token');
-    await page.getByLabelText('New Password').fill('newpassword123');
-    await page.getByLabelText('Confirm New Password').fill('newpassword123');
+    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
     // Wait for error message
@@ -89,8 +89,8 @@ test.describe('Reset Password Page', () => {
     });
 
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabelText('New Password').fill('newpassword123');
-    await page.getByLabelText('Confirm New Password').fill('newpassword123');
+    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
     // Check for loading state

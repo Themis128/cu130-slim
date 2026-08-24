@@ -15,7 +15,7 @@ test.describe('Forgot Password Page', () => {
 
   test('should show error for invalid email', async ({ page }) => {
     await page.goto('/forgot-password');
-    await page.getByLabelText('Email').fill('invalid-email');
+    await page.getByRole('textbox', { name: 'Email' }).fill('invalid-email');
     await page.getByRole('button', { name: /send reset link/i }).click();
     await expect(page.getByText(/invalid email address/i)).toBeVisible();
   });
@@ -31,7 +31,7 @@ test.describe('Forgot Password Page', () => {
     });
 
     await page.goto('/forgot-password');
-    await page.getByLabelText('Email').fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
     await page.getByRole('button', { name: /send reset link/i }).click();
 
     // Wait for success message
@@ -51,7 +51,7 @@ test.describe('Forgot Password Page', () => {
     });
 
     await page.goto('/forgot-password');
-    await page.getByLabelText('Email').fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
     await page.getByRole('button', { name: /send reset link/i }).click();
 
     // Wait for error message
@@ -69,7 +69,7 @@ test.describe('Forgot Password Page', () => {
     });
 
     await page.goto('/forgot-password');
-    await page.getByLabelText('Email').fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
     await page.getByRole('button', { name: /send reset link/i }).click();
 
     // Wait for error message
@@ -86,7 +86,7 @@ test.describe('Forgot Password Page', () => {
     });
 
     await page.goto('/forgot-password');
-    await page.getByLabelText('Email').fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
     await page.getByRole('button', { name: /send reset link/i }).click();
 
     // Check for loading state
