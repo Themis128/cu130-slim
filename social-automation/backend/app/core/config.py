@@ -47,7 +47,8 @@ class Settings(BaseSettings):
 
     # Ollama
     OLLAMA_URL: str = "http://ollama:11434"
-    OLLAMA_DEFAULT_MODEL: str = "llama3"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
 
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
