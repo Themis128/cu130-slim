@@ -269,6 +269,7 @@ async def _call_workers_ai_chat(
     prompt: str,
     model: str,
     api_key: str,
+    schema: dict | None = None,
     max_tokens: int | None = None,
 ) -> dict:
     """Call a Cloudflare Workers AI text-generation model.
@@ -291,11 +292,16 @@ async def _call_workers_ai_chat(
             detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
         )
 
+    system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
+    user_msg = prompt
+    if schema:
+        user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
+
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     payload: dict = {
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
         ]
     }
     if max_tokens:
@@ -307,8 +313,10 @@ async def _call_workers_ai_chat(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI error {resp.status_code}: {resp.text[:400]}")
 
-    response_text = (resp.json().get("result") or {}).get("response", "")
-    return {"text": response_text.strip()}
+    response_text = ((resp.json().get("result") or {}).get("response", "") or "").strip()
+    if schema:
+        return _parse_json_response(response_text)
+    return {"text": response_text}
 
 
 async def call_inference(
@@ -333,7 +341,7 @@ async def call_inference(
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
         )
     if provider_name == "cloudflare":
-        return await _call_workers_ai_chat(prompt, model=model, api_key=api_key, max_tokens=max_tokens)
+        return await _call_workers_ai_chat(prompt, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
     return await _call_openai_compat(prompt, base_url=base_url, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
 
 

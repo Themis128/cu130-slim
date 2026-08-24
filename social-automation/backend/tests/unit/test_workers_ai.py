@@ -141,6 +141,27 @@ async def test_call_workers_ai_chat_success(monkeypatch, cf_settings):
 
 
 @pytest.mark.asyncio
+async def test_call_workers_ai_chat_parses_schema(monkeypatch, cf_settings):
+    fake = _FakeAsyncClient(
+        200,
+        {"result": {"response": '{"content": "A post", "hashtags": ["#ai"], "suggested_media": null}'}},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_chat(
+        "Write a post",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        api_key="tok-456",
+        schema={"type": "object"},
+    )
+
+    assert result["content"] == "A post"
+    assert result["hashtags"] == ["#ai"]
+    # User message was augmented with the JSON instruction
+    assert "Return ONLY valid JSON" in fake.last_json["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
