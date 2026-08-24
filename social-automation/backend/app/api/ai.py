@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,15 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.inference import _call_nvidia_flux, _call_nvidia_flux_dev, _call_nvidia_flux_pipeline, call_inference, get_team_id_for_user
+from app.services.inference import (
+    STT_MODELS,
+    _call_nvidia_flux,
+    _call_nvidia_flux_dev,
+    _call_nvidia_flux_pipeline,
+    call_inference,
+    get_team_id_for_user,
+    transcribe_workers_ai,
+)
 
 router = APIRouter()
 settings = get_settings()
@@ -105,6 +113,73 @@ async def call_ollama(prompt: str, model: str = None, schema: dict = None) -> di
     """Backwards-compatible shim — delegates to the unified inference service.
     Defaults to Groq (cloud) instead of Ollama for faster inference."""
     return await call_inference(prompt, provider_name="groq", schema=schema, model_override=model)
+
+
+class TranscribeResponse(BaseModel):
+    text: str
+    language: str | None = None
+    duration: float | None = None
+    detections: dict | None = None  # any extra fields the model returned
+
+
+# Workers AI rejects request bodies over ~25 MB; keep a conservative cap so the
+# frontend recorder (WAV, 16 kHz mono) can never exceed it.
+MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024
+
+
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio(
+    file: UploadFile = File(..., description="Audio upload (WAV, MP3, M4A, OGG…)"),
+    model: str | None = Form(None, description="Workers AI STT model id, e.g. @cf/openai/whisper"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transcribe a speech audio clip using a Cloudflare Workers AI STT model."""
+    if model in STT_MODELS:
+        model = STT_MODELS[model]
+    if not model:
+        model = STT_MODELS["whisper"]
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+    if len(content) > MAX_AUDIO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file too large ({len(content)} bytes). Max is {MAX_AUDIO_SIZE_BYTES} bytes — trim or compress it.",
+        )
+
+    try:
+        result = await transcribe_workers_ai(
+            content,
+            file.content_type or "application/octet-stream",
+            model=model_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Transcription error: {exc}")
+
+    if not result.get("text"):
+        raise HTTPException(
+            status_code=422,
+            detail="Model returned empty transcription — no speech detected. Try clearer audio or another model.",
+        )
+
+    extra = {
+        k: v
+        for k, v in result.items()
+        if k not in ("text", "language", "detected_language", "speech_language", "duration", "duration_seconds")
+    }
+    return TranscribeResponse(
+        text=result["text"],
+        language=result.get("language")
+        or result.get("detected_language")
+        or result.get("speech_language"),
+        duration=result.get("duration")
+        or result.get("duration_seconds"),
+        detections=extra or None,
+    )
 
 
 class GenerateImagePromptRequest(BaseModel):

@@ -375,6 +375,14 @@ export const aiApi = {
     include_cta?: boolean
     provider?: string
   }) => api.post('/ai/generate-carousel', data),
+  transcribeAudio: (file: File, model?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (model) form.append('model', model)
+    return api.post('/ai/transcribe', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
 
 export default api

@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     HUGGINGFACE_API_KEY: str = ""
     FAL_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    CLOUDFLARE_API_TOKEN: str = ""
+    CLOUDFLARE_ACCOUNT_ID: str = ""
 
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"

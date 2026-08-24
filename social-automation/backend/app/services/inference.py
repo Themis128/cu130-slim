@@ -119,6 +119,15 @@ PROVIDER_CATALOG = [
         "description": "Local NVIDIA NIM for Stable Diffusion 3.5 (requires local GPU)",
         "model_examples": ["stable-diffusion-3.5-large"],
     },
+    {
+        "name": "cloudflare",
+        "display_name": "Cloudflare Workers AI",
+        "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
+        "default_model": "@cf/black-forest-labs/flux-1",
+        "requires_key": True,
+        "description": "Cloudflare Workers AI — free tier with FLUX and Stable Diffusion models",
+        "model_examples": ["@cf/black-forest-labs/flux-1", "@cf/stabilityai/stable-diffusion-xl-base-1.0"]
+    },
 ]
 
 
@@ -147,7 +156,7 @@ async def _get_provider_config(
         record = result.scalar_one_or_none()
         if record:
             api_key = decrypt_token(record.api_key_enc) if record.api_key_enc else None
-            return record.base_url, record.default_model, api_key
+            return _resolve_base_url(provider_name, record.base_url), record.default_model, api_key
 
     # Fallback to catalog defaults with env var API keys
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == provider_name), None)
@@ -163,11 +172,90 @@ async def _get_provider_config(
         "openai": settings.OPENAI_API_KEY,
         "nvidia-flux": settings.NVIDIA_API_KEY,
         "nvidia-flux-dev": settings.NVIDIA_API_KEY,
+        "cloudflare": settings.CLOUDFLARE_API_TOKEN,
     }
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
 
-    return catalog["base_url"], catalog["default_model"], api_key
+    return _resolve_base_url(provider_name, catalog["base_url"]), catalog["default_model"], api_key
+
+
+def _resolve_base_url(provider_name: str, base_url: str) -> str:
+    """Substitute Cloudflare account ID (or other placeholders) into a provider base URL."""
+    if provider_name == "cloudflare" and "{account_id}" in base_url:
+        return base_url.replace("{account_id}", settings.CLOUDFLARE_ACCOUNT_ID)
+    return base_url
+
+
+# Speech-to-text model identifiers available on Cloudflare Workers AI
+STT_MODELS: dict[str, str] = {
+    "whisper": "@cf/openai/whisper",
+    "wav2vec2": "@cf/facebook/wav2vec2-base-960h",
+    "speechbrain": "@cf/speechbrain/asr-cnn-transformer",
+}
+
+
+async def transcribe_workers_ai(
+    audio_bytes: bytes,
+    content_type: str,
+    model: str = "@cf/openai/whisper",
+    api_key: str | None = None,
+) -> dict:
+    """Transcribe raw audio with a Cloudflare Workers AI speech-to-text model.
+
+    Workers AI's STT models expect the audio bytes posted directly to
+    ``/accounts/{account_id}/ai/run/{model}`` with a binary content type,
+    returning ``{"result": {"text": ...}}``.
+    """
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    api_key = (api_key or settings.CLOUDFLARE_API_TOKEN or "").strip()
+
+    if not account_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "CLOUDFLARE_ACCOUNT_ID is not configured. Add it to the root "
+                "`.env` (or Settings → AI Providers) and restart social-api."
+            ),
+        )
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+        )
+
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/"
+        f"{model}"
+    )
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": content_type or "application/octet-stream",
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, content=audio_bytes)
+
+    if resp.status_code != 200:
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text[:400]
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Cloudflare Workers AI transcription error {resp.status_code}: "
+                f"{detail}"
+            ),
+        )
+
+    data = resp.json()
+    result = data.get("result") or {}
+    text = (result.get("text") or "").strip()
+    return {
+        "text": text,
+        **{k: v for k, v in result.items() if k != "text"},
+    }
 
 
 async def call_inference(
@@ -297,7 +385,7 @@ async def _call_nvidia_flux(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         resp = await client.post(base_url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX API error {resp.status_code}: {resp.text[:400]}")
@@ -346,7 +434,7 @@ async def _call_nvidia_flux_dev(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         resp = await client.post(base_url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"NVIDIA FLUX.1-dev API error {resp.status_code}: {resp.text[:400]}")
@@ -390,7 +478,7 @@ async def _call_local_sd35(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         resp = await client.post(base_url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Local SD3.5 NIM error {resp.status_code}: {resp.text[:400]}")

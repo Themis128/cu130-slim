@@ -15,6 +15,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   openai: '✨',
   groq: '⚡',
   together: '🔗',
+  cloudflare: '☁️',
 }
 
 export default function AIProvidersPage() {
