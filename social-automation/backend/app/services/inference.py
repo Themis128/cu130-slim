@@ -313,7 +313,12 @@ async def _call_workers_ai_chat(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI error {resp.status_code}: {resp.text[:400]}")
 
-    response_text = ((resp.json().get("result") or {}).get("response", "") or "").strip()
+    raw = (resp.json().get("result") or {}).get("response", "")
+    if isinstance(raw, dict):
+        # Structured-output models return the parsed JSON object directly
+        # (e.g. {"content": ..., "hashtags": [...]}).
+        return raw
+    response_text = str(raw or "").strip()
     if schema:
         return _parse_json_response(response_text)
     return {"text": response_text}

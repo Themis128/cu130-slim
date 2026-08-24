@@ -162,6 +162,26 @@ async def test_call_workers_ai_chat_parses_schema(monkeypatch, cf_settings):
 
 
 @pytest.mark.asyncio
+async def test_call_workers_ai_chat_handles_structured_dict_response(monkeypatch, cf_settings):
+    """Newer Workers AI models return `result.response` already parsed as a dict
+    when the model emits structured JSON."""
+    fake = _FakeAsyncClient(
+        200,
+        {"result": {"response": {"content": "A post", "hashtags": ["#ai"], "suggested_media": None}}},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_chat(
+        "Write a post",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        api_key="tok-456",
+        schema={"type": "object"},
+    )
+
+    assert result == {"content": "A post", "hashtags": ["#ai"], "suggested_media": None}
+
+
+@pytest.mark.asyncio
 async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
