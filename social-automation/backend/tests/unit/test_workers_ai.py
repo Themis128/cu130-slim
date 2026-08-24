@@ -120,3 +120,31 @@ def test_resolve_base_url_leaves_other_providers_untouched():
 
 def test_stt_models_catalog_has_whisper():
     assert inference.STT_MODELS["whisper"] == "@cf/openai/whisper"
+
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_chat_success(monkeypatch, cf_settings):
+    fake = _FakeAsyncClient(200, {"result": {"response": "Hello there!"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_chat(
+        "Say hi",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        api_key="tok-456",
+        max_tokens=32,
+    )
+
+    assert result == {"text": "Hello there!"}
+    assert fake.last_url.endswith("/ai/run/@cf/meta/llama-3.1-8b-instruct")
+    assert fake.last_json["messages"][-1]["content"] == "Say hi"
+    assert fake.last_json["max_tokens"] == 32
+
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await inference._call_workers_ai_chat("hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456")
+    assert exc_info.value.status_code == 400

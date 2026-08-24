@@ -125,8 +125,15 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
         "default_model": "@cf/black-forest-labs/flux-1",
         "requires_key": True,
-        "description": "Cloudflare Workers AI — free tier with FLUX and Stable Diffusion models",
-        "model_examples": ["@cf/black-forest-labs/flux-1", "@cf/stabilityai/stable-diffusion-xl-base-1.0"]
+        "description": "Cloudflare Workers AI — free tier with LLM, FLUX image and Whisper speech-to-text models",
+        "model_examples": [
+            "@cf/openai/whisper",
+            "@cf/facebook/wav2vec2-base-960h",
+            "@cf/speechbrain/asr-cnn-transformer",
+            "@cf/meta/llama-3.1-8b-instruct",
+            "@cf/black-forest-labs/flux-1",
+            "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        ],
     },
 ]
 
@@ -258,6 +265,52 @@ async def transcribe_workers_ai(
     }
 
 
+async def _call_workers_ai_chat(
+    prompt: str,
+    model: str,
+    api_key: str,
+    max_tokens: int | None = None,
+) -> dict:
+    """Call a Cloudflare Workers AI text-generation model.
+
+    Workers AI does NOT expose OpenAI's ``/chat/completions``. It uses
+    ``POST /accounts/{account_id}/ai/run/{model}`` with ``{"messages": [...]}``
+    and returns ``{"result": {"response": ...}}``.
+    """
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    api_key = (api_key or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+
+    if not account_id:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_ACCOUNT_ID is not configured. Add it to the root `.env` and restart social-api.",
+        )
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+        )
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    payload: dict = {
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ]
+    }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI error {resp.status_code}: {resp.text[:400]}")
+
+    response_text = (resp.json().get("result") or {}).get("response", "")
+    return {"text": response_text.strip()}
+
+
 async def call_inference(
     prompt: str,
     provider_name: str = "groq",
@@ -279,6 +332,8 @@ async def call_inference(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
         )
+    if provider_name == "cloudflare":
+        return await _call_workers_ai_chat(prompt, model=model, api_key=api_key, max_tokens=max_tokens)
     return await _call_openai_compat(prompt, base_url=base_url, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
 
 

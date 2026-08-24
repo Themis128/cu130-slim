@@ -170,4 +170,3 @@ export function VoiceRecorder({ onTranscript, model, disabled, className }: Voic
     </div>
   )
 }
-}

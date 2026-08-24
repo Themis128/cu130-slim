@@ -153,7 +153,7 @@ async def transcribe_audio(
         result = await transcribe_workers_ai(
             content,
             file.content_type or "application/octet-stream",
-            model=model_id,
+            model=model,
         )
     except HTTPException:
         raise
