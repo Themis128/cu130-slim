@@ -43,7 +43,7 @@ services:
       - N8N_INSTANCE_OWNER_EMAIL=tbaltzakis@cloudless.gr
       - N8N_INSTANCE_OWNER_FIRST_NAME=Admin
       - N8N_INSTANCE_OWNER_LAST_NAME=User
-      - N8N_INSTANCE_OWNER_PASSWORD_HASH=$$2b$$12$$ufbZmJLRf3VKM9DxenxC3.S3zsafUy8QOV/BGvegeqouJxY6FSZSC
+      - N8N_INSTANCE_OWNER_PASSWORD_HASH=$$2b$$12$$cbxuDgL.W7xWIKoOSbOYCuo5tVtItj7RQNkYM94UWTdXnZomaQaC.
       # Encryption key (must be set before first start, especially in queue mode)
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       # Public REST API - enable for programmatic access

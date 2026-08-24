@@ -384,6 +384,14 @@ export const aiApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  /** Queue a batch of requests against a Workers AI model (?queueRequest=true). */
+  submitBatchInference: (data: {
+    model: string
+    requests: Array<Record<string, unknown> & { external_reference?: string }>
+  }) => api.post('/ai/workers-ai/batch', data),
+  /** Poll/retrieve results of a previously submitted batch request. */
+  retrieveBatchInference: (data: { model: string; request_id: string }) =>
+    api.post('/ai/workers-ai/batch/retrieve', data),
 }
 
 export default api
