@@ -62,10 +62,10 @@ const platforms: PlatformSetup[] = [
         text: 'Open the "Auth" tab of your new app. Copy the Client ID and Client Secret.',
         note: 'Click "Generate" next to Client Secret if it\'s empty.',
       },
-      {
-        text: 'Under "OAuth 2.0 Settings", add this Redirect URL:',
-        code: 'http://localhost:8083/api/v1/auth/callback/linkedin',
-      },
+{
+	        text: 'Under "OAuth 2.0 Settings", add this Redirect URL:',
+	        code: 'http://localhost:8083/api/v1/auth/oauth/linkedin/callback',
+	      },
       {
         text: 'Open the "Products" tab and request both "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect".',
         note: 'Approval is instant for most products.',
@@ -96,10 +96,10 @@ const platforms: PlatformSetup[] = [
       {
         text: 'Under "User authentication settings" → enable OAuth 2.0. Set App permissions to "Read and Write". Set Type of App to "Web App".',
       },
-      {
-        text: 'Add this Callback URI and Website URL:',
-        code: 'http://localhost:8083/api/v1/auth/callback/twitter',
-      },
+{
+	        text: 'Add this Callback URI and Website URL:',
+	        code: 'http://localhost:8083/api/v1/auth/oauth/twitter/callback',
+	      },
       {
         text: 'Go to "Keys and Tokens". Copy OAuth 2.0 Client ID → TWITTER_CLIENT_ID, and Client Secret → TWITTER_CLIENT_SECRET.',
       },
@@ -137,10 +137,10 @@ const platforms: PlatformSetup[] = [
         text: 'Go to Settings → Basic. Copy App ID → INSTAGRAM_CLIENT_ID, and App Secret → INSTAGRAM_CLIENT_SECRET.',
         note: 'Click "Show" next to App Secret — you\'ll need to re-enter your password.',
       },
-      {
-        text: 'Under Instagram Graph API → Settings, add this redirect URI:',
-        code: 'http://localhost:8083/api/v1/auth/callback/instagram',
-      },
+{
+	        text: 'Under Instagram Graph API → Settings, add this redirect URI:',
+	        code: 'http://localhost:8083/api/v1/auth/oauth/instagram/callback',
+	      },
       {
         text: 'Connect your Instagram Business or Creator account to your Facebook Page (required for API access).',
         note: 'Personal Instagram accounts cannot publish via API. Switch to a Creator or Business profile in the Instagram app.',
@@ -168,10 +168,10 @@ const platforms: PlatformSetup[] = [
       {
         text: 'You can reuse the same app you created for Instagram, or create a new one. Either way, add the "Facebook Login" product.',
       },
-      {
-        text: 'Under Facebook Login → Settings, add this valid OAuth Redirect URI:',
-        code: 'http://localhost:8083/api/v1/auth/callback/facebook',
-      },
+{
+	        text: 'Under Facebook Login → Settings, add this valid OAuth Redirect URI:',
+	        code: 'http://localhost:8083/api/v1/auth/oauth/facebook/callback',
+	      },
       {
         text: 'Go to Settings → Basic. Copy App ID → FACEBOOK_CLIENT_ID and App Secret → FACEBOOK_CLIENT_SECRET.',
       },
@@ -206,10 +206,10 @@ const platforms: PlatformSetup[] = [
       {
         text: 'Under Threads API → Quickstart → add your Threads / Instagram account as a test user.',
       },
-      {
-        text: 'Add this redirect URI under Threads API → Settings:',
-        code: 'http://localhost:8083/api/v1/auth/callback/threads',
-      },
+{
+	        text: 'Add this redirect URI under Threads API → Settings:',
+	        code: 'http://localhost:8083/api/v1/auth/oauth/threads/callback',
+	      },
       {
         text: 'Go to Settings → Basic. Copy App ID → THREADS_CLIENT_ID and App Secret → THREADS_CLIENT_SECRET.',
         note: 'These may be the same values as your Facebook/Instagram app if you added Threads to the same app.',

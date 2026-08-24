@@ -179,7 +179,7 @@ export default function AIProvidersPage() {
                     <Input
                       value={form.base_url}
                       onChange={e => setField(entry.name, 'base_url', e.target.value)}
-                      placeholder={entry.base_url || 'http://localhost:11434'}
+                      placeholder={entry.base_url || 'http://localhost:11435'}
                       className="text-xs"
                     />
                   </div>

@@ -73,23 +73,23 @@ class Settings(BaseSettings):
     # Social OAuth
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
-    LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/linkedin"
+    LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/linkedin/callback"
 
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
-    TWITTER_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/twitter"
+    TWITTER_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/twitter/callback"
 
     INSTAGRAM_CLIENT_ID: str = ""
     INSTAGRAM_CLIENT_SECRET: str = ""
-    INSTAGRAM_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/instagram"
+    INSTAGRAM_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/instagram/callback"
 
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
-    FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/facebook"
+    FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/facebook/callback"
 
     THREADS_CLIENT_ID: str = ""
     THREADS_CLIENT_SECRET: str = ""
-    THREADS_REDIRECT_URI: str = "http://localhost:8083/settings/accounts/callback/threads"
+    THREADS_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/threads/callback"
 
 
 settings = Settings()

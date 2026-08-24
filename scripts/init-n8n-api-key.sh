@@ -4,9 +4,15 @@
 
 set -e
 
+# Load N8N_USER and N8N_PASSWORD from .env file
+if [ -f /home/tbaltzakis/ComfyUI-Docker/cu130-slim/.env ]; then
+  export $(grep -v '^#' /home/tbaltzakis/ComfyUI-Docker/cu130-slim/.env | xargs)
+else
+  echo "Error: .env file not found at /home/tbaltzakis/ComfyUI-Docker/cu130-slim/.env"
+  exit 1
+fi
+
 N8N_URL="http://localhost:5678"
-N8N_USER="admin@n8n.local"
-N8N_PASSWORD="secure_password"
 API_KEY_LABEL="social-automation-api-key"
 API_KEY_EXPIRY_DAYS=365
 

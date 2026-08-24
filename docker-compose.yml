@@ -105,7 +105,7 @@ services:
       - MB_DB_USER=${METABASE_DB_USER}
       - MB_DB_PASS=${METABASE_DB_PASS}
       - MB_DB_HOST=postgres
-- MB_EMAIL=${MB_EMAIL}
+      - MB_EMAIL=${MB_EMAIL}
       - MB_PASSWORD=${MB_PASSWORD}
     depends_on:
       - postgres
@@ -234,6 +234,12 @@ services:
       - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
       - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
       - FACEBOOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/facebook/callback
+      - THREADS_CLIENT_ID=${THREADS_CLIENT_ID}
+      - THREADS_CLIENT_SECRET=${THREADS_CLIENT_SECRET}
+      - THREADS_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/threads/callback
+      - THREADS_CLIENT_ID=${THREADS_CLIENT_ID}
+      - THREADS_CLIENT_SECRET=${THREADS_CLIENT_SECRET}
+      - THREADS_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/threads/callback
     volumes:
       - ./.env:/app/.env:rw
       - ./social-automation/backend/app:/app/app
@@ -284,7 +290,7 @@ services:
     ports:
       - "8082:8083"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
+      - NEXT_PUBLIC_API_URL=http://social-api:8000/api/v1
       - PORT=8083
     depends_on:
       - social-api
