@@ -322,12 +322,51 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await expect(page.getByText('Provider saved')).toBeVisible({ timeout: 15_000 })
   }, { timeout: 60_000 })
 
-  test('Test provider button fires a real Cloudflare connectivity check', async ({ page }) => {
+    test('Test provider button fires a real Cloudflare connectivity check', async ({ page }) => {
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
     await cfCard.getByRole('button', { name: /^test$/i }).click()
     // Success toast reads: Connected! "<response…>"
     await expect(page.getByText(/connected!/i)).toBeVisible({ timeout: 45_000 })
   }, { timeout: 60_000 })
+
+  test('VoiceRecorder uploads real (fake-device) audio to the live /ai/transcribe endpoint', async ({
+    page,
+    browserName,
+  }) => {
+    // Fake-device microphone capture is Chromium-only for the bundled browsers.
+    test.skip(browserName !== 'chromium', 'fake audio device is Chromium-only')
+    test.setTimeout(120_000)
+
+    const transcribeResp = page.waitForResponse(
+      (r) => r.url().includes('/api/v1/ai/transcribe'),
+      { timeout: 60_000 },
+    )
+    await page.goto('/content/new')
+    // Wait for the content editor to be ready (its placeholder is unique).
+    await expect(page.getByPlaceholder('What do you want to share?')).toBeVisible({ timeout: 20_000 })
+
+    // The recorder button carries an explicit aria-label.
+    await page.getByRole('button', { name: 'Record and transcribe speech' }).click()
+    // While recording the same button flips to "Stop recording"
+    const stopBtn = page.getByRole('button', { name: 'Stop recording' })
+    await expect(stopBtn).toBeVisible()
+    // Capture a couple seconds of the fake-device tone.
+    await page.waitForTimeout(3000)
+    await stopBtn.click()
+
+    const resp = await transcribeResp
+    expect([200, 422]).toContain(resp.status())
+
+    if (resp.status() === 200) {
+      // Real Whisper output — transcript injected into the editor + success toast.
+      await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 15_000 })
+    } else {
+      // Empty/inaudible tone → backend 422, frontend must NOT crash.
+      await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 15_000 })
+    }
+  }, { retry: 1 })
+})
+
 
 
