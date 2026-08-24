@@ -19,6 +19,7 @@ import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '
 import { contentApi, aiApi } from '@/services/api'
 import type { SocialAccount } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
+import { VoiceRecorder } from '@/components/content/VoiceRecorder'
 import { cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -370,6 +371,14 @@ export default function NewPostPage() {
     } catch { toast.error('Failed to generate content') }
     finally { setAiGenerating(false) }
   }
+
+  const handleTranscript = useCallback((text: string) => {
+    const transcript = text.trim()
+    if (!transcript) return
+    setContent(prev => (prev.trim() ? `${prev.trim()}\n\n${transcript}` : transcript))
+    setAiUsed(true)
+    setOpenVariants(new Set())
+  }, [])
 
   const handleRepurpose = async () => {
     if (!content.trim()) { toast.error('Add some content first'); return }

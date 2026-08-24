@@ -73,4 +73,100 @@ async function toWav16k(blob: Blob): Promise<Blob> {
   } finally {
     void ctx.close()
   }
+export function VoiceRecorder({ onTranscript, model, disabled, className }: VoiceRecorderProps) {
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const mimeTypeRef = useRef('')
+
+  const handleStop = useCallback(async () => {
+    const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || 'audio/webm' })
+    if (!blob.size) {
+      toast.error('No audio was captured')
+      return
+    }
+
+    setTranscribing(true)
+    try {
+      const wav = await toWav16k(blob)
+      const file = new File([wav], 'recording.wav', { type: 'audio/wav' })
+      const res = await aiApi.transcribeAudio(file, model)
+      const text = ((res.data as { text?: string } | undefined)?.text || '').trim()
+      if (!text) {
+        toast.error('No speech detected — try speaking closer to the mic')
+        return
+      }
+      onTranscript(text)
+      toast.success('Transcript added to your post')
+    } catch {
+      toast.error('Transcription failed — check Cloudflare setup in Settings → AI Providers')
+    } finally {
+      setTranscribing(false)
+    }
+  }, [model, onTranscript])
+
+  const startRecording = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        toast.error('Audio recording is not supported in this browser')
+        return
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+      const mime = candidates.find((c) => MediaRecorder.isTypeSupported(c)) || ''
+      mimeTypeRef.current = mime
+
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      chunksRef.current = []
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+      recorder.onstop = () => {
+        void handleStop()
+      }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setRecording(true)
+    } catch {
+      toast.error('Microphone access denied — check browser permissions')
+    }
+  }, [handleStop])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    setRecording(false)
+  }, [])
+
+  const isBusy = transcribing
+  return (
+    <div className={className}>
+      <Button
+        type="button"
+        variant={recording ? 'destructive' : 'outline'}
+        size="sm"
+        onClick={recording ? stopRecording : () => void startRecording()}
+        disabled={disabled || isBusy}
+        aria-label={recording ? 'Stop recording' : 'Record and transcribe speech'}
+        className="gap-1.5"
+      >
+        {transcribing ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : recording ? (
+          <Square className="h-3.5 w-3.5" />
+        ) : (
+          <Mic className="h-3.5 w-3.5" />
+        )}
+        {transcribing ? 'Transcribing…' : recording ? 'Stop' : 'Voice'}
+      </Button>
+    </div>
+  )
+}
 }
