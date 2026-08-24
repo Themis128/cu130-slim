@@ -1,15 +1,18 @@
 import os
 from pathlib import Path
 
-# Load environment variables from .env file if it exists
-env_path = Path(__file__).parent.parent.parent / '.env'
-if env_path.exists():
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ[key] = value.strip('"')
+# Only load .env file if not in CI environment
+is_ci = os.environ.get("CI") == "true"
+if not is_ci:
+    # Load environment variables from .env file if it exists
+    env_path = Path(__file__).parent.parent.parent / '.env'
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value.strip('"')
 
 # Override UPLOAD_DIR for tests to a temporary directory
 os.environ["UPLOAD_DIR"] = "/tmp/uploads"
@@ -17,14 +20,14 @@ os.environ["UPLOAD_DIR"] = "/tmp/uploads"
 # Ensure the uploads directory exists
 os.makedirs(os.environ["UPLOAD_DIR"], exist_ok=True)
 
-# Only override database URL if not already set (e.g., by CI)
-if "DATABASE_URL" not in os.environ:
+# Only override database URL for local development (not CI)
+if not is_ci and "DATABASE_URL" not in os.environ:
     # Override the database URL to use the host port for the social-postgres container
     # The social-postgres container is mapped to port 5433 on the host
     os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres_password@localhost:5433/social"
 
-# Only override redis URL if not already set (e.g., by CI)
-if "REDIS_URL" not in os.environ:
+# Only override redis URL for local development (not CI)
+if not is_ci and "REDIS_URL" not in os.environ:
     # Override the redis URL to use the host port for the redis container
     # The redis container is mapped to port 6379 on the host
     os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
