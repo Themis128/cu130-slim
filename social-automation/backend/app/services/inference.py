@@ -292,9 +292,15 @@ async def transcribe_workers_ai(
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/"
         f"{model}"
     )
+    # Workers AI STT models validate the Content-Type header — generic values
+    # like ``application/octet-stream`` make e.g. whisper-large-v3-turbo fail
+    # with "Invalid input (8001)". Normalize to a real audio type.
+    normalized_type = (
+        content_type if content_type and content_type.startswith("audio/") else "audio/wav"
+    )
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": content_type or "application/octet-stream",
+        "Content-Type": normalized_type,
     }
 
     async with httpx.AsyncClient(timeout=120.0) as client:

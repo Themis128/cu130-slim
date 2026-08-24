@@ -253,3 +253,20 @@ async def test_list_workers_ai_models_requires_credentials(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await inference.list_workers_ai_models()
     assert exc.value.status_code == 400
+
+@pytest.mark.asyncio
+async def test_transcribe_normalizes_content_type(monkeypatch, cf_settings):
+    """Generic content types must be rewritten — Workers AI rejects them (8001)."""
+    fake = _FakeAsyncClient(200, {"result": {"text": "hi"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
+
+    await inference.transcribe_workers_ai(
+        b"RIFF", "application/octet-stream", model="@cf/openai/whisper"
+    )
+    assert fake.last_headers["Content-Type"] == "audio/wav"
+
+    await inference.transcribe_workers_ai(b"RIFF", "audio/mpeg", model="@cf/openai/whisper")
+    assert fake.last_headers["Content-Type"] == "audio/mpeg"
+
+    await inference.transcribe_workers_ai(b"RIFF", None, model="@cf/openai/whisper")
+    assert fake.last_headers["Content-Type"] == "audio/wav"
