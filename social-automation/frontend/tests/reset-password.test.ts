@@ -24,8 +24,8 @@ test.describe('Reset Password Page', () => {
 
   test('should show error for passwords not matching', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabelText('New Password').fill('password123');
-    await page.getByLabelText('Confirm New Password').fill('different');
+    await page.getByRole('textbox', { name: 'New Password' }).fill('password123');
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('different');
     await page.getByRole('button', { name: /reset password/i }).click();
     await expect(page.getByText(/passwords do not match/i)).toBeVisible();
   });
