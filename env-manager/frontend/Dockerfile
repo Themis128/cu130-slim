@@ -1,6 +1,10 @@
+# Build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+
+# Install system dependencies and apply OS security patches
+RUN apk update && apk upgrade --available
 
 COPY package*.json ./
 RUN npm install
@@ -9,6 +13,9 @@ COPY . .
 RUN npm run build
 
 FROM nginx:alpine
+
+# Install system dependencies and apply OS security patches
+RUN apk update && apk upgrade --available
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

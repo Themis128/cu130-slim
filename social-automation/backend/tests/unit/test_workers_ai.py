@@ -270,3 +270,160 @@ async def test_transcribe_normalizes_content_type(monkeypatch, cf_settings):
 
     await inference.transcribe_workers_ai(b"RIFF", None, model="@cf/openai/whisper")
     assert fake.last_headers["Content-Type"] == "audio/wav"
+
+
+# ---------------------------------------------------------------------------
+# Workers AI image generation routing tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("@cf/stabilityai/stable-diffusion-xl-base-1.0", True),
+        ("@cf/stabilityai/sdxl-base-1.0", True),
+        ("@cf/black-forest-labs/flux-1-schnell", True),
+        ("@cf/runwayml/stable-diffusion-v1-5", True),
+        ("@cf/meta/llama-3.1-8b-instruct", False),
+        ("@cf/openai/whisper", False),
+        ("@cf/qwen/qwen3-30b-a3b-fp8", False),
+        ("@cf/deepgram/nova-3", False),
+    ],
+)
+def test_is_workers_ai_image_model(model, expected):
+    """Image-generation models are detected by keyword; text models are not."""
+    assert inference._is_workers_ai_image_model(model) is expected
+
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_image_success(monkeypatch, cf_settings):
+    """_call_workers_ai_image sends a prompt payload and returns base64 image."""
+    fake = _FakeAsyncClient(200, {"result": {"image": "iVBORw0KGgo=="}, "success": True})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_image(
+        "A beautiful sunset over mountains",
+        model="@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        api_key="tok-456",
+    )
+
+    assert result["image_base64"] == "iVBORw0KGgo=="
+    assert result["format"] == "base64"
+    assert result["prompt"] == "A beautiful sunset over mountains"
+    assert fake.last_url == (
+        "https://api.cloudflare.com/client/v4/accounts/account-123"
+        "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
+    )
+    assert fake.last_headers["Authorization"] == "Bearer tok-456"
+    assert fake.last_json["prompt"] == "A beautiful sunset over mountains"
+    assert "messages" not in fake.last_json
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_image_missing_credentials(monkeypatch):
+    """_call_workers_ai_image raises 400 if Cloudflare creds are absent."""
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await inference._call_workers_ai_image(
+            "hi", model="@cf/stabilityai/stable-diffusion-xl-base-1.0"
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_call_inference_cloudflare_image_model_with_schema_raises(monkeypatch, cf_settings):
+    """A schema (structured text) with an image model raises a clear 400."""
+    async def fake_config(provider_name, team_id, db):
+        return (
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/",
+            "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            None,
+        )
+
+    monkeypatch.setattr(inference, "_get_provider_config", fake_config)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await inference.call_inference(
+            "Generate a carousel about AI",
+            provider_name="cloudflare",
+            model_override="@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            schema={"type": "object"},
+        )
+    assert exc_info.value.status_code == 400
+    assert "image-generation model" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_call_inference_cloudflare_image_model_no_schema(monkeypatch, cf_settings):
+    """Image model without schema routes to _call_workers_ai_image (not chat)."""
+    fake = _FakeAsyncClient(200, {"result": {"image": "base64data=="}, "success": True})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    async def fake_config(provider_name, team_id, db):
+        return (
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/",
+            "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            "tok-456",
+        )
+
+    monkeypatch.setattr(inference, "_get_provider_config", fake_config)
+
+    result = await inference.call_inference(
+        "A sunset mountain landscape",
+        provider_name="cloudflare",
+        model_override="@cf/stabilityai/stable-diffusion-xl-base-1.0",
+    )
+    assert result["image_base64"] == "base64data=="
+    assert fake.last_json["prompt"] == "A sunset mountain landscape"
+    assert "messages" not in fake.last_json
+
+
+@pytest.mark.asyncio
+async def test_call_inference_cloudflare_text_model(monkeypatch, cf_settings):
+    """Text model routes to _call_workers_ai_chat (messages payload)."""
+    fake = _FakeAsyncClient(200, {"result": {"response": "Hello!"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    async def fake_config(provider_name, team_id, db):
+        return (
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/",
+            "@cf/meta/llama-3.1-8b-instruct",
+            "tok-456",
+        )
+
+    monkeypatch.setattr(inference, "_get_provider_config", fake_config)
+
+    result = await inference.call_inference(
+        "Say hi",
+        provider_name="cloudflare",
+        model_override="@cf/meta/llama-3.1-8b-instruct",
+        max_tokens=32,
+    )
+    assert result == {"text": "Hello!"}
+    assert "messages" in fake.last_json
+    assert fake.last_json["max_tokens"] == 32
+
+
+@pytest.mark.asyncio
+async def test_call_inference_cloudflare_no_key_uses_env_fallback(monkeypatch, cf_settings):
+    """No per-team key for Cloudflare falls back to CLOUDFLARE_API_TOKEN env var."""
+    fake = _FakeAsyncClient(200, {"result": {"response": "Hi from env!"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    async def fake_config(provider_name, team_id, db):
+        return (
+            "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/",
+            "@cf/meta/llama-3.1-8b-instruct",
+            None,
+        )
+
+    monkeypatch.setattr(inference, "_get_provider_config", fake_config)
+
+    result = await inference.call_inference(
+        "Say hello",
+        provider_name="cloudflare",
+        model_override="@cf/meta/llama-3.1-8b-instruct",
+    )
+    assert result == {"text": "Hi from env!"}
+    assert fake.last_headers["Authorization"] == "Bearer tok-456"

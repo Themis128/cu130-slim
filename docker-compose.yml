@@ -117,7 +117,8 @@ services:
     ports:
       - "11435:11434"
     volumes:
-      - ./ollama:/root/.ollama
+      - ./ollama/models:/root/.ollama/models
+      - ./ollama/cache:/root/.ollama/cache
     restart: unless-stopped
     deploy:
       resources:

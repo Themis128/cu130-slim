@@ -361,6 +361,8 @@ class GenerateImageRequest(BaseModel):
     cfg_scale: float = 3.5
     seed: int = 0
     steps: int = 20
+    provider: str = "nvidia-flux-dev"  # nvidia-flux-dev | cloudflare
+    model: str | None = None  # e.g. "@cf/stabilityai/stable-diffusion-xl-base-1.0"
 
 
 class GenerateImageResponse(BaseModel):
@@ -376,8 +378,14 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate image using NVIDIA's hosted FLUX.1-dev API (cloud text-to-image)."""
+    """Generate an image via a text-to-image provider (NVIDIA FLUX.1-dev or Cloudflare Workers AI)."""
     import base64
+
+    from app.services.inference import (
+        _call_workers_ai_image,
+        _get_provider_config,
+        _is_workers_ai_image_model,
+    )
 
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
@@ -390,30 +398,47 @@ async def generate_image(
     if team:
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
 
-    # Get provider config - default to NVIDIA FLUX.1-dev (cloud)
-    provider_name = "nvidia-flux-dev"  # Default to cloud FLUX.1-dev
-    from app.services.inference import _get_provider_config
-    base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
+    provider_name = request.provider or "nvidia-flux-dev"
 
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No API key configured for {provider_name}. Add NVIDIA_API_KEY in .env or configure in Settings → AI Providers."
+    if provider_name == "cloudflare":
+        # Cloudflare Workers AI text-to-image (SDXL / FLUX models).
+        _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
+        model = request.model or model
+        if not _is_workers_ai_image_model(model):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"'{model}' is not a Workers AI text-to-image model. Use a model like "
+                    f"'@cf/stabilityai/stable-diffusion-xl-base-1.0' or '@cf/black-forest-labs/flux-1-schnell'."
+                ),
+            )
+        result = await _call_workers_ai_image(
+            prompt=request.prompt,
+            model=model,
+            api_key=api_key,
+            negative_prompt=request.negative_prompt,
+            steps=request.steps,
+            cfg_scale=request.cfg_scale,
         )
-
-    # Call NVIDIA FLUX.1-dev API (cloud)
-    image_bytes = await _call_nvidia_flux_dev(
-        prompt=request.prompt,
-        base_url=base_url,
-        api_key=api_key,
-        negative_prompt=request.negative_prompt,
-        cfg_scale=request.cfg_scale,
-        seed=request.seed,
-        steps=request.steps,
-    )
-
-    # Convert to base64 for response
-    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_base64 = result["image_base64"]
+    else:
+        # NVIDIA FLUX.1-dev (cloud) — default provider.
+        base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No API key configured for {provider_name}. Add NVIDIA_API_KEY in .env or configure in Settings → AI Providers."
+            )
+        image_bytes = await _call_nvidia_flux_dev(
+            prompt=request.prompt,
+            base_url=base_url,
+            api_key=api_key,
+            negative_prompt=request.negative_prompt,
+            cfg_scale=request.cfg_scale,
+            seed=request.seed,
+            steps=request.steps,
+        )
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
     # Store prompt in chroma so future generations can detect duplicates
     if team and request.prompt:
