@@ -1,7 +1,6 @@
----
 name: Docker CI
 
-"on":
+on:
   push:
     branches: [master]
     tags: ['v*']
