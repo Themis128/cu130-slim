@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
+import { randomUUID } from 'crypto';
 
 /**
  * Cloudflare Workers AI — full end-to-end coverage with NO mocks.

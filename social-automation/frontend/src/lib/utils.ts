@@ -36,9 +36,8 @@ export function truncate(str: string, length: number): string {
 }
 
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15)
+  return crypto.randomUUID().replace(/-/g, "").substring(0, 13);
 }
-
 export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
