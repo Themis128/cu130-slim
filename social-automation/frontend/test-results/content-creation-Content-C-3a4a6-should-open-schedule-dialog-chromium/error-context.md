@@ -12,23 +12,49 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: locator.click: Test ended.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /Schedule/i })
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]
+  - alert [ref=f1e131]
 ```
 
 # Test source
 
 ```ts
-  191 |     await expect(page.getByRole('button', { name: /Professional/i })).toBeVisible();
-  192 |     await expect(page.getByRole('button', { name: /Casual/i })).toBeVisible();
-  193 |     await expect(page.getByRole('button', { name: /Witty/i })).toBeVisible();
-  194 |     await expect(page.getByRole('button', { name: /Inspirational/i })).toBeVisible();
   195 |     await expect(page.getByRole('button', { name: /Educational/i })).toBeVisible();
   196 |   });
   197 | 
@@ -125,12 +151,12 @@ Call log:
   288 |   });
   289 | 
   290 |   test('should open schedule dialog', async ({ page }) => {
-> 291 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  291 |     await page.goto('/content/new');
   292 |     
   293 |     // Click schedule button
   294 |     const scheduleButton = page.getByRole('button', { name: /Schedule/i });
-  295 |     await scheduleButton.click();
+> 295 |     await scheduleButton.click();
+      |                          ^ Error: locator.click: Test ended.
   296 |     
   297 |     // Check for dialog
   298 |     await expect(page.getByRole('dialog')).toBeVisible();
@@ -227,4 +253,7 @@ Call log:
   389 |     
   390 |     // Check for preview placeholder
   391 |     await expect(page.getByText('Select a platform to see a live preview')).toBeVisible();
+  392 |     await expect(page.getByText('Your post will appear here as you type')).toBeVisible();
+  393 |   });
+  394 | });
 ```

@@ -12,14 +12,38 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded while running "beforeEach" hook.
-```
+Error: expect(page).toHaveURL(expected) failed
 
-```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Expected: "http://localhost:3001/content/new"
+Received: "http://localhost:3001/login"
+Timeout:  5000ms
+
 Call log:
-  - navigating to "http://localhost:3001/dashboard", waiting until "load"
+  - Expect "toHaveURL" with timeout 5000ms
+    13 × locator resolved to <html lang="en">…</html>
+       - unexpected value "http://localhost:3001/login"
 
+```
+
+```yaml
+- heading "Welcome back" [level=3]
+- paragraph: Sign in to your account to continue
+- text: Email
+- textbox "Email":
+  - /placeholder: you@example.com
+- text: Password
+- link "Forgot password?":
+  - /url: /forgot-password
+- textbox "Password":
+  - /placeholder: ••••••••
+- button "Sign in"
+- paragraph:
+  - text: Don't have an account?
+  - link "Sign up":
+    - /url: /register
+- button "Open Tanstack query devtools":
+  - img
+- alert
 ```
 
 # Test source
@@ -30,8 +54,7 @@ Call log:
   3   | test.describe('Content Creation Page', () => {
   4   |   test.beforeEach(async ({ page }) => {
   5   |     // Mock authentication
-> 6   |     await page.goto('/dashboard');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  6   |     await page.goto('/dashboard');
   7   |     
   8   |     // Mock connected accounts
   9   |     await page.route('**/api/accounts', async (route) => {
@@ -104,7 +127,8 @@ Call log:
   76  | 
   77  |   test('should load content creation page successfully', async ({ page }) => {
   78  |     await page.goto('/content/new');
-  79  |     await expect(page).toHaveURL('/content/new');
+> 79  |     await expect(page).toHaveURL('/content/new');
+      |                        ^ Error: expect(page).toHaveURL(expected) failed
   80  |     
   81  |     // Check for main heading
   82  |     await expect(page.getByRole('heading', { name: 'New Post' })).toBeVisible();
@@ -132,4 +156,77 @@ Call log:
   104 |     
   105 |     // Check for platform selector heading
   106 |     await expect(page.getByRole('heading', { name: 'Platforms' })).toBeVisible();
+  107 |     
+  108 |     // Check for connected platforms
+  109 |     await expect(page.getByText('LinkedIn')).toBeVisible();
+  110 |     await expect(page.getByText('Twitter / X')).toBeVisible();
+  111 |     
+  112 |     // Check for unconnected platforms (disabled)
+  113 |     await expect(page.getByText('Instagram')).toBeVisible();
+  114 |     await expect(page.getByText('Facebook')).toBeVisible();
+  115 |     await expect(page.getByText('Threads')).toBeVisible();
+  116 |   });
+  117 | 
+  118 |   test('should allow platform selection', async ({ page }) => {
+  119 |     await page.goto('/content/new');
+  120 |     
+  121 |     // Select LinkedIn
+  122 |     const linkedinButton = page.getByRole('button', { name: /LinkedIn/i }).first();
+  123 |     await linkedinButton.click();
+  124 |     
+  125 |     // Verify it's selected
+  126 |     await expect(linkedinButton).toHaveClass(/border-primary/);
+  127 |     
+  128 |     // Select Twitter as well
+  129 |     const twitterButton = page.getByRole('button', { name: /Twitter/i }).first();
+  130 |     await twitterButton.click();
+  131 |     
+  132 |     // Verify both are selected
+  133 |     await expect(twitterButton).toHaveClass(/border-primary/);
+  134 |   });
+  135 | 
+  136 |   test('should show error when selecting unconnected platform', async ({ page }) => {
+  137 |     await page.goto('/content/new');
+  138 |     
+  139 |     // Try to select Instagram (unconnected)
+  140 |     const instagramButton = page.getByRole('button', { name: /Instagram/i }).first();
+  141 |     await instagramButton.click();
+  142 |     
+  143 |     // Check for error toast
+  144 |     await expect(page.getByText(/Connect your instagram account first/i)).toBeVisible();
+  145 |   });
+  146 | 
+  147 |   test('should allow content typing in editor', async ({ page }) => {
+  148 |     await page.goto('/content/new');
+  149 |     
+  150 |     // Find the content textarea
+  151 |     const textarea = page.getByPlaceholder('What do you want to share?');
+  152 |     await expect(textarea).toBeVisible();
+  153 |     
+  154 |     // Type content
+  155 |     await textarea.fill('This is a test post for social media');
+  156 |     
+  157 |     // Verify content is entered
+  158 |     await expect(textarea).toHaveValue('This is a test post for social media');
+  159 |   });
+  160 | 
+  161 |   test('should display character count', async ({ page }) => {
+  162 |     await page.goto('/content/new');
+  163 |     
+  164 |     // Type content
+  165 |     const textarea = page.getByPlaceholder('What do you want to share?');
+  166 |     await textarea.fill('Test content');
+  167 |     
+  168 |     // Check for character count
+  169 |     await expect(page.getByText('12 chars')).toBeVisible();
+  170 |   });
+  171 | 
+  172 |   test('should show platform-specific character limits', async ({ page }) => {
+  173 |     await page.goto('/content/new');
+  174 |     
+  175 |     // Select LinkedIn first
+  176 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+  177 |     
+  178 |     // Type content
+  179 |     const textarea = page.getByPlaceholder('What do you want to share?');
 ```

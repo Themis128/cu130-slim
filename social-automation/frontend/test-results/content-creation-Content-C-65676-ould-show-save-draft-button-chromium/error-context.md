@@ -12,23 +12,47 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByRole('button', { name: /Save Draft/i })
+Expected: visible
+Error: element(s) not found
+
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - Expect "toBeVisible" with timeout 5000ms
+  - waiting for getByRole('button', { name: /Save Draft/i })
+  - Protocol error (Runtime.callFunctionOn): Internal server error, session closed.
 
+```
+
+```yaml
+- heading "Welcome back" [level=3]
+- paragraph: Sign in to your account to continue
+- text: Email
+- textbox "Email":
+  - /placeholder: you@example.com
+- text: Password
+- link "Forgot password?":
+  - /url: /forgot-password
+- textbox "Password":
+  - /placeholder: ••••••••
+- button "Sign in"
+- paragraph:
+  - text: Don't have an account?
+  - link "Sign up":
+    - /url: /register
+- button "Open Tanstack query devtools":
+  - img
+- alert
 ```
 
 # Test source
 
 ```ts
-  167 |     
-  168 |     // Check for character count
-  169 |     await expect(page.getByText('12 chars')).toBeVisible();
-  170 |   });
   171 | 
   172 |   test('should show platform-specific character limits', async ({ page }) => {
   173 |     await page.goto('/content/new');
@@ -125,12 +149,12 @@ Call log:
   264 |   });
   265 | 
   266 |   test('should show save draft button', async ({ page }) => {
-> 267 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  267 |     await page.goto('/content/new');
   268 |     
   269 |     // Check for save draft button
   270 |     const saveDraftButton = page.getByRole('button', { name: /Save Draft/i });
-  271 |     await expect(saveDraftButton).toBeVisible();
+> 271 |     await expect(saveDraftButton).toBeVisible();
+      |                                   ^ Error: expect(locator).toBeVisible() failed
   272 |   });
   273 | 
   274 |   test('should show schedule button', async ({ page }) => {
@@ -227,4 +251,8 @@ Call log:
   365 | 
   366 |   test('should display media upload button', async ({ page }) => {
   367 |     await page.goto('/content/new');
+  368 |     
+  369 |     // Check for media upload button
+  370 |     const mediaButton = page.getByRole('button', { name: /Media/i });
+  371 |     await expect(mediaButton).toBeVisible();
 ```

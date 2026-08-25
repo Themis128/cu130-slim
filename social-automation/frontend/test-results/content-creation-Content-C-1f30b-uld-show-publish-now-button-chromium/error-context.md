@@ -12,23 +12,32 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByRole('button', { name: /Publish Now/i })
+Expected: visible
+Error: element(s) not found
+
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - Expect "toBeVisible" with timeout 5000ms
+  - waiting for getByRole('button', { name: /Publish Now/i })
+  - Test ended.
 
+```
+
+```yaml
+- button "Open Tanstack query devtools":
+  - img
+- alert
 ```
 
 # Test source
 
 ```ts
-  183 |     await expect(page.getByText(/LinkedIn/i)).toBeVisible();
-  184 |     await expect(page.getByText(/remaining/i)).toBeVisible();
-  185 |   });
-  186 | 
   187 |   test('should display tone selection options', async ({ page }) => {
   188 |     await page.goto('/content/new');
   189 |     
@@ -125,12 +134,12 @@ Call log:
   280 |   });
   281 | 
   282 |   test('should show publish now button', async ({ page }) => {
-> 283 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  283 |     await page.goto('/content/new');
   284 |     
   285 |     // Check for publish now button
   286 |     const publishButton = page.getByRole('button', { name: /Publish Now/i });
-  287 |     await expect(publishButton).toBeVisible();
+> 287 |     await expect(publishButton).toBeVisible();
+      |                                 ^ Error: expect(locator).toBeVisible() failed
   288 |   });
   289 | 
   290 |   test('should open schedule dialog', async ({ page }) => {
@@ -227,4 +236,8 @@ Call log:
   381 |     
   382 |     // Check for repurpose button
   383 |     const repurposeButton = page.getByRole('button', { name: /Repurpose/i });
+  384 |     await expect(repurposeButton).toBeVisible();
+  385 |   });
+  386 | 
+  387 |   test('should show preview placeholder when no platform selected', async ({ page }) => {
 ```

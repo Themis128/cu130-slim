@@ -12,23 +12,45 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
-```
-
-```
-Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+TimeoutError: locator.click: Timeout 10000ms exceeded.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /Witty/i })
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]
+  - alert [ref=f1e131]
 ```
 
 # Test source
 
 ```ts
-  99  |     await expect(postButton).toHaveClass(/border-primary/);
-  100 |   });
-  101 | 
-  102 |   test('should display platform selector with connected accounts', async ({ page }) => {
   103 |     await page.goto('/content/new');
   104 |     
   105 |     // Check for platform selector heading
@@ -125,12 +147,12 @@ Call log:
   196 |   });
   197 | 
   198 |   test('should allow tone selection', async ({ page }) => {
-> 199 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+  199 |     await page.goto('/content/new');
   200 |     
   201 |     // Select Witty tone
   202 |     const wittyButton = page.getByRole('button', { name: /Witty/i });
-  203 |     await wittyButton.click();
+> 203 |     await wittyButton.click();
+      |                       ^ TimeoutError: locator.click: Timeout 10000ms exceeded.
   204 |     
   205 |     // Verify it's selected
   206 |     await expect(wittyButton).toHaveClass(/border-primary/);
@@ -227,4 +249,8 @@ Call log:
   297 |     // Check for dialog
   298 |     await expect(page.getByRole('dialog')).toBeVisible();
   299 |     await expect(page.getByRole('heading', { name: 'Schedule Post' })).toBeVisible();
+  300 |     
+  301 |     // Check for datetime input
+  302 |     await expect(page.getByRole('textbox')).toBeVisible();
+  303 |   });
 ```

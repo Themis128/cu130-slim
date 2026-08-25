@@ -372,11 +372,11 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
 
 
 # ── /content/media aliases (proxies to media router behaviour) ────────────────
-import pathlib
-import shutil
+import pathlib  # noqa: E402
+import shutil  # noqa: E402
 
-from fastapi import File as FastAPIFile
-from fastapi import UploadFile
+from fastapi import File as FastAPIFile  # noqa: E402
+from fastapi import UploadFile  # noqa: E402
 
 MEDIA_DIR = pathlib.Path("/app/media")
 

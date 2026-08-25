@@ -12,22 +12,49 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+Error: locator.click: Test ended.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /LinkedIn/i }).first()
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]
+  - alert [ref=f1e131]
 ```
 
 # Test source
 
 ```ts
-  145 |   });
-  146 | 
-  147 |   test('should allow content typing in editor', async ({ page }) => {
   148 |     await page.goto('/content/new');
   149 |     
   150 |     // Find the content textarea
@@ -125,11 +152,11 @@ Call log:
   242 |   });
   243 | 
   244 |   test('should allow switching between platform previews', async ({ page }) => {
-> 245 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+  245 |     await page.goto('/content/new');
   246 |     
   247 |     // Select both LinkedIn and Twitter
-  248 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+> 248 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+      |                                                                   ^ Error: locator.click: Test ended.
   249 |     await page.getByRole('button', { name: /Twitter/i }).first().click();
   250 |     
   251 |     // Type content
@@ -227,4 +254,7 @@ Call log:
   343 |     // Check for success message
   344 |     await expect(page.getByText('Post published')).toBeVisible();
   345 |   });
+  346 | 
+  347 |   test('should navigate to different content types', async ({ page }) => {
+  348 |     await page.goto('/content/new');
 ```

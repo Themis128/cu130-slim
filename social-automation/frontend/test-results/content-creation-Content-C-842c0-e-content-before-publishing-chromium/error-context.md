@@ -12,23 +12,55 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: locator.click: Test ended.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /Publish Now/i })
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]:
+    - generic [ref=f1e130]:
+      - text: Rendering
+      - generic [ref=f1e131]:
+        - generic [ref=f1e132]: .
+        - generic [ref=f1e133]: .
+        - generic [ref=f1e134]: .
+  - alert [ref=f1e135]
 ```
 
 # Test source
 
 ```ts
-  206 |     await expect(wittyButton).toHaveClass(/border-primary/);
-  207 |   });
-  208 | 
-  209 |   test('should generate AI content', async ({ page }) => {
   210 |     await page.goto('/content/new');
   211 |     
   212 |     // Select a platform first
@@ -125,12 +157,12 @@ Call log:
   303 |   });
   304 | 
   305 |   test('should validate content before publishing', async ({ page }) => {
-> 306 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  306 |     await page.goto('/content/new');
   307 |     
   308 |     // Try to publish without content
   309 |     const publishButton = page.getByRole('button', { name: /Publish Now/i });
-  310 |     await publishButton.click();
+> 310 |     await publishButton.click();
+      |                         ^ Error: locator.click: Test ended.
   311 |     
   312 |     // Check for validation error
   313 |     await expect(page.getByText('Please add some content')).toBeVisible();

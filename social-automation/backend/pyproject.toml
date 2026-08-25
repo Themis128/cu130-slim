@@ -72,6 +72,13 @@ disable_error_code = ["no-any-return", "no-untyped-def", "var-annotated", "misc"
 module = ["app.models.*"]
 disable_error_code = ["name-defined"]
 
+[[tool.mypy.overrides]]
+# Third-party packages without complete typing support:
+# - aiofiles: no inline types / stubs installed
+# - numpy: ships PEP-695 `type` statement stubs incompatible with python_version 3.11 target
+module = ["aiofiles.*", "numpy.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"

@@ -12,28 +12,43 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded while running "beforeEach" hook.
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByText('25').first()
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 5000ms
+  - waiting for getByText('25').first()
+
+```
+
+```yaml
+- heading "Welcome back" [level=3]
+- paragraph: Sign in to your account to continue
+- text: Email
+- textbox "Email":
+  - /placeholder: you@example.com
+- text: Password
+- link "Forgot password?":
+  - /url: /forgot-password
+- textbox "Password":
+  - /placeholder: ••••••••
+- button "Sign in"
+- paragraph:
+  - text: Don't have an account?
+  - link "Sign up":
+    - /url: /register
+- button "Open Tanstack query devtools":
+  - img
+- alert
 ```
 
 # Test source
 
 ```ts
-  1   | import { test, expect } from '@playwright/test';
-  2   | 
-  3   | test.describe('Calendar Page', () => {
-> 4   |   test.beforeEach(async ({ page }) => {
-      |        ^ Test timeout of 30000ms exceeded while running "beforeEach" hook.
-  5   |     // Mock authentication
-  6   |     await page.goto('/dashboard');
-  7   |     
-  8   |     // Mock scheduled posts API
-  9   |     await page.route('**/api/posts/scheduled', async (route) => {
-  10  |       const today = new Date();
-  11  |       const tomorrow = new Date(today);
-  12  |       tomorrow.setDate(tomorrow.getDate() + 1);
-  13  |       
-  14  |       await route.fulfill({
-  15  |         status: 200,
   16  |         contentType: 'application/json',
   17  |         body: JSON.stringify([
   18  |           {
@@ -123,4 +138,117 @@ Test timeout of 30000ms exceeded while running "beforeEach" hook.
   102 |     const calendarGrid = page.locator('.grid.grid-cols-7');
   103 |     await expect(calendarGrid).toBeVisible();
   104 |     
+  105 |     // Check for day cells (should have at least 28 days)
+  106 |     const dayCells = page.locator('.min-h-\\[110px\\]');
+  107 |     await expect(dayCells.first()).toBeVisible();
+  108 |   });
+  109 | 
+  110 |   test('should highlight today', async ({ page }) => {
+  111 |     await page.goto('/calendar');
+  112 |     
+  113 |     // Check for today's highlight (should have primary background)
+  114 |     const today = new Date().getDate();
+  115 |     const todayCell = page.getByText(today.toString());
+> 116 |     await expect(todayCell.first()).toBeVisible();
+      |                                     ^ Error: expect(locator).toBeVisible() failed
+  117 |   });
+  118 | 
+  119 |   test('should display scheduled posts as chips', async ({ page }) => {
+  120 |     await page.goto('/calendar');
+  121 |     
+  122 |     // Check for post chips (should show content snippet)
+  123 |     await expect(page.getByText(/scheduled post/i)).toBeVisible();
+  124 |   });
+  125 | 
+  126 |   test('should show platform indicators on post chips', async ({ page }) => {
+  127 |     await page.goto('/calendar');
+  128 |     
+  129 |     // Check for platform color indicators
+  130 |     const platformIndicators = page.locator('.rounded-full');
+  131 |     await expect(platformIndicators.first()).toBeVisible();
+  132 |   });
+  133 | 
+  134 |   test('should allow navigation to previous month', async ({ page }) => {
+  135 |     await page.goto('/calendar');
+  136 |     
+  137 |     // Get current month text
+  138 |     const currentMonthText = await page.getByRole('button', { name: /\w+ \d{4}/ }).textContent();
+  139 |     
+  140 |     // Click previous month button
+  141 |     const prevButton = page.getByRole('button').filter({ hasText: '' }).nth(0);
+  142 |     await prevButton.click();
+  143 |     
+  144 |     // Wait for navigation to complete
+  145 |     await page.waitForTimeout(500);
+  146 |     
+  147 |     // Check that month changed (this is a basic check)
+  148 |     await expect(page.getByRole('button', { name: /\w+ \d{4}/ })).toBeVisible();
+  149 |   });
+  150 | 
+  151 |   test('should allow navigation to next month', async ({ page }) => {
+  152 |     await page.goto('/calendar');
+  153 |     
+  154 |     // Click next month button
+  155 |     const nextButton = page.getByRole('button').filter({ hasText: '' }).nth(1);
+  156 |     await nextButton.click();
+  157 |     
+  158 |     // Wait for navigation to complete
+  159 |     await page.waitForTimeout(500);
+  160 |     
+  161 |     // Check that month changed
+  162 |     await expect(page.getByRole('button', { name: /\w+ \d{4}/ })).toBeVisible();
+  163 |   });
+  164 | 
+  165 |   test('should allow returning to current month', async ({ page }) => {
+  166 |     await page.goto('/calendar');
+  167 |     
+  168 |     // Navigate away first
+  169 |     const nextButton = page.getByRole('button').filter({ hasText: '' }).nth(1);
+  170 |     await nextButton.click();
+  171 |     await page.waitForTimeout(500);
+  172 |     
+  173 |     // Click current month button
+  174 |     const currentMonthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
+  175 |     await currentMonthButton.click();
+  176 |     
+  177 |     // Should return to current month
+  178 |     const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+  179 |     await expect(page.getByText(new RegExp(currentMonth, 'i'))).toBeVisible();
+  180 |   });
+  181 | 
+  182 |   test('should show new post button', async ({ page }) => {
+  183 |     await page.goto('/calendar');
+  184 |     
+  185 |     // Check for new post button
+  186 |     const newPostButton = page.getByRole('link', { name: /New Post/i });
+  187 |     await expect(newPostButton).toBeVisible();
+  188 |   });
+  189 | 
+  190 |   test('should navigate to content creation when clicking new post', async ({ page }) => {
+  191 |     await page.goto('/calendar');
+  192 |     
+  193 |     // Click new post button
+  194 |     const newPostButton = page.getByRole('link', { name: /New Post/i });
+  195 |     await newPostButton.click();
+  196 |     
+  197 |     // Should navigate to content creation
+  198 |     await expect(page).toHaveURL('/content/new');
+  199 |   });
+  200 | 
+  201 |   test('should allow selecting a day', async ({ page }) => {
+  202 |     await page.goto('/calendar');
+  203 |     
+  204 |     // Click on a day cell
+  205 |     const dayCell = page.locator('.min-h-\\[110px\\]').first();
+  206 |     await dayCell.click();
+  207 |     
+  208 |     // Check for day detail panel to appear
+  209 |     await expect(page.getByRole('heading', { name: /\w+, \w+ \d+/i })).toBeVisible();
+  210 |   });
+  211 | 
+  212 |   test('should show day detail panel when day is selected', async ({ page }) => {
+  213 |     await page.goto('/calendar');
+  214 |     
+  215 |     // Click on a day with posts
+  216 |     const dayCell = page.locator('.min-h-\\[110px\\]').first();
 ```

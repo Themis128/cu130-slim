@@ -12,7 +12,8 @@ FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu22.04
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-dev git ffmpeg libgl1 libglib2.0-0 curl build-essential \
-    && apt-get upgrade -y \
+    && apt-get update \
+    && apt-get dist-upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 # App code lives OUTSIDE the data mount so the mounted storage stays clean

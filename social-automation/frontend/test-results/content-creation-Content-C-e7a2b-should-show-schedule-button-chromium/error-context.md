@@ -12,23 +12,47 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByRole('button', { name: /Schedule/i })
+Expected: visible
+Error: element(s) not found
+
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - Expect "toBeVisible" with timeout 5000ms
+  - waiting for getByRole('button', { name: /Schedule/i })
+  - Test ended.
 
+```
+
+```yaml
+- heading "Welcome back" [level=3]
+- paragraph: Sign in to your account to continue
+- text: Email
+- textbox "Email":
+  - /placeholder: you@example.com
+- text: Password
+- link "Forgot password?":
+  - /url: /forgot-password
+- textbox "Password":
+  - /placeholder: ••••••••
+- button "Sign in"
+- paragraph:
+  - text: Don't have an account?
+  - link "Sign up":
+    - /url: /register
+- button "Open Tanstack query devtools":
+  - img
+- alert
 ```
 
 # Test source
 
 ```ts
-  175 |     // Select LinkedIn first
-  176 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
-  177 |     
-  178 |     // Type content
   179 |     const textarea = page.getByPlaceholder('What do you want to share?');
   180 |     await textarea.fill('Test content');
   181 |     
@@ -125,12 +149,12 @@ Call log:
   272 |   });
   273 | 
   274 |   test('should show schedule button', async ({ page }) => {
-> 275 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  275 |     await page.goto('/content/new');
   276 |     
   277 |     // Check for schedule button
   278 |     const scheduleButton = page.getByRole('button', { name: /Schedule/i });
-  279 |     await expect(scheduleButton).toBeVisible();
+> 279 |     await expect(scheduleButton).toBeVisible();
+      |                                  ^ Error: expect(locator).toBeVisible() failed
   280 |   });
   281 | 
   282 |   test('should show publish now button', async ({ page }) => {
@@ -227,4 +251,8 @@ Call log:
   373 | 
   374 |   test('should show content repurpose button when content and platforms selected', async ({ page }) => {
   375 |     await page.goto('/content/new');
+  376 |     
+  377 |     // Select platform and add content
+  378 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+  379 |     const textarea = page.getByPlaceholder('What do you want to share?');
 ```

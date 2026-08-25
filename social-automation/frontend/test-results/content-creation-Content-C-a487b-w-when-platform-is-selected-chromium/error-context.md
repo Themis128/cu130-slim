@@ -12,22 +12,49 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+Error: locator.click: Test ended.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /LinkedIn/i }).first()
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]
+  - alert [ref=f1e131]
 ```
 
 # Test source
 
 ```ts
-  128 |     // Select Twitter as well
-  129 |     const twitterButton = page.getByRole('button', { name: /Twitter/i }).first();
-  130 |     await twitterButton.click();
   131 |     
   132 |     // Verify both are selected
   133 |     await expect(twitterButton).toHaveClass(/border-primary/);
@@ -125,11 +152,11 @@ Call log:
   225 |   });
   226 | 
   227 |   test('should show live preview when platform is selected', async ({ page }) => {
-> 228 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+  228 |     await page.goto('/content/new');
   229 |     
   230 |     // Select LinkedIn
-  231 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+> 231 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+      |                                                                   ^ Error: locator.click: Test ended.
   232 |     
   233 |     // Type content
   234 |     const textarea = page.getByPlaceholder('What do you want to share?');
@@ -227,4 +254,7 @@ Call log:
   326 |     
   327 |     // Check for validation error
   328 |     await expect(page.getByText('Select at least one platform')).toBeVisible();
+  329 |   });
+  330 | 
+  331 |   test('should successfully publish post', async ({ page }) => {
 ```

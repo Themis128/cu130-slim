@@ -686,7 +686,7 @@ async def list_drafts(
                     hashtags=draft_data.get("hashtags", []),
                     created_at=draft_data.get("created_at", ""),
                 ))
-            except:
+            except Exception:
                 pass
 
     return ListDraftsResponse(drafts=drafts)
@@ -722,8 +722,6 @@ async def post_draft(
         raise HTTPException(status_code=404, detail="Team not found")
 
     # Get social account
-    from sqlalchemy import select
-
     from app.models.social_account import SocialAccount
 
     if request.account_id:
@@ -1111,7 +1109,6 @@ Return JSON with:
     # Find matching template
     template = None
     if request.template_id:
-        from sqlalchemy import select
         result = await db.execute(select(PromptTemplate).where(PromptTemplate.id == request.template_id))
         template = result.scalar_one_or_none()
     else:
@@ -1313,7 +1310,8 @@ Slide types to use:
 - "cta": Last slide — action-oriented title + what to do next
 
 Return JSON with:
-- slides: array of exactly {num} objects, each with: title (string), body (string, max 100 chars), highlight (string or null, used for stats/key numbers), slide_type (cover|content|stat|cta)
+- slides: array of exactly {num} objects, each with: title (string), body (string, max 100 chars),
+  highlight (string or null, used for stats/key numbers), slide_type (cover|content|stat|cta)
 - suggested_caption: a complete post caption (with line breaks) to accompany the carousel
 - hashtags: array of 5-8 relevant hashtags (without #)"""
 
@@ -1348,7 +1346,10 @@ Return JSON with:
     except _httpx.ReadTimeout:
         raise HTTPException(
             status_code=504,
-            detail=f"The AI provider timed out (300s). '{request.provider}' reasoning models can be slow for long prompts — try switching to a faster model like meta/llama-3.1-70b-instruct.",
+            detail=(
+                f"The AI provider timed out (300s). '{request.provider}' reasoning models can be "
+                "slow for long prompts — try switching to a faster model like meta/llama-3.1-70b-instruct."
+            ),
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")

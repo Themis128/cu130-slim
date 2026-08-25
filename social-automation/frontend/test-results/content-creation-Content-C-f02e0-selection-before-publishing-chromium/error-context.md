@@ -12,23 +12,34 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
+Error: Channel closed
 ```
 
 ```
-Error: page.goto: Test timeout of 30000ms exceeded.
+Error: locator.fill: Test ended.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByPlaceholder('What do you want to share?')
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [active]:
+  - button "Open Tanstack query devtools" [ref=f1e51] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e105] [cursor=pointer]:
+    - generic [ref=f1e108]:
+      - text: Rendering
+      - generic [ref=f1e109]:
+        - generic [ref=f1e110]: .
+        - generic [ref=f1e111]: .
+        - generic [ref=f1e112]: .
+  - alert [ref=f1e113]
 ```
 
 # Test source
 
 ```ts
-  217 |     await generateButton.click();
-  218 |     
-  219 |     // Wait for AI generation to complete
-  220 |     await expect(page.getByText('AI content generated')).toBeVisible();
   221 |     
   222 |     // Check that content was generated
   223 |     const textarea = page.getByPlaceholder('What do you want to share?');
@@ -125,12 +136,12 @@ Call log:
   314 |   });
   315 | 
   316 |   test('should validate platform selection before publishing', async ({ page }) => {
-> 317 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  317 |     await page.goto('/content/new');
   318 |     
   319 |     // Add content but don't select platform
   320 |     const textarea = page.getByPlaceholder('What do you want to share?');
-  321 |     await textarea.fill('Test content');
+> 321 |     await textarea.fill('Test content');
+      |                    ^ Error: locator.fill: Test ended.
   322 |     
   323 |     // Try to publish
   324 |     const publishButton = page.getByRole('button', { name: /Publish Now/i });

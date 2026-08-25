@@ -12,22 +12,45 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
-```
-
-```
-Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+TimeoutError: locator.click: Timeout 10000ms exceeded.
 Call log:
-  - navigating to "http://localhost:3001/content/new", waiting until "load"
+  - waiting for getByRole('button', { name: /LinkedIn/i }).first()
 
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Welcome back" [level=3] [ref=f1e6]
+      - paragraph [ref=f1e7]: Sign in to your account to continue
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - text: Email
+        - textbox "Email" [active] [ref=f1e12]:
+          - /placeholder: you@example.com
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]:
+          - generic [ref=f1e15]: Password
+          - link "Forgot password?" [ref=f1e16] [cursor=pointer]:
+            - /url: /forgot-password
+        - textbox "Password" [ref=f1e18]:
+          - /placeholder: ••••••••
+      - button "Sign in" [ref=f1e19] [cursor=pointer]
+    - paragraph [ref=f1e21]:
+      - text: Don't have an account?
+      - link "Sign up" [ref=f1e22] [cursor=pointer]:
+        - /url: /register
+  - button "Open Tanstack query devtools" [ref=f1e73] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e127] [cursor=pointer]
+  - alert [ref=f1e131]
 ```
 
 # Test source
 
 ```ts
-  73  |       });
-  74  |     });
-  75  |   });
   76  | 
   77  |   test('should load content creation page successfully', async ({ page }) => {
   78  |     await page.goto('/content/new');
@@ -125,11 +148,11 @@ Call log:
   170 |   });
   171 | 
   172 |   test('should show platform-specific character limits', async ({ page }) => {
-> 173 |     await page.goto('/content/new');
-      |                ^ Error: page.goto: net::ERR_ABORTED; maybe frame was detached?
+  173 |     await page.goto('/content/new');
   174 |     
   175 |     // Select LinkedIn first
-  176 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+> 176 |     await page.getByRole('button', { name: /LinkedIn/i }).first().click();
+      |                                                                   ^ TimeoutError: locator.click: Timeout 10000ms exceeded.
   177 |     
   178 |     // Type content
   179 |     const textarea = page.getByPlaceholder('What do you want to share?');
@@ -227,4 +250,7 @@ Call log:
   271 |     await expect(saveDraftButton).toBeVisible();
   272 |   });
   273 | 
+  274 |   test('should show schedule button', async ({ page }) => {
+  275 |     await page.goto('/content/new');
+  276 |     
 ```

@@ -397,7 +397,7 @@ async def get_platform_metrics(
     platforms_seen = {a.platform for a in accounts}
 
     # Also include platforms that have posts even without connected accounts
-    posts_platforms = await db.execute(
+    _posts_platforms = await db.execute(
         select(PostTarget.social_account_id)
         .join(Post, Post.id == PostTarget.post_id)
         .where(Post.team_id == team.id, Post.created_at >= since)

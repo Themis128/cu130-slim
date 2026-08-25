@@ -12,24 +12,37 @@
 # Error details
 
 ```
-Test timeout of 30000ms exceeded.
-```
-
-```
 Error: expect(locator).toBeVisible() failed
 
 Locator: getByText(/scheduled post/i)
 Expected: visible
+Timeout: 5000ms
 Error: element(s) not found
 
 Call log:
   - Expect "toBeVisible" with timeout 5000ms
   - waiting for getByText(/scheduled post/i)
-  - 
 
 ```
 
 ```yaml
+- heading "Welcome back" [level=3]
+- paragraph: Sign in to your account to continue
+- text: Email
+- textbox "Email":
+  - /placeholder: you@example.com
+- text: Password
+- link "Forgot password?":
+  - /url: /forgot-password
+- textbox "Password":
+  - /placeholder: ••••••••
+- button "Sign in"
+- paragraph:
+  - text: Don't have an account?
+  - link "Sign up":
+    - /url: /register
+- button "Open Tanstack query devtools":
+  - img
 - alert
 ```
 
