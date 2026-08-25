@@ -367,7 +367,13 @@ async def _call_workers_ai_chat(
             {"role": "user", "content": user_msg},
         ]
     }
-    if max_tokens:
+    if schema and not max_tokens:
+        # Structured outputs (carousels, content JSON) are token-hungry. The
+        # Workers AI default completion cap (~256 tokens) truncates the JSON
+        # mid-object, producing unparseable responses ("Provider returned
+        # invalid JSON"). Request a generous ceiling unless the caller set one.
+        payload["max_tokens"] = WORKERS_AI_DEFAULT_STRUCTURED_MAX_TOKENS
+    elif max_tokens:
         payload["max_tokens"] = max_tokens
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -390,6 +396,10 @@ async def _call_workers_ai_chat(
 # ---------------------------------------------------------------------------
 # Workers AI Image Generation (SDXL / FLUX image models)
 # ---------------------------------------------------------------------------
+
+# Completion ceiling used for structured (schema) requests when the caller
+# does not specify one — see _call_workers_ai_chat.
+WORKERS_AI_DEFAULT_STRUCTURED_MAX_TOKENS = 4096
 
 # Keywords that identify image-generation models on Workers AI.  Text models
 # like ``@cf/meta/llama-3.1-8b-instruct`` do *not* match any of these, so the
@@ -424,8 +434,10 @@ async def _call_workers_ai_image(
     """Generate an image via a Cloudflare Workers AI image model (SDXL / FLUX).
 
     Workers AI image models expect a ``{"prompt": ...}`` payload — *not* the
-    ``{"messages": [...]}`` used by text models.  The response contains the
-    base64 image under ``result.image``.
+    ``{"messages": [...]}`` used by text models.  Depending on the model, the
+    response body is either raw binary image bytes (SDXL returns
+    ``image/png``) or a JSON envelope with base64 data under ``result.image``
+    (FLUX).  Both shapes are handled here.
     """
     account_id, key = _workers_ai_credentials(api_key)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
@@ -448,6 +460,18 @@ async def _call_workers_ai_image(
                 detail=f"Cloudflare Workers AI image error {resp.status_code}: {resp.text[:400]}",
             )
 
+        import base64
+
+        content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        if content_type.startswith("image/"):
+            # Raw binary image bytes in the response body (e.g. SDXL → image/png).
+            return {
+                "image_base64": base64.b64encode(resp.content).decode("utf-8"),
+                "format": "base64",
+                "prompt": prompt,
+            }
+
+    # JSON envelope: {"result": {"image": "<base64>"}}
     data = resp.json()
     result = data.get("result") or {}
     image_b64 = result.get("image") or result.get("base64") or ""
@@ -666,17 +690,74 @@ async def _call_openai_compat(
     return {"text": content}
 
 
+def _extract_json_object(text: str) -> str | None:
+    """Return the first *balanced* ``{...}`` object in ``text`` (string-aware)."""
+    depth = 0
+    start: int | None = None
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    return text[start : i + 1]
+    return None
+
+
 def _parse_json_response(text: str) -> dict:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-    raise HTTPException(status_code=500, detail="Provider returned invalid JSON")
+    """Parse a provider response into a dict, tolerating markdown fences,
+    surrounding prose, or trailing commentary around the JSON object."""
+    candidates: list[str] = []
+    stripped = (text or "").strip()
+    if stripped:
+        candidates.append(stripped)
+        # Markdown-fenced block: ```json ... ``` / ``` ... ```
+        fence = re.search(r"```(?:json)?\s*(.*?)```", stripped, re.DOTALL)
+        if fence:
+            candidates.insert(0, fence.group(1).strip())
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+    # Balanced-brace extraction handles prose before/after the object and
+    # nested braces better than a greedy regex.
+    extracted = _extract_json_object(stripped)
+    if extracted:
+        try:
+            return json.loads(extracted)
+        except json.JSONDecodeError:
+            pass
+    match = re.search(r"\{.*\}", stripped, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            "Provider returned invalid JSON — the model likely hit its output "
+            "token limit or ignored the format instruction. Try again, pick a "
+            "smaller slide count, or switch to a stronger text model."
+        ),
+    )
 
 
 async def _call_nvidia_flux(

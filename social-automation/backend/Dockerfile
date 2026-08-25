@@ -3,14 +3,13 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies and apply OS security patches.
-# apt-get upgrade fixes OS-level CVEs: perl (#641,#639,#638,#644,#645,#643),
-# openssl (#633,#631,#579,#577), ncurses (#629,#627,#588,#499), acl (#192),
-# gzip (#190), util-linux/libblkid (#664,#663,#662,#661)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Update package lists and apply all available security updates
+RUN apt-get update && apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get dist-upgrade -y && \
+    rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip, wheel, setuptools, and msgpack to patched versions.
 # Security fixes: wheel 0.46.2 (CVE-2026-24049), setuptools 78.1.1 (CVE-2025-47273),

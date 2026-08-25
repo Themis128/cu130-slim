@@ -16,9 +16,18 @@ def cf_settings(monkeypatch):
 class _FakeResponse:
     """Minimal stand-in for an httpx.Response."""
 
-    def __init__(self, status_code: int, body):
+    def __init__(self, status_code: int, body, headers=None):
         self.status_code = status_code
         self._body = body
+        self.headers = headers or {"content-type": "application/json"}
+
+    @property
+    def content(self) -> bytes:
+        if isinstance(self._body, bytes):
+            return self._body
+        if isinstance(self._body, str):
+            return self._body.encode("utf-8")
+        return str(self._body).encode("utf-8")
 
     def json(self):
         if isinstance(self._body, dict):
@@ -33,8 +42,8 @@ class _FakeResponse:
 class _FakeAsyncClient:
     """Context-manager stand-in for httpx.AsyncClient capturing POSTs."""
 
-    def __init__(self, status_code: int, body):
-        self._resp = _FakeResponse(status_code, body)
+    def __init__(self, status_code: int, body, headers=None):
+        self._resp = _FakeResponse(status_code, body, headers=headers)
         self.last_url = None
         self.last_headers = None
         self.last_content = None
@@ -318,6 +327,29 @@ async def test_call_workers_ai_image_success(monkeypatch, cf_settings):
     assert fake.last_json["prompt"] == "A beautiful sunset over mountains"
     assert "messages" not in fake.last_json
 
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_image_raw_png_response(monkeypatch, cf_settings):
+    """SDXL returns raw binary PNG bytes (content-type image/png), not JSON."""
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"fakepngdata"
+    fake = _FakeAsyncClient(
+        200,
+        png_bytes,
+        headers={"content-type": "image/png"},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_image(
+        "orange cloud",
+        model="@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        api_key="tok-456",
+    )
+
+    import base64 as _b64
+    assert _b64.b64decode(result["image_base64"]) == png_bytes
+    assert result["format"] == "base64"
+    assert result["prompt"] == "orange cloud"
+
 @pytest.mark.asyncio
 async def test_call_workers_ai_image_missing_credentials(monkeypatch):
     """_call_workers_ai_image raises 400 if Cloudflare creds are absent."""
@@ -427,3 +459,66 @@ async def test_call_inference_cloudflare_no_key_uses_env_fallback(monkeypatch, c
     )
     assert result == {"text": "Hi from env!"}
     assert fake.last_headers["Authorization"] == "Bearer tok-456"
+
+
+# ---------------------------------------------------------------------------
+# Structured-output truncation & JSON parsing hardening tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_schema_gets_generous_default_max_tokens(monkeypatch, cf_settings):
+    """Workers AI caps completions at ~256 tokens by default, which truncates
+    carousel JSON mid-object. Schema requests must raise the ceiling."""
+    fake = _FakeAsyncClient(200, {"result": {"response": "{}"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    await inference._call_workers_ai_chat(
+        "make a carousel",
+        model="@cf/meta/llama-4-scout-17b-16e-instruct",
+        api_key="tok-456",
+        schema={"type": "object"},
+    )
+    assert fake.last_json["max_tokens"] == inference.WORKERS_AI_DEFAULT_STRUCTURED_MAX_TOKENS
+
+
+@pytest.mark.asyncio
+async def test_chat_respects_explicit_max_tokens(monkeypatch, cf_settings):
+    fake = _FakeAsyncClient(200, {"result": {"response": "hi"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    # Explicit value wins even with a schema
+    await inference._call_workers_ai_chat(
+        "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
+        schema={"type": "object"}, max_tokens=64,
+    )
+    assert fake.last_json["max_tokens"] == 64
+
+    # Plain text call without schema gets no cap injected
+    await inference._call_workers_ai_chat(
+        "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
+    )
+    assert "max_tokens" not in fake.last_json
+
+
+def test_parse_json_response_markdown_fenced():
+    text = "```\n{\n  \"slides\": [\"a\"]\n}\n```"
+    assert inference._parse_json_response(text) == {"slides": ["a"]}
+
+
+def test_parse_json_response_prose_wrapped_with_braces_in_strings():
+    text = (
+        'Sure! Here is your JSON:
+\n'
+        '{"body": "use {curly} braces", "n": 2}\n'
+        'Let me know if you need changes.'
+    )
+    assert inference._parse_json_response(text) == {"body": "use {curly} braces", "n": 2}
+
+
+def test_parse_json_response_truncated_raises_helpful_error():
+    truncated = '{"slides": [{"title": "Cut off mid'
+    with pytest.raises(HTTPException) as exc:
+        inference._parse_json_response(truncated)
+    assert exc.value.status_code == 500
+    assert "token limit" in exc.value.detail
