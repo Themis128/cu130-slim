@@ -6,10 +6,12 @@ name: Social Automation Frontend CI
     branches: [master]
     paths:
       - 'social-automation/frontend/**'
+      - 'social-automation/backend/**'  # Worker uses same backend code
   pull_request:
     branches: [master]
     paths:
       - 'social-automation/frontend/**'
+      - 'social-automation/backend/**'
 
 permissions:
   contents: read
@@ -19,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  frontend-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,3 +64,37 @@ jobs:
         run: |
           cd social-automation/frontend
           npm run build
+
+  worker-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('social-automation/backend/pyproject.toml', 'social-automation/backend/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          cd social-automation/backend
+          pip install -e ".[dev]"
+
+      - name: Run linting (worker code)
+        run: |
+          cd social-automation/backend
+          ruff check app/worker
+
+      - name: Run type checking (worker code)
+        run: |
+          cd social-automation/backend
+          mypy app/worker --ignore-missing-imports
