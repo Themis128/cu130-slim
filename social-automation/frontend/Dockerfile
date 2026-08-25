@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install system dependencies and apply OS security patches
+RUN apk update && apk upgrade --available
+
 # Copy package files
 COPY package*.json ./
 
@@ -19,6 +22,9 @@ RUN npm run build
 FROM node:20-alpine AS runner
 
 WORKDIR /app
+
+# Install system dependencies and apply OS security patches
+RUN apk update && apk upgrade --available
 
 ENV NODE_ENV=production
 

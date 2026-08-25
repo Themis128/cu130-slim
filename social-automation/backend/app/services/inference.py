@@ -381,10 +381,86 @@ async def _call_workers_ai_chat(
         # Structured-output models return the parsed JSON object directly
         # (e.g. {"content": ..., "hashtags": [...]}).
         return raw
-    response_text = str(raw or "").strip()
+            response_text = str(raw or "").strip()
     if schema:
         return _parse_json_response(response_text)
     return {"text": response_text}
+
+
+# ---------------------------------------------------------------------------
+# Workers AI Image Generation (SDXL / FLUX image models)
+# ---------------------------------------------------------------------------
+
+# Keywords that identify image-generation models on Workers AI.  Text models
+# like ``@cf/meta/llama-3.1-8b-instruct`` do *not* match any of these, so the
+# heuristic is safe for routing.
+_WORKERS_AI_IMAGE_KEYWORDS = (
+    "stabilityai",
+    "stable-diffusion",
+    "flux",
+    "runwayml",
+    "kohya",
+    "deepai",
+    "craiy",
+)
+
+
+def _is_workers_ai_image_model(model: str) -> bool:
+    """Heuristic: detect whether a Workers AI model identifier targets image generation."""
+    normalized = (model or "").lower()
+    return any(kw in normalized for kw in _WORKERS_AI_IMAGE_KEYWORDS)
+
+
+async def _call_workers_ai_image(
+    prompt: str,
+    model: str,
+    api_key: str | None = None,
+    negative_prompt: str = "",
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 20,
+    cfg_scale: float = 3.5,
+) -> dict:
+    """Generate an image via a Cloudflare Workers AI image model (SDXL / FLUX).
+
+    Workers AI image models expect a ``{"prompt": ...}`` payload — *not* the
+    ``{"messages": [...]}`` used by text models.  The response contains the
+    base64 image under ``result.image``.
+    """
+    account_id, key = _workers_ai_credentials(api_key)
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    payload: dict = {
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "guidance": cfg_scale,
+    }
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Cloudflare Workers AI image error {resp.status_code}: {resp.text[:400]}",
+            )
+
+    data = resp.json()
+    result = data.get("result") or {}
+    image_b64 = result.get("image") or result.get("base64") or ""
+    if not image_b64:
+        raise HTTPException(
+            status_code=502,
+            detail="Cloudflare Workers AI image model returned no image data.",
+        )
+    return {
+        "image_base64": image_b64,
+        "format": "base64",
+        "prompt": prompt,
+    }
 
 # ---------------------------------------------------------------------------
 # Workers AI Batch Inference (queueRequest=true)
@@ -503,7 +579,7 @@ async def call_inference(
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:
         model = model_override
-        # Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) are
+    # Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) are
     # environment-level, not stored per-team.  _call_workers_ai_chat already
     # falls back to the env var and validates it, so we must not reject a
     # missing per-team key here for Cloudflare (same pattern as local-sd35).
@@ -513,6 +589,17 @@ async def call_inference(
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
         )
     if provider_name == "cloudflare":
+        if _is_workers_ai_image_model(model):
+            if schema:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"The model '{model}' is a Workers AI image-generation model and "
+                        f"cannot produce structured text/JSON output. Select a text-generation "
+                        f"model such as '@cf/meta/llama-3.1-8b-instruct' for content tasks."
+                    ),
+                )
+            return await _call_workers_ai_image(prompt, model=model, api_key=api_key)
         return await _call_workers_ai_chat(prompt, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
     return await _call_openai_compat(prompt, base_url=base_url, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
 
