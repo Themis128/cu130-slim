@@ -80,6 +80,8 @@ jobs:
 
       - name: Build social-api image
         run: docker compose --project-name cu130-slim --env-file .github/test.env build social-api
+- name: List Docker images
+         run: docker images
 
       - name: Scan images with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
