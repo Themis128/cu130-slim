@@ -14,7 +14,11 @@ FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu22.04
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-dev git ffmpeg libgl1 libglib2.0-0 curl build-essential \
-    && apt-get update \
+        libncursesw6 \
+        libssl-dev \
+        libtinfo6 \
+        openssl \
+        perl-base \
     && apt-get dist-upgrade -y \
     && rm -rf /opt/nvidia/nsight-compute \
     && rm -rf /var/lib/apt/lists/*

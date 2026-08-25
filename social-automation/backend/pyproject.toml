@@ -35,6 +35,11 @@ dependencies = [
     # /api/v1/media/view so every browser can display them.
     "pillow-heif>=0.13.0",
     "pillow-avif-plugin>=1.4.6",
+    # Security: pin setuptools and wheel for vulnerability fixes
+    "setuptools>=78.1.1",
+    "wheel>=0.46.2",
+    # Security: pin starlette to fix DoS/SSRF (CVE-2024-xxxx)
+    "starlette>=0.52.2",
 ]
 
 [project.optional-dependencies]

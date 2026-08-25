@@ -8,6 +8,11 @@ RUN apt-get update && apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    libncursesw6 \
+    libssl-dev \
+    libtinfo6 \
+    openssl \
+    perl-base \
     && apt-get dist-upgrade -y && \
     rm -rf /var/lib/apt/lists/*
 
