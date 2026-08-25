@@ -4,3 +4,6 @@
 # n8n-data/, etc.) out of the docker build context.
 *
 !Dockerfile
+
+# Explicitly exclude sensitive files
+ollama/id_ed25519
