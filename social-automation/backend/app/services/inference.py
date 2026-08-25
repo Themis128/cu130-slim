@@ -503,7 +503,11 @@ async def call_inference(
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:
         model = model_override
-    if not api_key and provider_name != "local-sd35":
+        # Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) are
+    # environment-level, not stored per-team.  _call_workers_ai_chat already
+    # falls back to the env var and validates it, so we must not reject a
+    # missing per-team key here for Cloudflare (same pattern as local-sd35).
+    if not api_key and provider_name not in ("local-sd35", "cloudflare"):
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
