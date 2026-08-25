@@ -84,3 +84,8 @@ ollama/id_ed25519
 *.backup*
 *.orig
 *.baseupdate
+
+# Local MCP configs
+cline_mcp_settings.json
+brave-search-mcp-server/
+.trivyignore
