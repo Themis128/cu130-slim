@@ -23,15 +23,12 @@ RUN apt-get update \
 WORKDIR /opt/ComfyUI
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 
-# Python deps - CUDA PyTorch (cu130), then ComfyUI requirements with pinned secure versions
-# comfy-kitchen 0.2.31 (latest) - optimized CUDA ops require PyTorch built for cu130+
-# Increased timeout and retries for PyTorch download due to network issues
 # Security-pinned versions addressing Trivy findings:
 # - starlette>=0.52.2 (CVE-2024-xxxx DoS/SSRF)
-# - setuptools>=70.0.0 (CVE-2024-xxxx Path traversal)
+# - setuptools>=78.1.1 (CVE-2025-47273 Path traversal in PackageIndex)
 # - msgpack>=1.0.8 (CVE-2024-xxxx OOB read)
-# - wheel>=0.45.2 (CVE-2024-xxxx RCE via wheel)
-# - jaraco.context>=5.3.1 (CVE-2024-xxxx Path traversal)
+# - wheel>=0.46.2 (CVE-2026-24049 RCE via malicious wheel file)
+# - jaraco.context>=6.1.0 (CVE-2026-23949 Path traversal via tar archives)
 # - cryptography>=43.0.0 (recommended replacement for ecdsa; Minerva attack fixed)
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130 \
@@ -45,10 +42,10 @@ RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
         natsort \
         decord \
         "starlette>=0.52.2" \
-        "setuptools>=70.0.0" \
+        "setuptools>=78.1.1" \
         "msgpack>=1.0.8" \
-        "wheel>=0.45.2" \
-        "jaraco.context>=5.3.1" \
+        "wheel>=0.46.2" \
+        "jaraco.context>=6.1.0" \
         "cryptography>=43.0.0"
 
 # Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
