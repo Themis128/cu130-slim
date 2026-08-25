@@ -3,3 +3,9 @@ uvicorn[standard]==0.29.0
 python-dotenv>=1.2.2
 pydantic>=2.9.0,<3.0.0
 pydantic-settings>=2.3.3,<3.0.0
+# Security: pin setuptools, wheel, msgpack, jaraco.context, cryptography for vulnerability fixes
+setuptools>=78.1.1
+wheel>=0.46.2
+msgpack>=1.2.1
+jaraco.context>=6.1.0
+cryptography>=43.0.0
