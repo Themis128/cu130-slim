@@ -61,7 +61,7 @@ jobs:
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:sha-${{ steps.meta.outputs.sha }}
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:${{ github.sha }}
           format: 'table'
           exit-code: '0'
           ignore-unfixed: true
@@ -72,7 +72,7 @@ jobs:
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:sha-${{ steps.meta.outputs.sha }}
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui:${{ github.sha }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
