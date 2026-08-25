@@ -27,7 +27,6 @@ class PostCreate(BaseModel):
     target_account_ids: list[uuid.UUID] = []
     metadata: dict = {}
 
-
 class PostUpdate(BaseModel):
     content_text: str | None = None
     media_ids: list[uuid.UUID] | None = None
@@ -37,17 +36,9 @@ class PostUpdate(BaseModel):
     link_url: str | None = None
     link_preview_override: dict | None = None
     scheduled_at: datetime | None = None
-    target_account_ids: list[uuid.UUID] | None = None
+    target_account_ids: list[uuid.UUID] | None
 
 
-    # Prevent path traversal attacks
-    if ".." in media_id or media_id.startswith("/") or "\\" in media_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
-    
-    # Construct target path and ensure it stays within MEDIA_DIR
-    target = (MEDIA_DIR / media_id).resolve()
-    if not target.is_relative_to(MEDIA_DIR.resolve()):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
 class PostResponse(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID

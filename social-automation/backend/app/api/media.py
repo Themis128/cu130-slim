@@ -6,6 +6,7 @@ from datetime import datetime
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,6 +20,37 @@ from app.models.user import Team, TeamMember, User
 router = APIRouter()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
+
+# Formats every modern browser can render natively inside an <img> tag.
+BROWSER_NATIVE_IMAGE_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+    "image/apng",
+    "image/avif",
+    "image/bmp",
+    "image/x-icon",
+    "image/vnd.microsoft.icon",
+    "image/heic",  # Safari only, but pass through rather than re-encode
+}
+
+# Register Pillow plugins for formats the browser can't display (HEIC/HEIF
+# from iPhones, AVIF on older stacks).  Imported defensively: the media API
+# keeps working — those formats just fall back to a download prompt — if a
+# plugin is unavailable in the environment.
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:  # pragma: no cover - environment-dependent
+    pass
+try:
+    import pillow_avif  # noqa: F401  (registers the AVIF codec on import)
+except ImportError:  # pragma: no cover - environment-dependent
+    pass
 
 
 class MediaAssetResponse(BaseModel):
@@ -114,6 +146,62 @@ async def upload_media(
     await db.refresh(asset)
 
     return asset
+
+
+@router.get("/view")
+async def view_media(path: str = Query(..., description="Relative storage path of the asset")):
+    """Serve any stored media for display, converting non-web formats to PNG.
+
+    Unauthenticated by design — mirrors the public ``/api/v1/uploads`` static
+    mount so ``<img>`` tags can render assets without auth headers.  Formats
+    browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
+    transparently re-encoded to PNG with Pillow.
+    """
+    # Path traversal guard: resolved path must stay inside UPLOAD_DIR.
+    abs_path = os.path.realpath(os.path.join(UPLOAD_DIR, path))
+    if not abs_path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid media path")
+
+    if not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="Media file not found")
+
+    ext_mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".avif": "image/avif",
+        ".bmp": "image/bmp",
+        ".ico": "image/x-icon",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+    }
+    mime = ext_mime.get(os.path.splitext(abs_path)[1].lower(), "application/octet-stream")
+
+    if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+        return FileResponse(abs_path, media_type=mime)
+
+    # Non-native image format → re-encode to PNG so every browser can show it.
+    try:
+        img = Image.open(abs_path)
+        img.load()
+    except Exception:
+        raise HTTPException(
+            status_code=415,
+            detail="This format cannot be previewed in the browser. Download the file to view it.",
+        )
+    buf = io.BytesIO()
+    if img.mode not in ("RGB", "RGBA", "L"):
+        img = img.convert("RGBA")
+    img.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
 @router.get("/assets", response_model=MediaListResponse)
 async def list_media(
     page: int = Query(1, ge=1),

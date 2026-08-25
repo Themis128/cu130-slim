@@ -13,10 +13,18 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { useMedia, useUploadMedia, useDeleteMedia, useGenerateImage } from '@/hooks/useQueries'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ImageViewerDialog } from '@/components/ui/ImageViewerDialog'
 import { useUndoDelete } from '@/hooks/useUndoDelete'
 import { aiApi } from '@/services/api'
 import type { MediaAsset } from '@/types'
 import toast from 'react-hot-toast'
+
+/** Universal display URL — backend re-encodes exotic formats to PNG on the fly. */
+function mediaDisplayUrl(storagePath?: string | null) {
+  if (!storagePath) return ''
+  const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+  return `${base}/media/view?path=${encodeURIComponent(storagePath)}`
+}
 
 interface PendingFile {
   file: File
@@ -41,6 +49,7 @@ export default function MediaPage() {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [viewerItem, setViewerItem] = useState<MediaAsset | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useMedia({ type: typeFilter, page, page_size: 20 })
@@ -179,7 +188,7 @@ export default function MediaPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/bmp,image/tiff,image/svg+xml,image/heic,image/heif,.tif,.tiff,.heic,.heif,.avif,video/*"
         multiple
         className="hidden"
         onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
@@ -304,45 +313,80 @@ export default function MediaPage() {
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                {media.map((item: MediaAsset) => (
+                {media.map((item: MediaAsset) => {
+                  const isVideo = !!item.mime_type?.startsWith('video/')
+                  return (
                   <div
                     key={item.id}
-                    className="relative group aspect-square rounded-lg overflow-hidden border bg-muted/50"
+                    className="relative group aspect-square rounded-lg overflow-hidden border bg-muted/50 cursor-zoom-in"
+                    onClick={() => setViewerItem(item)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') setViewerItem(item) }}
                   >
                     {item.storage_path ? (
-                      <img
-                        src={`${process.env.NEXT_PUBLIC_API_URL}/uploads/${item.storage_path}`}
-                        alt={item.filename || 'Media'}
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                      />
+                      isVideo ? (
+                        <>
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <video
+                            src={mediaDisplayUrl(item.storage_path)}
+                            muted
+                            preload="metadata"
+                            className="h-full w-full object-cover"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="rounded-full bg-black/60 p-2">
+                              <Eye className="h-5 w-5 text-white" />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={mediaDisplayUrl(item.storage_path)}
+                          alt={item.filename || 'Media'}
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        />
+                      )
                     ) : (
                       <div className="flex h-full items-center justify-center text-muted-foreground">
                         <ImageIcon className="h-8 w-8" />
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <Button variant="ghost" size="icon" className="bg-white/90" asChild>
-                        <a href={item.storage_path} target="_blank" rel="noopener noreferrer">
-                          <Eye className="h-4 w-4" />
-                        </a>
+                    <div className="absolute inset-x-0 bottom-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 pointer-events-none">
+                      <p className="text-[10px] text-white truncate">{item.filename}</p>
+                    </div>
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="bg-white/90 h-7 w-7"
+                        title="View (zoom & pan)"
+                        onClick={(e) => { e.stopPropagation(); setViewerItem(item) }}
+                      >
+                        <Eye className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="bg-white/90"
-                        onClick={() => deleteWithUndo(item, item.filename || 'Media')}
+                        className="bg-white/90 h-7 w-7"
+                        title="Delete"
+                        onClick={(e) => { e.stopPropagation(); deleteWithUndo(item, item.filename || 'Media') }}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
                     {item.source === 'ai-generated' && (
-                      <Badge className="absolute bottom-2 left-2" variant="outline">
+                      <Badge className="absolute bottom-8 left-2" variant="outline">
                         <Sparkles className="mr-1 h-3 w-3" />
                         AI
                       </Badge>
                     )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Pagination */}
@@ -375,6 +419,25 @@ export default function MediaPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Full-screen zoom & pan viewer */}
+      <ImageViewerDialog
+        open={!!viewerItem}
+        onOpenChange={(o) => { if (!o) setViewerItem(null) }}
+        item={
+          viewerItem
+            ? {
+                src: mediaDisplayUrl(viewerItem.storage_path),
+                alt: viewerItem.alt_text || viewerItem.filename || 'Media',
+                filename: viewerItem.filename || undefined,
+                mime_type: viewerItem.mime_type,
+                width: viewerItem.width,
+                height: viewerItem.height,
+                size_bytes: viewerItem.size_bytes,
+              }
+            : null
+        }
+      />
     </div>
   )
 }
