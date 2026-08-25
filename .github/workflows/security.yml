@@ -80,8 +80,9 @@ jobs:
 
       - name: Build social-api image
         run: docker compose --project-name cu130-slim --env-file .github/test.env build social-api
-- name: List Docker images
-         run: docker images
+
+      - name: List Docker images
+        run: docker images
 
       - name: Scan images with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
@@ -130,12 +131,12 @@ jobs:
           npm ci
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: python, javascript-typescript
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           queries: security-and-quality
