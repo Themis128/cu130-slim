@@ -1,13 +1,13 @@
 ---
 name: Env Manager Frontend CI
 
-on:
+"on":
   push:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'env-manager/frontend/**'
   pull_request:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'env-manager/frontend/**'
 

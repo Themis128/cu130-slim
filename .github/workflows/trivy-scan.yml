@@ -106,13 +106,13 @@ jobs:
           echo "## Trivy Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ -f trivy-fs-results.sarif ]; then
+          if [-f trivy-fs-results.sarif]; then
             echo "### Filesystem Scan" >> $GITHUB_STEP_SUMMARY
             jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri))"' trivy-fs-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in filesystem scan" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -f trivy-image-results.sarif ]; then
+          if [-f trivy-image-results.sarif]; then
             echo "### Docker Image Scan" >> $GITHUB_STEP_SUMMARY
             jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text)"' trivy-image-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in image scan" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY

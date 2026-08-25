@@ -3,14 +3,14 @@ name: Docker Compose Validation
 
 "on":
   push:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'docker-compose*.yml'
       - '.github/workflows/docker-compose-validation.yml'
       - '.github/test.env'
       - '.env.example'
   pull_request:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'docker-compose*.yml'
       - '.github/workflows/docker-compose-validation.yml'

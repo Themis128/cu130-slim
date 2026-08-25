@@ -1,13 +1,13 @@
 ---
 name: Social Automation Backend CI
 
-on:
+"on":
   push:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'social-automation/backend/**'
   pull_request:
-    branches: [ master ]
+    branches: [master]
     paths:
       - 'social-automation/backend/**'
 
