@@ -290,8 +290,8 @@ services:
     ports:
       - "8082:8083"
     environment:
-      - NEXT_PUBLIC_API_URL=/api/v1
       - API_INTERNAL_URL=http://social-api:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
       - PORT=8083
     depends_on:
       - social-api

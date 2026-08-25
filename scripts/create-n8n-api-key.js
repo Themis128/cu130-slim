@@ -58,24 +58,24 @@ async function createN8nApiKey() {
       || await page.textContent('.api-key');
     
     if (apiKey) {
-      console.log('API_KEY:', apiKey.trim());
+          // API key generated successfully - not logging for security
     } else {
       // Try to find it in the page content
       const content = await page.content();
       const match = content.match(/n8n_api_[a-f0-9]+/);
       if (match) {
-        console.log('API_KEY:', match[0]);
+            // API key generated successfully - not logging for security
       } else {
-        console.log('Page content for debugging:');
-        console.log(content.substring(0, 5000));
+            // Page content hidden for security
+            // Content hidden for security
       }
     }
     
   } catch (error) {
-    console.error('Error:', error);
+        // Error occurred during API key creation (details hidden for security)
     const content = await page.content();
     console.log('Page content at error:');
-    console.log(content.substring(0, 5000));
+        // Content hidden for security
   } finally {
     await browser.close();
   }
