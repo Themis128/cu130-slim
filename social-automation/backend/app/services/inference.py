@@ -320,7 +320,14 @@ async def transcribe_workers_ai(
         )
 
     data = resp.json()
-    result = data.get("result") or {}
+    # Handle both new direct format and legacy envelope format
+    # New format: {"text": "...", "language": "..."}
+    # Legacy format: {"success": true, "result": {"text": "..."}}
+    if "text" in data:
+        result = data
+    else:
+        result = data.get("result") or {}
+    
     text = (result.get("text") or "").strip()
     return {
         "text": text,
@@ -382,7 +389,15 @@ async def _call_workers_ai_chat(
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI error {resp.status_code}: {resp.text[:400]}")
 
-    raw = (resp.json().get("result") or {}).get("response", "")
+    data = resp.json()
+    # Handle both new direct format and legacy envelope format
+    # New format: {"response": "...", "usage": {...}}
+    # Legacy format: {"success": true, "result": {"response": "..."}}
+    if "response" in data:
+        raw = data.get("response", "")
+    else:
+        raw = (data.get("result") or {}).get("response", "")
+    
     if isinstance(raw, dict):
         # Structured-output models return the parsed JSON object directly
         # (e.g. {"content": ..., "hashtags": [...]}).
@@ -471,9 +486,15 @@ async def _call_workers_ai_image(
                 "prompt": prompt,
             }
 
-    # JSON envelope: {"result": {"image": "<base64>"}}
+    # Handle both new direct format and legacy envelope format
+    # New format: {"image": "<base64>"}
+    # Legacy format: {"success": true, "result": {"image": "<base64>"}}
     data = resp.json()
-    result = data.get("result") or {}
+    if "image" in data or "base64" in data:
+        result = data
+    else:
+        result = data.get("result") or {}
+    
     image_b64 = result.get("image") or result.get("base64") or ""
     if not image_b64:
         raise HTTPException(
@@ -538,10 +559,17 @@ async def submit_workers_ai_batch(
         )
 
     data = resp.json()
-    if not data.get("success", True):
+    # Handle both new direct format and legacy envelope format
+    # Batch API typically uses envelope format, but we should be defensive
+    if "success" in data and not data.get("success", True):
         raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI batch submission failed: {data.get('errors')}")
 
-    result = data.get("result") or {}
+    # Check for direct format first (request_id, status, model at top level)
+    if "request_id" in data or "status" in data:
+        result = data
+    else:
+        result = data.get("result") or {}
+    
     return {
         "request_id": result.get("request_id"),
         "status": result.get("status") or "queued",
@@ -575,10 +603,17 @@ async def retrieve_workers_ai_batch(
         )
 
     data = resp.json()
-    if not data.get("success", True):
+    # Handle both new direct format and legacy envelope format
+    # Batch API typically uses envelope format, but we should be defensive
+    if "success" in data and not data.get("success", True):
         raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI batch retrieval failed: {data.get('errors')}")
 
-    result = data.get("result") or {}
+    # Check for direct format first (status, responses, usage at top level)
+    if "status" in data or "responses" in data:
+        result = data
+    else:
+        result = data.get("result") or {}
+    
     return {
         "status": result.get("status"),
         "responses": result.get("responses") or [],
