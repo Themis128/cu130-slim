@@ -1,6 +1,6 @@
 services:
   comfyui:
-    image: baltzakist/cu130-slim-comfyui:2.0.0
+    image: baltzakist/cu130-slim-comfyui:2.1.0
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,6 +12,9 @@ services:
       # Mount data directories individually to avoid overwriting ComfyUI source code
       - ./storage-user/custom_nodes:/home/user/ComfyUI/custom_nodes
       - ./storage-models/models:/home/user/ComfyUI/models
+      # Real SD checkpoints live in ./storage/models/checkpoints (Juggernaut-XL, SD1.5);
+      # overlay them into the mounted models tree
+      - ./storage/models/checkpoints:/home/user/ComfyUI/models/checkpoints
       - ./storage-user/user:/home/user/ComfyUI/user
       # Output directory for generated images (symlinked to host in workflow)
       - ./storage-user/output:/home/user/ComfyUI/output
