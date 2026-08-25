@@ -1,11 +1,12 @@
+---
 name: Docker CI
 
-on:
+"on":
   push:
-    branches: [ master ]
-    tags: [ 'v*' ]
+    branches: [master]
+    tags: ['v*']
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 permissions:
   contents: read
@@ -18,7 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3

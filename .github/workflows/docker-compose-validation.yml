@@ -1,6 +1,7 @@
+---
 name: Docker Compose Validation
 
-on:
+"on":
   push:
     branches: [ master ]
     paths:

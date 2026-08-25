@@ -1,6 +1,7 @@
+---
 name: Trivy Security Scan
 
-on:
+"on":
   push:
     branches: [master, main]
     paths:
@@ -104,13 +105,13 @@ jobs:
         run: |
           echo "## Trivy Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ -f trivy-fs-results.sarif ]; then
             echo "### Filesystem Scan" >> $GITHUB_STEP_SUMMARY
             jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri))"' trivy-fs-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in filesystem scan" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           if [ -f trivy-image-results.sarif ]; then
             echo "### Docker Image Scan" >> $GITHUB_STEP_SUMMARY
             jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text)"' trivy-image-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in image scan" >> $GITHUB_STEP_SUMMARY
@@ -124,15 +125,15 @@ jobs:
           script: |
             const fs = require('fs');
             let comment = '## 🔒 Trivy Security Scan Results\n\n';
-            
+
             if (fs.existsSync('trivy-image-results.sarif')) {
               const sarif = JSON.parse(fs.readFileSync('trivy-image-results.sarif', 'utf8'));
               const results = sarif.runs[0].results || [];
               const critical = results.filter(r => r.level === 'error').length;
               const high = results.filter(r => r.level === 'warning').length;
-              
+
               comment += `**Docker Image Scan:** ${critical} Critical, ${high} High/Warning findings\n\n`;
-              
+
               if (critical > 0 || high > 0) {
                 comment += '### Top Findings:\n';
                 results.filter(r => r.level === 'error' || r.level === 'warning')
@@ -144,7 +145,7 @@ jobs:
                 comment += '✅ No critical or high severity vulnerabilities found!\n';
               }
             }
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
