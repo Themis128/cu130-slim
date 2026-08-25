@@ -79,3 +79,4 @@ n8n-data/config
 
 # Ollama models
 ollama/models/
+ollama/id_ed25519
