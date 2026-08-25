@@ -381,7 +381,7 @@ async def _call_workers_ai_chat(
         # Structured-output models return the parsed JSON object directly
         # (e.g. {"content": ..., "hashtags": [...]}).
         return raw
-            response_text = str(raw or "").strip()
+    response_text = str(raw or "").strip()
     if schema:
         return _parse_json_response(response_text)
     return {"text": response_text}
