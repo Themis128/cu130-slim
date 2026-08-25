@@ -37,7 +37,7 @@ jobs:
 
       - name: Check for required environment variables
         run: |
-          scripts/validate-compose-env.sh
+          python3 scripts/validate-compose-env.py
 
       - name: Check service definitions
         run: |
