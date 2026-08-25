@@ -184,3 +184,54 @@ async def test_retrieve_batch_missing_credentials(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         await inference.retrieve_workers_ai_batch("@cf/baai/bge-m3", request_id="abc")
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_submit_batch_handles_new_direct_format(monkeypatch, cf_settings):
+    """Batch submission may return direct format with request_id at top level."""
+    fake = _FakeAsyncClient(
+        200,
+        {
+            "request_id": "direct-req-123",
+            "status": "queued",
+            "model": "@cf/baai/bge-m3",
+        },
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
+
+    result = await inference.submit_workers_ai_batch(
+        "@cf/baai/bge-m3",
+        [{"query": "test"}],
+    )
+
+    assert result["request_id"] == "direct-req-123"
+    assert result["status"] == "queued"
+    assert result["model"] == "@cf/baai/bge-m3"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_batch_handles_new_direct_format(monkeypatch, cf_settings):
+    """Batch retrieval may return direct format with responses at top level."""
+    fake = _FakeAsyncClient(
+        200,
+        {
+            "status": "completed",
+            "responses": [
+                {
+                    "id": 0,
+                    "result": {"response": [0.8, 0.2]},
+                    "success": True,
+                }
+            ],
+            "usage": {"total_tokens": 10},
+        },
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
+
+    result = await inference.retrieve_workers_ai_batch(
+        "@cf/baai/bge-m3", request_id="direct-req-123"
+    )
+
+    assert result["status"] == "completed"
+    assert len(result["responses"]) == 1
+    assert result["usage"]["total_tokens"] == 10

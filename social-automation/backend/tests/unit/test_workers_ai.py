@@ -522,3 +522,60 @@ def test_parse_json_response_truncated_raises_helpful_error():
         inference._parse_json_response(truncated)
     assert exc.value.status_code == 500
     assert "token limit" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_chat_handles_new_direct_format(monkeypatch, cf_settings):
+    """Newer Workers AI models return direct format: {'response': '...', 'usage': {...}}."""
+    fake = _FakeAsyncClient(
+        200,
+        {"response": "Hello from new format!", "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_chat(
+        "Say hi",
+        model="@cf/qwen/qwq-32b",
+        api_key="tok-456",
+    )
+
+    assert result == {"text": "Hello from new format!"}
+    assert fake.last_url.endswith("/ai/run/@cf/qwen/qwq-32b")
+
+
+@pytest.mark.asyncio
+async def test_transcribe_workers_ai_handles_new_direct_format(monkeypatch, cf_settings):
+    """STT models may also return direct format: {'text': '...', 'language': 'en'}."""
+    fake = _FakeAsyncClient(
+        200,
+        {"text": "transcribed text", "language": "en"},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
+
+    result = await inference.transcribe_workers_ai(
+        b"audio data",
+        "audio/wav",
+        model="@cf/openai/whisper",
+    )
+
+    assert result["text"] == "transcribed text"
+    assert result["language"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_call_workers_ai_image_handles_new_direct_format(monkeypatch, cf_settings):
+    """Image models may return direct format: {'image': 'base64data'}."""
+    fake = _FakeAsyncClient(
+        200,
+        {"image": "base64imagedata==", "format": "base64"},
+    )
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await inference._call_workers_ai_image(
+        "test prompt",
+        model="@cf/black-forest-labs/flux-1-schnell",
+        api_key="tok-456",
+    )
+
+    assert result["image_base64"] == "base64imagedata=="
+    assert result["format"] == "base64"

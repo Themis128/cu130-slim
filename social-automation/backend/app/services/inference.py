@@ -327,7 +327,7 @@ async def transcribe_workers_ai(
         result = data
     else:
         result = data.get("result") or {}
-    
+
     text = (result.get("text") or "").strip()
     return {
         "text": text,
@@ -397,7 +397,7 @@ async def _call_workers_ai_chat(
         raw = data.get("response", "")
     else:
         raw = (data.get("result") or {}).get("response", "")
-    
+
     if isinstance(raw, dict):
         # Structured-output models return the parsed JSON object directly
         # (e.g. {"content": ..., "hashtags": [...]}).
@@ -494,7 +494,7 @@ async def _call_workers_ai_image(
         result = data
     else:
         result = data.get("result") or {}
-    
+
     image_b64 = result.get("image") or result.get("base64") or ""
     if not image_b64:
         raise HTTPException(
@@ -569,7 +569,7 @@ async def submit_workers_ai_batch(
         result = data
     else:
         result = data.get("result") or {}
-    
+
     return {
         "request_id": result.get("request_id"),
         "status": result.get("status") or "queued",
@@ -613,7 +613,7 @@ async def retrieve_workers_ai_batch(
         result = data
     else:
         result = data.get("result") or {}
-    
+
     return {
         "status": result.get("status"),
         "responses": result.get("responses") or [],
