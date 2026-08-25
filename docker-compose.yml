@@ -20,12 +20,22 @@ services:
     deploy:
       resources:
         reservations:
-          devices:
-          - driver: nvidia
-            count: all
-            capabilities:
-            - gpu
+          cpus: '2.0'
+          memory: 4G
+        limits:
+          cpus: '4'
+          memory: 8G
     restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8188/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
@@ -61,6 +71,24 @@ services:
     - N8N_WEBHOOK_URL=http://localhost:5678/
     - N8N_WORKFLOW_FILE_SYSTEM=true
     restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:5678/healthz
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
   n8n-sandbox:
     image: n8nio/n8n-sandbox-service-sandbox:latest
     container_name: n8n-sandbox
@@ -69,6 +97,14 @@ services:
     - N8N_SANDBOX_PORT=8081
     - N8N_SANDBOX_LOG_LEVEL=info
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 0G
   postgres:
     image: postgres:16-alpine
     container_name: postgres
@@ -80,6 +116,14 @@ services:
     - ./.env:/app/.env:rw
     - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 0G
   metabase:
     image: metabase/metabase:latest
     container_name: metabase
@@ -95,8 +139,17 @@ services:
     - MB_EMAIL=${MB_EMAIL}
     - MB_PASSWORD=${MB_PASSWORD}
     depends_on:
-    - postgres
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -109,18 +162,56 @@ services:
     deploy:
       resources:
         reservations:
-          devices:
-          - driver: nvidia
-            count: all
-            capabilities:
-            - gpu
+          cpus: '2.0'
+          memory: 4G
+        limits:
+          cpus: '4'
+          memory: 8G
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:11434/
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  stable-diffusion-nim:
+    image: nvcr.io/nim/stable-diffusion-3.5-medium:latest
+    container_name: stable-diffusion-nim
+    ports:
+    - 8000:8000
+    environment:
+    - NGC_API_KEY=${NGC_API_KEY}
+    - HF_TOKEN=${HF_TOKEN}
+    volumes:
+    - ./nim-cache:/opt/nim/.cache
+    deploy:
+      resources:
+        reservations:
+          cpus: '2.0'
+          memory: 6G
+        limits:
+          cpus: '4'
+          memory: 12G
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/health
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    restart: unless-stopped
   chroma:
     image: chromadb/chroma:latest
     container_name: chroma
     ports:
     - 8001:8000
     volumes:
-    - ./.env:/app/.env:rw
     - ./chroma:/chroma/chroma
     command:
     - run
@@ -129,16 +220,41 @@ services:
     - --port
     - '8000'
     restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/api/v1/heartbeat
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 0G
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
     ports:
     - 9000:9000
     volumes:
-    - ./.env:/app/.env:rw
     - /var/run/docker.sock:/var/run/docker.sock
     - portainer_data:/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
   env-manager-backend:
     container_name: env-manager-backend
     ports:
@@ -150,14 +266,31 @@ services:
     - ENV_MANAGER_PASS=${ENV_MANAGER_PASS}
     restart: unless-stopped
     image: baltzakist/cu130-slim-env-manager-backend:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
   env-manager-frontend:
     container_name: env-manager-frontend
     ports:
     - 8080:8080
     depends_on:
-    - env-manager-backend
+      env-manager-backend:
+        condition: service_started
     restart: unless-stopped
     image: baltzakist/cu130-slim-env-manager-frontend:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
   social-postgres:
     image: postgres:16-alpine
     container_name: social-postgres
@@ -170,17 +303,49 @@ services:
     ports:
     - 5433:5432
     restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${SOCIAL_POSTGRES_USER} -d ${SOCIAL_POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 0G
   redis:
     image: redis:7-alpine
     container_name: redis
     ports:
     - 6379:6379
     volumes:
-    - ./.env:/app/.env:rw
     - redis_data:/data
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD
       must be set}
     restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
   social-api:
     container_name: social-api
     ports:
@@ -223,14 +388,28 @@ services:
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port
       8000 --reload"
     depends_on:
-    - social-postgres
-    - redis
-    - n8n
-    - comfyui
-    - ollama
-    - chroma
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+      comfyui:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
     restart: unless-stopped
     image: baltzakist/cu130-slim-social-api:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
   social-worker:
     container_name: social-worker
     environment:
@@ -248,13 +427,26 @@ services:
     - ./.env:/app/.env:rw
     - social_uploads:/app/uploads
     depends_on:
-    - social-postgres
-    - redis
-    - n8n
-    - comfyui
-    - ollama
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+      comfyui:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
     image: baltzakist/cu130-slim-social-worker:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
   social-frontend:
     container_name: social-frontend
     ports:
@@ -264,9 +456,18 @@ services:
     - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
     - PORT=8083
     depends_on:
-    - social-api
+      social-api:
+        condition: service_healthy
     restart: unless-stopped
     image: baltzakist/cu130-slim-social-frontend:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 volumes:
   portainer_data: null
   postgres_data: null

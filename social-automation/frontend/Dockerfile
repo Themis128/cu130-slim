@@ -15,10 +15,10 @@ RUN npm ci --legacy-peer-deps
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application (outputs standalone server)
 RUN npm run build
 
-# Production stage
+# Production stage - Next.js standalone server
 FROM node:20-alpine AS runner
 
 WORKDIR /app
@@ -28,12 +28,12 @@ RUN apk update && apk upgrade --available
 
 ENV NODE_ENV=production
 
-# Copy built assets
+# Copy built assets (standalone output)
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8083
 
+# Run Next.js standalone server
 CMD ["node", "server.js"]

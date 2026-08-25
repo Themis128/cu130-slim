@@ -14,8 +14,10 @@ fi
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
-grep -oE '\$\{[A-Z_][A-Z0-9_]*|\$[A-Z_][A-Z0-9_]*' "$compose_file" |
-  sed -E 's/^\$\{//; s/^\$//' |
+# Match ${VAR} or $VAR but not $$ (escaped dollar)
+# Use perl regex to avoid matching $$ sequences
+grep -oP '(?<!\$)\$\{[A-Z_][A-Z0-9_]*\}|\$(?!\$)[A-Z_][A-Z0-9_]*' "$compose_file" |
+  sed -E 's/^\$\{//; s/\}$//; s/^\$//' |
   sort -u > "$tmp_dir/referenced"
 grep -oE '^[A-Z_][A-Z0-9_]*=' "$example_file" |
   cut -d= -f1 |
