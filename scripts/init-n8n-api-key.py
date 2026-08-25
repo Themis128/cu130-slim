@@ -54,7 +54,7 @@ def get_existing_api_key():
                 if key.get("label") == API_KEY_LABEL:
                     return key.get("key")
     except Exception as e:
-        print(f"Error checking existing keys: {e}")
+        print("Error checking existing keys (details hidden for security)")
     return None
 
 
@@ -87,8 +87,8 @@ def create_api_key():
             json=payload,
             timeout=30
         )
-        print(f"Create response status: {resp.status_code}")
-        print(f"Create response: {resp.text}")
+        print("Create response received (status hidden for security)")
+        print("Create response details hidden for security")
         
         if resp.status_code in (200, 201):
             data = resp.json()
@@ -101,7 +101,7 @@ def create_api_key():
                 return data["apiKey"]
         return None
     except Exception as e:
-        print(f"Error creating API key: {e}")
+        print("Error creating API key (details hidden for security)")
         return None
 
 
