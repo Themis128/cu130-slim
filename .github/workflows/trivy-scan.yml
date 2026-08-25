@@ -35,31 +35,16 @@ env:
   TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
 
 jobs:
-  trivy-scan:
-    name: Trivy Vulnerability Scan
+  trivy-filesystem:
+    name: Trivy Filesystem Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write  # For SARIF upload
-      packages: read
+      security-events: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image for scanning
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: false
-          load: true
-          tags: comfyui-cu130-slim:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner (filesystem)
         uses: aquasecurity/trivy-action@v0.36.0
@@ -71,21 +56,6 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           exit-code: '0'  # Don't fail on fs scan, just report
 
-      - name: Run Trivy vulnerability scanner (Docker image)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: 'image'
-          scan-ref: 'comfyui-cu130-slim:test'
-          format: 'sarif'
-          output: 'trivy-image-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          ignore-unfixed: true
-          exit-code: 'HIGH'
-          # Vulnerability types to scan
-          vuln-type: 'os,library'
-          # Security checks
-          security-checks: 'vuln,config,secret,rbac'
-
       - name: Upload Trivy filesystem results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
@@ -93,65 +63,75 @@ jobs:
           sarif_file: trivy-fs-results.sarif
           category: trivy-filesystem
 
+  trivy-images:
+    name: Trivy Image Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - comfyui
+          - env-manager-backend
+          - env-manager-frontend
+          - social-api
+          - social-worker
+          - social-frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        run: |
+          case "${{ matrix.service }}" in
+            comfyui)
+              docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
+              ;;
+            env-manager-backend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-backend
+              ;;
+            env-manager-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-frontend
+              ;;
+            social-api)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-api
+              ;;
+            social-worker)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-worker
+              ;;
+            social-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-frontend
+              ;;
+          esac
+
+      - name: List Docker images
+        run: docker images
+
+      - name: Run Trivy vulnerability scanner (Docker image)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          scan-ref: 'cu130-slim-${{ matrix.service }}:latest'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          ignore-unfixed: true
+          exit-code: 'HIGH'
+          vuln-type: 'os,library'
+          security-checks: 'vuln,config,secret,rbac'
+
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: trivy-image-results.sarif
-          category: trivy-docker-image
-
-      - name: Generate Trivy summary report
-        if: always()
-        run: |
-          echo "## Trivy Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [-f trivy-fs-results.sarif]; then
-            echo "### Filesystem Scan" >> $GITHUB_STEP_SUMMARY
-            jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri))"' trivy-fs-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in filesystem scan" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [-f trivy-image-results.sarif]; then
-            echo "### Docker Image Scan" >> $GITHUB_STEP_SUMMARY
-            jq -r '.runs[0].results[] | select(.level == "error") | "- **\(.ruleId)**: \(.message.text)"' trivy-image-results.sarif 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || echo "No critical findings in image scan" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Comment on PR with Trivy results
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let comment = '## 🔒 Trivy Security Scan Results\n\n';
-
-            if (fs.existsSync('trivy-image-results.sarif')) {
-              const sarif = JSON.parse(fs.readFileSync('trivy-image-results.sarif', 'utf8'));
-              const results = sarif.runs[0].results || [];
-              const critical = results.filter(r => r.level === 'error').length;
-              const high = results.filter(r => r.level === 'warning').length;
-
-              comment += `**Docker Image Scan:** ${critical} Critical, ${high} High/Warning findings\n\n`;
-
-              if (critical > 0 || high > 0) {
-                comment += '### Top Findings:\n';
-                results.filter(r => r.level === 'error' || r.level === 'warning')
-                  .slice(0, 10)
-                  .forEach(r => {
-                    comment += `- **${r.ruleId}**: ${r.message.text}\n`;
-                  });
-              } else {
-                comment += '✅ No critical or high severity vulnerabilities found!\n';
-              }
-            }
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+          sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
+          category: 'trivy-docker-image-${{ matrix.service }}'
 
   trivy-sbom:
     name: Generate SBOM
@@ -167,20 +147,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: false
-          load: true
-          tags: comfyui-cu130-slim:sbom
+      - name: Build Docker images for SBOM
+        run: |
+          docker compose --project-name cu130-slim --env-file .github/test.env build
 
       - name: Generate SBOM with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          scan-ref: 'comfyui-cu130-slim:sbom'
+          image-ref: 'cu130-slim-comfyui:latest'
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
           vuln-type: 'os,library'
@@ -189,7 +164,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          scan-ref: 'comfyui-cu130-slim:sbom'
+          image-ref: 'cu130-slim-comfyui:latest'
           format: 'spdx-json'
           output: 'sbom-spdx.json'
           vuln-type: 'os,library'
@@ -215,7 +190,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    # dependency-review-action requires PR base/head refs — skip on push/schedule.
     if: github.event_name == 'pull_request'
 
     steps:

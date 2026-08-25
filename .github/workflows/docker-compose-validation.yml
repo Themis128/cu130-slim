@@ -47,3 +47,44 @@ jobs:
       - name: Check for port conflicts
         run: |
           docker compose --env-file .github/test.env config --format json | python3 scripts/check-compose-ports.py
+
+      - name: Validate pre-built image references
+        run: |
+          echo "Checking pre-built image references..."
+          # Services that should use pre-built images from Docker Hub
+          expected_images=(
+            "baltzakist/cu130-slim-comfyui:latest"
+            "baltzakist/cu130-slim-env-manager-backend:latest"
+            "baltzakist/cu130-slim-env-manager-frontend:latest"
+            "baltzakist/cu130-slim-social-api:latest"
+            "baltzakist/cu130-slim-social-worker:latest"
+            "baltzakist/cu130-slim-social-frontend:latest"
+          )
+          
+          config_output=$(docker compose --env-file .github/test.env config --format json)
+          
+          for img in "${expected_images[@]}"; do
+            service_name=$(echo "$img" | sed 's|.*/cu130-slim-\(.*\):.*|\1|')
+            # Check if service exists in compose
+            if echo "$config_output" | jq -e ".services.\"$service_name\"" > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r ".services.\"$service_name\".image")
+              if [[ "$actual_image" == "$img" ]]; then
+                echo "✅ $service_name uses correct image: $actual_image"
+              else
+                echo "❌ $service_name has incorrect image: $actual_image (expected: $img)"
+                exit 1
+              fi
+            else
+              echo "⚠️  Service $service_name not found in docker-compose.yml"
+            fi
+          done
+          
+          # Ensure no custom services have build sections
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker social-frontend; do
+            if echo "$config_output" | jq -e ".services.\"$service\".build" > /dev/null 2>&1; then
+              echo "❌ Service $service still has build section (should use pre-built image)"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All pre-built image references validated"
