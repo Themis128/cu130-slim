@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from datetime import datetime
 
@@ -11,10 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.models.content import MediaAsset
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
+from app.services.media_storage import persist_generated_image
 from app.services.inference import (
     STT_MODELS,
     _call_nvidia_flux,
@@ -370,6 +373,8 @@ class GenerateImageResponse(BaseModel):
     format: str = "base64"
     prompt: str
     similar_content: list[str] = []
+    asset_id: uuid.UUID | None = None
+    storage_path: str | None = None
 
 
 @router.post("/generate-image", response_model=GenerateImageResponse)
@@ -444,11 +449,25 @@ async def generate_image(
     if team and request.prompt:
         await chroma_client.add_content(str(team.id), str(uuid.uuid4()), request.prompt)
 
+    # Persist to disk + media_assets table so it appears in the Media Library
+    asset = None
+    if team:
+        asset = await persist_generated_image(
+            db,
+            team_id=team.id,
+            user_id=current_user.id,
+            image_bytes=base64.b64decode(image_base64),
+            prompt=request.prompt,
+            source="ai-generated",
+        )
+
     return GenerateImageResponse(
         image_base64=image_base64,
         format="base64",
         prompt=request.prompt,
         similar_content=similar,
+        asset_id=asset.id if asset else None,
+        storage_path=asset.storage_path if asset else None,
     )
 
 
@@ -473,6 +492,8 @@ class GenerateImagePipelineResponse(BaseModel):
     prompt: str
     similar_content: list[str] = []
     draft_id: str | None = None
+    asset_id: uuid.UUID | None = None
+    storage_path: str | None = None
 
 
 @router.post("/generate-image-pipeline", response_model=GenerateImagePipelineResponse)
@@ -542,12 +563,26 @@ async def generate_image_pipeline(
             f"DRAFT:{request.prompt}|||{image_base64[:100]}...",
         )
 
+    # Persist to disk + media_assets table so it appears in the Media Library
+    asset = None
+    if team:
+        asset = await persist_generated_image(
+            db,
+            team_id=team.id,
+            user_id=current_user.id,
+            image_bytes=image_bytes,
+            prompt=request.prompt,
+            source="ai-generated",
+        )
+
     return GenerateImagePipelineResponse(
         image_base64=image_base64,
         format="base64",
         prompt=request.prompt,
         similar_content=similar,
         draft_id=draft_id,
+        asset_id=asset.id if asset else None,
+        storage_path=asset.storage_path if asset else None,
     )
 
 
@@ -722,6 +757,7 @@ async def post_draft(
 async def get_image_status(
     job_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -734,10 +770,56 @@ async def get_image_status(
                         images = node_output.get("images", [])
                         if images:
                             filename = images[0]["filename"]
+                            subfolder = images[0].get("subfolder", "")
+                            folder_type = images[0].get("type", "output")
+
+                            # Persist the generated image into media_assets so it
+                            # shows up in the Media Library (once per job).
+                            asset_id = None
+                            storage_path = None
+                            team_result = await db.execute(
+                                select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+                            )
+                            team = team_result.scalars().first()
+                            if team:
+                                existing = await db.execute(
+                                    select(MediaAsset).where(
+                                        MediaAsset.generation_prompt == f"comfyui:{job_id}"
+                                    )
+                                )
+                                if existing.scalars().first() is None:
+                                    img_resp = await client.get(
+                                        f"{settings.COMFYUI_URL}/view",
+                                        params={
+                                            "filename": filename,
+                                            "subfolder": subfolder,
+                                            "type": folder_type,
+                                        },
+                                    )
+                                    if img_resp.status_code == 200:
+                                        ext = os.path.splitext(filename)[1] or ".png"
+                                        asset = await persist_generated_image(
+                                            db,
+                                            team_id=team.id,
+                                            user_id=current_user.id,
+                                            image_bytes=img_resp.content,
+                                            prompt=f"comfyui:{job_id}",
+                                            source="comfyui",
+                                            extension=ext,
+                                        )
+                                        # Keep the human-readable ComfyUI filename
+                                        asset.filename = filename
+                                        await db.commit()
+                                        await db.refresh(asset)
+                                        asset_id = asset.id
+                                        storage_path = asset.storage_path
+
                             return {
                                 "job_id": job_id,
                                 "status": "completed",
                                 "image_url": f"{settings.COMFYUI_URL}/view?filename={filename}",
+                                "asset_id": str(asset_id) if asset_id else None,
+                                "storage_path": storage_path,
                             }
                 return {"job_id": job_id, "status": "processing"}
     except Exception:
@@ -759,6 +841,8 @@ class GenerateImageFluxResponse(BaseModel):
     image_base64: str
     format: str = "base64"
     prompt: str
+    asset_id: uuid.UUID | None = None
+    storage_path: str | None = None
 
 
 @router.post("/generate-image-flux")
@@ -804,10 +888,24 @@ async def generate_image_flux(
     if team and request.prompt:
         await chroma_client.add_content(str(team.id), str(uuid.uuid4()), request.prompt)
 
+    # Persist to disk + media_assets table so it appears in the Media Library
+    asset = None
+    if team:
+        asset = await persist_generated_image(
+            db,
+            team_id=team.id,
+            user_id=current_user.id,
+            image_bytes=image_bytes,
+            prompt=request.prompt,
+            source="ai-generated",
+        )
+
     return GenerateImageFluxResponse(
         image_base64=image_base64,
         format="base64",
         prompt=request.prompt,
+        asset_id=asset.id if asset else None,
+        storage_path=asset.storage_path if asset else None,
     )
 
 

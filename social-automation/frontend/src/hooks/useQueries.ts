@@ -123,9 +123,12 @@ export function useDeleteMedia() {
 }
 
 export function useGenerateImage() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ prompt, options }: { prompt: string; options?: { width?: number; height?: number; model?: string; negative_prompt?: string; steps?: number; cfg_scale?: number } }) => mediaApi.generateImage(prompt, options),
     onSuccess: () => {
+      // Generated images are persisted to media_assets — refresh Media Library
+      queryClient.invalidateQueries({ queryKey: ['media'] })
       toast.success('Image generated')
     },
   })
