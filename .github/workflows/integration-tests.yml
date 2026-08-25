@@ -101,8 +101,9 @@ jobs:
 
       - name: Wait for Redis to be ready
         run: |
+          # NOTE: redis-cli is not preinstalled on hosted runners — use a raw TCP check.
           for i in {1..30}; do
-            if redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; then
+            if (echo > /dev/tcp/127.0.0.1/6379) > /dev/null 2>&1; then
               echo "Redis is ready"
               exit 0
             fi
@@ -176,7 +177,8 @@ jobs:
       - name: Install social-automation frontend dependencies
         run: |
           cd social-automation/frontend
-          npm ci
+          # legacy-peer-deps: lockfile resolved with vite 8 + plugin-react 4.x peer range
+          npm ci --legacy-peer-deps
 
       - name: Run social-automation frontend linting
         run: |

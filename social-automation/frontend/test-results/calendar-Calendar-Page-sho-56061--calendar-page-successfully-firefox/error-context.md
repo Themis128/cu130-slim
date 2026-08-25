@@ -12,13 +12,9 @@
 # Error details
 
 ```
-Error: browserType.launch: Executable doesn't exist at /home/tbaltzakis/.cache/ms-playwright/firefox-1538/firefox/firefox
-╔════════════════════════════════════════════════════════════╗
-║ Looks like Playwright was just installed or updated.       ║
-║ Please run the following command to download new browsers: ║
-║                                                            ║
-║     npx playwright install                                 ║
-║                                                            ║
-║ <3 Playwright Team                                         ║
-╚════════════════════════════════════════════════════════════╝
+Test timeout of 30000ms exceeded while running "beforeEach" hook.
+```
+
+```
+Tearing down "context" exceeded the test timeout of 30000ms.
 ```

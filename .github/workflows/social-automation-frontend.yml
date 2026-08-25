@@ -39,7 +39,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd social-automation/frontend
-          npm ci
+          # legacy-peer-deps: lockfile resolved with vite 8 + plugin-react 4.x peer range
+          npm ci --legacy-peer-deps
 
       - name: Run linting
         run: |

@@ -61,7 +61,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner (filesystem)
-        uses: aquasecurity/trivy-action@v0.58.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -71,7 +71,7 @@ jobs:
           exit-code: '0'  # Don't fail on fs scan, just report
 
       - name: Run Trivy vulnerability scanner (Docker image)
-        uses: aquasecurity/trivy-action@v0.58.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           scan-ref: 'comfyui-cu130-slim:test'
@@ -176,7 +176,7 @@ jobs:
           tags: comfyui-cu130-slim:sbom
 
       - name: Generate SBOM with Trivy
-        uses: aquasecurity/trivy-action@v0.58.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           scan-ref: 'comfyui-cu130-slim:sbom'
@@ -185,7 +185,7 @@ jobs:
           vuln-type: 'os,library'
 
       - name: Generate SBOM in SPDX format
-        uses: aquasecurity/trivy-action@v0.58.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           scan-ref: 'comfyui-cu130-slim:sbom'
@@ -214,6 +214,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # dependency-review-action requires PR base/head refs — skip on push/schedule.
+    if: github.event_name == 'pull_request'
 
     steps:
       - name: Checkout repository

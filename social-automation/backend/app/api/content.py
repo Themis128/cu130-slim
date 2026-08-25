@@ -441,11 +441,11 @@ async def delete_content_media(
     # Prevent path traversal attacks
     if ".." in media_id or media_id.startswith("/") or "\\" in media_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
-    
+
     # Construct target path and ensure it stays within MEDIA_DIR
     target = (MEDIA_DIR / media_id).resolve()
     if not target.is_relative_to(MEDIA_DIR.resolve()):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
-    
+
     if target.exists() and target.is_file():
         target.unlink()

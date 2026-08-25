@@ -81,7 +81,7 @@ jobs:
         run: docker compose --project-name cu130-slim --env-file .github/test.env build social-api
 
       - name: Scan images with Trivy
-        uses: aquasecurity/trivy-action@v0.58.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           image-ref: 'cu130-slim_social-api:latest'
@@ -121,7 +121,8 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd social-automation/frontend
-          npm ci
+          # legacy-peer-deps: lockfile resolved with vite 8 + plugin-react 4.x peer range
+          npm ci --legacy-peer-deps
           cd ../../env-manager/frontend
           npm ci
 

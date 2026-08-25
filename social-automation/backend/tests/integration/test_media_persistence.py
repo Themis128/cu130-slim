@@ -1,10 +1,10 @@
 """End-to-end tests: AI-generated content must be stored in the DB (media_assets)
 and be retrievable via the Media Library endpoints."""
 import io
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
-from unittest.mock import AsyncMock, patch
 
 TEST_USER = {"email": "media-persist-test@example.com", "password": "TestPass123!", "name": "Media Persist Test"}
 
@@ -166,6 +166,7 @@ async def test_generated_assets_are_paged_with_uploads(client):
 async def test_comfyui_job_completion_persists_to_media_library(client):
     """GET /ai/generate-image/{job_id} must persist the ComfyUI output once."""
     import httpx as httpx_mod
+
     from app.api import ai as ai_module
 
     headers = await _register_and_login(client)

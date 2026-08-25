@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import select
@@ -6,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models.user import User
-import uuid
 
 settings = get_settings()
 

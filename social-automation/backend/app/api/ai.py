@@ -17,7 +17,6 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.media_storage import persist_generated_image
 from app.services.inference import (
     STT_MODELS,
     _call_nvidia_flux,
@@ -29,6 +28,7 @@ from app.services.inference import (
     submit_workers_ai_batch,
     transcribe_workers_ai,
 )
+from app.services.media_storage import persist_generated_image
 
 router = APIRouter()
 settings = get_settings()
