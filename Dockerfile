@@ -3,8 +3,8 @@
 # Docker Hub, so this deterministic image builds the official ComfyUI source.
 # Uses CUDA PyTorch for NVIDIA GPU acceleration (RTX 3070 / 8GB VRAM).
 
-# Updated base image with security patches (CUDA 12.6 + Ubuntu 22.04 with latest patches)
-FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu22.04
+# Updated base image with security patches (CUDA 13.0 + Ubuntu 22.04 with latest patches)
+FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu22.04
 
 # System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
 # apt-get upgrade applies latest OS security patches for perl, openssl, ncurses, libacl, gzip, util-linux, libblkid
@@ -19,8 +19,8 @@ RUN apt-get update \
 WORKDIR /opt/ComfyUI
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 
-# Python deps - CUDA PyTorch 2.6, then ComfyUI requirements with pinned secure versions
-# comfy-kitchen 0.2.31 works with PyTorch 2.6
+# Python deps - CUDA PyTorch (cu130), then ComfyUI requirements with pinned secure versions
+# comfy-kitchen 0.2.31 (latest) - optimized CUDA ops require PyTorch built for cu130+
 # Increased timeout and retries for PyTorch download due to network issues
 # Security-pinned versions addressing Trivy findings:
 # - starlette>=0.52.2 (CVE-2024-xxxx DoS/SSRF)
@@ -30,7 +30,7 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # - jaraco.context>=5.3.1 (CVE-2024-xxxx Path traversal)
 # - cryptography>=43.0.0 (recommended replacement for ecdsa; Minerva attack fixed)
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130 \
     && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \

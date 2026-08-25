@@ -1,0 +1,6 @@
+# The ComfyUI image builds entirely from remote sources (git clone + pip);
+# nothing from the host context is COPY'd in, so exclude everything except
+# the Dockerfile itself. This keeps the 10GB+ of local data (storage/, models/,
+# n8n-data/, etc.) out of the docker build context.
+*
+!Dockerfile
