@@ -1,0 +1,159 @@
+# =============================================================================
+# CLINE IGNORE - Exclude from context to save tokens & improve performance
+# Place this file in your project root (same level as .gitignore)
+# =============================================================================
+
+# ---- Dependencies & Build Output ----
+node_modules/
+.pnp/
+.pnp.js
+
+# Build artifacts
+dist/
+build/
+out/
+.next/
+.nuxt/
+.target/
+*.tsbuildinfo
+
+# Package managers
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+.env/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ---- Rust ----
+target/
+Cargo.lock
+
+# ---- Go ----
+vendor/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ---- Java/Kotlin ----
+.gradle/
+build/
+*.class
+*.jar
+*.war
+*.ear
+.gradle.kts/
+.kotlin/
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Git ----
+.git/
+.gitignore
+
+# ---- Logs & Cache ----
+*.log
+logs/
+*.cache
+.cache/
+*.tmp
+temp/
+tmp/
+
+# ---- Test Coverage ----
+coverage/
+.nyc_output/
+.lcov
+
+# ---- Docker ----
+.docker/
+docker-compose.override.yml
+
+# ---- Environment / Secrets ----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+secrets/
+
+# ---- OS ----
+.DS_Store
+ehthumbs.db
+Desktop.ini
+
+# ---- Large Data Files ----
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.arrow
+*.pkl
+*.pickle
+
+# ---- Media ----
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.ico
+*.svg
+*.webp
+*.mp4
+*.mov
+*.avi
+*.mp3
+*.wav
+*.flac
+
+# ---- Archives ----
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# ---- Documentation (optional - uncomment to exclude) ----
+# docs/
+# *.md
+# README*
+
+# =============================================================================
+# PROJECT-SPECIFIC: Add your project's specific patterns below
+# =============================================================================
+
+# Example patterns (customize for your project):
+# my-project-specific-folder/
+# generated/
+# .generated/
+# *.generated.ts
+# *.generated.js
