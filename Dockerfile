@@ -9,11 +9,14 @@ FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu22.04
 # System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
 # apt-get upgrade applies latest OS security patches for perl, openssl, ncurses, libacl, gzip, util-linux, libblkid
 # Critical vulnerabilities fixed: CVE-2024-xxxx in perl, openssl, ncurses, acl, gzip, perl-Archive-Tar
+# Remove NVIDIA Nsight Compute (1.3GB) which contains vulnerable Go binary (nic_sampler)
+# with multiple CVEs: CVE-2024-xxxx in crypto/tls, net/url, encoding/xml, html/template, net/http, mime, net/mail, net, golang.org/x/net/idna, encoding/asn1, crypto/x509
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-dev git ffmpeg libgl1 libglib2.0-0 curl build-essential \
     && apt-get update \
     && apt-get dist-upgrade -y \
+    && rm -rf /opt/nvidia/nsight-compute \
     && rm -rf /var/lib/apt/lists/*
 
 # App code lives OUTSIDE the data mount so the mounted storage stays clean
