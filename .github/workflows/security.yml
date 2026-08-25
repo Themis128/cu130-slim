@@ -99,11 +99,16 @@ jobs:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy'
 
-  sast-scan:
+
+sast-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python', 'javascript-typescript']
     steps:
       - uses: actions/checkout@v4
 
@@ -133,7 +138,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: python, javascript-typescript
+          languages: ${{ matrix.language }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
