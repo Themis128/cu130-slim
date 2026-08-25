@@ -225,3 +225,73 @@ async def test_comfyui_job_completion_persists_to_media_library(client):
     assert len(matches) == 1
     assert matches[0]["filename"] == "ComfyUI_00001_.png"
 
+
+@pytest.mark.asyncio
+async def test_media_type_filters(client, db):
+    """GET /media/assets?type=… must filter images / videos / AI generated."""
+    import uuid
+
+    from sqlalchemy import select as sa_select
+
+    from app.models.content import MediaAsset
+    from app.models.user import Team
+
+    headers = await _register_and_login(client)
+    png = _make_png(color=(90, 90, 200))
+
+    # 1. An uploaded image
+    upload = await client.post(
+        "/api/v1/media/upload",
+        files={"file": ("pic.png", png, "image/png")},
+        headers=headers,
+    )
+    assert upload.status_code == 201, upload.text
+
+    # 2. An AI generated image
+    with (
+        patch("app.api.ai._call_nvidia_flux_dev", new=AsyncMock(return_value=png)),
+        patch("app.services.inference._get_provider_config", new=AsyncMock(return_value=("u", "m", "k"))),
+        patch("app.api.ai.chroma_client.query_similar", new=AsyncMock(return_value=[])),
+        patch("app.api.ai.chroma_client.add_content", new=AsyncMock()),
+    ):
+        gen = await client.post("/api/v1/ai/generate-image", json={"prompt": "filter test"}, headers=headers)
+    assert gen.status_code == 200, gen.text
+
+    # 3. A video asset (inserted directly; upload endpoint targets stills)
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    user_id = uuid.UUID(me.json()["id"])
+    team = (await db.execute(sa_select(Team).where(Team.owner_id == user_id))).scalars().first()
+    assert team is not None
+    vid = MediaAsset(
+        team_id=team.id,
+        user_id=user_id,
+        filename="clip.mp4",
+        mime_type="video/mp4",
+        storage_path="2026/01/01/clip.mp4",
+        source="upload",
+    )
+    db.add(vid)
+    await db.commit()
+
+    async def _ids(params):
+        r = await client.get("/api/v1/media/assets", params=params, headers=headers)
+        assert r.status_code == 200, r.text
+        return {a["id"] for a in r.json()["assets"]}
+
+    all_ids = await _ids({})
+    assert len(all_ids) == 3
+
+    image_ids = await _ids({"type": "image"})
+    assert image_ids == {str(upload.json()["id"]), gen.json()["asset_id"]}
+
+    video_ids = await _ids({"type": "video"})
+    assert video_ids == {str(vid.id)}
+
+    generated_ids = await _ids({"type": "generated"})
+    assert generated_ids == {gen.json()["asset_id"]}
+
+    # Exact-source filter still works alongside
+    upload_only = await _ids({"source": "upload"})
+    assert upload_only == {str(upload.json()["id"]), str(vid.id)}
+
+

@@ -2,7 +2,7 @@ import io
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -96,7 +96,7 @@ async def upload_media(
         raise HTTPException(status_code=400, detail="No team found")
 
     # Determine date-based subfolder
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     date_folder = now.strftime("%Y/%m/%d")
     # Ensure the directory exists
     target_dir = os.path.join(UPLOAD_DIR, date_folder)
@@ -206,7 +206,8 @@ async def view_media(path: str = Query(..., description="Relative storage path o
 async def list_media(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    source: str | None = None,
+    type: str | None = Query(None, description="Filter: 'image' | 'video' | 'generated' (AI Generated)"),
+    source: str | None = Query(None, description="Filter by exact source (e.g. 'upload', 'comfyui', 'ai-generated')"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -220,6 +221,14 @@ async def list_media(
     query = select(MediaAsset).where(MediaAsset.team_id == team.id)
     if source:
         query = query.where(MediaAsset.source == source)
+
+    # Friendly type filters used by the Media Library UI.
+    if type == "image":
+        query = query.where(MediaAsset.mime_type.like("image/%"))
+    elif type == "video":
+        query = query.where(MediaAsset.mime_type.like("video/%"))
+    elif type in ("generated", "ai-generated"):
+        query = query.where(MediaAsset.source == "ai-generated")
 
     from sqlalchemy import func
     count_query = select(func.count()).select_from(query.subquery())
@@ -275,7 +284,7 @@ async def generate_image(
         raise HTTPException(status_code=400, detail="No team found")
 
     # Determine date-based subfolder
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     date_folder = now.strftime("%Y/%m/%d")
     target_dir = os.path.join(UPLOAD_DIR, date_folder)
     os.makedirs(target_dir, exist_ok=True)
