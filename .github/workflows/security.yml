@@ -108,7 +108,7 @@ sast-scan:
     strategy:
       fail-fast: false
       matrix:
-        language: ['python', 'javascript-typescript']
+        language: ['python', 'javascript']
     steps:
       - uses: actions/checkout@v4
 
