@@ -1,15 +1,15 @@
 ---
-name: Env Manager Frontend CI
+name: Env Manager CI
 
 "on":
   push:
     branches: [master]
     paths:
-      - 'env-manager/frontend/**'
+      - 'env-manager/**'
   pull_request:
     branches: [master]
     paths:
-      - 'env-manager/frontend/**'
+      - 'env-manager/**'
 
 permissions:
   contents: read
@@ -19,7 +19,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  backend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('env-manager/backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          cd env-manager/backend
+          pip install -r requirements.txt
+
+      - name: Run linting
+        run: |
+          cd env-manager/backend
+          ruff check .
+
+      - name: Run type checking
+        run: |
+          cd env-manager/backend
+          mypy main.py --ignore-missing-imports
+
+  frontend-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
