@@ -484,10 +484,9 @@ async def test_chat_schema_gets_generous_default_max_tokens(monkeypatch, cf_sett
 
 @pytest.mark.asyncio
 async def test_chat_respects_explicit_max_tokens(monkeypatch, cf_settings):
-    fake = _FakeAsyncClient(200, {"result": {"response": "hi"}})
-    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
-
     # Explicit value wins even with a schema
+    fake = _FakeAsyncClient(200, {"result": {"response": "{}"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
     await inference._call_workers_ai_chat(
         "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
         schema={"type": "object"}, max_tokens=64,
@@ -495,10 +494,12 @@ async def test_chat_respects_explicit_max_tokens(monkeypatch, cf_settings):
     assert fake.last_json["max_tokens"] == 64
 
     # Plain text call without schema gets no cap injected
+    fake2 = _FakeAsyncClient(200, {"result": {"response": "hi"}})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake2)
     await inference._call_workers_ai_chat(
         "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
     )
-    assert "max_tokens" not in fake.last_json
+    assert "max_tokens" not in fake2.last_json
 
 
 def test_parse_json_response_markdown_fenced():
@@ -508,8 +509,7 @@ def test_parse_json_response_markdown_fenced():
 
 def test_parse_json_response_prose_wrapped_with_braces_in_strings():
     text = (
-        'Sure! Here is your JSON:
-\n'
+        'Sure! Here is your JSON:\n\n'
         '{"body": "use {curly} braces", "n": 2}\n'
         'Let me know if you need changes.'
     )

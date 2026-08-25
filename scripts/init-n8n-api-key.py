@@ -136,9 +136,9 @@ def main():
     # Check existing
     existing_key = get_existing_api_key()
     if existing_key:
-        print(f"API key '{API_KEY_LABEL}' already exists: {existing_key}")
+        print(f"API key '{API_KEY_LABEL}' already exists (value hidden for security)")
         update_env_file(existing_key)
-        print(f"N8N_API_KEY={existing_key}")
+        print("N8N_API_KEY=[HIDDEN]")
         return
     
     # Create new
@@ -147,7 +147,7 @@ def main():
         print("ERROR: Failed to create API key")
         sys.exit(1)
     
-    print(f"Successfully created API key: {api_key}")
+    print("Successfully created API key (value hidden for security)")
     
     if update_env_file(api_key):
         print("Updated .env file")
@@ -155,7 +155,7 @@ def main():
     print("\nNext steps:")
     print("1. Restart social-api and social-worker containers:")
     print("   docker-compose restart social-api social-worker")
-    print(f"2. Or manually add to .env: N8N_API_KEY={api_key}")
+    print("2. Or manually add to .env: N8N_API_KEY=[HIDDEN]")
 
 
 if __name__ == "__main__":
