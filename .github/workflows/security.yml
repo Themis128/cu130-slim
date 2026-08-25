@@ -72,35 +72,65 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - comfyui
+          - env-manager-backend
+          - env-manager-frontend
+          - social-api
+          - social-worker
+          - social-frontend
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build social-api image
-        run: docker compose --project-name cu130-slim --env-file .github/test.env build social-api
+      - name: Build ${{ matrix.service }} image
+        run: |
+          case "${{ matrix.service }}" in
+            comfyui)
+              docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
+              ;;
+            env-manager-backend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-backend
+              ;;
+            env-manager-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-frontend
+              ;;
+            social-api)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-api
+              ;;
+            social-worker)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-worker
+              ;;
+            social-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-frontend
+              ;;
+          esac
 
       - name: List Docker images
         run: docker images
 
-      - name: Scan images with Trivy
+      - name: Scan ${{ matrix.service }} with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'cu130-slim-social-api:latest'
+          image-ref: 'cu130-slim-${{ matrix.service }}:latest'
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy results to GitHub Security
+      - name: Upload ${{ matrix.service }} Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: 'trivy-results.sarif'
-          category: 'trivy'
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+          category: 'trivy-${{ matrix.service }}'
 
 
-sast-scan:
+  sast-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,7 +138,7 @@ sast-scan:
     strategy:
       fail-fast: false
       matrix:
-        language: ['python', 'javascript']
+        language: ['python', 'javascript', 'typescript']
     steps:
       - uses: actions/checkout@v4
 

@@ -16,8 +16,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: comfyui
+            context: .
+            dockerfile: Dockerfile
+          - name: env-manager-backend
+            context: env-manager/backend
+            dockerfile: env-manager/backend/Dockerfile
+          - name: env-manager-frontend
+            context: env-manager/frontend
+            dockerfile: env-manager/frontend/Dockerfile
+          - name: social-api
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile
+          - name: social-worker
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile.worker
+          - name: social-frontend
+            context: social-automation/frontend
+            dockerfile: social-automation/frontend/Dockerfile
+
     steps:
       - uses: actions/checkout@v4
 
@@ -36,11 +59,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
+      - name: Extract metadata for ${{ matrix.service.name }}
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-comfyui
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-${{ matrix.service.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
@@ -49,10 +72,11 @@ jobs:
             type=ref,event=pr
             type=sha
 
-      - name: Build and push image
+      - name: Build and push ${{ matrix.service.name }}
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
           push: ${{
             github.event_name == 'push' &&
             (
@@ -66,7 +90,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Report high vulnerabilities
+      - name: Report high vulnerabilities for ${{ matrix.service.name }}
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -77,7 +101,7 @@ jobs:
           severity: 'HIGH'
           scanners: 'vuln'
 
-      - name: Scan image for critical vulnerabilities
+      - name: Scan ${{ matrix.service.name }} for critical vulnerabilities
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
