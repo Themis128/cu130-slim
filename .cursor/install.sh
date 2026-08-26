@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Idempotent dependency setup for the Social Automation Platform dev environment.
-# Runs after the repository is checked out. Safe to re-run.
+# Idempotent dependency setup for the Social Automation Platform.
+# Stable system packages live in .cursor/Dockerfile; this script only refreshes
+# repository-tied Python/Node deps and a gitignored local env file.
+# Falls back to apt only when the base image is missing PostgreSQL/Redis
+# (e.g. running on Cursor's default image before a Dockerfile build is active).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/social-automation/backend"
 FRONTEND_DIR="$REPO_ROOT/social-automation/frontend"
 
-echo "==> Installing system packages (PostgreSQL, Redis, build toolchain)"
-export DEBIAN_FRONTEND=noninteractive
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
-  postgresql postgresql-contrib redis-server \
-  python3-venv python3-dev build-essential libpq-dev \
-  libjpeg-dev zlib1g-dev libde265-dev libheif-dev
+if ! command -v psql >/dev/null 2>&1 || ! command -v redis-server >/dev/null 2>&1; then
+  echo "==> System packages missing; installing PostgreSQL, Redis, and build toolchain"
+  export DEBIAN_FRONTEND=noninteractive
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq \
+    postgresql postgresql-contrib redis-server \
+    python3-venv python3-dev build-essential libpq-dev \
+    libjpeg-dev zlib1g-dev libde265-dev libheif-dev
+else
+  echo "==> System packages already present (Dockerfile/base image); skipping apt"
+fi
 
 echo "==> Setting up backend virtualenv and dependencies"
 cd "$BACKEND_DIR"
