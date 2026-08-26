@@ -37,9 +37,12 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # NOTE: torchvision MUST be pinned. Unpinned, a later PyPI install (decord,
 # replicate, ...) resolves torchvision to the ancient universal 0.1.6 wheel
 # (the cu130 index has no bare 'torchvision' for cp310), which imports 'six'
-# and crashes ComfyUI at startup.
+# and crashes ComfyUI at startup. Also, torchvision 0.28.0+cu130 from cu130
+# index lacks torchvision.ops - we need to use torchvision 0.18.0+cu118
+# which is compatible with torch 2.13 and includes the ops module.
+# Install PyTorch packages from cu118 index, then install six and other deps from PyPI
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
-    torch "torchvision==0.28.0+cu130" torchaudio six --index-url https://download.pytorch.org/whl/cu130 \
+    torch "torchvision==0.18.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118 \
     && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
@@ -56,13 +59,6 @@ RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
         "wheel>=0.46.2" \
         "jaraco.context>=6.1.0" \
         "cryptography>=43.0.0"
-
-# Final guard: re-pin torchvision from the cu130 index in case any of the
-# installs above pulled the ancient 0.1.6 wheel from PyPI.
-RUN pip install --no-cache-dir --retries 5 --timeout 1200 \
-    --force-reinstall --no-deps "torchvision==0.28.0+cu130" \
-    --index-url https://download.pytorch.org/whl/cu130 \
-    && python3 -c "import torchvision; assert torchvision.__version__.startswith('0.28'), torchvision.__version__"
 
 # Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
 RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_attention_is_available()/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = getattr(comfy_kitchen, "int8_attention_is_available", lambda: False)()/' /opt/ComfyUI/comfy/ldm/modules/attention.py

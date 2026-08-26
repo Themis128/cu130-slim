@@ -1,0 +1,273 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Optional explicit release semver (e.g. 2.1.0). Must be greater than the
+          version currently published to npm. Leave empty to bump patch from package.json.
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Give the default GITHUB_TOKEN write permission to commit and push the
+      # added or changed files to the repository.
+      contents: write
+      # Allow the job to send a JWT token request to the OIDC provider
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.head_ref }}
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Install latest version of jq
+      - name: Install latest version of jq to populate Marketplace Catalog StartChangeSet to publish new revision
+        uses: vegardit/gha-setup-jq@fae9c6aa0b21dbe5bd3b77d280cf142e0a0a65b4 # 1.1.0
+        with:
+          version: "latest"
+
+      - name: Bump version
+        id: bump-version
+        env:
+          EXPLICIT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').name")
+          PKG_JSON_VERSION=$(node -p "require('./package.json').version")
+          EXPLICIT_RAW=$(printf '%s' "${EXPLICIT_VERSION:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          if [ -z "$EXPLICIT_RAW" ]; then
+            TAG=$(npm version patch --no-git-tag-version)
+            VERSION=${TAG#v}
+          else
+            NPM_LATEST=$(npm view "$PKG" version) || {
+              printf 'Package name (raw): %q\n' "$PKG" >&2
+              echo "::error::Could not read the published version for comparison from npm (see log for package name)."
+              exit 1
+            }
+            CLEANED=$(node -e "const semver=require('semver');const c=semver.clean(process.argv[1]);if(!c){process.exit(1)};process.stdout.write(c)" "$EXPLICIT_RAW") || {
+              printf 'Received explicit version input (raw): %q\n' "$EXPLICIT_RAW" >&2
+              echo "::error::Invalid semver for explicit version (see log for raw value)."
+              exit 1
+            }
+            node -e "const semver=require('semver');const exp=process.argv[1];const latest=process.argv[2];const pkg=process.argv[3];\
+              if(!semver.gt(exp,latest)){console.error('Explicit version',exp,'must be greater than npm latest',latest);process.exit(1);}\
+              if(semver.lt(exp,pkg)){console.error('Explicit version',exp,'must not be less than package.json version',pkg);process.exit(1);}" \
+              "$CLEANED" "$NPM_LATEST" "$PKG_JSON_VERSION"
+            npm version "$CLEANED" --no-git-tag-version --allow-same-version
+            VERSION="$CLEANED"
+            TAG="v${VERSION}"
+          fi
+
+          jq --arg v "$VERSION" '(.version,.packages[].version) = $v' server.json > tmp && mv tmp server.json
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build assets
+        run: npm run build
+
+      - name: Commit build assets
+        run: |
+          git add package.json package-lock.json server.json
+          git commit -m "ci: update build assets (${{ steps.bump-version.outputs.tag }})"
+          git push
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          COMMIT_MESSAGE=$(git log -1 --pretty=format:'%s')
+          echo "# Changelog for ${{ steps.bump-version.outputs.tag }}" > ${{ github.workspace }}/RELEASE_NOTES.md
+          echo "* Updated version" >> ${{ github.workspace }}/RELEASE_NOTES.md
+          echo "${COMMIT_MESSAGE}" >> ${{ github.workspace }}/RELEASE_NOTES.md
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          cat ${{ github.workspace }}/RELEASE_NOTES.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        id: create_release
+        with:
+          body_path: ${{ github.workspace }}/RELEASE_NOTES.md
+          tag_name: ${{ steps.bump-version.outputs.tag }}
+          generate_release_notes: true
+          make_latest: true
+
+      - name: Publish NPM package
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # DockerHub authentication
+      - name: Login to Docker Hub
+        id: login-docker
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # AWS Marketplace ECR authentication
+      - name: Configure AWS Credentials to deploy to AWS Marketplace ECR
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ secrets.MARKETPL_AWS_IAM_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+        with:
+          registries: ${{ secrets.MARKETPL_ECR_AWS_ACCOUNT_ID }}
+
+      # Build docker image to support multi-architecture (https://aws.amazon.com/blogs/containers/introducing-multi-architecture-container-images-for-amazon-ecr/)
+      # Extend Docker build capabilities by using Buildx (https://github.com/docker/buildx)
+      - name: Set up QEMU to support multi-architecute builds
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Set GitHub short SHA Tag
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Docker Build Configuration
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          call: check
+
+      # Push to DockerHub (per production best practice, remove 'latest' tag)
+      # Push to AWS Marketplace-owned ECR Repository (https://docs.aws.amazon.com/marketplace/latest/userguide/container-product-policies.html)
+      - name: Build, tag and push to Docker Hub and AWS Marketplace ECR
+        env:
+          DOCKER_REGISTRY: ${{ github.repository }}
+          MARKETPL_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          MARKETPL_REPOSITORY: brave/brave-search-mcp
+          IMAGE_RELEASE_TAG: ${{ steps.bump-version.outputs.tag }}
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          platforms: linux/amd64,linux/aarch64
+          push: true
+          sbom: false
+          provenance: false
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}:${{ env.IMAGE_RELEASE_TAG }}
+            ${{ env.DOCKER_REGISTRY }}:${{ github.sha }}
+            ${{ env.DOCKER_REGISTRY }}:${{ steps.vars.outputs.short_sha }}
+            ${{ env.MARKETPL_REGISTRY }}/${{ env.MARKETPL_REPOSITORY }}:${{ env.IMAGE_RELEASE_TAG }}
+            ${{ env.MARKETPL_REGISTRY }}/${{ env.MARKETPL_REPOSITORY }}:${{ github.sha }}
+            ${{ env.MARKETPL_REGISTRY }}/${{ env.MARKETPL_REPOSITORY }}:${{ steps.vars.outputs.short_sha }}
+
+      # Publish to MCP Registry
+      # Reference: https://github.com/modelcontextprotocol/registry/blob/main/docs/guides/publishing/publish-server.md
+      - name: Install MCP Publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.7.9
+        run: |
+          set -euo pipefail
+          FILENAME="mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz"
+          CHECKSUMS_FILE="registry_${MCP_PUBLISHER_VERSION#v}_checksums.txt"
+          BASE_URL="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl -fSL "${BASE_URL}/${FILENAME}" -o "${FILENAME}"
+          curl -fSL "${BASE_URL}/${CHECKSUMS_FILE}" -o checksums.txt
+          grep -E "  ${FILENAME}$" checksums.txt | sha256sum -c
+          tar xzf "${FILENAME}" mcp-publisher
+
+      - name: Login to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
+
+      # Update JSON template to deploy Brave Search MCP Server to AWS Marketplace Management Portal
+      # Update Release Version
+      - name: Update Release Version Title in marketplace-revision-release.json
+        env:
+          IMAGE_RELEASE_TAG: ${{ steps.bump-version.outputs.tag }}
+        run: |
+          jq --arg tag "$IMAGE_RELEASE_TAG" '.ChangeSet[].DetailsDocument.Version.VersionTitle = "Release Version \($tag)"' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+          jq --arg tag "$IMAGE_RELEASE_TAG" '.ChangeSetTags[] |= (if .Key == "Release" then .Value = $tag else . end)' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+       # Update Release Notes 
+      - name: Update Release Notes in marketplace-revision-release.json
+        env:
+          RELEASE_NOTES: ${{ steps.changelog.outputs.release_notes }}
+        run: |
+          jq --arg notes "$RELEASE_NOTES" '.ChangeSet[].DetailsDocument.Version.ReleaseNotes = $notes' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+       # Update Version Title
+      - name: Update Version Title in marketplace-revision-release.json
+        env:
+          TITLE: 'Release ${{ steps.bump-version.outputs.tag }}'
+        run: |
+          jq --arg title "$TITLE" '.ChangeSet[].DetailsDocument.Version.VersionTitle = $title' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      # Generate ClientRequestToken 
+      # See https://docs.aws.amazon.com/marketplace/latest/APIReference/API_StartChangeSet.html
+      - name: Generate UUID for ClientRequestToken used with StartChangeSet
+        id: custom_token
+        run: echo "client_request_token=$(uuidgen)" >> "$GITHUB_OUTPUT"
+
+      - name: Update ClientRequestToken in marketplace-revision-release.json
+        env:
+          TOKEN: ${{ steps.custom_token.outputs.client_request_token }}
+        run: |
+          jq --arg token "$TOKEN" '.ClientRequestToken = $token' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      # Update DeliveryOptions
+      - name: Update DeliveryOptions images in marketplace-revision-release.json
+        env:
+          IMAGES: '["${{ steps.login-ecr.outputs.registry }}/brave/brave-search-mcp:${{ steps.bump-version.outputs.tag }}"]'
+        run: |
+          jq --argjson imgs "$IMAGES" '.ChangeSet[].DetailsDocument.DeliveryOptions[].Details.EcrDeliveryOptionDetails.ContainerImages = $imgs' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      - name: Update DeliveryOptions Description for Brave Search MCP Server option in marketplace-revision-release.json
+        env:
+          DESCRIPTION: "docker pull ${{ steps.login-ecr.outputs.registry }}/brave/brave-search-mcp:${{ steps.bump-version.outputs.tag }}"
+        run: |
+          jq --arg desc "$DESCRIPTION" '.ChangeSet[].DetailsDocument.DeliveryOptions[] |= (if .DeliveryOptionTitle == "Brave Search MCP Server" then .Details.EcrDeliveryOptionDetails.Description = $desc else . end)' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      - name: Update DeliveryOptions Usage Instructions for Docker Image option in marketplace-revision-release.json
+        env:
+          USAGE: 'docker run --rm -ti -p 8080:8080 --cap-drop all --read-only -e BRAVE_API_KEY=\"XXXX\" -e BRAVE_MCP_TRANSPORT=http -e BRAVE_MCP_PORT=8080 -e BRAVE_MCP_HOST=0.0.0.0 ${{ steps.login-ecr.outputs.registry }}/brave/brave-search-mcp:${{ steps.bump-version.outputs.tag }}'
+        run: |
+          jq --arg usage "$USAGE" '.ChangeSet[].DetailsDocument.DeliveryOptions[] |= (if .DeliveryOptionTitle == "Docker Image" then .Details.EcrDeliveryOptionDetails.UsageInstructions = $usage else . end)' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      - name: Update DeliveryOptions Description for Docker Image option in marketplace-revision-release.json
+        env:
+          DESCRIPTION: 'To obtain a Brave Search API key, go to https://aws.amazon.com/marketplace/pp/prodview-qjlabherxghtq and purchase a subscription within the AWS account where Brave Search MCP Server will be used.  \n\nPlease refer to AWS ECS or EKS documentation for configuring workloads to provide the environment variables referenced in the Usage Instructions.'
+        run: |
+          jq --arg desc "$DESCRIPTION" '.ChangeSet[].DetailsDocument.DeliveryOptions[] |= (if .DeliveryOptionTitle == "Docker Image" then .Details.EcrDeliveryOptionDetails.Description = $desc else . end)' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      - name: Update ChangeSetName in marketplace-revision-release.json
+        env:
+          NAME: 'Add Version ${{ steps.bump-version.outputs.tag }} Release'
+        run: |
+          jq --arg name "$NAME" '.ChangeSetName = $name' marketplace-revision-release.json > tmp.json && mv tmp.json marketplace-revision-release.json
+
+      - name: Validate marketplace-revision-release.json contents
+        run: 
+          jq . marketplace-revision-release.json
+
+      - name: Publish New Release to AWS Marketplace Catalog Management Portal
+        run: |
+          aws marketplace-catalog start-change-set \
+            --cli-input-json file://marketplace-revision-release.json

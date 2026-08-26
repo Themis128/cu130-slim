@@ -1,0 +1,203 @@
+---
+name: Trivy Security Scan
+
+"on":
+  push:
+    branches: [master, main]
+    paths:
+      - '**'
+      - '.github/workflows/trivy-scan.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - '**'
+      - '.github/workflows/trivy-scan.yml'
+  schedule:
+    # Run daily at 3 AM UTC to catch new vulnerabilities
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Minimum severity to fail build'
+        required: true
+        default: 'HIGH'
+        type: choice
+        options:
+          - CRITICAL
+          - HIGH
+          - MEDIUM
+          - LOW
+
+env:
+  # Trivy configuration
+  TRIVY_VERSION: '0.58.1'
+  TRIVY_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-db:2'
+  TRIVY_JAVA_DB_REPOSITORY: 'public.ecr.aws/aquasecurity/trivy-java-db:1'
+
+jobs:
+  trivy-filesystem:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (filesystem)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          exit-code: '0'  # Don't fail on fs scan, just report
+
+      - name: Upload Trivy filesystem results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-filesystem
+
+  trivy-images:
+    name: Trivy Image Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - comfyui
+          - env-manager-backend
+          - env-manager-frontend
+          - social-api
+          - social-worker
+          - social-frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        run: |
+          case "${{ matrix.service }}" in
+            comfyui)
+              docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
+              ;;
+            env-manager-backend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-backend
+              ;;
+            env-manager-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-frontend
+              ;;
+            social-api)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-api
+              ;;
+            social-worker)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-worker
+              ;;
+            social-frontend)
+              docker compose --project-name cu130-slim --env-file .github/test.env build social-frontend
+              ;;
+          esac
+
+      - name: List Docker images
+        run: docker images
+
+      - name: Run Trivy vulnerability scanner (Docker image)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          scan-ref: 'cu130-slim-${{ matrix.service }}:latest'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          ignore-unfixed: true
+          exit-code: 'HIGH'
+          vuln-type: 'os,library'
+          security-checks: 'vuln,config,secret,rbac'
+
+      - name: Upload Trivy image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
+          category: 'trivy-docker-image-${{ matrix.service }}'
+
+  trivy-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images for SBOM
+        run: |
+          docker compose --project-name cu130-slim --env-file .github/test.env build
+
+      - name: Generate SBOM with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'cu130-slim-comfyui:latest'
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+          vuln-type: 'os,library'
+
+      - name: Generate SBOM in SPDX format
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'cu130-slim-comfyui:latest'
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+          vuln-type: 'os,library'
+
+      - name: Upload SBOM as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+          retention-days: 90
+
+      - name: Attach SBOM to Docker image (if pushing to registry)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          echo "SBOM generated. To attach to registry, use:"
+          echo "  oras attach ghcr.io/${{ github.repository }}/cu130-slim:${{ github.sha }} --artifact-type application/vnd.cncf.cyclonedx+json sbom-cyclonedx.json"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Review dependencies
+        uses: actions/dependency-review-action@v4
+        with:
+          config-file: '.github/dependency-review-config.yml'
+          fail-on-severity: 'high'

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-08-26T04:53:45.596Z",
+  "sessionId": "sess_10b52fec-fe73-4f76-810d-772b2a123e8b",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "Dockerfile",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 2,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}
