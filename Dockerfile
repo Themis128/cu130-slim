@@ -41,7 +41,9 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # index lacks torchvision.ops - we need to use torchvision 0.18.0+cu118
 # which is compatible with torch 2.13 and includes the ops module.
 # Install PyTorch packages from cu118 index, then install six and other deps from PyPI
-RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
+# nvidia-cublas and related CUDA wheels are very large (several GB); use a generous
+# timeout and retry count to survive transient network hiccups during download.
+RUN pip install --no-cache-dir --retries 30 --timeout 3600 \
     torch "torchvision==0.18.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118 \
     && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
