@@ -15,5 +15,8 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+# Next.js 16 auto-generated AI agent rule files
+AGENTS.md
+CLAUDE.md
 # TypeScript build info (build artifact)
 *.tsbuildinfo

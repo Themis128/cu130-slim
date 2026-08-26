@@ -1,0 +1,21 @@
+{
+  "name": "Social Automation Platform",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "social-api",
+      "description": "FastAPI backend on http://localhost:8000 (Swagger UI at /docs). Tables auto-create on startup and an admin user is seeded from .env.local.",
+      "command": "cd social-automation/backend && set -a && source .env.local && set +a && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    },
+    {
+      "name": "social-frontend",
+      "description": "Next.js frontend on http://localhost:3001. Proxies /api/v1/* to the backend via API_INTERNAL_URL.",
+      "command": "cd social-automation/frontend && API_INTERNAL_URL=http://localhost:8000 npm run dev"
+    }
+  ],
+  "ports": [
+    { "name": "frontend", "port": 3001 },
+    { "name": "backend", "port": 8000 }
+  ]
+}
