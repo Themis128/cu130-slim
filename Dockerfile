@@ -45,6 +45,7 @@ RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
         replicate \
         natsort \
         decord \
+        six \
         "starlette>=0.52.2" \
         "setuptools>=78.1.1" \
         "msgpack>=1.0.8" \
