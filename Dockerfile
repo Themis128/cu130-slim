@@ -39,7 +39,7 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # (the cu130 index has no bare 'torchvision' for cp310), which imports 'six'
 # and crashes ComfyUI at startup.
 RUN pip install --no-cache-dir --retries 20 --timeout 1200 \
-    torch "torchvision==0.28.0+cu130" torchaudio --index-url https://download.pytorch.org/whl/cu130 \
+    torch "torchvision==0.28.0+cu130" torchaudio six --index-url https://download.pytorch.org/whl/cu130 \
     && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
