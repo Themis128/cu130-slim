@@ -420,22 +420,28 @@ async def generate_carousel_copy(
     team_id,
 ) -> dict:
     num = max(3, min(10, num_slides))
-    prompt = f"""Create a {num}-slide infographic carousel about: "{topic}"
+    prompt = f"""Create a {num}-slide LinkedIn infographic carousel for cloudless.gr about: "{topic}"
 
-Platform: linkedin — each slide delivers one clear idea in plain English.
-Tone: {tone} (still use plain everyday English)
-{"The last slide should be a strong CTA." if include_cta else ""}
+CAPTION RULES (most important):
+- 2-3 short sentences max. No marketing clichés.
+- Open with a human observation or a surprising fact, not "We are excited..."
+- End with one clear takeaway or gentle question to drive comments.
+- Do NOT mention "no credit card" — cloudless.gr accepts credit cards.
+- Tone: {tone}, conversational, like a smart friend sharing a tip.
 
-SPELLING: Every word must be correctly spelled English. Never invent words.
-UNIQUENESS: Each slide must cover a different idea. Do not repeat "no long contracts",
-"easy", or the same benefit on two slides. Caption must not copy any slide title verbatim.
+SLIDE RULES:
+- Each slide = one clear idea, plain English. Max 12 words per title.
+- body: max 90 chars, adds one concrete detail (not a restatement of the title).
+- highlight: a number, stat, or very short phrase to emphasise visually (or null).
+- slide_type: cover (first), content (middle), stat (if there's a number), cta (last if include_cta={include_cta}).
+- UNIQUENESS: no two slides share the same benefit/idea. No filler words.
 
 {PLAIN_ENGLISH_RULES}
 
-Return JSON with:
-- slides: array of exactly {num} objects with title, body (max 100 chars), highlight (string|null), slide_type (cover|content|stat|cta)
-- suggested_caption: plain English caption
-- hashtags: array of 5-8 hashtags without #"""
+Return JSON only:
+- slides: array of exactly {num} objects with title, body, highlight, slide_type
+- suggested_caption: the engaging 2-3 sentence post caption
+- hashtags: 5-7 relevant hashtags without #"""
 
     schema = {
         "type": "object",
