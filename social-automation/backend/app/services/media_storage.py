@@ -1,6 +1,7 @@
 """Persist generated images to disk + database so they appear in the Media Library."""
 import io
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -84,6 +85,7 @@ async def persist_generated_image(
     source: str = "ai-generated",
     extension: str = ".png",
     max_edge: int | None = None,
+    folder: str | None = None,
 ) -> MediaAsset:
     """Write generated image bytes under UPLOAD_DIR/YYYY/MM/DD/ and create a
     ``media_assets`` row so the asset shows up in the Media Library page.
@@ -101,13 +103,17 @@ async def persist_generated_image(
     image_bytes, width, height = downscale_image_bytes(image_bytes, max_edge=max_edge)
 
     now = datetime.now(UTC)
-    date_folder = now.strftime("%Y/%m/%d")
+    date_part = now.strftime("%Y/%m/%d")
+    if folder:
+        safe_folder = re.sub(r"[^a-zA-Z0-9_-]", "-", folder)[:48]
+        date_folder = f"{date_part}/{safe_folder}"
+    else:
+        date_folder = date_part
     target_dir = os.path.join(UPLOAD_DIR, date_folder)
     os.makedirs(target_dir, exist_ok=True)
 
     filename = f"{source}_{uuid.uuid4().hex[:8]}{extension}"
-    relative_path = os.path.join(date_folder, filename)
-    abs_path = os.path.join(UPLOAD_DIR, relative_path)
+    abs_path = os.path.join(target_dir, filename)
 
     async with aiofiles.open(abs_path, "wb") as f:
         await f.write(image_bytes)
@@ -127,7 +133,7 @@ async def persist_generated_image(
         size_bytes=len(image_bytes),
         width=width,
         height=height,
-        storage_path=relative_path,
+        storage_path=abs_path,
         alt_text=prompt,
         tags=["ai-generated"] if source == "ai-generated" else [],
         source=source,

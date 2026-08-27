@@ -99,6 +99,29 @@ class Settings(BaseSettings):
     SOCIAL_ADMIN_PASSWORD: str = ""
     SOCIAL_ADMIN_NAME: str = "Admin User"
 
+    # Slack daily digest (#socialauto)
+    # Prefer Incoming Webhook URL; alternatively bot/user token + channel id.
+    SLACK_WEBHOOK_URL: str = ""
+    SLACK_BOT_TOKEN: str = ""
+    SLACK_ACCESS_TOKEN: str = ""  # Slack CLI / OAuth access (xoxe.xoxp- / xoxb-)
+    SLACK_REFRESH_TOKEN: str = ""
+    SLACK_CHANNEL_ID: str = "C0BT263L17U"  # #socialauto
+    SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
+
+    # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
+    # EMAIL_PROVIDER=smtp|local|cloudflare
+    # smtp = Resend (same free relay as omv-ha mail); cloudflare = paid, unused
+    EMAIL_PROVIDER: str = "smtp"
+    SMTP_HOST: str = "smtp.resend.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "resend"
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM: str = "noreply@cloudless.gr"
+    DIGEST_EMAIL_TO: str = "tbaltzakis@cloudless.gr"
+    DIGEST_EMAIL_ISSUES_ONLY: bool = False
+    CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
+
 
 settings = Settings()
 

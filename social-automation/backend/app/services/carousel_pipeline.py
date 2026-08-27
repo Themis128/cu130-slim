@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -32,21 +33,34 @@ DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "4a8d9440-47d2-4bda-bd11-3776fd9022ba",
 )
 
-BG = (11, 18, 32)
-ACCENT = (34, 211, 230)
-ACCENT2 = (251, 146, 60)
-TEXT = (221, 228, 240)
-SUB = (136, 149, 172)
+# ── Brand tokens ──────────────────────────────────────────────────────────────
+BG      = (15,  15,  23)   # #0f0f17
+CARD    = (22,  22,  34)   # slightly lighter panel
+ACCENT  = (0,   255, 245)  # #00fff5  exact cloudless cyan
+ACCENT2 = (255, 100,  40)  # warm orange accent
+TEXT    = (225, 235, 245)  # near-white body copy
+SUB     = (120, 135, 160)  # muted blue-grey
+GRID    = (30,  30,  45)   # subtle grid line colour
+
+_FONT_DIR = "/app/app/assets/fonts"
+_FONT_FILES = {
+    "bold":     os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
+    "semibold": os.path.join(_FONT_DIR, "WorkSans-SemiBold.ttf"),
+    "regular":  os.path.join(_FONT_DIR, "WorkSans-Regular.ttf"),
+}
+_FALLBACK = {
+    "bold":    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "regular": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+}
 
 
-def _font(size: int, bold: bool = False):
-    path = (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        if bold
-        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    )
+def _font(size: int, weight: str = "regular"):
+    path = _FONT_FILES.get(weight, _FONT_FILES["regular"])
     if os.path.exists(path):
         return ImageFont.truetype(path, size)
+    fb = _FALLBACK.get("bold" if weight == "bold" else "regular", _FALLBACK["regular"])
+    if os.path.exists(fb):
+        return ImageFont.truetype(fb, size)
     return ImageFont.load_default()
 
 
@@ -70,29 +84,31 @@ def _draw_wrapped(draw, text, xy, font_obj, fill, max_width):
     return y
 
 
-def compose_branded_slide(
-    bg_img: Image.Image,
-    *,
-    index: int,
-    total: int,
-    slide_type: str,
-    title: str,
-    body: str,
-) -> Image.Image:
-    """Draw NLP copy only — skip body when it repeats the title."""
-    title = (title or "").strip()
-    body = (body or "").strip()
-    if body and title and is_duplicate(title, body):
-        # Keep the longer NLP line once.
-        if len(body) >= len(title):
-            title, body = body, ""
-        else:
-            body = ""
+def _ascii_safe(text: str) -> str:
+    """Replace fancy dashes/quotes so DejaVu never shows tofu glyphs."""
+    return (
+        (text or "")
+        .replace("\u2014", " - ")
+        .replace("\u2013", "-")
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2022", "-")
+        .strip()
+    )
 
-    img = bg_img.convert("RGB").resize((1080, 1080), Image.Resampling.LANCZOS)
-    overlay = Image.new("RGB", img.size, BG)
-    img = Image.blend(img, overlay, 0.58)
-    draw = ImageDraw.Draw(img)
+
+def _draw_grid(draw: ImageDraw.ImageDraw) -> None:
+    """Subtle dot-grid overlay for depth."""
+    step = 54
+    for gx in range(0, 1080, step):
+        for gy in range(0, 1080, step):
+            draw.ellipse((gx - 1, gy - 1, gx + 1, gy + 1), fill=GRID)
+
+
+def _draw_header(draw: ImageDraw.ImageDraw, index: int, total: int) -> None:
+    # Gradient accent bar (10px tall, more prominent)
     for x in range(1080):
         t = x / 1079
         color = (
@@ -100,23 +116,289 @@ def compose_branded_slide(
             int(ACCENT[1] * (1 - t) + ACCENT2[1] * t),
             int(ACCENT[2] * (1 - t) + ACCENT2[2] * t),
         )
-        draw.line([(x, 0), (x, 5)], fill=color)
-    brand_font = _font(34, True)
-    draw.text((80, 56), "cloudless", font=brand_font, fill=ACCENT)
-    draw.text((80 + draw.textlength("cloudless", font=brand_font), 56), ".gr", font=_font(34), fill=SUB)
-    draw.text((900, 62), f"{index:02d} / {total:02d}", font=_font(26), fill=SUB)
-    y = 280 if slide_type == "cover" else 320
+        draw.line([(x, 0), (x, 9)], fill=color)
+    # Logo
+    brand_font = _font(36, "bold")
+    dot_font = _font(36, "regular")
+    draw.text((80, 46), "cloudless", font=brand_font, fill=ACCENT)
+    draw.text((80 + draw.textlength("cloudless", font=brand_font), 46), ".gr", font=dot_font, fill=SUB)
+    # Slide counter — right-aligned pill
+    counter = f"{index:02d} / {total:02d}"
+    cw = draw.textlength(counter, font=_font(24))
+    cx = 1000 - int(cw)
+    draw.text((cx, 52), counter, font=_font(24), fill=SUB)
+
+
+def _draw_soft_orbs(draw: ImageDraw.ImageDraw) -> None:
+    """Subtle glow orbs — brand atmosphere, no letters."""
+    for cx, cy, r, fill in (
+        (980, 180, 160, (0,  42,  40)),   # top-right cyan glow
+        (100, 960, 200, (20,  20,  48)),   # bottom-left indigo
+        (990, 920, 110, (50,  20,  10)),   # bottom-right orange
+        (170, 200,  80, (0,   38,  36)),   # top-left cyan hint
+    ):
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
+
+
+def _motif_for(slide_type: str, index: int) -> str:
     if slide_type == "cover":
-        draw.rounded_rectangle((80, 200, 640, 260), radius=30, outline=ACCENT, width=2)
-        draw.text((110, 214), "Clear skies. Zero friction.", font=_font(24, True), fill=ACCENT)
+        return "cover"
+    if slide_type == "cta":
+        return "cta"
+    if slide_type == "stat":
+        return "stat"
+    motifs = ("servers", "pricing", "calendar", "rocket", "chat", "compare")
+    # After a cover (01), content 02 -> servers, 03 -> pricing, ...
+    return motifs[max(0, index - 2) % len(motifs)]
+
+
+def _draw_infographic(
+    draw: ImageDraw.ImageDraw,
+    *,
+    motif: str,
+    highlight: str | None,
+) -> None:
+    """Data-driven infographics — charts, tables, process flows (no AI text)."""
+    # Background card
+    draw.rounded_rectangle((80, 530, 1000, 930), radius=32, fill=CARD, outline=(35, 55, 75), width=2)
+    # ── Section label ─────────────────────────────────────────────────────────
+    RED = (220, 70, 70)
+
+    if motif == "cover":
+        # Comparison table: Traditional vs Cloudless
+        draw.text((110, 550), "Traditional Cloud", font=_font(24, "bold"), fill=RED)
+        draw.text((590, 550), "cloudless.gr", font=_font(24, "bold"), fill=ACCENT)
+        # Divider
+        draw.line([(540, 545), (540, 920)], fill=(40, 50, 68), width=2)
+        rows = [
+            ("Servers to manage", "Fully managed"),
+            ("Vendor lock-in", "Flexible exit"),
+            ("Surprise invoices", "Clear pricing"),
+            ("Ops team needed", "Ship-ready"),
+        ]
+        for i, (bad, good) in enumerate(rows):
+            y = 610 + i * 72
+            draw.rounded_rectangle((100, y, 520, y + 52), radius=10, fill=(30, 22, 28))
+            draw.text((116, y + 14), bad, font=_font(22), fill=(200, 180, 180))
+            draw.rounded_rectangle((560, y, 980, y + 52), radius=10, fill=(10, 36, 42))
+            draw.text((576, y + 14), good, font=_font(22), fill=TEXT)
+        return
+
+    if motif == "servers":
+        # Horizontal bar chart: old-way vs cloudless ops cost
+        draw.text((110, 555), "Monthly ops effort (hours)", font=_font(24, "bold"), fill=SUB)
+        bars = [
+            ("Self-hosted", 0.90, RED),
+            ("VPS managed", 0.62, (220, 140, 50)),
+            ("cloudless.gr", 0.15, ACCENT),
+        ]
+        for i, (label, frac, color) in enumerate(bars):
+            y = 628 + i * 90
+            draw.text((110, y), label, font=_font(22), fill=SUB)
+            bx1, bx2 = 110, 930
+            bw = int(bx1 + (bx2 - bx1) * frac)
+            draw.rounded_rectangle((bx1, y + 32, bx2, y + 62), radius=10, fill=(30, 36, 48))
+            draw.rounded_rectangle((bx1, y + 32, bw, y + 62), radius=10, fill=color)
+            pct = f"{int(frac * 100)}%"
+            draw.text((bw + 10, y + 36), pct, font=_font(22, "bold"), fill=color)
+        draw.rounded_rectangle((110, 900, 520, 920), radius=6, fill=(0, 60, 55))
+        draw.text((118, 900), "85% reduction with cloudless.gr", font=_font(18, "semibold"), fill=ACCENT)
+        return
+
+    if motif == "pricing":
+        # Cost breakdown: 3 clear rows with icon placeholders
+        draw.text((110, 555), "What you actually pay", font=_font(24, "bold"), fill=SUB)
+        items = [
+            ("Setup fee",   "$0",      ACCENT),
+            ("Monthly run", "from $29", TEXT),
+            ("Support",     "included", ACCENT),
+            ("Exit penalty","$0",       ACCENT),
+        ]
+        for i, (label, price, color) in enumerate(items):
+            y = 618 + i * 72
+            draw.rounded_rectangle((100, y, 700, y + 54), radius=12, fill=(26, 30, 46))
+            draw.text((120, y + 14), label, font=_font(24), fill=SUB)
+            pw = int(draw.textlength(price, font=_font(26, "bold")))
+            draw.text((700 - pw, y + 12), price, font=_font(26, "bold"), fill=color)
+        draw.rounded_rectangle((720, 618, 980, 914), radius=16, fill=(10, 38, 46), outline=ACCENT, width=2)
+        draw.text((760, 680), "No", font=_font(52, "bold"), fill=ACCENT)
+        draw.text((750, 748), "hidden", font=_font(32, "bold"), fill=ACCENT)
+        draw.text((760, 800), "fees.", font=_font(32, "bold"), fill=ACCENT)
+        return
+
+    if motif == "calendar":
+        # Deployment timeline — numbered milestones
+        draw.text((110, 555), "Go live in days, not months", font=_font(24, "bold"), fill=SUB)
+        steps = [
+            ("Day 1", "Sign up & configure"),
+            ("Day 2", "Connect your repo"),
+            ("Day 3", "First deploy live"),
+            ("Week 2", "Production traffic"),
+        ]
+        for i, (when, what) in enumerate(steps):
+            y = 630 + i * 72
+            # Number circle
+            cx = 148
+            draw.ellipse((cx - 26, y - 4, cx + 26, y + 44), fill=ACCENT if i < 3 else ACCENT2)
+            num = str(i + 1)
+            nw = int(draw.textlength(num, font=_font(26, "bold")))
+            draw.text((cx - nw // 2, y + 6), num, font=_font(26, "bold"), fill=BG)
+            # Connector line
+            if i < len(steps) - 1:
+                draw.line([(cx, y + 44), (cx, y + 72)], fill=(40, 50, 65), width=3)
+            draw.text((192, y + 2), when, font=_font(22, "bold"), fill=TEXT)
+            draw.text((192, y + 28), what, font=_font(20), fill=SUB)
+        return
+
+    if motif == "rocket":
+        # Key metric cards — 3 KPIs in a row
+        draw.text((110, 555), "By the numbers", font=_font(24, "bold"), fill=SUB)
+        kpis = [
+            ("< 5 min", "deploy time"),
+            ("99.9%",   "uptime SLA"),
+            ("80%",     "ops saved"),
+        ]
+        for i, (val, label) in enumerate(kpis):
+            x = 110 + i * 296
+            draw.rounded_rectangle((x, 610, x + 266, 820), radius=20, fill=(20, 28, 44), outline=(40, 55, 75), width=2)
+            vw = int(draw.textlength(val, font=_font(42, "bold")))
+            draw.text((x + (266 - vw) // 2, 652), val, font=_font(42, "bold"), fill=ACCENT)
+            lw = int(draw.textlength(label, font=_font(22)))
+            draw.text((x + (266 - lw) // 2, 710), label, font=_font(22), fill=SUB)
+        tip = _ascii_safe(highlight) if highlight else "Real results, real teams."
+        tw = int(draw.textlength(tip[:44], font=_font(22, "semibold")))
+        draw.text(((1080 - tw) // 2, 848), tip[:44], font=_font(22, "semibold"), fill=TEXT)
+        return
+
+    if motif == "chat":
+        # Testimonial-style quote card
+        draw.text((110, 555), "What teams say", font=_font(24, "bold"), fill=SUB)
+        draw.rounded_rectangle((100, 608, 960, 828), radius=20, fill=(20, 28, 44), outline=(40, 55, 75), width=2)
+        # Large quote mark
+        draw.text((120, 612), "“", font=_font(80, "bold"), fill=ACCENT)
+        quote = highlight or "We cut our infra time by 80% and ship twice as fast."
+        quote = _ascii_safe(quote)
+        _draw_wrapped(draw, f'"{quote}"', (130, 660), _font(26), TEXT, 800)
+        draw.text((130, 840), "- cloudless.gr customer", font=_font(22, "semibold"), fill=SUB)
+        return
+
+    if motif == "stat":
+        # Big stat with a horizontal gauge bar
+        big = _ascii_safe(highlight) if highlight else "80%"
+        # Centre the big number
+        bw = int(draw.textlength(big, font=_font(110, "bold")))
+        draw.text(((1080 - bw) // 2, 590), big, font=_font(110, "bold"), fill=ACCENT)
+        label = "of ops overhead eliminated"
+        lw = int(draw.textlength(label, font=_font(26)))
+        draw.text(((1080 - lw) // 2, 720), label, font=_font(26), fill=SUB)
+        # Gauge bar
+        gauge_x1, gauge_x2 = 160, 920
+        draw.rounded_rectangle((gauge_x1, 778, gauge_x2, 814), radius=18, fill=(30, 38, 54))
+        try:
+            frac = min(1.0, float(big.strip("%")) / 100)
+        except ValueError:
+            frac = 0.5
+        filled = int(gauge_x1 + (gauge_x2 - gauge_x1) * frac)
+        draw.rounded_rectangle((gauge_x1, 778, filled, 814), radius=18, fill=ACCENT)
+        draw.text((gauge_x1, 830), "Before cloudless.gr", font=_font(20), fill=(100, 100, 120))
+        draw.text((gauge_x2 - 180, 830), "After", font=_font(20), fill=ACCENT)
+        return
+
+    if motif == "cta":
+        # CTA centred with pill button
+        draw.rounded_rectangle((150, 600, 930, 800), radius=36, fill=ACCENT)
+        cta_text = "Start free at cloudless.gr"
+        cta_w = int(draw.textlength(cta_text, font=_font(38, "bold")))
+        draw.text(((1080 - cta_w) // 2, 666), cta_text, font=_font(38, "bold"), fill=BG)
+        sub = "No credit card. No lock-in."
+        sw = int(draw.textlength(sub, font=_font(26)))
+        draw.text(((1080 - sw) // 2, 826), sub, font=_font(26), fill=SUB)
+        return
+
+    # Default: feature comparison two-column
+    draw.rounded_rectangle((100, 570, 510, 900), radius=20, fill=(30, 22, 28), outline=RED, width=2)
+    draw.text((170, 608), "Complex", font=_font(34, "bold"), fill=RED)
+    rows_l = ("Manual scaling", "Vendor lock-in", "Big ops team", "Unpredictable cost")
+    for i, r in enumerate(rows_l):
+        draw.text((120, 668 + i * 54), f"- {r}", font=_font(22), fill=(180, 150, 150))
+    draw.rounded_rectangle((570, 570, 980, 900), radius=20, fill=(10, 36, 42), outline=ACCENT, width=2)
+    draw.text((660, 608), "Simple", font=_font(34, "bold"), fill=ACCENT)
+    rows_r = ("Auto-scales", "Open standards", "Ship in days", "Clear pricing")
+    for i, r in enumerate(rows_r):
+        draw.text((590, 668 + i * 54), f"+ {r}", font=_font(22), fill=TEXT)
+
+
+def compose_branded_slide(
+    bg_img: Image.Image | None,
+    *,
+    index: int,
+    total: int,
+    slide_type: str,
+    title: str,
+    body: str,
+    highlight: str | None = None,
+    motif: str | None = None,
+) -> Image.Image:
+    """Infographic slide: vector art + PIL text only (correct spelling, no AI glyphs)."""
+    title = _ascii_safe(title)
+    body = _ascii_safe(body)
+    highlight = _ascii_safe(highlight) if highlight else None
+    if body and title and is_duplicate(title, body):
+        if len(body) >= len(title):
+            title, body = body, ""
+        else:
+            body = ""
+
+    # Brand canvas — CF bg ignored, we own every pixel.
+    _ = bg_img
+    img = Image.new("RGB", (1080, 1080), BG)
+    draw = ImageDraw.Draw(img)
+    _draw_grid(draw)
+    _draw_soft_orbs(draw)
+    _draw_header(draw, index, total)
+
+    stype = (slide_type or "content").lower()
+    motif_key = (motif or _motif_for(stype, index)).lower()
+
+    # ── Copy zone ─────────────────────────────────────────────────────────────
+    PAD = 80
+    if stype == "cover":
+        # Pill tagline just below header
+        tag = "Clear skies. Zero friction."
+        tw = int(draw.textlength(tag, font=_font(22, "semibold"))) + 36
+        draw.rounded_rectangle((PAD, 122, PAD + tw, 162), radius=20, outline=ACCENT, width=2)
+        draw.text((PAD + 18, 131), tag, font=_font(22, "semibold"), fill=ACCENT)
+
+    y = 196 if stype == "cover" else 152
     if title:
-        title_size = 48 if len(title) > 60 else 56
-        y = _draw_wrapped(draw, title, (80, y), _font(title_size, True), TEXT, 920)
-        y += 28
+        title_size = 50 if len(title) > 44 else 62
+        y = _draw_wrapped(draw, title, (PAD, y), _font(title_size, "bold"), TEXT, 940)
+        y += 22
     if body:
-        _draw_wrapped(draw, body, (80, y), _font(30), SUB, 920)
-    draw.text((80, 990), "www.cloudless.gr", font=_font(24), fill=ACCENT)
+        _draw_wrapped(draw, body, (PAD, y), _font(32, "regular"), SUB, 940)
+
+    _draw_infographic(draw, motif=motif_key, highlight=highlight)
+
+    # Footer
+    draw.text((PAD, 1014), "www.cloudless.gr", font=_font(22, "semibold"), fill=ACCENT)
     return img
+
+def _dedupe_slide_copy(slides: list[dict]) -> list[dict]:
+    """Drop near-duplicate titles/bodies across slides; keep first unique idea."""
+    seen: list[str] = []
+    out: list[dict] = []
+    for slide in slides:
+        title = (slide.get("title") or "").strip()
+        body = (slide.get("body") or "").strip()
+        if any(is_duplicate(title, prev) or (body and is_duplicate(body, prev)) for prev in seen):
+            continue
+        if body and title and is_duplicate(title, body):
+            body = ""
+        seen.append(title)
+        if body:
+            seen.append(body)
+        out.append({**slide, "title": title, "body": body})
+    return out or slides
 
 
 async def generate_carousel_copy(
@@ -135,6 +417,10 @@ async def generate_carousel_copy(
 Platform: linkedin — each slide delivers one clear idea in plain English.
 Tone: {tone} (still use plain everyday English)
 {"The last slide should be a strong CTA." if include_cta else ""}
+
+SPELLING: Every word must be correctly spelled English. Never invent words.
+UNIQUENESS: Each slide must cover a different idea. Do not repeat "no long contracts",
+"easy", or the same benefit on two slides. Caption must not copy any slide title verbatim.
 
 {PLAIN_ENGLISH_RULES}
 
@@ -229,6 +515,7 @@ async def run_cloudless_carousel_pipeline(
         team_id=team.id,
         force_fix=True,
     )
+    slides = _dedupe_slide_copy(slides)
 
     # 3) Images + branding
     media_ids: list[uuid.UUID] = []
@@ -237,12 +524,14 @@ async def run_cloudless_carousel_pipeline(
         body = slide.get("body") or ""
         stype = slide.get("slide_type") or "content"
         visual = (
-            f"LinkedIn carousel background for '{title}'. {body}. "
-            "Dark navy abstract tech aesthetic, cyan and soft orange accents, square, no text, no logos."
+            f"Abstract LinkedIn carousel background mood for '{title}'. "
+            "Dark navy tech atmosphere, soft cyan and orange light, geometric shapes only. "
+            "CRITICAL: absolutely no letters, no words, no numbers, no logos, no watermarks, no UI text."
         )
         enhance = (
-            f"Improve image 0 for a LinkedIn carousel about '{title}'. "
-            f"Sharper details, richer lighting, stronger metaphor for: {body}. No text, no logos."
+            f"Improve image 0 as abstract mood art only for '{title}'. "
+            "Richer lighting and sharper shapes. "
+            "CRITICAL: remove any letters, words, numbers, logos, or UI text completely."
         )
         print(f"[n8n-pipeline] slide {i + 1}/{len(slides)} images", flush=True)
         pipe = await _call_cf_image_pipeline(
@@ -262,9 +551,13 @@ async def run_cloudless_carousel_pipeline(
             slide_type=stype,
             title=title,
             body=body,
+            highlight=slide.get("highlight"),
+            motif=slide.get("visual") or slide.get("motif"),
         )
         buf = io.BytesIO()
         branded.save(buf, format="PNG", optimize=True)
+        safe_topic = re.sub(r"[^a-zA-Z0-9_-]", "-", topic)[:32]
+        folder_name = f"carousel-{safe_topic}"
         asset = await persist_generated_image(
             db,
             team_id=team.id,
@@ -272,6 +565,7 @@ async def run_cloudless_carousel_pipeline(
             image_bytes=buf.getvalue(),
             prompt=f"n8n-carousel:{title}",
             source="n8n-cf-pipe",
+            folder=folder_name,
         )
         media_ids.append(asset.id)
 

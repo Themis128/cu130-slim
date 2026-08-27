@@ -1,6 +1,7 @@
 import dataclasses
 import io
 import os
+from urllib.parse import unquote
 
 import httpx
 from sqlalchemy import select
@@ -221,7 +222,7 @@ async def _publish_linkedin(
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post("https://api.linkedin.com/rest/posts", headers=headers, json=payload)
         resp.raise_for_status()
-        post_id = resp.headers.get("x-restli-id", "")
+        post_id = unquote(resp.headers.get("x-restli-id", "") or "")
         return PublishResult(
             success=True,
             platform_post_id=post_id,
@@ -318,7 +319,7 @@ async def _publish_linkedin_document(
             json=payload,
         )
         post_resp.raise_for_status()
-        post_id = post_resp.headers.get("x-restli-id", "")
+        post_id = unquote(post_resp.headers.get("x-restli-id", "") or "")
         return PublishResult(
             success=True,
             platform_post_id=post_id,
@@ -390,7 +391,7 @@ async def _publish_linkedin_multi_image(
         }
         post_resp = await client.post("https://api.linkedin.com/rest/posts", headers=headers, json=payload)
         post_resp.raise_for_status()
-        post_id = post_resp.headers.get("x-restli-id", "")
+        post_id = unquote(post_resp.headers.get("x-restli-id", "") or "")
         return PublishResult(
             success=True,
             platform_post_id=post_id,

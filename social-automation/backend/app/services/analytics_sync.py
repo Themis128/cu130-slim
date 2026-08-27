@@ -68,11 +68,14 @@ def _linkedin_headers(token: str) -> dict[str, str]:
 def _normalize_post_urn(platform_post_id: str | None) -> str | None:
     if not platform_post_id:
         return None
-    pid = platform_post_id.strip()
+    from urllib.parse import unquote
+
+    pid = unquote(platform_post_id.strip())
     if pid.startswith("urn:li:"):
         return pid
+    # Bare numeric ids are ambiguous (share vs ugcPost); discovery/alt tries both.
     if pid.isdigit():
-        return f"urn:li:ugcPost:{pid}"
+        return None
     return pid
 
 
@@ -86,6 +89,23 @@ def _org_urn(account: SocialAccount) -> str:
 def _restli_list(urns: list[str]) -> str:
     """Rest.li List(...) with each URN percent-encoded; parentheses unencoded."""
     return "List(" + ",".join(quote(u, safe="") for u in urns) + ")"
+
+
+def _urn_kind(urn: str) -> str | None:
+    if "ugcPost" in urn:
+        return "ugcPosts"
+    if ":share:" in urn or urn.startswith("urn:li:share:"):
+        return "shares"
+    return None
+
+
+def _alt_urn(urn: str) -> str | None:
+    """Try the other share/ugcPost form with the same numeric id."""
+    if "ugcPost" in urn:
+        return "urn:li:share:" + urn.rsplit(":", 1)[-1]
+    if ":share:" in urn:
+        return "urn:li:ugcPost:" + urn.rsplit(":", 1)[-1]
+    return None
 
 
 def _parse_share_stats_element(el: dict[str, Any]) -> tuple[str | None, MetricBundle]:
@@ -103,6 +123,19 @@ def _parse_share_stats_element(el: dict[str, Any]) -> tuple[str | None, MetricBu
     return urn, bundle
 
 
+def _is_hard_stats_failure(status: int, body: str) -> bool:
+    """True when the failure should surface as a digest warning."""
+    if status >= 500:
+        return True
+    low = (body or "").lower()
+    # Missing activity / unknown post is common for stale local ids — soft skip.
+    if "activityids" in low or "could not find entity" in low or "not_found" in low:
+        return False
+    if status in (401, 403):
+        return True
+    return status >= 400
+
+
 async def _fetch_linkedin_org_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -118,44 +151,92 @@ async def _fetch_linkedin_org_stats(
     base = "https://api.linkedin.com/rest/organizationalEntityShareStatistics"
     org_q = quote(org_urn, safe="")
 
+    async def _request(param_name: str, urns: list[str]) -> httpx.Response | None:
+        if not urns:
+            return None
+        url = (
+            f"{base}?q=organizationalEntity&organizationalEntity={org_q}"
+            f"&{param_name}={_restli_list(urns)}"
+        )
+        return await client.get(url, headers=headers)
+
+    async def _stats_one(urn: str) -> MetricBundle:
+        tried: set[str] = set()
+        last_err: str | None = None
+        attempts: list[tuple[str, str]] = []
+        kind = _urn_kind(urn)
+        if kind:
+            attempts.append((kind, urn))
+        else:
+            attempts.append(("ugcPosts", urn))
+            attempts.append(("shares", urn))
+        alt = _alt_urn(urn)
+        if alt:
+            alt_kind = _urn_kind(alt)
+            if alt_kind:
+                attempts.append((alt_kind, alt))
+
+        for param, candidate in attempts:
+            key = f"{param}:{candidate}"
+            if key in tried:
+                continue
+            tried.add(key)
+            resp = await _request(param, [candidate])
+            if resp is None:
+                continue
+            if resp.status_code < 400:
+                data = resp.json() or {}
+                for el in data.get("elements") or []:
+                    parsed_urn, bundle = _parse_share_stats_element(el)
+                    if parsed_urn:
+                        return bundle
+                return MetricBundle(raw={"note": "no_stats_element", "requested": candidate})
+            last_err = f"linkedin stats HTTP {resp.status_code}: {resp.text[:220]}"
+            if not _is_hard_stats_failure(resp.status_code, resp.text):
+                # Soft failure — try alternate form before giving up.
+                continue
+        if last_err and _is_hard_stats_failure(400, last_err):
+            return MetricBundle(notes=last_err)
+        return MetricBundle(
+            notes="stats_unavailable",
+            raw={"requested": urn, "error": last_err},
+        )
+
+    # Partition known kinds for efficient batching; unknowns go one-by-one.
+    ugc = [u for u in post_urns if _urn_kind(u) == "ugcPosts"]
+    shares = [u for u in post_urns if _urn_kind(u) == "shares"]
+    other = [u for u in post_urns if _urn_kind(u) is None]
+
     batch_size = 10
-    for i in range(0, len(post_urns), batch_size):
-        batch = post_urns[i : i + batch_size]
-        ugc = [u for u in batch if "ugcPost" in u]
-        shares = [u for u in batch if "ugcPost" not in u]
-
-        async def _request(param_name: str, urns: list[str]) -> httpx.Response | None:
-            if not urns:
-                return None
-            url = (
-                f"{base}?q=organizationalEntity&organizationalEntity={org_q}"
-                f"&{param_name}={_restli_list(urns)}"
-            )
-            return await client.get(url, headers=headers)
-
-        for param_name, urns in (("ugcPosts", ugc), ("shares", shares)):
-            resp = await _request(param_name, urns)
+    for param_name, urns in (("ugcPosts", ugc), ("shares", shares)):
+        for i in range(0, len(urns), batch_size):
+            batch = urns[i : i + batch_size]
+            resp = await _request(param_name, batch)
             if resp is None:
                 continue
             if resp.status_code >= 400:
-                for urn in urns:
-                    out.setdefault(
-                        urn,
-                        MetricBundle(notes=f"linkedin stats HTTP {resp.status_code}: {resp.text[:220]}"),
-                    )
+                # Batch failed (often one bad URN) — retry individually.
+                for urn in batch:
+                    out[urn] = await _stats_one(urn)
                 continue
-            data = resp.json()
+            data = resp.json() or {}
             found: set[str] = set()
             for el in data.get("elements") or []:
                 parsed_urn, bundle = _parse_share_stats_element(el)
                 if parsed_urn:
                     out[parsed_urn] = bundle
                     found.add(parsed_urn)
-            for urn in urns:
+                    # Also map back if API returns share for a ugc request id space
+                    for req in batch:
+                        if req.rsplit(":", 1)[-1] == parsed_urn.rsplit(":", 1)[-1]:
+                            out.setdefault(req, bundle)
+            for urn in batch:
                 out.setdefault(urn, MetricBundle(raw={"note": "no_stats_element"}))
 
-    return out
+    for urn in other:
+        out[urn] = await _stats_one(urn)
 
+    return out
 
 async def _fetch_org_lifetime_stats(
     client: httpx.AsyncClient,
@@ -292,7 +373,15 @@ async def _persist_snapshot(
     result: SyncResult,
 ) -> None:
     if metrics.notes and metrics.notes.startswith("linkedin stats HTTP"):
-        result.errors.append(f"{platform_post_id}: {metrics.notes}")
+        # Soft skips (stale/missing activity) should not pollute digest warnings.
+        if _is_hard_stats_failure(400, metrics.notes):
+            result.errors.append(f"{platform_post_id}: {metrics.notes}")
+        else:
+            result.skipped += 1
+            return
+    if metrics.notes == "stats_unavailable":
+        result.skipped += 1
+        return
     snap = PostAnalyticsSnapshot(
         team_id=account.team_id,
         post_id=post_id,

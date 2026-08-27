@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -10,6 +11,7 @@ celery_app = Celery(
         "app.worker.tasks.publishing",
         "app.worker.tasks.workflows",
         "app.worker.tasks.analytics",
+        "app.worker.tasks.digest",
     ],
 )
 
@@ -41,6 +43,12 @@ celery_app.conf.update(
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
+        },
+        # Daily SocialAuto report → Slack #socialauto (09:00 Europe/Athens)
+        "daily-slack-digest": {
+            "task": "app.worker.tasks.digest.send_daily_slack_digest",
+            "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0),
+            "kwargs": {"days": 1, "post_to_slack": True},
         },
     },
 )
