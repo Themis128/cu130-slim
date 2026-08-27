@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import io
 import os
 import re
@@ -18,9 +17,9 @@ from sqlalchemy.orm import selectinload
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.services.cf_models import CF_CAROUSEL_DEFAULTS, CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
+from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.duplicate_detector import is_duplicate
-from app.services.inference import _call_cf_image_pipeline, call_inference
+from app.services.inference import call_inference
 from app.services.media_storage import persist_generated_image
 from app.services.plain_english import (
     PLAIN_ENGLISH_RULES,
@@ -416,6 +415,7 @@ async def generate_carousel_copy(
     tone: str,
     include_cta: bool,
     text_model: str,
+    text_provider: str = "ollama",
     db: AsyncSession,
     team_id,
 ) -> dict:
@@ -466,7 +466,7 @@ Return JSON only:
     }
     return await call_inference(
         prompt,
-        provider_name="cloudflare",
+        provider_name=text_provider,
         db=db,
         team_id=team_id,
         schema=schema,
@@ -484,6 +484,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
+    text_provider: str = "ollama",   # default to local Ollama — free and fast
     txt2img_model: str = CF_TXT2IMG_FREE,
     img2img_model: str = CF_IMG2IMG_FREE,
     strength: float = 0.42,
@@ -491,7 +492,11 @@ async def run_cloudless_carousel_pipeline(
     publish: bool = True,
     wait_for_publish: bool = False,
 ) -> dict:
-    """Full pipeline: copy → NLP check/fix → CF images → brand → post → optional publish."""
+    """Full pipeline: copy (Ollama) → NLP → brand slides → post → optional publish.
+
+    CF image generation is skipped: compose_branded_slide creates its own canvas,
+    so CF txt2img output was never used. Text uses Ollama (local, free) by default.
+    """
     target_id = uuid.UUID(target_account_id or DEFAULT_ORG_ACCOUNT_ID)
     account = (
         await db.execute(
@@ -505,25 +510,26 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy
+    # 1) Copy — use Ollama (local, free) or override via text_provider
     raw = await generate_carousel_copy(
         topic=topic,
         num_slides=num_slides,
         tone=tone,
         include_cta=include_cta,
         text_model=text_model,
+        text_provider=text_provider,
         db=db,
         team_id=team.id,
     )
     slides = list(raw.get("slides") or [])[:num_slides]
-    caption = raw.get("suggested_caption") or "Grow your business with cloudless.gr"
-    hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloudflare"]
+    caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
+    hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
 
-    # 2) NLP checker + fixer
+    # 2) NLP checker + fixer (runs on both slides and caption)
     slides, caption, nlp_report = await run_nlp_check_and_fix(
         slides=slides,
         caption=caption,
-        provider_name="cloudflare",
+        provider_name=text_provider,
         model=text_model,
         db=db,
         team_id=team.id,
@@ -531,35 +537,15 @@ async def run_cloudless_carousel_pipeline(
     )
     slides = _dedupe_slide_copy(slides)
 
-    # 3) Images + branding
+    # 3) Brand slides (no CF images — compose_branded_slide builds its own canvas)
     media_ids: list[uuid.UUID] = []
     for i, slide in enumerate(slides):
         title = slide.get("title") or f"Slide {i + 1}"
         body = slide.get("body") or ""
         stype = slide.get("slide_type") or "content"
-        visual = (
-            f"Abstract LinkedIn carousel background mood for '{title}'. "
-            "Dark navy tech atmosphere, soft cyan and orange light, geometric shapes only. "
-            "CRITICAL: absolutely no letters, no words, no numbers, no logos, no watermarks, no UI text."
-        )
-        enhance = (
-            f"Improve image 0 as abstract mood art only for '{title}'. "
-            "Richer lighting and sharper shapes. "
-            "CRITICAL: remove any letters, words, numbers, logos, or UI text completely."
-        )
-        print(f"[n8n-pipeline] slide {i + 1}/{len(slides)} images", flush=True)
-        pipe = await _call_cf_image_pipeline(
-            prompt=visual,
-            enhance_prompt=enhance,
-            txt2img_model=txt2img_model,
-            img2img_model=img2img_model,
-            strength=strength,
-            txt2img_steps=int(CF_CAROUSEL_DEFAULTS["txt2img_steps"]),
-            img2img_steps=int(CF_CAROUSEL_DEFAULTS["img2img_steps"]),
-        )
-        bg = Image.open(io.BytesIO(base64.b64decode(pipe["image_base64"])))
+        print(f"[n8n-pipeline] rendering slide {i + 1}/{len(slides)}", flush=True)
         branded = compose_branded_slide(
-            bg,
+            None,
             index=i + 1,
             total=len(slides),
             slide_type=stype,
