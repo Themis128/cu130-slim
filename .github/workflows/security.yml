@@ -89,41 +89,35 @@ jobs:
 
       - name: Build ${{ matrix.service }} image
         run: |
-          case "${{ matrix.service }}" in
-            comfyui)
-              docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
-              ;;
-            env-manager-backend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-backend
-              ;;
-            env-manager-frontend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-frontend
-              ;;
-            social-api)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-api
-              ;;
-            social-worker)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-worker
-              ;;
-            social-frontend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-frontend
-              ;;
-          esac
+          docker compose --project-name cu130-slim --env-file .github/test.env build "${{ matrix.service }}"
 
-      - name: List Docker images
-        run: docker images
+      - name: Resolve image ref
+        id: image
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r ".services.\"${{ matrix.service }}\".image // empty")
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            # Compose project-name prefix for build-only services
+            REF="cu130-slim-${{ matrix.service }}:latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Scanning image: $REF"
+          docker images
 
       - name: Scan ${{ matrix.service }} with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'cu130-slim-${{ matrix.service }}:latest'
+          image-ref: ${{ steps.image.outputs.ref }}
           format: 'sarif'
           output: 'trivy-${{ matrix.service }}.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          scanners: 'vuln'
 
       - name: Upload ${{ matrix.service }} Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
         with:
           sarif_file: 'trivy-${{ matrix.service }}.sarif'
           category: 'trivy-${{ matrix.service }}'

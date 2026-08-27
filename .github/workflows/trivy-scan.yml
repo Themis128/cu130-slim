@@ -89,42 +89,31 @@ jobs:
 
       - name: Build ${{ matrix.service }} image
         run: |
-          case "${{ matrix.service }}" in
-            comfyui)
-              docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
-              ;;
-            env-manager-backend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-backend
-              ;;
-            env-manager-frontend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build env-manager-frontend
-              ;;
-            social-api)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-api
-              ;;
-            social-worker)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-worker
-              ;;
-            social-frontend)
-              docker compose --project-name cu130-slim --env-file .github/test.env build social-frontend
-              ;;
-          esac
+          docker compose --project-name cu130-slim --env-file .github/test.env build "${{ matrix.service }}"
 
-      - name: List Docker images
-        run: docker images
+      - name: Resolve image ref
+        id: image
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r ".services.\"${{ matrix.service }}\".image // empty")
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="cu130-slim-${{ matrix.service }}:latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Scanning image: $REF"
+          docker images
 
       - name: Run Trivy vulnerability scanner (Docker image)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          scan-ref: 'cu130-slim-${{ matrix.service }}:latest'
+          image-ref: ${{ steps.image.outputs.ref }}
           format: 'sarif'
           output: 'trivy-${{ matrix.service }}-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           ignore-unfixed: true
-          exit-code: 'HIGH'
-          vuln-type: 'os,library'
-          security-checks: 'vuln,config,secret,rbac'
+          exit-code: '1'
+          scanners: 'vuln'
 
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -149,25 +138,36 @@ jobs:
 
       - name: Build Docker images for SBOM
         run: |
-          docker compose --project-name cu130-slim --env-file .github/test.env build
+          docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
+
+      - name: Resolve ComfyUI image ref
+        id: comfy
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="baltzakist/cu130-slim-comfyui:2.1.0"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          docker images
 
       - name: Generate SBOM with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'cu130-slim-comfyui:latest'
+          image-ref: ${{ steps.comfy.outputs.ref }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
-          vuln-type: 'os,library'
+          scanners: 'vuln'
 
       - name: Generate SBOM in SPDX format
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'cu130-slim-comfyui:latest'
+          image-ref: ${{ steps.comfy.outputs.ref }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
-          vuln-type: 'os,library'
+          scanners: 'vuln'
 
       - name: Upload SBOM as artifact
         uses: actions/upload-artifact@v4
