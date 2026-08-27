@@ -108,7 +108,7 @@ def _draw_grid(draw: ImageDraw.ImageDraw) -> None:
 
 
 def _draw_header(draw: ImageDraw.ImageDraw, index: int, total: int) -> None:
-    # Gradient accent bar (10px tall, more prominent)
+    # Gradient accent bar — thicker for visibility (14px)
     for x in range(1080):
         t = x / 1079
         color = (
@@ -116,17 +116,20 @@ def _draw_header(draw: ImageDraw.ImageDraw, index: int, total: int) -> None:
             int(ACCENT[1] * (1 - t) + ACCENT2[1] * t),
             int(ACCENT[2] * (1 - t) + ACCENT2[2] * t),
         )
-        draw.line([(x, 0), (x, 9)], fill=color)
-    # Logo
-    brand_font = _font(36, "bold")
-    dot_font = _font(36, "regular")
-    draw.text((80, 46), "cloudless", font=brand_font, fill=ACCENT)
-    draw.text((80 + draw.textlength("cloudless", font=brand_font), 46), ".gr", font=dot_font, fill=SUB)
-    # Slide counter — right-aligned pill
+        draw.line([(x, 0), (x, 13)], fill=color)
+    # Logo — bold and clear, larger for brand visibility
+    brand_font = _font(40, "bold")
+    dot_font = _font(40, "regular")
+    cw = draw.textlength("cloudless", font=brand_font)
+    draw.text((80, 44), "cloudless", font=brand_font, fill=ACCENT)
+    draw.text((80 + cw, 44), ".gr", font=dot_font, fill=SUB)
+    # Slide counter — subtle pill badge (right side)
     counter = f"{index:02d} / {total:02d}"
-    cw = draw.textlength(counter, font=_font(24))
-    cx = 1000 - int(cw)
-    draw.text((cx, 52), counter, font=_font(24), fill=SUB)
+    cf = _font(22)
+    clen = int(draw.textlength(counter, font=cf))
+    px, py = 980 - clen, 52
+    draw.rounded_rectangle((px - 12, py - 4, px + clen + 12, py + 30), radius=14, fill=(30, 32, 48))
+    draw.text((px, py), counter, font=cf, fill=SUB)
 
 
 def _draw_soft_orbs(draw: ImageDraw.ImageDraw) -> None:
@@ -172,7 +175,7 @@ def _draw_infographic(
         draw.line([(540, 545), (540, 920)], fill=(40, 50, 68), width=2)
         rows = [
             ("Servers to manage", "Fully managed"),
-            ("Vendor lock-in", "Flexible exit"),
+            ("Long contracts", "Monthly billing"),
             ("Surprise invoices", "Clear pricing"),
             ("Ops team needed", "Ship-ready"),
         ]
@@ -310,7 +313,7 @@ def _draw_infographic(
         cta_text = "Start free at cloudless.gr"
         cta_w = int(draw.textlength(cta_text, font=_font(38, "bold")))
         draw.text(((1080 - cta_w) // 2, 666), cta_text, font=_font(38, "bold"), fill=BG)
-        sub = "No credit card. No lock-in."
+        sub = "Quick setup. No contracts. Cancel anytime."
         sw = int(draw.textlength(sub, font=_font(26)))
         draw.text(((1080 - sw) // 2, 826), sub, font=_font(26), fill=SUB)
         return
@@ -318,7 +321,7 @@ def _draw_infographic(
     # Default: feature comparison two-column
     draw.rounded_rectangle((100, 570, 510, 900), radius=20, fill=(30, 22, 28), outline=RED, width=2)
     draw.text((170, 608), "Complex", font=_font(34, "bold"), fill=RED)
-    rows_l = ("Manual scaling", "Vendor lock-in", "Big ops team", "Unpredictable cost")
+    rows_l = ("Manual scaling", "Long contracts", "Big ops team", "Unpredictable cost")
     for i, r in enumerate(rows_l):
         draw.text((120, 668 + i * 54), f"- {r}", font=_font(22), fill=(180, 150, 150))
     draw.rounded_rectangle((570, 570, 980, 900), radius=20, fill=(10, 36, 42), outline=ACCENT, width=2)
@@ -379,8 +382,13 @@ def compose_branded_slide(
 
     _draw_infographic(draw, motif=motif_key, highlight=highlight)
 
-    # Footer
-    draw.text((PAD, 1014), "www.cloudless.gr", font=_font(22, "semibold"), fill=ACCENT)
+    # Footer brand strip
+    draw.rectangle((0, 1044, 1080, 1080), fill=(10, 12, 20))
+    draw.line([(0, 1044), (1080, 1044)], fill=ACCENT, width=1)
+    draw.text((PAD, 1052), "cloudless.gr", font=_font(22, "bold"), fill=ACCENT)
+    tagline = "Clear skies. Zero friction."
+    tw = int(draw.textlength(tagline, font=_font(20)))
+    draw.text((1080 - PAD - tw, 1054), tagline, font=_font(20), fill=SUB)
     return img
 
 def _dedupe_slide_copy(slides: list[dict]) -> list[dict]:
