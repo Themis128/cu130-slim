@@ -251,8 +251,8 @@ async def run_cloudless_carousel_pipeline(
             txt2img_model=txt2img_model,
             img2img_model=img2img_model,
             strength=strength,
-            txt2img_steps=CF_CAROUSEL_DEFAULTS["txt2img_steps"],
-            img2img_steps=CF_CAROUSEL_DEFAULTS["img2img_steps"],
+            txt2img_steps=int(CF_CAROUSEL_DEFAULTS["txt2img_steps"]),
+            img2img_steps=int(CF_CAROUSEL_DEFAULTS["img2img_steps"]),
         )
         bg = Image.open(io.BytesIO(base64.b64decode(pipe["image_base64"])))
         branded = compose_branded_slide(

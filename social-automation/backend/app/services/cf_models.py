@@ -26,7 +26,7 @@ CF_IMG2IMG_FREE = "@cf/runwayml/stable-diffusion-v1-5-img2img"
 #   @cf/meta/llama-3.1-8b-instruct (non-fp8)
 # Paid-only frontier models (403 on free): kimi-k2.6, glm-5.2, etc.
 
-CF_CAROUSEL_DEFAULTS = {
+CF_CAROUSEL_DEFAULTS: dict[str, str | int] = {
     "text_model": CF_TEXT_FREE,
     "txt2img_model": CF_TXT2IMG_FREE,
     "img2img_model": CF_IMG2IMG_FREE,

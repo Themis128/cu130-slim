@@ -126,7 +126,7 @@ class GenerateWorkflowResponse(BaseModel):
     template_id: uuid.UUID | None
 
 
-async def call_ollama(prompt: str, model: str = None, schema: dict = None) -> dict:
+async def call_ollama(prompt: str, model: str | None = None, schema: dict | None = None) -> dict:
     """Backwards-compatible shim — delegates to the unified inference service.
     Defaults to Groq (cloud) instead of Ollama for faster inference."""
     return await call_inference(prompt, provider_name="groq", schema=schema, model_override=model)
@@ -887,7 +887,6 @@ async def generate_image_flux(
         prompt=request.prompt,
         base_url=base_url,
         api_key=api_key,
-        negative_prompt=request.negative_prompt,
         cfg_scale=request.cfg_scale,
         seed=request.seed,
         steps=request.steps,

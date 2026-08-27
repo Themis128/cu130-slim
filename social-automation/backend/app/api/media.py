@@ -193,9 +193,8 @@ async def view_media(path: str = Query(..., description="Relative storage path o
             detail="This format cannot be previewed in the browser. Download the file to view it.",
         )
     buf = io.BytesIO()
-    if img.mode not in ("RGB", "RGBA", "L"):
-        img = img.convert("RGBA")
-    img.save(buf, format="PNG")
+    out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+    out.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
 
 

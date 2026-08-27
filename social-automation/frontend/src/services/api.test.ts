@@ -542,6 +542,11 @@ describe('API Service', () => {
       
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/ai/generate-image', {
         prompt: 'A beautiful sunset',
+        provider: 'cloudflare',
+        model: undefined,
+        negative_prompt: '',
+        steps: 4,
+        cfg_scale: 3.5,
         width: 1024,
         height: 768,
       })
@@ -801,7 +806,7 @@ describe('API Service', () => {
       
       const result = await apiModule.analyticsApi.getPostAnalytics('1')
       
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/analytics/posts/1')
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/analytics/posts/1/metrics')
       expect(result.data).toEqual({ engagement: 50 })
     })
 
@@ -838,9 +843,8 @@ describe('API Service', () => {
       
       const result = await apiModule.analyticsApi.exportReport({ format: 'csv', days: 30 })
       
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/analytics/export', {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/analytics/reports/export', {
         params: { format: 'csv', days: 30 },
-        responseType: 'blob',
       })
       expect(result.data).toBe(blob)
     })

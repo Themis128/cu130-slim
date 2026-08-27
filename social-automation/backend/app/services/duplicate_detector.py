@@ -88,9 +88,9 @@ def similarity_score(a: str, b: str) -> float:
     # If the shorter phrase's key stems are mostly covered by the longer one,
     # treat as near-duplicate (e.g. "server worries" vs "don't worry about servers").
     if sa and sb:
-        shorter, longer = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
-        shared = shorter & longer
-        coverage = len(shared) / max(len(shorter), 1)
+        stem_shorter, stem_longer = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
+        shared = stem_shorter & stem_longer
+        coverage = len(shared) / max(len(stem_shorter), 1)
         if len(shared) >= 2 and coverage >= 0.66:
             stem_j = max(stem_j, 0.52 + 0.35 * coverage)
 

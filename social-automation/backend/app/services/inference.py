@@ -188,7 +188,7 @@ async def _get_provider_config(
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
 
-    return _resolve_base_url(provider_name, catalog["base_url"]), catalog["default_model"], api_key
+    return _resolve_base_url(provider_name, str(catalog["base_url"])), str(catalog["default_model"]), api_key
 
 
 def _resolve_base_url(provider_name: str, base_url: str) -> str:
@@ -646,13 +646,13 @@ async def _call_workers_ai_flux2_edit(
     last_error = ""
     async with httpx.AsyncClient(timeout=300.0) as client:
         for attempt in range(max_retries):
-            files = {
+            files: dict = {
                 "prompt": (None, prompt),
                 "width": (None, str(width)),
                 "height": (None, str(height)),
                 "input_image_0": ("ref.png", ref_bytes, "image/png"),
             }
-            resp = await client.post(url, headers=headers, files=files)
+            resp = await client.post(url, headers=headers, files=files)  # type: ignore[arg-type]
             if resp.status_code == 429:
                 last_error = resp.text[:300]
                 await asyncio.sleep(min(30, 3 * (2 ** attempt)))
@@ -924,8 +924,12 @@ async def call_inference(
                     ),
                 )
             return await _call_workers_ai_image(prompt, model=model, api_key=api_key)
-        return await _call_workers_ai_chat(prompt, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
-    return await _call_openai_compat(prompt, base_url=base_url, model=model, api_key=api_key, schema=schema, max_tokens=max_tokens)
+        return await _call_workers_ai_chat(
+            prompt, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
+        )
+    return await _call_openai_compat(
+        prompt, base_url=base_url, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
+    )
 
 
 async def _call_ollama(prompt: str, schema: dict | None = None, model_override: str | None = None, max_tokens: int | None = None) -> dict:

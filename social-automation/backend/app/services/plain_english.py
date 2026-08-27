@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
+from dataclasses import field as dc_field
 
 from fastapi import HTTPException
 
@@ -40,16 +41,16 @@ class NlpIssue:
     field: str
     reason: str
     snippet: str
-    matches: list[str] = field(default_factory=list)
+    matches: list[str] = dc_field(default_factory=list)
 
 
 @dataclass
 class NlpCheckReport:
     needs_fix: bool
-    issues: list[NlpIssue] = field(default_factory=list)
+    issues: list[NlpIssue] = dc_field(default_factory=list)
     fixed: bool = False
-    fields_rewritten: list[str] = field(default_factory=list)
-    duplicates: dict = field(default_factory=dict)
+    fields_rewritten: list[str] = dc_field(default_factory=list)
+    duplicates: dict = dc_field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
