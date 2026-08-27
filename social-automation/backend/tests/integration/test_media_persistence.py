@@ -68,7 +68,7 @@ async def test_generate_image_persists_to_media_library(client):
     ):
         resp = await client.post(
             "/api/v1/ai/generate-image",
-            json={"prompt": "a test sunset over mountains"},
+            json={"prompt": "a test sunset over mountains", "provider": "nvidia-flux-dev"},
             headers=headers,
         )
 
@@ -142,7 +142,11 @@ async def test_generated_assets_are_paged_with_uploads(client):
         patch("app.api.ai.chroma_client.query_similar", new=AsyncMock(return_value=[])),
         patch("app.api.ai.chroma_client.add_content", new=AsyncMock()),
     ):
-        gen = await client.post("/api/v1/ai/generate-image", json={"prompt": "coexist test"}, headers=headers)
+        gen = await client.post(
+            "/api/v1/ai/generate-image",
+            json={"prompt": "coexist test", "provider": "nvidia-flux-dev"},
+            headers=headers,
+        )
     assert gen.status_code == 200, gen.text
 
     upload = await client.post(
@@ -255,7 +259,11 @@ async def test_media_type_filters(client, db):
         patch("app.api.ai.chroma_client.query_similar", new=AsyncMock(return_value=[])),
         patch("app.api.ai.chroma_client.add_content", new=AsyncMock()),
     ):
-        gen = await client.post("/api/v1/ai/generate-image", json={"prompt": "filter test"}, headers=headers)
+        gen = await client.post(
+            "/api/v1/ai/generate-image",
+            json={"prompt": "filter test", "provider": "nvidia-flux-dev"},
+            headers=headers,
+        )
     assert gen.status_code == 200, gen.text
 
     # 3. A video asset (inserted directly; upload endpoint targets stills)
