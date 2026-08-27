@@ -28,7 +28,7 @@ export interface ImageViewerItem {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 8
 const WHEEL_STEP = 1.15
-const BUTTON_STEP = 1.4
+const BUTTON_STEP = 1.25
 
 function clampScale(s: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
@@ -50,19 +50,17 @@ interface ImageViewerDialogProps {
 /**
  * Full-screen image lightbox with zoom & pan.
  *
- * - Zoom via toolbar buttons, mouse wheel, double-click or keyboard (+/−/0)
- * - Drag to pan when zoomed in; "Fit" and "1:1" presets in the toolbar
- * - Renders whatever the browser can display — pair it with the backend
- *   `/media/view` endpoint to guarantee previewable output for any upload.
+ * - Zoom via floating toolbar, mouse wheel, double-click, or keyboard (+/−/0)
+ * - Drag to pan when zoomed in; Fit and 1:1 presets
  */
 export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialogProps) {
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [failed, setFailed] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
-  // Reset transform whenever a new item is opened.
   useEffect(() => {
     if (open) {
       setScale(1)
@@ -75,7 +73,23 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
     setScale((s) => clampScale(s * factor))
   }, [])
 
-  // Clamp pan offset so the image can't be dragged fully out of view.
+  const fitToScreen = useCallback(() => {
+    setScale(1)
+    setOffset({ x: 0, y: 0 })
+  }, [])
+
+  /** Zoom so 1 image pixel ≈ 1 screen pixel (true 1:1). */
+  const actualSize = useCallback(() => {
+    const img = imgRef.current
+    if (!img?.naturalWidth || !img.clientWidth) {
+      setScale(clampScale(2))
+      setOffset({ x: 0, y: 0 })
+      return
+    }
+    setScale(clampScale(img.naturalWidth / img.clientWidth))
+    setOffset({ x: 0, y: 0 })
+  }, [])
+
   useEffect(() => {
     setOffset((o) => {
       const el = containerRef.current
@@ -89,22 +103,18 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
     })
   }, [scale])
 
-  // Keyboard shortcuts while the viewer is open.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '+' || e.key === '=') zoomBy(BUTTON_STEP)
       else if (e.key === '-' || e.key === '_') zoomBy(1 / BUTTON_STEP)
-      else if (e.key === '0' || e.key.toLowerCase() === 'r') {
-        setScale(1)
-        setOffset({ x: 0, y: 0 })
-      }
+      else if (e.key === '0' || e.key.toLowerCase() === 'r') fitToScreen()
+      else if (e.key === '1') actualSize()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, zoomBy])
+  }, [open, zoomBy, fitToScreen, actualSize])
 
-  // Non-passive wheel handler so we can preventDefault page scrolling.
   useEffect(() => {
     const el = containerRef.current
     if (!open || !el) return
@@ -117,6 +127,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
   }, [open, zoomBy])
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('[data-zoom-toolbar]')) return
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
     dragState.current = { startX: e.clientX, startY: e.clientY, baseX: offset.x, baseY: offset.y }
   }
@@ -137,6 +148,64 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
 
   const isVideo = !!item?.mime_type?.startsWith('video/')
   const canZoom = !isVideo && !failed
+  const pct = Math.round(scale * 100)
+
+  const ZoomControls = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 text-white hover:bg-white/15"
+        title="Zoom out (−)"
+        aria-label="Zoom out"
+        onClick={(e) => { e.stopPropagation(); zoomBy(1 / BUTTON_STEP) }}
+      >
+        <ZoomOut className="h-4 w-4" />
+      </Button>
+      <button
+        type="button"
+        className="min-w-[3.25rem] rounded px-1 text-center text-xs tabular-nums text-white/90 hover:bg-white/10"
+        title="Reset to fit (0)"
+        onClick={(e) => { e.stopPropagation(); fitToScreen() }}
+      >
+        {pct}%
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 text-white hover:bg-white/15"
+        title="Zoom in (+)"
+        aria-label="Zoom in"
+        onClick={(e) => { e.stopPropagation(); zoomBy(BUTTON_STEP) }}
+      >
+        <ZoomIn className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 text-white hover:bg-white/15"
+        title="Fit to screen (0)"
+        aria-label="Fit to screen"
+        onClick={(e) => { e.stopPropagation(); fitToScreen() }}
+      >
+        <Maximize2 className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 text-white hover:bg-white/15"
+        title="Actual size 1:1 (1)"
+        aria-label="Actual size"
+        onClick={(e) => { e.stopPropagation(); actualSize() }}
+      >
+        <Scaling className="h-4 w-4" />
+      </Button>
+    </>
+  )
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -146,34 +215,15 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
           className="fixed inset-0 z-50 flex flex-col focus:outline-none"
           aria-describedby={undefined}
         >
-          {/* Toolbar */}
           <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-black/70 px-4 py-2">
             <DialogPrimitive.Title className="truncate text-sm font-medium text-white/90">
               {item?.filename || 'Image viewer'}
             </DialogPrimitive.Title>
             <div className="flex items-center gap-1">
               {canZoom && (
-                <>
-                  <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" title="Zoom out (−)"
-                    onClick={() => zoomBy(1 / BUTTON_STEP)}>
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <span className="w-14 text-center text-xs tabular-nums text-white/80">
-                    {Math.round(scale * 100)}%
-                  </span>
-                  <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" title="Zoom in (+)"
-                    onClick={() => zoomBy(BUTTON_STEP)}>
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" title="Fit to screen (0)"
-                    onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }) }}>
-                    <Maximize2 className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" title="Actual size (1:1)"
-                    onClick={() => { setScale(clampScale(3)); setOffset({ x: 0, y: 0 }) }}>
-                    <Scaling className="h-4 w-4" />
-                  </Button>
-                </>
+                <div className="mr-1 hidden items-center gap-0.5 sm:flex" data-zoom-toolbar>
+                  {ZoomControls}
+                </div>
               )}
               {item?.src && (
                 <a
@@ -196,7 +246,6 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
             </div>
           </div>
 
-          {/* Viewport */}
           <div
             ref={containerRef}
             className={cn(
@@ -208,7 +257,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
             onPointerUp={endDrag}
             onPointerLeave={endDrag}
             onDoubleClick={canZoom ? () => {
-              setScale((s) => (s > 1 ? 1 : clampScale(3)))
+              setScale((s) => (s > 1.05 ? 1 : clampScale(2)))
               setOffset({ x: 0, y: 0 })
             } : undefined}
           >
@@ -226,6 +275,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
             ) : (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
+                ref={imgRef}
                 src={item.src}
                 alt={item.alt || item.filename || 'Media'}
                 draggable={false}
@@ -234,9 +284,19 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
                 style={{ transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)` }}
               />
             )}
+
+            {/* Floating zoom tool — always visible on mobile / easy to find */}
+            {canZoom && (
+              <div
+                data-zoom-toolbar
+                className="pointer-events-auto absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-white/20 bg-black/75 px-2 py-1 shadow-lg backdrop-blur-sm"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {ZoomControls}
+              </div>
+            )}
           </div>
 
-          {/* Metadata footer */}
           {(item?.width || item?.height || item?.size_bytes || item?.mime_type) && (
             <div className="flex items-center gap-4 border-t border-white/10 bg-black/70 px-4 py-1.5 text-xs text-white/60">
               {item.width && item.height ? (
@@ -244,7 +304,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
               ) : null}
               {item.mime_type ? <span>{item.mime_type}</span> : null}
               {item.size_bytes ? <span>{formatBytes(item.size_bytes)}</span> : null}
-              <span className="ml-auto hidden sm:inline">Scroll to zoom · Drag to pan · Double-click for 300%</span>
+              <span className="ml-auto hidden sm:inline">Scroll or ± to zoom · Drag to pan · 1 for 1:1</span>
             </div>
           )}
         </DialogPrimitive.Content>

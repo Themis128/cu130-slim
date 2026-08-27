@@ -22,7 +22,6 @@
         "./src/*"
       ]
     },
-    "baseUrl": ".",
     "plugins": [
       {
         "name": "next"

@@ -12,6 +12,11 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.publishing import publish_to_platform
+from app.worker.celery_app import celery_app
+
+# Bind shared tasks in this process to the Redis-backed app (not default AMQP).
+celery_app.set_default()
+celery_app.set_current()
 
 
 @asynccontextmanager

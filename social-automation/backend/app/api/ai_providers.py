@@ -184,7 +184,7 @@ async def test_provider(
     FAST_TEST_MODELS: dict[str, str] = {
         "nvidia": "meta/llama-3.1-8b-instruct",
         "groq": "qwen/qwen3.6-27b",
-        "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
+        "cloudflare": "@cf/meta/llama-3.2-3b-instruct",
     }
     test_model = FAST_TEST_MODELS.get(name)
 

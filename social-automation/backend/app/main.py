@@ -14,6 +14,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Make Celery Redis app current so API .delay() calls do not hit default AMQP.
+    from app.worker.celery_app import celery_app
+
+    celery_app.set_default()
+    celery_app.set_current()
     await init_db()
     yield
 

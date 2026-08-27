@@ -177,6 +177,11 @@ export default function SettingsPage() {
                     />
                     <p className="text-xs text-muted-foreground">Email cannot be changed</p>
                   </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Timezone</Label>
+                    <Input value={user?.timezone || 'Europe/Athens'} disabled />
+                    <p className="text-xs text-muted-foreground">All schedules and calendar times use Greek time (Europe/Athens)</p>
+                  </div>
                 </div>
                 <Button type="submit" disabled={isSaving}>
                   {isSaving ? 'Saving...' : 'Save Changes'}

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     API_PREFIX: str = "/api/v1"
+    # Display / scheduling timezone (Greece). DB timestamps remain UTC.
+    APP_TIMEZONE: str = "Europe/Athens"
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres_password@social-postgres:5432/social"

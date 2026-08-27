@@ -1,0 +1,13 @@
+---
+description: Conventions when editing n8n workflow JSON for Cloudless
+globs: n8n-workflows/**/*.json
+alwaysApply: false
+---
+
+# n8n workflow JSON
+
+- Include a stable string `"id"` (required for CLI import on SQLite).
+- n8n 2.x: publish via CLI after import; restart container so webhooks/schedules register.
+- Cloudless carousel must call `http://social-api:8000` (Docker DNS), not localhost.
+- Use `$env.*` only when `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+- Prefer skill `n8n-cloudless` for deploy/trigger steps.

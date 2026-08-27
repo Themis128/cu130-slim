@@ -16,6 +16,7 @@ import type { Post } from '@/types'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { Undo2 } from 'lucide-react'
+import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 
 export default function EditPostPage() {
   const router = useRouter()
@@ -45,7 +46,7 @@ export default function EditPostPage() {
       setHashtags((post as Post).hashtags || [])
       setLinkUrl((post as Post).link_url || '')
       setMediaIds(((post as Post).media_ids || []).map(String))
-      setScheduleDate((post as Post).scheduled_at ? new Date((post as Post).scheduled_at!).toISOString().slice(0, 16) : '')
+      setScheduleDate((post as Post).scheduled_at ? toAthensDateTimeLocal((post as Post).scheduled_at!) : '')
     }
   }, [post])
 
@@ -78,11 +79,12 @@ export default function EditPostPage() {
   const handleSchedule = async () => {
     if (!scheduleDate) { toast.error('Pick a date and time'); return }
     try {
+      const scheduledIso = athensDateTimeLocalToIso(scheduleDate)
       await updateMutation.mutateAsync({
         id,
-        data: { content_text: content, hashtags, scheduled_at: new Date(scheduleDate).toISOString() } as Partial<Post>,
+        data: { content_text: content, hashtags, scheduled_at: scheduledIso } as Partial<Post>,
       })
-      await contentApi.schedulePost(id, new Date(scheduleDate).toISOString())
+      await contentApi.schedulePost(id, scheduledIso)
       setScheduleOpen(false)
       router.push('/content')
     } catch {
@@ -389,12 +391,12 @@ export default function EditPostPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Schedule Post</DialogTitle></DialogHeader>
           <div className="py-4">
-            <label className="block text-sm font-medium mb-2">Schedule for</label>
+            <label className="block text-sm font-medium mb-2">Schedule for (Europe/Athens)</label>
             <Input
               type="datetime-local"
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
-              min={new Date().toISOString().slice(0, 16)}
+              min={toAthensDateTimeLocal(new Date())}
             />
           </div>
           <DialogFooter>

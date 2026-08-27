@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles, FolderOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/Dialog'
@@ -19,11 +19,22 @@ import { aiApi } from '@/services/api'
 import type { MediaAsset } from '@/types'
 import toast from 'react-hot-toast'
 
+/** Free-tier Cloudflare Workers AI txt2img (same as carousel pipeline). */
+const CF_TXT2IMG_MODEL = '@cf/black-forest-labs/flux-1-schnell'
+const CF_TXT2IMG_STEPS = 4
+
 /** Universal display URL — backend re-encodes exotic formats to PNG on the fly. */
 function mediaDisplayUrl(storagePath?: string | null) {
   if (!storagePath) return ''
   const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
   return `${base}/media/view?path=${encodeURIComponent(storagePath)}`
+}
+
+function formatBytes(n?: number | null) {
+  if (!n || n <= 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 interface PendingFile {
@@ -34,7 +45,7 @@ interface PendingFile {
 }
 
 const typeOptions = [
-  { value: '', label: 'All Types' },
+  { value: 'all', label: 'All Types' },
   { value: 'image', label: 'Images' },
   { value: 'video', label: 'Videos' },
   { value: 'generated', label: 'AI Generated' },
@@ -42,7 +53,7 @@ const typeOptions = [
 
 export default function MediaPage() {
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [generatePrompt, setGeneratePrompt] = useState('')
   const [generateOpen, setGenerateOpen] = useState(false)
@@ -52,7 +63,8 @@ export default function MediaPage() {
   const [viewerItem, setViewerItem] = useState<MediaAsset | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const { data, isLoading } = useMedia({ type: typeFilter, page, page_size: 20 })
+  const apiType = typeFilter === 'all' ? undefined : typeFilter
+  const { data, isLoading } = useMedia({ type: apiType, page, page_size: 20 })
   const uploadMutation = useUploadMedia()
   const deleteMutation = useDeleteMedia()
   const generateMutation = useGenerateImage()
@@ -67,10 +79,23 @@ export default function MediaPage() {
   const media = search
     ? visibleMedia.filter((a: MediaAsset) =>
         a.filename?.toLowerCase().includes(search.toLowerCase()) ||
-        a.alt_text?.toLowerCase().includes(search.toLowerCase())
+        a.alt_text?.toLowerCase().includes(search.toLowerCase()) ||
+        a.generation_prompt?.toLowerCase().includes(search.toLowerCase())
       )
     : visibleMedia
-  const totalPages = data?.pages || 1
+  const totalPages = Math.max(
+    1,
+    Math.ceil((data?.total ?? media.length) / (data?.page_size || 20))
+  )
+
+  // Revoke object URLs when pending files change / unmount
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach((pf) => {
+        if (pf.preview) URL.revokeObjectURL(pf.preview)
+      })
+    }
+  }, [pendingFiles])
 
   const generateAltText = async (file: File, index: number) => {
     setPendingFiles(prev => prev.map((f, i) => i === index ? { ...f, generating: true } : f))
@@ -104,7 +129,6 @@ export default function MediaPage() {
     }))
     setPendingFiles(initial)
     setUploadDialogOpen(true)
-    // Generate alt text for each image file
     for (let i = 0; i < fileArray.length; i++) {
       if (fileArray[i].type.startsWith('image/')) {
         generateAltText(fileArray[i], i)
@@ -112,30 +136,50 @@ export default function MediaPage() {
     }
   }
 
+  const closeUploadDialog = () => {
+    setPendingFiles((prev) => {
+      prev.forEach((pf) => { if (pf.preview) URL.revokeObjectURL(pf.preview) })
+      return []
+    })
+    setUploadDialogOpen(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const handleConfirmUpload = async () => {
     setUploading(true)
     let successCount = 0
     for (const pf of pendingFiles) {
       try {
-        await uploadMutation.mutateAsync({ file: pf.file, alt_text: pf.altText, tags: '' })
+        await uploadMutation.mutateAsync({
+          file: pf.file,
+          alt_text: pf.altText,
+          tags: '',
+          silent: true,
+        })
         successCount++
       } catch {
         toast.error(`Failed to upload ${pf.file.name}`)
       }
     }
     setUploading(false)
-    setUploadDialogOpen(false)
-    setPendingFiles([])
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    closeUploadDialog()
     if (successCount > 0) toast.success(`${successCount} file${successCount > 1 ? 's' : ''} uploaded`)
   }
 
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
     try {
-      await generateMutation.mutateAsync({ prompt: generatePrompt })
+      await generateMutation.mutateAsync({
+        prompt: generatePrompt.trim(),
+        options: {
+          provider: 'cloudflare',
+          model: CF_TXT2IMG_MODEL,
+          steps: CF_TXT2IMG_STEPS,
+        },
+      })
       setGeneratePrompt('')
       setGenerateOpen(false)
+      setPage(1)
     } catch {
       toast.error('Failed to generate image')
     }
@@ -161,18 +205,26 @@ export default function MediaPage() {
               <DialogHeader>
                 <DialogTitle>Generate Image with AI</DialogTitle>
               </DialogHeader>
-              <div className="py-4">
+              <div className="py-4 space-y-2">
                 <Textarea
                   value={generatePrompt}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setGeneratePrompt(e.target.value)}
-                  placeholder="A professional photo of a modern office workspace..."
+                  placeholder="Describe the image you need for a LinkedIn post…"
                   rows={4}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Uses Cloudflare Workers AI ({CF_TXT2IMG_MODEL.split('/').pop()}, {CF_TXT2IMG_STEPS} steps).
+                  Stored at max 768px on the long edge — open an image to zoom.
+                </p>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setGenerateOpen(false)}>Cancel</Button>
                 <Button onClick={handleGenerate} disabled={generateMutation.isPending || !generatePrompt.trim()}>
-                  {generateMutation.isPending ? 'Generating...' : 'Generate'}
+                  {generateMutation.isPending ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generating…</>
+                  ) : (
+                    'Generate'
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -184,7 +236,6 @@ export default function MediaPage() {
         </div>
       </div>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -194,8 +245,15 @@ export default function MediaPage() {
         onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
       />
 
-      {/* Upload confirmation dialog with AI alt text */}
-      <Dialog open={uploadDialogOpen} onOpenChange={open => { if (!uploading) { setUploadDialogOpen(open); if (!open) setPendingFiles([]) } }}>
+      <Dialog
+        open={uploadDialogOpen}
+        onOpenChange={(open) => {
+          if (!uploading) {
+            if (!open) closeUploadDialog()
+            else setUploadDialogOpen(true)
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -205,7 +263,7 @@ export default function MediaPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             {pendingFiles.map((pf, i) => (
-              <div key={i} className="flex gap-4 rounded-lg border p-3">
+              <div key={`${pf.file.name}-${i}`} className="flex gap-4 rounded-lg border p-3">
                 {pf.preview ? (
                   <img src={pf.preview} alt="" className="h-20 w-20 rounded-md object-cover flex-shrink-0 border" />
                 ) : (
@@ -219,7 +277,11 @@ export default function MediaPage() {
                     <Label className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                       Alt text
                       {pf.generating && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                      {!pf.generating && pf.altText && <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1"><Sparkles className="h-2.5 w-2.5 mr-0.5" />AI</Badge>}
+                      {!pf.generating && pf.altText && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1">
+                          <Sparkles className="h-2.5 w-2.5 mr-0.5" />AI
+                        </Badge>
+                      )}
                     </Label>
                     <Input
                       value={pf.altText}
@@ -233,7 +295,7 @@ export default function MediaPage() {
                   {!pf.generating && !pf.altText && pf.file.type.startsWith('image/') && (
                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => generateAltText(pf.file, i)}>
                       <Sparkles className="mr-1 h-3 w-3" />
-                      Regenerate
+                      Generate alt text
                     </Button>
                   )}
                 </div>
@@ -241,7 +303,7 @@ export default function MediaPage() {
             ))}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setUploadDialogOpen(false); setPendingFiles([]) }} disabled={uploading}>
+            <Button variant="outline" onClick={closeUploadDialog} disabled={uploading}>
               Cancel
             </Button>
             <Button onClick={handleConfirmUpload} disabled={uploading || pendingFiles.some(f => f.generating)}>
@@ -264,11 +326,14 @@ export default function MediaPage() {
               <Input
                 placeholder="Search media..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                 className="pl-10"
               />
             </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select
+              value={typeFilter}
+              onValueChange={(v) => { setTypeFilter(v); setPage(1) }}
+            >
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
@@ -299,7 +364,7 @@ export default function MediaPage() {
                 icon={FolderOpen}
                 title={`No results for "${search}"`}
                 description="Try a different search term, or clear the filter to browse all assets."
-                primaryAction={{ label: 'Clear search', onClick: () => {}, variant: 'outline' }}
+                primaryAction={{ label: 'Clear search', onClick: () => setSearch(''), variant: 'outline' }}
               />
             ) : (
               <EmptyState
@@ -315,6 +380,7 @@ export default function MediaPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                 {media.map((item: MediaAsset) => {
                   const isVideo = !!item.mime_type?.startsWith('video/')
+                  const isAi = item.source === 'ai-generated' || item.source === 'comfyui'
                   return (
                   <div
                     key={item.id}
@@ -344,7 +410,7 @@ export default function MediaPage() {
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={mediaDisplayUrl(item.storage_path)}
-                          alt={item.filename || 'Media'}
+                          alt={item.alt_text || item.filename || 'Media'}
                           loading="lazy"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
@@ -357,6 +423,13 @@ export default function MediaPage() {
                     )}
                     <div className="absolute inset-x-0 bottom-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 pointer-events-none">
                       <p className="text-[10px] text-white truncate">{item.filename}</p>
+                      {(item.width && item.height) || item.size_bytes ? (
+                        <p className="text-[9px] text-white/80 truncate">
+                          {[item.width && item.height ? `${item.width}×${item.height}` : null, formatBytes(item.size_bytes)]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button
@@ -378,7 +451,7 @@ export default function MediaPage() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
-                    {item.source === 'ai-generated' && (
+                    {isAi && (
                       <Badge className="absolute bottom-8 left-2" variant="outline">
                         <Sparkles className="mr-1 h-3 w-3" />
                         AI
@@ -389,11 +462,11 @@ export default function MediaPage() {
                 })}
               </div>
 
-              {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between p-4 border-t">
                   <p className="text-sm text-muted-foreground">
-                    Page {page} of {totalPages} • {data?.total} items
+                    Page {page} of {totalPages}
+                    {data?.total != null ? ` • ${data.total} items` : ''}
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -420,7 +493,6 @@ export default function MediaPage() {
         </CardContent>
       </Card>
 
-      {/* Full-screen zoom & pan viewer */}
       <ImageViewerDialog
         open={!!viewerItem}
         onOpenChange={(o) => { if (!o) setViewerItem(null) }}

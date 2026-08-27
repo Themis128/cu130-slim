@@ -19,6 +19,7 @@ from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
 from app.services.inference import (
     STT_MODELS,
+    _call_cf_image_pipeline,
     _call_nvidia_flux,
     _call_nvidia_flux_dev,
     _call_nvidia_flux_pipeline,
@@ -29,6 +30,7 @@ from app.services.inference import (
     transcribe_workers_ai,
 )
 from app.services.media_storage import persist_generated_image
+from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
 
 router = APIRouter()
 settings = get_settings()
@@ -47,7 +49,7 @@ class GenerateCarouselRequest(BaseModel):
     platform: str = "linkedin"
     tone: str = "professional"
     include_cta: bool = True
-    provider: str = "groq"
+    provider: str = "cloudflare"
     model: str | None = None
 
 
@@ -64,7 +66,7 @@ class GenerateContentRequest(BaseModel):
     length: str = "medium"
     include_hashtags: bool = True
     include_emojis: bool = True
-    provider: str = "groq"
+    provider: str = "cloudflare"
     model: str | None = None
 
 
@@ -78,6 +80,11 @@ class SuggestHashtagsRequest(BaseModel):
     content: str
     platform: str
     max_hashtags: int = 10
+    # Frontend historically sent `count`; accept either.
+    count: int | None = None
+
+    def resolved_max(self) -> int:
+        return self.count if self.count is not None else self.max_hashtags
 
 
 class SuggestHashtagsResponse(BaseModel):
@@ -96,6 +103,11 @@ class ImproveContentRequest(BaseModel):
     content: str
     platform: str
     goal: str = "engagement"
+    # Frontend historically sent `instruction`; accept either.
+    instruction: str | None = None
+
+    def resolved_goal(self) -> str:
+        return self.instruction or self.goal
 
 
 class ImproveContentResponse(BaseModel):
@@ -363,9 +375,9 @@ class GenerateImageRequest(BaseModel):
     negative_prompt: str = ""
     cfg_scale: float = 3.5
     seed: int = 0
-    steps: int = 20
-    provider: str = "nvidia-flux-dev"  # nvidia-flux-dev | cloudflare
-    model: str | None = None  # e.g. "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+    steps: int = 4
+    provider: str = "cloudflare"  # cloudflare | nvidia-flux-dev
+    model: str | None = None  # e.g. "@cf/black-forest-labs/flux-1-schnell"
 
 
 class GenerateImageResponse(BaseModel):
@@ -403,12 +415,14 @@ async def generate_image(
     if team:
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
 
-    provider_name = request.provider or "nvidia-flux-dev"
+    provider_name = request.provider or "cloudflare"
 
     if provider_name == "cloudflare":
         # Cloudflare Workers AI text-to-image (SDXL / FLUX models).
+        from app.services.cf_models import CF_TXT2IMG_FREE
+
         _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
-        model = request.model or model
+        model = request.model or model or CF_TXT2IMG_FREE
         if not _is_workers_ai_image_model(model):
             raise HTTPException(
                 status_code=400,
@@ -927,14 +941,16 @@ async def generate_content(
             )
 
     platform_guides = {
-        "linkedin": "Professional, thought-leadership style. 1300 char limit. Use line breaks. 3-5 hashtags.",
-        "twitter": "Concise, conversational. 280 char limit. Thread-friendly. 1-2 hashtags.",
-        "instagram": "Visual-first, engaging. 2200 char limit. 10-15 hashtags. Use emojis.",
-        "facebook": "Community-focused, conversational. No strict limit. 1-3 hashtags.",
-        "threads": "Casual, text-based. 500 char limit. Minimal hashtags.",
+        "linkedin": "Professional, thought-leadership style. 1300 char limit. Use line breaks. 3-5 hashtags. Plain everyday English.",
+        "twitter": "Concise, conversational. 280 char limit. Thread-friendly. 1-2 hashtags. Plain everyday English.",
+        "instagram": "Visual-first, engaging. 2200 char limit. 10-15 hashtags. Use emojis. Plain everyday English.",
+        "facebook": "Community-focused, conversational. No strict limit. 1-3 hashtags. Plain everyday English.",
+        "threads": "Casual, text-based. 500 char limit. Minimal hashtags. Plain everyday English.",
     }
 
     guide = platform_guides.get(request.platform, platform_guides["linkedin"])
+
+    from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
 
     prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
 
@@ -943,6 +959,8 @@ Tone: {request.tone}
 Length: {request.length}
 Include hashtags: {request.include_hashtags}
 Include emojis: {request.include_emojis}
+
+{PLAIN_ENGLISH_RULES}
 
 Return JSON with: content, hashtags (array), suggested_media (string or null)"""
 
@@ -959,6 +977,14 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
     team_id_for_gen = team.id if team else None
     result = await call_inference(prompt, provider_name=request.provider, db=db, team_id=team_id_for_gen, schema=schema, model_override=request.model)
     content = result.get("content", "")
+    content = await rewrite_plain_english(
+        content,
+        provider_name=request.provider or "cloudflare",
+        model=request.model or (CF_TEXT_FREE if (request.provider or "cloudflare") == "cloudflare" else None),
+        db=db,
+        team_id=team_id_for_gen,
+        context=f"{request.platform} post",
+    )
 
     # Index generated content in chroma for future dedup
     if team and content:
@@ -981,7 +1007,7 @@ async def suggest_hashtags(
     request: SuggestHashtagsRequest,
     current_user: User = Depends(get_current_user),
 ):
-    prompt = f"""Suggest {request.max_hashtags} relevant hashtags for this {request.platform} post:
+    prompt = f"""Suggest {request.resolved_max()} relevant hashtags for this {request.platform} post:
 
 "{request.content}"
 
@@ -1018,24 +1044,24 @@ async def best_time_to_post(
 
     best_times = {
         "linkedin": [
-            {"day": "Tuesday", "time": "09:00", "timezone": "UTC"},
-            {"day": "Wednesday", "time": "09:00", "timezone": "UTC"},
-            {"day": "Thursday", "time": "09:00", "timezone": "UTC"},
+            {"day": "Tuesday", "time": "09:00", "timezone": "Europe/Athens"},
+            {"day": "Wednesday", "time": "09:00", "timezone": "Europe/Athens"},
+            {"day": "Thursday", "time": "09:00", "timezone": "Europe/Athens"},
         ],
         "twitter": [
-            {"day": "Monday", "time": "12:00", "timezone": "UTC"},
-            {"day": "Wednesday", "time": "15:00", "timezone": "UTC"},
-            {"day": "Friday", "time": "12:00", "timezone": "UTC"},
+            {"day": "Monday", "time": "12:00", "timezone": "Europe/Athens"},
+            {"day": "Wednesday", "time": "15:00", "timezone": "Europe/Athens"},
+            {"day": "Friday", "time": "12:00", "timezone": "Europe/Athens"},
         ],
         "instagram": [
-            {"day": "Monday", "time": "11:00", "timezone": "UTC"},
-            {"day": "Wednesday", "time": "11:00", "timezone": "UTC"},
-            {"day": "Friday", "time": "10:00", "timezone": "UTC"},
+            {"day": "Monday", "time": "11:00", "timezone": "Europe/Athens"},
+            {"day": "Wednesday", "time": "11:00", "timezone": "Europe/Athens"},
+            {"day": "Friday", "time": "10:00", "timezone": "Europe/Athens"},
         ],
         "facebook": [
-            {"day": "Tuesday", "time": "10:00", "timezone": "UTC"},
-            {"day": "Thursday", "time": "10:00", "timezone": "UTC"},
-            {"day": "Saturday", "time": "09:00", "timezone": "UTC"},
+            {"day": "Tuesday", "time": "10:00", "timezone": "Europe/Athens"},
+            {"day": "Thursday", "time": "10:00", "timezone": "Europe/Athens"},
+            {"day": "Saturday", "time": "09:00", "timezone": "Europe/Athens"},
         ],
     }
 
@@ -1047,9 +1073,12 @@ async def improve_content(
     request: ImproveContentRequest,
     current_user: User = Depends(get_current_user),
 ):
-    prompt = f"""Improve this {request.platform} post for {request.goal}:
+    prompt = f"""Improve this {request.platform} post for {request.resolved_goal()}:
 
 Original: "{request.content}"
+
+Also rewrite into plain everyday English so non-experts understand it. Avoid jargon and buzzwords.
+Keep the meaning. Prefer short sentences and common words.
 
 Return JSON with: improved_content (string), changes (array of strings describing what was changed)"""
 
@@ -1290,29 +1319,33 @@ async def generate_carousel(
             )
 
     platform_guides = {
-        "linkedin": "LinkedIn professional audience. Each slide should deliver one clear insight.",
-        "instagram": "Instagram visual storytelling. Keep text concise and punchy.",
+        "linkedin": "LinkedIn audience. Each slide delivers one clear idea in plain English.",
+        "instagram": "Instagram visual storytelling. Short, punchy, easy words.",
     }
     guide = platform_guides.get(request.platform, platform_guides["linkedin"])
     num = max(3, min(10, request.num_slides))
     include_cta = request.include_cta
 
+    from app.services.plain_english import PLAIN_ENGLISH_RULES, run_nlp_check_and_fix
+
     prompt = f"""Create a {num}-slide infographic carousel about: "{request.topic}"
 
 Platform: {request.platform} — {guide}
-Tone: {request.tone}
+Tone: {request.tone} (still use plain everyday English)
 {"The last slide should be a strong CTA (call to action)." if include_cta else ""}
+
+{PLAIN_ENGLISH_RULES}
 
 Slide types to use:
 - "cover": First slide — bold title + short subtitle
-- "content": Main points — headline + 2-4 sentence explanation
+- "content": Main points — headline + 1-2 short sentences
 - "stat": A striking statistic or fact — short number/stat as highlight, brief context as body
-- "cta": Last slide — action-oriented title + what to do next
+- "cta": Last slide — clear next step in simple words
 
 Return JSON with:
-- slides: array of exactly {num} objects, each with: title (string), body (string, max 100 chars),
+- slides: array of exactly {num} objects, each with: title (string, plain English), body (string, max 100 chars, plain English),
   highlight (string or null, used for stats/key numbers), slide_type (cover|content|stat|cta)
-- suggested_caption: a complete post caption (with line breaks) to accompany the carousel
+- suggested_caption: a complete post caption (with line breaks) in plain English
 - hashtags: array of 5-8 relevant hashtags (without #)"""
 
     schema = {
@@ -1354,6 +1387,17 @@ Return JSON with:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
 
+    # NLP checker + fixer: flag jargon / hard sentences, then rewrite to plain English
+    cleaned_slides, cleaned_caption, _nlp_report = await run_nlp_check_and_fix(
+        slides=list(result.get("slides") or []),
+        caption=result.get("suggested_caption", ""),
+        provider_name=request.provider or "cloudflare",
+        model=request.model or (CF_TEXT_FREE if (request.provider or "cloudflare") == "cloudflare" else None),
+        db=db,
+        team_id=team_id,
+        force_fix=True,
+    )
+
     slides = [
         CarouselSlide(
             title=s.get("title", ""),
@@ -1361,12 +1405,12 @@ Return JSON with:
             highlight=s.get("highlight"),
             slide_type=s.get("slide_type", "content"),
         )
-        for s in result.get("slides", [])
+        for s in cleaned_slides
     ]
 
     # Index generated carousel content in chroma for future dedup
-    if team and result.get("slides"):
-        carousel_content = f"CAROUSEL:{request.platform}:{request.topic}:" + "|".join([s.get("title", "") for s in result.get("slides", [])])
+    if team and cleaned_slides:
+        carousel_content = f"CAROUSEL:{request.platform}:{request.topic}:" + "|".join([s.get("title", "") for s in cleaned_slides])
         await chroma_client.add_content(
             str(team.id),
             str(uuid.uuid4()),
@@ -1375,8 +1419,214 @@ Return JSON with:
 
     return GenerateCarouselResponse(
         slides=slides,
-        suggested_caption=result.get("suggested_caption", ""),
+        suggested_caption=cleaned_caption,
         hashtags=result.get("hashtags", []),
+    )
+
+
+class CarouselPipelineSlideResult(BaseModel):
+    slide_type: str
+    title: str
+    body: str
+    highlight: str | None = None
+    image_prompt: str
+    enhance_prompt: str
+    media_id: uuid.UUID | None = None
+    storage_path: str | None = None
+
+
+class GenerateCarouselPipelineRequest(BaseModel):
+    topic: str
+    num_slides: int = 7
+    platform: str = "linkedin"
+    tone: str = "professional"
+    include_cta: bool = True
+    text_model: str = CF_TEXT_FREE
+    txt2img_model: str = CF_TXT2IMG_FREE
+    img2img_model: str = CF_IMG2IMG_FREE
+    strength: float = 0.45
+
+
+class GenerateCarouselPipelineResponse(BaseModel):
+    slides: list[CarouselPipelineSlideResult]
+    suggested_caption: str
+    hashtags: list[str]
+    media_ids: list[uuid.UUID]
+    models: dict
+    nlp_report: dict = {}
+
+
+@router.post("/generate-carousel-pipeline", response_model=GenerateCarouselPipelineResponse)
+async def generate_carousel_pipeline(
+    request: GenerateCarouselPipelineRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """CF-only carousel pipeline:
+
+    1. LLM slide copy
+    2. NLP checker + plain-English fixer
+    3. FLUX schnell txt2img → SD img2img enhance (draft-only if enhance fails)
+    4. Persist to media library
+    """
+    import base64
+
+    from app.services.plain_english import run_nlp_check_and_fix
+
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # 1) Slide copy via Cloudflare LLM (also runs NLP inside generate_carousel)
+    copy = await generate_carousel(
+        GenerateCarouselRequest(
+            topic=request.topic,
+            num_slides=request.num_slides,
+            platform=request.platform,
+            tone=request.tone,
+            include_cta=request.include_cta,
+            provider="cloudflare",
+            model=request.text_model,
+        ),
+        current_user=current_user,
+        db=db,
+    )
+
+    # 2) Explicit NLP checker + fixer stage (always)
+    slide_dicts = [
+        {
+            "slide_type": s.slide_type,
+            "title": s.title,
+            "body": s.body,
+            "highlight": s.highlight,
+        }
+        for s in copy.slides
+    ]
+    cleaned_slides, cleaned_caption, nlp_report = await run_nlp_check_and_fix(
+        slides=slide_dicts,
+        caption=copy.suggested_caption,
+        provider_name="cloudflare",
+        model=request.text_model,
+        db=db,
+        team_id=team.id,
+        force_fix=True,
+    )
+    print(f"[carousel-pipeline] nlp {nlp_report.to_dict()}", flush=True)
+
+    media_ids: list[uuid.UUID] = []
+    slide_results: list[CarouselPipelineSlideResult] = []
+
+    for i, slide in enumerate(cleaned_slides):
+        title = slide.get("title") or ""
+        body = slide.get("body") or ""
+        visual = (
+            f"LinkedIn carousel background for slide about '{title}'. "
+            f"{body}. Dark navy abstract tech aesthetic, cyan and soft orange accents, "
+            f"clean modern composition, square 1:1, no readable text, no logos, no watermark."
+        )
+        enhance = (
+            f"Enhance quality and content of this LinkedIn carousel background about '{title}'. "
+            f"Sharper details, richer cyan/orange lighting on dark navy, professional polish, "
+            f"stronger visual metaphor for: {body}. No text, no logos."
+        )
+        print(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img→img2img", flush=True)
+        pipe = await _call_cf_image_pipeline(
+            prompt=visual,
+            enhance_prompt=enhance,
+            txt2img_model=request.txt2img_model,
+            img2img_model=request.img2img_model,
+            strength=request.strength,
+        )
+        asset = await persist_generated_image(
+            db,
+            team_id=team.id,
+            user_id=current_user.id,
+            image_bytes=base64.b64decode(pipe["image_base64"]),
+            prompt=f"carousel-pipeline:{title}",
+            source="cf-carousel-pipeline",
+        )
+        media_ids.append(asset.id)
+        slide_results.append(
+            CarouselPipelineSlideResult(
+                slide_type=slide.get("slide_type") or "content",
+                title=title,
+                body=body,
+                highlight=slide.get("highlight"),
+                image_prompt=visual,
+                enhance_prompt=enhance,
+                media_id=asset.id,
+                storage_path=asset.storage_path,
+            )
+        )
+
+    return GenerateCarouselPipelineResponse(
+        slides=slide_results,
+        suggested_caption=cleaned_caption,
+        hashtags=copy.hashtags,
+        media_ids=media_ids,
+        models={
+            "text": request.text_model,
+            "txt2img": request.txt2img_model,
+            "img2img": request.img2img_model,
+            "nlp": "plain-english-check-fix",
+        },
+        nlp_report=nlp_report.to_dict(),
+    )
+
+
+class RunCarouselAndPublishRequest(BaseModel):
+    topic: str = (
+        "How cloudless.gr helps teams ship serverless apps without managing servers"
+    )
+    num_slides: int = 7
+    tone: str = "clear and friendly"
+    include_cta: bool = True
+    text_model: str = CF_TEXT_FREE
+    txt2img_model: str = CF_TXT2IMG_FREE
+    img2img_model: str = CF_IMG2IMG_FREE
+    strength: float = 0.42
+    target_account_id: str | None = None
+    publish: bool = True
+    wait_for_publish: bool = False
+
+
+@router.post("/run-carousel-and-publish")
+async def run_carousel_and_publish(
+    request: RunCarouselAndPublishRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """n8n-friendly full pipeline: copy → NLP → CF images → brand → post → LinkedIn org.
+
+    Intended for the Cloudless n8n schedule/webhook workflow.
+    """
+    from app.services.carousel_pipeline import run_cloudless_carousel_pipeline
+
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    return await run_cloudless_carousel_pipeline(
+        db=db,
+        user=current_user,
+        team=team,
+        topic=request.topic,
+        num_slides=request.num_slides,
+        tone=request.tone,
+        include_cta=request.include_cta,
+        text_model=request.text_model,
+        txt2img_model=request.txt2img_model,
+        img2img_model=request.img2img_model,
+        strength=request.strength,
+        target_account_id=request.target_account_id,
+        publish=request.publish,
+        wait_for_publish=request.wait_for_publish,
     )
 
 

@@ -1,4 +1,4 @@
-from app.models.analytics import AnalyticsEvent
+from app.models.analytics import AnalyticsEvent, PostAnalyticsSnapshot
 from app.models.content import MediaAsset, Post, PostTarget
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
@@ -17,4 +17,5 @@ __all__ = [
     "GeneratedWorkflow",
     "PublishQueue",
     "AnalyticsEvent",
+    "PostAnalyticsSnapshot",
 ]

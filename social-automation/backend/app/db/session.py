@@ -35,23 +35,45 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     from app.db.base import Base
+    from app.models.user import Team, TeamMember, UserRole
+
     settings = get_settings()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Seed admin user if configured
+    # Seed admin user if configured, and always ensure they own a team.
+    # Registration creates a team; the env-seeded admin path previously did not,
+    # which caused "Failed to connect" when linking social accounts.
     if settings.SOCIAL_ADMIN_EMAIL and settings.SOCIAL_ADMIN_PASSWORD:
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL)
             )
-            existing = result.scalar_one_or_none()
-            if not existing:
+            admin_user = result.scalar_one_or_none()
+            if not admin_user:
                 admin_user = User(
                     id=uuid.uuid4(),
                     email=settings.SOCIAL_ADMIN_EMAIL,
                     password_hash=hash_password(settings.SOCIAL_ADMIN_PASSWORD),
                     name=settings.SOCIAL_ADMIN_NAME or "Admin User",
+                    timezone=settings.APP_TIMEZONE,
                 )
                 session.add(admin_user)
-                await session.commit()
+                await session.flush()
                 print(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
+
+            membership = await session.execute(
+                select(TeamMember).where(TeamMember.user_id == admin_user.id)
+            )
+            if not membership.scalar_one_or_none():
+                team = Team(
+                    name=f"{admin_user.name or admin_user.email}'s Team",
+                    owner_id=admin_user.id,
+                )
+                session.add(team)
+                await session.flush()
+                session.add(
+                    TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER)
+                )
+                print(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
+
+            await session.commit()

@@ -374,8 +374,13 @@ export default function AccountsPage() {
       } else {
         toast.success(`${platforms.find(p => p.id === platformId)?.name} connected!`)
       }
-    } catch {
-      toast.error('Failed to connect — make sure credentials are saved in the Env Manager')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(
+        typeof detail === 'string'
+          ? detail
+          : 'Failed to connect — make sure OAuth credentials are set and you belong to a team'
+      )
     } finally {
       setConnectingPlatform(null)
     }
@@ -608,7 +613,7 @@ export default function AccountsPage() {
                                 >
                                   <span className="text-[10px] tabular-nums text-muted-foreground w-[52px] flex-shrink-0">
                                     {post.scheduled_at
-                                      ? new Date(post.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                      ? new Date(post.scheduled_at).toLocaleString('en-GB', { timeZone: 'Europe/Athens', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
                                       : '—'}
                                   </span>
                                   <span className="text-xs text-foreground truncate flex-1">

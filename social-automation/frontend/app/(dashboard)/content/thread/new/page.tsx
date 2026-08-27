@@ -15,6 +15,13 @@ import { contentApi, aiApi } from '@/services/api'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
+import {
+  preferredAccount,
+  identityFromAccount,
+  ObjectUrlImage,
+  AccountAvatar,
+  type PreviewIdentity,
+} from '@/components/content/previewIdentity'
 
 type Platform = SocialAccount['platform']
 const THREAD_PLATFORMS: Platform[] = ['twitter', 'threads']
@@ -32,12 +39,27 @@ interface ThreadPost {
 
 // ── Live Twitter thread preview ──────────────────────────────────────────────
 
-function ThreadPreview({ posts, platform }: { posts: ThreadPost[]; platform: Platform | null }) {
+function ThreadPreview({
+  posts,
+  platform,
+  identity,
+}: {
+  posts: ThreadPost[]
+  platform: Platform | null
+  identity: PreviewIdentity | null
+}) {
   const filled = posts.filter(p => p.text.trim())
   if (!filled.length || !platform) {
     return (
       <div className="rounded-xl border border-dashed bg-muted/20 p-8 text-center">
         <p className="text-sm text-muted-foreground">Select a platform and start typing to see your thread preview</p>
+      </div>
+    )
+  }
+  if (!identity) {
+    return (
+      <div className="rounded-xl border border-dashed bg-muted/20 p-8 text-center">
+        <p className="text-sm text-muted-foreground">Connect a {platform} account to preview as that profile</p>
       </div>
     )
   }
@@ -48,20 +70,24 @@ function ThreadPreview({ posts, platform }: { posts: ThreadPost[]; platform: Pla
         {filled.map((post, i) => (
           <div key={post.id} className="flex gap-3 text-[13px] bg-white dark:bg-zinc-900 border-x border-t last:border-b rounded-none first:rounded-t-xl last:rounded-b-xl px-4 py-3">
             <div className="flex flex-col items-center gap-0">
-              <div className="w-9 h-9 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center text-[10px] font-bold text-sky-500 flex-shrink-0">You</div>
+              <AccountAvatar
+                identity={identity}
+                className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+                fallbackClass="bg-sky-100 dark:bg-sky-900 text-sky-500"
+              />
               {i < filled.length - 1 && <div className="w-0.5 flex-1 mt-1 bg-zinc-200 dark:bg-zinc-700 min-h-[24px]" />}
             </div>
             <div className="flex-1 min-w-0 pb-1">
               <div className="flex items-center gap-1 flex-wrap mb-1">
-                <span className="font-bold text-zinc-900 dark:text-zinc-100 text-[12px]">Your Name</span>
-                <span className="text-zinc-400 text-[11px]">@yourhandle · just now</span>
+                <span className="font-bold text-zinc-900 dark:text-zinc-100 text-[12px]">{identity.name}</span>
+                <span className="text-zinc-400 text-[11px]">@{identity.handle} · just now</span>
                 <MoreHorizontal className="ml-auto h-3.5 w-3.5 text-zinc-400" />
               </div>
               <p className="whitespace-pre-wrap text-zinc-800 dark:text-zinc-200 leading-relaxed">{post.text}</p>
               {post.mediaFiles.length > 0 && (
                 <div className="mt-2 grid grid-cols-2 gap-0.5 rounded-xl overflow-hidden">
                   {post.mediaFiles.slice(0, 4).map((f, fi) => (
-                    <img key={fi} src={URL.createObjectURL(f)} alt="" className="w-full aspect-video object-cover" />
+                    <ObjectUrlImage key={fi} file={f} className="w-full aspect-video object-cover" />
                   ))}
                 </div>
               )}
@@ -84,12 +110,16 @@ function ThreadPreview({ posts, platform }: { posts: ThreadPost[]; platform: Pla
       {filled.map((post, i) => (
         <div key={post.id} className="flex gap-3 text-[13px] bg-white dark:bg-zinc-900 border-x border-t last:border-b rounded-none first:rounded-t-xl last:rounded-b-xl px-4 py-3">
           <div className="flex flex-col items-center">
-            <div className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-300 flex-shrink-0">You</div>
+            <AccountAvatar
+              identity={identity}
+              className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+              fallbackClass="bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"
+            />
             {i < filled.length - 1 && <div className="w-0.5 flex-1 mt-1 bg-zinc-200 dark:bg-zinc-700 min-h-[24px]" />}
           </div>
           <div className="flex-1 min-w-0 pb-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">yourhandle</span>
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">{identity.handle}</span>
               <div className="flex items-center gap-2 text-zinc-400">
                 <span className="text-[11px]">just now</span>
                 <MoreHorizontal className="h-3.5 w-3.5" />
@@ -97,7 +127,7 @@ function ThreadPreview({ posts, platform }: { posts: ThreadPost[]; platform: Pla
             </div>
             <p className="whitespace-pre-wrap text-zinc-800 dark:text-zinc-200 leading-relaxed">{post.text}</p>
             {post.mediaFiles.length > 0 && (
-              <img src={URL.createObjectURL(post.mediaFiles[0])} alt="" className="mt-2 w-full rounded-xl object-cover max-h-40" />
+              <ObjectUrlImage file={post.mediaFiles[0]} className="mt-2 w-full rounded-xl object-cover max-h-40" />
             )}
             <div className="mt-2 flex gap-4 text-zinc-400">
               <button className="hover:text-red-500 transition-colors"><Heart className="h-3.5 w-3.5" /></button>
@@ -146,8 +176,10 @@ export default function NewThreadPage() {
   const createPostMutation = useCreatePost()
   const uploadMediaMutation = useUploadMedia()
 
-  const connectedPlatforms = (accounts as SocialAccount[] | undefined)
-    ?.map(a => a.platform).filter(p => THREAD_PLATFORMS.includes(p)) || []
+  const connectedAccounts = ((accounts as SocialAccount[] | undefined) || []).filter(
+    (a) => (!a.status || a.status === 'active') && THREAD_PLATFORMS.includes(a.platform)
+  )
+  const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))]
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([])
   const [posts, setPosts] = useState<ThreadPost[]>([
@@ -165,6 +197,10 @@ export default function NewThreadPage() {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const previewPlatform: Platform | null = selectedPlatforms[0] ?? null
+  const previewAccount = previewPlatform
+    ? preferredAccount(connectedAccounts, previewPlatform) || null
+    : null
+  const previewIdentity = previewAccount ? identityFromAccount(previewAccount) : null
   const charLimit = selectedPlatforms.includes('twitter') ? PLATFORM_LIMITS.twitter : PLATFORM_LIMITS.threads
 
   const togglePlatform = (p: Platform) => {
@@ -523,7 +559,7 @@ export default function NewThreadPage() {
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
             Thread Preview · {previewPlatform ? PLATFORM_NAMES[previewPlatform] : 'Select a platform'}
           </h2>
-          <ThreadPreview posts={posts} platform={previewPlatform} />
+          <ThreadPreview posts={posts} platform={previewPlatform} identity={previewIdentity} />
         </div>
       </div>
     </div>

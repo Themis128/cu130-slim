@@ -408,6 +408,7 @@ describe('API Service', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/content/posts', {
         content_text: 'Test post',
         hashtags: ['#test'],
+        target_account_ids: [],
       })
       expect(result.data).toEqual({ id: '1' })
     })
@@ -444,7 +445,7 @@ describe('API Service', () => {
       
       const result = await apiModule.contentApi.publishNow('1')
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/content/posts/1/publish')
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/content/posts/1/publish-now')
       expect(result.data).toEqual({ id: '1', status: 'published' })
     })
 
@@ -879,7 +880,7 @@ describe('API Service', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/ai/improve-content', {
         content: 'Original',
         platform: 'twitter',
-        instruction: 'Make it better',
+        goal: 'Make it better',
       })
       expect(result.data).toEqual({ content: 'Improved' })
     })
@@ -892,7 +893,7 @@ describe('API Service', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/ai/generate-hashtags', {
         content: 'AI is great',
         platform: 'twitter',
-        count: 5,
+        max_hashtags: 5,
       })
       expect(result.data).toEqual({ hashtags: ['#ai', '#tech'] })
     })

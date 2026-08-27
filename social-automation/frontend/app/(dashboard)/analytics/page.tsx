@@ -11,8 +11,9 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends } from '@/hooks/useQueries'
-import type { PlatformMetrics, PostAnalytics } from '@/types'
+import type { PlatformMetrics, TopPost } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
+import { analyticsApi } from '@/services/api'
 import {
   BarChart,
   Bar,
@@ -39,7 +40,7 @@ export default function AnalyticsPage() {
 
   const { data: overview, isLoading: overviewLoading } = useOverviewMetrics(days)
   const { data: platformData, isLoading: platformLoading } = usePlatformMetrics(days)
-  const { data: topPosts, isLoading: postsLoading } = useTopPosts(10, platformFilter || undefined)
+  const { data: topPosts, isLoading: postsLoading } = useTopPosts(10, platformFilter || undefined, days)
   // When compare mode is on, fetch 2× the period so we can split it
   const { data: rawTrend } = useEngagementTrends(
     compareMode ? days * 2 : days,
@@ -170,7 +171,26 @@ export default function AnalyticsPage() {
             <ArrowLeftRight className="h-4 w-4" />
             {compareMode ? 'Comparing periods' : 'Compare periods'}
           </Button>
-          <Button variant="outline" onClick={() => toast('Export coming soon')}>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const res = await analyticsApi.syncFromPlatforms({ days, async_mode: true })
+                const data = res.data as { status?: string; task_id?: string }
+                toast.success(
+                  data?.status === 'queued'
+                    ? 'Analytics sync queued — LinkedIn metrics will land in Postgres shortly'
+                    : 'Analytics sync started'
+                )
+              } catch {
+                toast.error('Failed to start analytics sync')
+              }
+            }}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Sync from LinkedIn
+          </Button>
+          <Button variant="outline" onClick={() => toast('Use Sync then Export via API /analytics/reports/export')}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -373,7 +393,9 @@ export default function AnalyticsPage() {
                       <TableCell className="text-right font-mono">{p.total_impressions?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-right font-mono">{p.total_engagement?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-right font-mono">
-                        {p.engagement_rate ? `${p.engagement_rate.toFixed(2)}%` : '0%'}
+                        {p.engagement_rate != null
+                          ? `${(p.engagement_rate * 100).toFixed(1)}%`
+                          : '0%'}
                       </TableCell>
                       <TableCell className="text-right font-mono">{p.published_count || 0}</TableCell>
                       <TableCell className="text-right font-mono">{p.posts_count || 0}</TableCell>
@@ -409,7 +431,7 @@ export default function AnalyticsPage() {
             />
           ) : (
             <div className="space-y-3">
-              {topPosts?.map((post: PostAnalytics, index: number) => (
+              {topPosts?.map((post: TopPost, index: number) => (
                 <div
                   key={post.post_id}
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
@@ -420,15 +442,16 @@ export default function AnalyticsPage() {
                       <TrendingUp className="h-5 w-5 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{post.content?.slice(0, 80)}...</p>
+                      <p className="font-medium truncate">{(post.content_text || 'Untitled').slice(0, 80)}</p>
                       <p className="text-sm text-muted-foreground">
-                        {post.platform} • {formatRelativeTime(post.published_at || post.created_at || new Date().toISOString())}
+                        {post.platform}
+                        {post.published_at ? ` • ${formatRelativeTime(post.published_at)}` : ''}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <Badge variant="outline">
-                      {(post.likes + post.comments + post.shares)?.toLocaleString() || 0} engagements
+                      {(post.engagement ?? 0).toLocaleString()} engagements
                     </Badge>
                   </div>
                 </div>

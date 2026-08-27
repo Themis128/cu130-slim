@@ -102,11 +102,20 @@ export function useMedia(params?: { page?: number; page_size?: number; type?: st
 export function useUploadMedia() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ file, alt_text, tags }: { file: File; alt_text?: string; tags?: string }) =>
-      mediaApi.upload(file, alt_text, tags),
-    onSuccess: () => {
+    mutationFn: ({
+      file,
+      alt_text,
+      tags,
+      silent,
+    }: {
+      file: File
+      alt_text?: string
+      tags?: string
+      silent?: boolean
+    }) => mediaApi.upload(file, alt_text, tags),
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['media'] })
-      toast.success('Media uploaded')
+      if (!vars.silent) toast.success('Media uploaded')
     },
   })
 }
@@ -125,9 +134,22 @@ export function useDeleteMedia() {
 export function useGenerateImage() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ prompt, options }: { prompt: string; options?: { width?: number; height?: number; model?: string; negative_prompt?: string; steps?: number; cfg_scale?: number } }) => mediaApi.generateImage(prompt, options),
+    mutationFn: ({
+      prompt,
+      options,
+    }: {
+      prompt: string
+      options?: {
+        width?: number
+        height?: number
+        model?: string
+        provider?: string
+        negative_prompt?: string
+        steps?: number
+        cfg_scale?: number
+      }
+    }) => mediaApi.generateImage(prompt, options),
     onSuccess: () => {
-      // Generated images are persisted to media_assets — refresh Media Library
       queryClient.invalidateQueries({ queryKey: ['media'] })
       toast.success('Image generated')
     },
@@ -283,10 +305,10 @@ export function usePostAnalytics(postId: string) {
   })
 }
 
-export function useTopPosts(limit?: number, platform?: string) {
+export function useTopPosts(limit?: number, platform?: string, days?: number) {
   return useQuery({
-    queryKey: ['analytics', 'top-posts', limit, platform],
-    queryFn: () => analyticsApi.getTopPosts({ limit, platform }),
+    queryKey: ['analytics', 'top-posts', limit, platform, days],
+    queryFn: () => analyticsApi.getTopPosts({ limit, platform, days }),
     select: (response) => response.data,
   })
 }
@@ -295,7 +317,18 @@ export function useEngagementTrends(days?: number, platform?: string) {
   return useQuery({
     queryKey: ['analytics', 'engagement', days, platform],
     queryFn: () => analyticsApi.getEngagementTrends({ days, platform }),
-    select: (response) => response.data as unknown[],
+    select: (response) => {
+      const points = (response.data || []) as Array<{
+        date: string
+        likes: number
+        comments: number
+        shares: number
+        clicks: number
+        total: number
+      }>
+      // Chart series uses `value`; keep full point for tooltips/compare
+      return points.map((p) => ({ ...p, value: p.total ?? 0 }))
+    },
   })
 }
 

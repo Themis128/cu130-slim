@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.models.workflow import GeneratedWorkflow
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, Plus, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { useScheduledPosts, useSchedulePost } from '@/hooks/useQueries'
-import { cn } from '@/lib/utils'
+import { cn, formatTime, isOnAthensCalendarDay, moveToAthensDay, athensDateKey } from '@/lib/utils'
 import Link from 'next/link'
 import type { Post, PostTarget, SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
@@ -67,7 +67,10 @@ export default function CalendarPage() {
   const startPad = mondayFirst(days[0])  // empty cells before first day
 
   const postsForDay = useCallback(
-    (day: Date) => effectivePosts.filter(p => p.scheduled_at && isSameDay(new Date(p.scheduled_at), day)),
+    (day: Date) =>
+      effectivePosts.filter(
+        (p) => p.scheduled_at && isOnAthensCalendarDay(p.scheduled_at, day)
+      ),
     [effectivePosts]
   )
 
@@ -91,22 +94,17 @@ export default function CalendarPage() {
     const post = effectivePosts.find(p => p.id === id)
     if (!post?.scheduled_at) return
 
-    // Keep the original time, just change the date
-    const originalDate = new Date(post.scheduled_at)
-    const newDate = new Date(targetDay)
-    newDate.setHours(originalDate.getHours(), originalDate.getMinutes(), 0, 0)
+    // Keep Athens wall-clock time; only change the calendar day
+    if (isOnAthensCalendarDay(post.scheduled_at, targetDay)) return
 
-    // Skip if same day
-    if (isSameDay(originalDate, newDate)) return
-
-    const newIso = newDate.toISOString()
+    const newIso = moveToAthensDay(post.scheduled_at, targetDay)
 
     // Optimistic update
     setLocalOverrides(prev => ({ ...prev, [id]: newIso }))
 
     try {
       await schedulePost.mutateAsync({ id, scheduled_at: newIso })
-      toast.success(`Moved to ${format(newDate, 'MMM d')}`)
+      toast.success(`Moved to ${format(targetDay, 'MMM d')}`)
       refetch()
     } catch {
       // Rollback
@@ -122,11 +120,12 @@ export default function CalendarPage() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
   const selectedDayPosts = selectedDay ? postsForDay(selectedDay) : []
 
-  const totalThisMonth = effectivePosts.filter(p =>
-    p.scheduled_at &&
-    new Date(p.scheduled_at) >= startOfMonth(month) &&
-    new Date(p.scheduled_at) <= endOfMonth(month)
-  ).length
+  const totalThisMonth = effectivePosts.filter((p) => {
+    if (!p.scheduled_at) return false
+    const key = athensDateKey(p.scheduled_at)
+    const monthPrefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+    return key.startsWith(monthPrefix)
+  }).length
 
   return (
     <div className="space-y-4">
@@ -285,7 +284,7 @@ export default function CalendarPage() {
             <div className="space-y-2">
               {selectedDayPosts.map(post => {
                 const platforms = getPlatforms(post)
-                const time = post.scheduled_at ? format(new Date(post.scheduled_at), 'h:mm a') : ''
+                const time = post.scheduled_at ? formatTime(post.scheduled_at) : ''
                 return (
                   <Link
                     key={post.id}

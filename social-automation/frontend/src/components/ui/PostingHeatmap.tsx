@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { PostAnalytics } from '@/types'
+import type { TopPost } from '@/types'
 
 // Industry benchmark scores [dayIndex 0=Mon…6=Sun][slotIndex 0=Morning…3=Evening]
 // Source: Sprout Social / Later optimal send-time research 2024
@@ -48,7 +48,7 @@ function scoreToCell(score: number) {
 }
 
 interface PostingHeatmapProps {
-  topPosts?: PostAnalytics[]
+  topPosts?: TopPost[]
 }
 
 export function PostingHeatmap({ topPosts = [] }: PostingHeatmapProps) {
@@ -75,7 +75,7 @@ export function PostingHeatmap({ topPosts = [] }: PostingHeatmapProps) {
       const dayIdx = (d.getDay() + 6) % 7  // 0=Mon
       const hour   = d.getHours()
       const slotIdx = hour < 10 ? 0 : hour < 14 ? 1 : hour < 18 ? 2 : 3
-      const eng = (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0)
+      const eng = post.engagement ?? 0
       raw[dayIdx][slotIdx]    += eng
       counts[dayIdx][slotIdx] += 1
     }

@@ -113,16 +113,14 @@ async def upload_media(
     # Read file content
     content = await file.read()
 
-    # Extract image dimensions if applicable
+    # Cap library storage size (see MEDIA_MAX_EDGE); keep original for video.
     width = None
     height = None
-    if file.content_type and file.content_type.startswith('image/'):
-        try:
-            image = Image.open(io.BytesIO(content))
-            width, height = image.size
-        except Exception:
-            # If we cannot read the image, leave dimensions as None
-            pass
+    mime = file.content_type
+    if mime and mime.startswith("image/"):
+        from app.services.media_storage import downscale_image_bytes
+
+        content, width, height = downscale_image_bytes(content)
 
     # Write file to disk
     async with aiofiles.open(storage_path, "wb") as f:
@@ -132,7 +130,7 @@ async def upload_media(
         team_id=team.id,
         user_id=current_user.id,
         filename=file.filename,
-        mime_type=file.content_type,
+        mime_type=mime,
         size_bytes=len(content),
         width=width,
         height=height,
@@ -228,7 +226,7 @@ async def list_media(
     elif type == "video":
         query = query.where(MediaAsset.mime_type.like("video/%"))
     elif type in ("generated", "ai-generated"):
-        query = query.where(MediaAsset.source == "ai-generated")
+        query = query.where(MediaAsset.source.in_(["ai-generated", "comfyui"]))
 
     from sqlalchemy import func
     count_query = select(func.count()).select_from(query.subquery())
@@ -267,15 +265,34 @@ async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_cur
     await db.commit()
 
 
+class MediaGenerateOptions(BaseModel):
+    width: int | None = None
+    height: int | None = None
+    model: str | None = None
+    negative_prompt: str = ""
+    steps: int = 4
+    cfg_scale: float = 3.5
+
+
+class MediaGenerateImageRequest(BaseModel):
+    prompt: str
+    options: MediaGenerateOptions | None = None
+    workflow_json: str | dict | None = None  # legacy ComfyUI field — ignored
+
+
 @router.post("/generate-image", response_model=MediaAssetResponse)
 async def generate_image(
-    prompt: str = Form(...),
-    workflow_json: str = Form(...),
+    body: MediaGenerateImageRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # TODO: Call ComfyUI API to generate image
-    # For now, create a placeholder image and store it
+    """Generate an image via Cloudflare Workers AI (FLUX schnell) and store it."""
+    import base64
+
+    from app.services.cf_models import CF_TXT2IMG_FREE
+    from app.services.inference import _call_workers_ai_image
+    from app.services.media_storage import persist_generated_image
+
     result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -283,60 +300,40 @@ async def generate_image(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    # Determine date-based subfolder
-    now = datetime.now(UTC)
-    date_folder = now.strftime("%Y/%m/%d")
-    target_dir = os.path.join(UPLOAD_DIR, date_folder)
-    os.makedirs(target_dir, exist_ok=True)
+    opts = body.options or MediaGenerateOptions()
+    model = opts.model or CF_TXT2IMG_FREE
+    if model and not model.startswith("@cf/"):
+        # Legacy short names from old workflow templates
+        model = f"@cf/stabilityai/{model}" if "stable-diffusion" in model else CF_TXT2IMG_FREE
 
-    filename = f"generated_{uuid.uuid4().hex[:8]}.png"
-    relative_path = os.path.join(date_folder, filename)
-    storage_path = os.path.join(UPLOAD_DIR, relative_path)
-
-    # Create a placeholder image (1x1 white pixel) PNG binary
-    placeholder_png = bytes([
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-        0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
-        0x54, 0x78, 0x9C, 0x63, 0x60, 0x00, 0x00, 0x00,
-        0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, 0x0D,
-        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x4D,
-        0xAE, 0x42, 0x60, 0x82
-    ])
-    async with aiofiles.open(storage_path, "wb") as f:
-        await f.write(placeholder_png)
-
-    # Extract image dimensions from the placeholder
-    width = None
-    height = None
     try:
-        image = Image.open(io.BytesIO(placeholder_png))
-        width, height = image.size
-    except Exception:
-        # If we cannot read the image, leave dimensions as None
-        pass
+        generated = await _call_workers_ai_image(
+            prompt=body.prompt,
+            model=model,
+            negative_prompt=opts.negative_prompt or "",
+            width=opts.width or 768,
+            height=opts.height or 768,
+            steps=opts.steps or 4,
+            cfg_scale=opts.cfg_scale or 3.5,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Image generation failed: {exc}") from exc
 
-    asset = MediaAsset(
+    image_b64 = generated.get("image_base64") or ""
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="Image generation returned empty payload")
+
+    asset = await persist_generated_image(
+        db,
         team_id=team.id,
         user_id=current_user.id,
-        filename=filename,
-        mime_type="image/png",
-        size_bytes=len(placeholder_png),
-        width=width,
-        height=height,
-        storage_path=relative_path,
-        alt_text=prompt,
-        tags=["ai-generated"],
-        source="comfyui",
-        generation_prompt=prompt,
-        comfyui_workflow_json=json.loads(workflow_json) if workflow_json else None,
+        image_bytes=base64.b64decode(image_b64),
+        prompt=body.prompt,
+        source="ai-generated",
     )
-    db.add(asset)
-    await db.commit()
-    await db.refresh(asset)
-
     return asset
+
 
 # Need to import User

@@ -13,12 +13,16 @@ celery_app = Celery(
     ],
 )
 
+# Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
+celery_app.set_default()
+celery_app.set_current()
+
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
-    timezone="UTC",
+    timezone=settings.APP_TIMEZONE,
     enable_utc=True,
     task_track_started=True,
     task_time_limit=3600,

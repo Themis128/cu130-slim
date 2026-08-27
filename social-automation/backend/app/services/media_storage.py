@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import MediaAsset
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
+# Cap longest edge for library storage (saves disk; zoom in viewer for detail).
+# Set MEDIA_MAX_EDGE=0 to disable. Carousel slides pass max_edge=None to keep 1080.
+MEDIA_MAX_EDGE = int(os.environ.get("MEDIA_MAX_EDGE", "768"))
 
 _MIME_BY_EXT = {
     ".png": "image/png",
@@ -19,6 +22,56 @@ _MIME_BY_EXT = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+
+def downscale_image_bytes(
+    image_bytes: bytes,
+    *,
+    max_edge: int | None = None,
+) -> tuple[bytes, int | None, int | None]:
+    """Downscale so the longest edge is ≤ max_edge. Returns (bytes, width, height).
+
+    Animated GIFs and unreadable images are returned unchanged.
+    ``max_edge`` None/≤0 skips resizing (dimensions still read when possible).
+    """
+    if max_edge is None:
+        max_edge = MEDIA_MAX_EDGE
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+    except Exception:
+        return image_bytes, None, None
+
+    # Don't flatten animated GIFs
+    if getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1:
+        return image_bytes, img.size[0], img.size[1]
+
+    w, h = img.size
+    if max_edge <= 0 or max(w, h) <= max_edge:
+        return image_bytes, w, h
+
+    scale = max_edge / float(max(w, h))
+    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+    resample = getattr(Image, "Resampling", Image).LANCZOS
+    out = img.convert("RGBA") if img.mode in ("P", "LA") else img
+    if out.mode == "P":
+        out = out.convert("RGBA")
+    out = out.resize(new_size, resample)
+
+    buf = io.BytesIO()
+    fmt = (img.format or "PNG").upper()
+    if fmt in ("JPEG", "JPG"):
+        if out.mode in ("RGBA", "P"):
+            out = out.convert("RGB")
+        out.save(buf, format="JPEG", quality=85, optimize=True)
+    elif fmt == "WEBP":
+        out.save(buf, format="WEBP", quality=85, method=4)
+    else:
+        if out.mode == "CMYK":
+            out = out.convert("RGB")
+        out.save(buf, format="PNG", optimize=True)
+
+    return buf.getvalue(), new_size[0], new_size[1]
 
 
 async def persist_generated_image(
@@ -30,9 +83,23 @@ async def persist_generated_image(
     prompt: str,
     source: str = "ai-generated",
     extension: str = ".png",
+    max_edge: int | None = None,
 ) -> MediaAsset:
     """Write generated image bytes under UPLOAD_DIR/YYYY/MM/DD/ and create a
-    ``media_assets`` row so the asset shows up in the Media Library page."""
+    ``media_assets`` row so the asset shows up in the Media Library page.
+
+    Pass ``max_edge=None`` with env MEDIA_MAX_EDGE for default cap, or an int to
+    override. Pass ``max_edge=0`` to store full resolution (e.g. LinkedIn carousels).
+    """
+    if max_edge is None:
+        # Carousel / branded slides need full LinkedIn size
+        if source in ("n8n-cf-pipe", "carousel", "comfyui-carousel"):
+            max_edge = 0
+        else:
+            max_edge = MEDIA_MAX_EDGE
+
+    image_bytes, width, height = downscale_image_bytes(image_bytes, max_edge=max_edge)
+
     now = datetime.now(UTC)
     date_folder = now.strftime("%Y/%m/%d")
     target_dir = os.path.join(UPLOAD_DIR, date_folder)
@@ -45,14 +112,12 @@ async def persist_generated_image(
     async with aiofiles.open(abs_path, "wb") as f:
         await f.write(image_bytes)
 
-    width = None
-    height = None
-    try:
-        img = Image.open(io.BytesIO(image_bytes))
-        width, height = img.size
-    except Exception:
-        # If we cannot read the image dimensions, leave them as None
-        pass
+    if width is None or height is None:
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            width, height = img.size
+        except Exception:
+            pass
 
     asset = MediaAsset(
         team_id=team_id,

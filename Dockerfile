@@ -40,17 +40,18 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # and crashes ComfyUI at startup. Also, torchvision 0.28.0+cu130 from cu130
 # index lacks torchvision.ops - we need to use torchvision 0.18.0+cu118
 # which is compatible with torch 2.13 and includes the ops module.
-# Install PyTorch packages from cu118 index, then install six and other deps from PyPI
+# Install PyTorch packages from cu118 index
+# torchvision 0.20.0+cu118 is compatible with torch >=2.4 (which has torch.library.custom_op)
 # nvidia-cublas and related CUDA wheels are very large (several GB); use a generous
 # timeout and retry count to survive transient network hiccups during download.
-RUN pip install --no-cache-dir --retries 30 --timeout 3600 \
-    torch "torchvision==0.18.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118 \
-    && pip install --no-cache-dir --retries 5 --timeout 120 "comfy-kitchen==0.2.31" \
+RUN pip install --no-cache-dir --retries 50 --timeout 7200 \
+    "torchvision==0.20.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118 \
+    && pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
-    && grep -v "comfy-kitchen" requirements.txt | pip install --no-cache-dir --retries 5 --timeout 120 -r /dev/stdin \
-    && pip install --no-cache-dir --retries 5 --timeout 120 \
+    && grep -v "comfy-kitchen" requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin \
+    && pip install --no-cache-dir --retries 10 --timeout 300 \
         replicate \
         natsort \
         decord \

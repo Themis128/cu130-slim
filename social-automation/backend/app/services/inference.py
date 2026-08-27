@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember
+from app.services.cf_models import CF_IMG2IMG_FREE, CF_TXT2IMG_FREE
 
 settings = get_settings()
 
@@ -123,19 +124,18 @@ PROVIDER_CATALOG = [
         "name": "cloudflare",
         "display_name": "Cloudflare Workers AI",
         "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
-        "default_model": "@cf/meta/llama-3.1-8b-instruct",
+        "default_model": "@cf/meta/llama-3.2-3b-instruct",
         "requires_key": True,
         "description": "Cloudflare Workers AI — LLMs (Llama/Qwen/GLM/GPT-OSS), Whisper/Nova STT, FLUX images. Full live catalog browsable in this panel.",
         "model_examples": [
+            "@cf/meta/llama-3.2-1b-instruct",
+            "@cf/meta/llama-3.2-3b-instruct",
             "@cf/openai/whisper",
             "@cf/openai/whisper-large-v3-turbo",
             "@cf/deepgram/nova-3",
-            "@cf/meta/llama-3.1-8b-instruct",
-            "@cf/meta/llama-4-scout-17b-16e-instruct",
-            "@cf/openai/gpt-oss-120b",
-            "@cf/qwen/qwen3-30b-a3b-fp8",
-            "@cf/zhipuai/glm-4.7-flash",
+            "@cf/meta/llama-3.1-8b-instruct-fp8",
             "@cf/black-forest-labs/flux-1-schnell",
+            "@cf/runwayml/stable-diffusion-v1-5-img2img",
             "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         ],
     },
@@ -453,18 +453,33 @@ async def _call_workers_ai_image(
     response body is either raw binary image bytes (SDXL returns
     ``image/png``) or a JSON envelope with base64 data under ``result.image``
     (FLUX).  Both shapes are handled here.
+
+    FLUX models only accept a narrow schema (``prompt`` + optional
+    ``steps``). SDXL-family models accept width/height/guidance/num_steps.
     """
     account_id, key = _workers_ai_credentials(api_key)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
-    payload: dict = {
-        "prompt": prompt,
-        "width": width,
-        "height": height,
-        "steps": steps,
-        "guidance": cfg_scale,
-    }
-    if negative_prompt:
-        payload["negative_prompt"] = negative_prompt
+    normalized = (model or "").lower()
+    is_flux = "flux" in normalized and "deepgram" not in normalized
+
+    if is_flux:
+        # @cf/black-forest-labs/flux-* reject width/height/guidance/num_steps;
+        # optional field is ``steps`` (max 8).
+        payload: dict = {
+            "prompt": prompt,
+            "steps": max(1, min(steps, 8)),
+        }
+    else:
+        payload = {
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "num_steps": steps,
+            "guidance": cfg_scale,
+        }
+        if negative_prompt:
+            payload["negative_prompt"] = negative_prompt
+
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
     async with httpx.AsyncClient(timeout=300.0) as client:
@@ -486,31 +501,281 @@ async def _call_workers_ai_image(
                 "prompt": prompt,
             }
 
-    # Handle both new direct format and legacy envelope format
-    # New format: {"image": "<base64>"}
-    # Legacy format: {"success": true, "result": {"image": "<base64>"}}
-    data = resp.json()
-    if "image" in data or "base64" in data:
-        result = data
-    else:
-        result = data.get("result") or {}
+        # Handle both new direct format and legacy envelope format
+        # New format: {"image": "<base64>"}
+        # Legacy format: {"success": true, "result": {"image": "<base64>"}}
+        data = resp.json()
+        if "image" in data or "base64" in data:
+            result = data
+        else:
+            result = data.get("result") or {}
 
-    image_b64 = result.get("image") or result.get("base64") or ""
-    if not image_b64:
-        raise HTTPException(
-            status_code=502,
-            detail="Cloudflare Workers AI image model returned no image data.",
-        )
-    return {
-        "image_base64": image_b64,
-        "format": "base64",
+        image_b64 = result.get("image") or result.get("base64") or ""
+        if not image_b64:
+            raise HTTPException(
+                status_code=502,
+                detail="Cloudflare Workers AI image model returned no image data.",
+            )
+        return {
+            "image_base64": image_b64,
+            "format": "base64",
+            "prompt": prompt,
+        }
+
+
+async def _call_workers_ai_img2img(
+    prompt: str,
+    image_bytes: bytes,
+    model: str = "@cf/runwayml/stable-diffusion-v1-5-img2img",
+    api_key: str | None = None,
+    negative_prompt: str = "blurry, low quality, watermark, text, logo, letters",
+    strength: float = 0.45,
+    steps: int = 15,
+    cfg_scale: float = 7.5,
+    width: int = 512,
+    height: int = 512,
+    max_retries: int = 4,
+) -> dict:
+    """Enhance / transform an image via Cloudflare Workers AI img2img.
+
+    ``@cf/runwayml/stable-diffusion-v1-5-img2img`` accepts ``image_b64`` + ``prompt``
+    + optional ``strength`` / ``num_steps`` / ``guidance``.
+    """
+    import base64
+    import asyncio
+    import io
+
+    from PIL import Image
+
+    account_id, key = _workers_ai_credentials(api_key)
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+
+    # SD1.5 img2img works best around 512² — downscale for the model, caller can upscale after.
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = img.resize((width, height), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    payload = {
         "prompt": prompt,
+        "image_b64": image_b64,
+        "strength": max(0.05, min(float(strength), 1.0)),
+        "num_steps": max(1, min(int(steps), 20)),
+        "guidance": cfg_scale,
+        "width": width,
+        "height": height,
     }
+    if negative_prompt:
+        payload["negative_prompt"] = negative_prompt
+
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    last_error = ""
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        for attempt in range(max_retries):
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 429:
+                last_error = resp.text[:300]
+                await asyncio.sleep(2 ** attempt)
+                continue
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Cloudflare Workers AI img2img error {resp.status_code}: {resp.text[:400]}",
+                )
+
+            content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if content_type.startswith("image/"):
+                return {
+                    "image_base64": base64.b64encode(resp.content).decode("utf-8"),
+                    "format": "base64",
+                    "prompt": prompt,
+                    "model": model,
+                }
+
+            data = resp.json()
+            result = data if ("image" in data or "base64" in data) else (data.get("result") or {})
+            out_b64 = result.get("image") or result.get("base64") or ""
+            if not out_b64:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Cloudflare Workers AI img2img returned no image data.",
+                )
+            return {
+                "image_base64": out_b64,
+                "format": "base64",
+                "prompt": prompt,
+                "model": model,
+            }
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"Cloudflare Workers AI img2img capacity exceeded after retries: {last_error}",
+    )
+
+
+async def _call_workers_ai_flux2_edit(
+    prompt: str,
+    image_bytes: bytes,
+    model: str = "@cf/black-forest-labs/flux-2-klein-4b",
+    api_key: str | None = None,
+    width: int = 1024,
+    height: int = 1024,
+    max_retries: int = 5,
+) -> dict:
+    """Image edit / enhance via FLUX.2 klein multipart reference input.
+
+    Reference images must be ≤512×512. Output can be up to 1024×1024.
+    """
+    import base64
+    import asyncio
+    import io
+
+    from PIL import Image
+
+    account_id, key = _workers_ai_credentials(api_key)
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    ref_bytes = buf.getvalue()
+
+    headers = {"Authorization": f"Bearer {key}"}
+    last_error = ""
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        for attempt in range(max_retries):
+            files = {
+                "prompt": (None, prompt),
+                "width": (None, str(width)),
+                "height": (None, str(height)),
+                "input_image_0": ("ref.png", ref_bytes, "image/png"),
+            }
+            resp = await client.post(url, headers=headers, files=files)
+            if resp.status_code == 429:
+                last_error = resp.text[:300]
+                await asyncio.sleep(min(30, 3 * (2 ** attempt)))
+                continue
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Cloudflare FLUX.2 edit error {resp.status_code}: {resp.text[:400]}",
+                )
+
+            content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if content_type.startswith("image/"):
+                return {
+                    "image_base64": base64.b64encode(resp.content).decode("utf-8"),
+                    "format": "base64",
+                    "prompt": prompt,
+                    "model": model,
+                }
+
+            data = resp.json()
+            result = data if ("image" in data or "base64" in data) else (data.get("result") or {})
+            out_b64 = result.get("image") or result.get("base64") or ""
+            if not out_b64:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Cloudflare FLUX.2 edit returned no image data.",
+                )
+            return {
+                "image_base64": out_b64,
+                "format": "base64",
+                "prompt": prompt,
+                "model": model,
+            }
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"Cloudflare FLUX.2 edit capacity exceeded after retries: {last_error}",
+    )
+
+
+async def _call_cf_image_pipeline(
+    prompt: str,
+    *,
+    enhance_prompt: str | None = None,
+    txt2img_model: str = CF_TXT2IMG_FREE,
+    img2img_model: str = CF_IMG2IMG_FREE,
+    api_key: str | None = None,
+    strength: float = 0.45,
+    txt2img_steps: int = 4,
+    img2img_steps: int = 8,
+) -> dict:
+    """Cloudflare-only pipeline: text-to-image draft → img2img enhance.
+
+    On free tier prefers SD img2img; if enhance fails, keep the draft (skip costly
+    FLUX.2 klein) so remaining neurons stay available for other slides.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    enhance = enhance_prompt or (
+        f"{prompt}. Improve image quality, sharper details, richer lighting, "
+        "professional LinkedIn carousel background, no readable text, no logos"
+    )
+
+    draft = await _call_workers_ai_image(
+        prompt=prompt,
+        model=txt2img_model,
+        api_key=api_key,
+        steps=txt2img_steps,
+    )
+    draft_bytes = base64.b64decode(draft["image_base64"])
+
+    enhance_model_used = img2img_model
+    try:
+        if "flux-2" in (img2img_model or "").lower():
+            enhanced = await _call_workers_ai_flux2_edit(
+                prompt=enhance,
+                image_bytes=draft_bytes,
+                model=img2img_model,
+                api_key=api_key,
+            )
+        else:
+            enhanced = await _call_workers_ai_img2img(
+                prompt=enhance,
+                image_bytes=draft_bytes,
+                model=img2img_model,
+                api_key=api_key,
+                strength=strength,
+                steps=img2img_steps,
+                max_retries=5,
+            )
+    except HTTPException as first_exc:
+        # Free-tier safe: do not cascade into expensive FLUX.2 klein.
+        print(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}", flush=True)
+        enhance_model_used = "draft-only"
+        enhanced = draft
+
+    enhanced_bytes = base64.b64decode(enhanced["image_base64"])
+
+    # Normalize to 1024 for slide composition.
+    out = Image.open(io.BytesIO(enhanced_bytes)).convert("RGB")
+    if out.size != (1024, 1024):
+        out = out.resize((1024, 1024), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG", optimize=True)
+        final_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    else:
+        final_b64 = enhanced["image_base64"]
+
+    return {
+        "image_base64": final_b64,
+        "draft_base64": draft["image_base64"],
+        "prompt": prompt,
+        "enhance_prompt": enhance,
+        "models": {"txt2img": txt2img_model, "img2img": enhance_model_used},
+    }
+
 
 # ---------------------------------------------------------------------------
 # Workers AI Batch Inference (queueRequest=true)
 # ---------------------------------------------------------------------------
-
 
 def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
     """Return ``(account_id, api_key)`` for Workers AI, raising 400 if unset."""

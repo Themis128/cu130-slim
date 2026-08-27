@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format, addDays, startOfDay, isSameDay, isToday } from 'date-fns'
-import { cn } from '@/lib/utils'
+import { cn, formatTime, isOnAthensCalendarDay } from '@/lib/utils'
 import { ChevronRight, Plus } from 'lucide-react'
 import Link from 'next/link'
 import type { Post, PostTarget, SocialAccount } from '@/types'
@@ -33,7 +33,7 @@ export function WeekCalendar({ posts }: WeekCalendarProps) {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
 
   const postsForDay = (day: Date) =>
-    posts.filter((p) => p.scheduled_at && isSameDay(new Date(p.scheduled_at), day))
+    posts.filter((p) => p.scheduled_at && isOnAthensCalendarDay(p.scheduled_at, day))
 
   const selectedPosts = selectedDay ? postsForDay(selectedDay) : []
 
@@ -139,7 +139,7 @@ export function WeekCalendar({ posts }: WeekCalendarProps) {
                       </p>
                       <p className="text-muted-foreground mt-0.5">
                         {post.scheduled_at
-                          ? format(new Date(post.scheduled_at), 'h:mm a')
+                          ? formatTime(post.scheduled_at)
                           : '—'}
                         {platforms.length > 0 && ` · ${platforms.join(', ')}`}
                       </p>

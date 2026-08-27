@@ -11,7 +11,7 @@ import { WeekCalendar } from '@/components/ui/WeekCalendar'
 import { PostingHeatmap } from '@/components/ui/PostingHeatmap'
 import { useOverviewMetrics, useTopPosts, useScheduledPosts } from '@/hooks/useQueries'
 import { useAdvisor } from '@/hooks/useAdvisor'
-import type { PostAnalytics } from '@/types'
+import type { TopPost } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import Link from 'next/link'
 
@@ -169,7 +169,7 @@ export default function DashboardPage() {
               />
             ) : (
               <div className="space-y-3">
-                {topPosts?.map((post: PostAnalytics) => (
+                {topPosts?.map((post: TopPost) => (
                   <div
                     key={post.post_id}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
@@ -179,16 +179,20 @@ export default function DashboardPage() {
                         <FileText className="h-5 w-5 text-primary" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{post.content?.slice(0, 60)}...</p>
+                        <p className="font-medium truncate">
+                          {(post.content_text || 'Untitled').slice(0, 60)}
+                          {(post.content_text || '').length > 60 ? '…' : ''}
+                        </p>
                         <p className="text-sm text-muted-foreground">
-                          {post.platform} • {formatRelativeTime(post.published_at || post.created_at || new Date().toISOString())}
+                          {post.platform}
+                          {post.published_at ? ` • ${formatRelativeTime(post.published_at)}` : ''}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <TrendingUp className="h-3.5 w-3.5" />
-                        {(post.likes + post.comments + post.shares) || 0}
+                        {(post.engagement ?? 0).toLocaleString()}
                       </span>
                     </div>
                   </div>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   X, Image as ImageIcon, Sparkles, Send, Calendar, Save,
   LayoutTemplate, AlignLeft, List, BarChart2, PlaySquare, BookOpen,
@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/Dialog'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
@@ -20,8 +20,18 @@ import { contentApi, aiApi } from '@/services/api'
 import type { SocialAccount } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
-import { cn } from '@/lib/utils'
+import {
+  preferredAccount,
+  identityFromAccount,
+  ObjectUrlImage,
+  AccountAvatar,
+  isOrgAccount,
+  type PreviewIdentity,
+} from '@/components/content/previewIdentity'
+import { cn, athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 import toast from 'react-hot-toast'
+
+type PreviewProps = { content: string; media: File[]; identity: PreviewIdentity }
 
 const platforms = [
   { id: 'linkedin',  name: 'LinkedIn',   icon: 'in', color: 'bg-blue-600',  textColor: 'text-blue-600',  borderColor: 'border-blue-600',  maxChars: 3000  },
@@ -62,8 +72,8 @@ function CharRing({ count, max, size = 32 }: { count: number; max: number; size?
   )
 }
 
-// Platform preview cards
-function LinkedInPreview({ content, media }: { content: string; media: File[] }) {
+// Platform preview cards — identity always comes from a real SocialAccount
+function LinkedInPreview({ content, media, identity }: PreviewProps) {
   const truncated = content.length > 200
   const [expanded, setExpanded] = useState(false)
   const display = truncated && !expanded ? content.slice(0, 200) + '...' : content
@@ -72,10 +82,16 @@ function LinkedInPreview({ content, media }: { content: string; media: File[] })
     <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
       <div className="p-4">
         <div className="flex items-start gap-3 mb-3">
-          <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-600">You</div>
+          <AccountAvatar
+            identity={identity}
+            className="w-10 h-10 rounded-full flex-shrink-0 text-xs"
+            fallbackClass="bg-blue-100 dark:bg-blue-900 text-blue-600"
+          />
           <div>
-            <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">Your Name</p>
-            <p className="text-zinc-500 dark:text-zinc-400 text-[11px]">Your headline • 1st</p>
+            <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">{identity.name}</p>
+            {identity.headline && (
+              <p className="text-zinc-500 dark:text-zinc-400 text-[11px]">{identity.headline}</p>
+            )}
             <p className="text-zinc-400 dark:text-zinc-500 text-[11px] flex items-center gap-1">Just now • <Globe className="h-2.5 w-2.5" /></p>
           </div>
           <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-400" />
@@ -90,7 +106,7 @@ function LinkedInPreview({ content, media }: { content: string; media: File[] })
       {media.length > 0 && (
         <div className="grid grid-cols-2 gap-0.5 mx-4 mb-3">
           {media.slice(0, 4).map((f, i) => (
-            <img key={i} src={URL.createObjectURL(f)} alt="" className="w-full aspect-video object-cover rounded" />
+            <ObjectUrlImage key={`${f.name}-${i}`} file={f} className="w-full aspect-video object-cover rounded" />
           ))}
         </div>
       )}
@@ -105,15 +121,19 @@ function LinkedInPreview({ content, media }: { content: string; media: File[] })
   )
 }
 
-function TwitterPreview({ content, media }: { content: string; media: File[] }) {
+function TwitterPreview({ content, media, identity }: PreviewProps) {
   return (
     <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm p-4 text-[13px]">
       <div className="flex gap-3">
-        <div className="w-10 h-10 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center flex-shrink-0 text-xs font-bold text-sky-500 flex-shrink-0">You</div>
+        <AccountAvatar
+          identity={identity}
+          className="w-10 h-10 rounded-full flex-shrink-0 text-xs"
+          fallbackClass="bg-sky-100 dark:bg-sky-900 text-sky-500"
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
-            <span className="font-bold text-zinc-900 dark:text-zinc-100">Your Name</span>
-            <span className="text-zinc-500 dark:text-zinc-400 text-[12px]">@yourhandle · just now</span>
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">{identity.name}</span>
+            <span className="text-zinc-500 dark:text-zinc-400 text-[12px]">@{identity.handle} · just now</span>
             <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-400" />
           </div>
           <p className="mt-1 whitespace-pre-wrap leading-relaxed text-zinc-800 dark:text-zinc-200">
@@ -122,7 +142,7 @@ function TwitterPreview({ content, media }: { content: string; media: File[] }) 
           {media.length > 0 && (
             <div className="mt-2 grid grid-cols-2 gap-0.5 rounded-xl overflow-hidden">
               {media.slice(0, 4).map((f, i) => (
-                <img key={i} src={URL.createObjectURL(f)} alt="" className="w-full aspect-video object-cover" />
+                <ObjectUrlImage key={`${f.name}-${i}`} file={f} className="w-full aspect-video object-cover" />
               ))}
             </div>
           )}
@@ -139,7 +159,7 @@ function TwitterPreview({ content, media }: { content: string; media: File[] }) 
   )
 }
 
-function InstagramPreview({ content, media }: { content: string; media: File[] }) {
+function InstagramPreview({ content, media, identity }: PreviewProps) {
   const hashtagRe = /#\w+/g
   const parts = content.split(hashtagRe)
   const tags = content.match(hashtagRe) || []
@@ -147,13 +167,17 @@ function InstagramPreview({ content, media }: { content: string; media: File[] }
   return (
     <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
       <div className="flex items-center gap-2 px-3 py-2 border-b">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-yellow-400 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">You</div>
-        <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">yourhandle</span>
+        <AccountAvatar
+          identity={identity}
+          className="w-8 h-8 rounded-full flex-shrink-0 text-[10px]"
+          fallbackClass="bg-gradient-to-br from-pink-500 to-yellow-400 text-white"
+        />
+        <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">{identity.handle}</span>
         <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-400" />
       </div>
       <div className="aspect-square bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
         {media.length > 0
-          ? <img src={URL.createObjectURL(media[0])} alt="" className="w-full h-full object-cover" />
+          ? <ObjectUrlImage file={media[0]} className="w-full h-full object-cover" />
           : <ImageIcon className="h-10 w-10 text-zinc-300" />
         }
       </div>
@@ -166,7 +190,7 @@ function InstagramPreview({ content, media }: { content: string; media: File[] }
       <div className="px-3 pb-3 text-[12px]">
         <p className="font-semibold text-zinc-900 dark:text-zinc-100 text-[11px] mb-0.5">0 likes</p>
         <p className="text-zinc-800 dark:text-zinc-200 leading-snug">
-          <span className="font-semibold mr-1">yourhandle</span>
+          <span className="font-semibold mr-1">{identity.handle}</span>
           {parts.map((p, i) => (
             <span key={i}>
               {p}
@@ -180,14 +204,18 @@ function InstagramPreview({ content, media }: { content: string; media: File[] }
   )
 }
 
-function FacebookPreview({ content, media }: { content: string; media: File[] }) {
+function FacebookPreview({ content, media, identity }: PreviewProps) {
   return (
     <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
       <div className="p-3">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-[10px] font-bold text-blue-700 flex-shrink-0">You</div>
+          <AccountAvatar
+            identity={identity}
+            className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+            fallbackClass="bg-blue-100 dark:bg-blue-900 text-blue-700"
+          />
           <div>
-            <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight text-[12px]">Your Name</p>
+            <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight text-[12px]">{identity.name}</p>
             <p className="text-zinc-400 text-[10px] flex items-center gap-0.5">Just now · <Globe className="h-2.5 w-2.5" /></p>
           </div>
           <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-400" />
@@ -197,7 +225,7 @@ function FacebookPreview({ content, media }: { content: string; media: File[] })
         </p>
       </div>
       {media.length > 0 && (
-        <img src={URL.createObjectURL(media[0])} alt="" className="w-full aspect-video object-cover" />
+        <ObjectUrlImage file={media[0]} className="w-full aspect-video object-cover" />
       )}
       <div className="px-3 py-1.5 border-t flex text-zinc-500 text-[11px]">
         {[
@@ -214,17 +242,21 @@ function FacebookPreview({ content, media }: { content: string; media: File[] })
   )
 }
 
-function ThreadsPreview({ content, media }: { content: string; media: File[] }) {
+function ThreadsPreview({ content, media, identity }: PreviewProps) {
   return (
     <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm p-4 text-[13px]">
       <div className="flex gap-3">
         <div className="flex flex-col items-center gap-1">
-          <div className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-300">You</div>
+          <AccountAvatar
+            identity={identity}
+            className="w-9 h-9 rounded-full text-[10px]"
+            fallbackClass="bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"
+          />
           <div className="w-0.5 flex-1 bg-zinc-200 dark:bg-zinc-700 rounded-full min-h-[20px]" />
         </div>
         <div className="flex-1 min-w-0 pb-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">yourhandle</span>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">{identity.handle}</span>
             <div className="flex items-center gap-2 text-zinc-400">
               <span className="text-[11px]">just now</span>
               <MoreHorizontal className="h-4 w-4" />
@@ -234,7 +266,7 @@ function ThreadsPreview({ content, media }: { content: string; media: File[] }) 
             {content || <span className="text-zinc-400 italic">Start typing to preview...</span>}
           </p>
           {media.length > 0 && (
-            <img src={URL.createObjectURL(media[0])} alt="" className="mt-2 w-full rounded-xl object-cover max-h-48" />
+            <ObjectUrlImage file={media[0]} className="mt-2 w-full rounded-xl object-cover max-h-48" />
           )}
           <div className="mt-3 flex gap-4 text-zinc-500">
             <button className="hover:text-red-500 transition-colors"><Heart className="h-4 w-4" /></button>
@@ -246,13 +278,13 @@ function ThreadsPreview({ content, media }: { content: string; media: File[] }) 
       </div>
       <div className="flex items-center gap-2 mt-1">
         <div className="w-5 h-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex-shrink-0" />
-        <span className="text-zinc-400 text-[11px]">Reply to yourhandle...</span>
+        <span className="text-zinc-400 text-[11px]">Reply to {identity.handle}...</span>
       </div>
     </div>
   )
 }
 
-const PreviewComponents: Record<string, React.ComponentType<{ content: string; media: File[] }>> = {
+const PreviewComponents: Record<string, React.ComponentType<PreviewProps>> = {
   linkedin: LinkedInPreview,
   twitter: TwitterPreview,
   instagram: InstagramPreview,
@@ -262,6 +294,7 @@ const PreviewComponents: Record<string, React.ComponentType<{ content: string; m
 
 export default function NewPostPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: accounts } = useAccounts()
   const createPostMutation = useCreatePost()
   const uploadMediaMutation = useUploadMedia()
@@ -271,8 +304,10 @@ export default function NewPostPage() {
 
   const [content, setContent] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
   const [previewPlatform, setPreviewPlatform] = useState<string>('')
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
+  const [mediaIds, setMediaIds] = useState<string[]>([])
   const [scheduleDate, setScheduleDate] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
@@ -281,7 +316,22 @@ export default function NewPostPage() {
   const [variants, setVariants] = useState<Record<string, string>>({})
   const [openVariants, setOpenVariants] = useState<Set<string>>(new Set())
 
-  const connectedPlatforms = accounts?.map((a: SocialAccount) => a.platform) || []
+  const connectedAccounts = useMemo(() => {
+    const list = (accounts as SocialAccount[] | undefined) || []
+    return list.filter((a) => !a.status || a.status === 'active')
+  }, [accounts])
+  const connectedPlatforms = useMemo(
+    () => [...new Set(connectedAccounts.map((a) => a.platform as string))],
+    [connectedAccounts]
+  )
+
+  // Prefill schedule from calendar links: /content/new?date=YYYY-MM-DD
+  useEffect(() => {
+    const date = searchParams.get('date')
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date) && !scheduleDate) {
+      setScheduleDate(`${date}T19:00`)
+    }
+  }, [searchParams, scheduleDate])
 
   useEffect(() => {
     setCtx({ content, selectedPlatforms, hasMedia: mediaFiles.length > 0, aiUsed })
@@ -308,14 +358,71 @@ export default function NewPostPage() {
     if (primary && defaults[primary]) setTone(defaults[primary])
   }, [selectedPlatforms[0]]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const previewAccount = useMemo(() => {
+    if (!previewPlatform) return null
+    const selected = connectedAccounts.find(
+      (a) => a.platform === previewPlatform && selectedAccountIds.includes(a.id)
+    )
+    return selected || preferredAccount(connectedAccounts, previewPlatform) || null
+  }, [connectedAccounts, previewPlatform, selectedAccountIds])
+
+  const previewIdentity = useMemo(
+    () => (previewAccount ? identityFromAccount(previewAccount) : null),
+    [previewAccount]
+  )
+
+  const overLimitPlatforms = useMemo(
+    () =>
+      selectedPlatforms.filter((pid) => {
+        const meta = platforms.find((p) => p.id === pid)
+        return meta ? content.length > meta.maxChars : false
+      }),
+    [selectedPlatforms, content.length]
+  )
+
   const handlePlatformToggle = (platformId: string) => {
     if (!connectedPlatforms.includes(platformId)) {
       toast.error(`Connect your ${platformId} account first`)
       return
     }
-    setSelectedPlatforms(prev =>
-      prev.includes(platformId) ? prev.filter(p => p !== platformId) : [...prev, platformId]
-    )
+    setSelectedPlatforms((prev) => {
+      if (prev.includes(platformId)) {
+        setSelectedAccountIds((ids) =>
+          ids.filter((id) => {
+            const acc = connectedAccounts.find((a) => a.id === id)
+            return acc?.platform !== platformId
+          })
+        )
+        return prev.filter((p) => p !== platformId)
+      }
+      const preferred = preferredAccount(connectedAccounts, platformId)
+      if (preferred) {
+        setSelectedAccountIds((ids) =>
+          ids.includes(preferred.id) ? ids : [...ids, preferred.id]
+        )
+      }
+      return [...prev, platformId]
+    })
+  }
+
+  const handleAccountToggle = (account: SocialAccount) => {
+    setSelectedAccountIds((prev) => {
+      if (prev.includes(account.id)) {
+        const next = prev.filter((id) => id !== account.id)
+        const stillHasPlatform = next.some((id) => {
+          const a = connectedAccounts.find((x) => x.id === id)
+          return a?.platform === account.platform
+        })
+        if (!stillHasPlatform) {
+          setSelectedPlatforms((plats) => plats.filter((p) => p !== account.platform))
+        }
+        return next
+      }
+      if (!selectedPlatforms.includes(account.platform)) {
+        setSelectedPlatforms((plats) => [...plats, account.platform])
+      }
+      return [...prev, account.id]
+    })
   }
 
   const handleMediaUpload = async (files: FileList) => {
@@ -323,33 +430,53 @@ export default function NewPostPage() {
     if (mediaFiles.length + newFiles.length > 10) { toast.error('Maximum 10 media files'); return }
     for (const file of newFiles) {
       try {
-        await uploadMediaMutation.mutateAsync({ file, alt_text: '', tags: '' })
-        setMediaFiles(prev => [...prev, file])
+        const result = await uploadMediaMutation.mutateAsync({ file, alt_text: '', tags: '' })
+        const uploadedId =
+          (result as { data?: { id?: string } })?.data?.id ||
+          (result as { id?: string })?.id
+        setMediaFiles((prev) => [...prev, file])
+        if (uploadedId) setMediaIds((prev) => [...prev, String(uploadedId)])
       } catch { toast.error(`Failed to upload ${file.name}`) }
     }
+  }
+
+  const removeMediaAt = (index: number) => {
+    setMediaFiles((prev) => prev.filter((_, i) => i !== index))
+    setMediaIds((prev) => prev.filter((_, i) => i !== index))
   }
 
   const handleSubmit = async (e: React.FormEvent, action: 'draft' | 'publish' | 'schedule') => {
     e.preventDefault()
     if (!content.trim()) { toast.error('Please add some content'); return }
-    if (selectedPlatforms.length === 0) { toast.error('Select at least one platform'); return }
+    if (selectedPlatforms.length === 0 || selectedAccountIds.length === 0) {
+      toast.error('Select at least one platform')
+      return
+    }
     if (action === 'schedule' && !scheduleDate) { toast.error('Select a date and time'); return }
+    if (action !== 'draft' && overLimitPlatforms.length > 0) {
+      toast.error(`Content exceeds limit for ${overLimitPlatforms.join(', ')}`)
+      return
+    }
     try {
-      const connectedAccounts = (accounts as SocialAccount[] | undefined) || []
-      const targets = connectedAccounts.filter(a => selectedPlatforms.includes(a.platform)).map(a => ({ social_account_id: a.id }))
+      const targets = selectedAccountIds.map((id) => ({ social_account_id: id }))
       const post = await createPostMutation.mutateAsync({
         content_text: content,
+        media_ids: mediaIds.length ? mediaIds : undefined,
         targets,
-        scheduled_at: action === 'schedule' ? new Date(scheduleDate).toISOString() : undefined,
+        scheduled_at: action === 'schedule' ? athensDateTimeLocalToIso(scheduleDate) : undefined,
       })
       if (action === 'publish') {
         const postId = (post as unknown as { data?: { id?: string } })?.data?.id
         if (postId) await contentApi.publishNow(postId)
         toast.success('Post published')
+        router.push('/calendar')
+      } else if (action === 'schedule') {
+        toast.success('Post scheduled')
+        router.push('/calendar')
       } else {
-        toast.success(action === 'draft' ? 'Draft saved' : 'Post scheduled')
+        toast.success('Draft saved')
+        router.push('/content/new')
       }
-      router.push('/content')
     } catch { toast.error('Failed to create post') }
   }
 
@@ -495,6 +622,40 @@ export default function NewPostPage() {
                   )
                 })}
               </div>
+              {selectedPlatforms.map((pid) => {
+                const platformAccounts = connectedAccounts.filter((a) => a.platform === pid)
+                if (platformAccounts.length === 0) return null
+                return (
+                  <div key={`accounts-${pid}`} className="mt-3 space-y-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      Post as ({platforms.find((p) => p.id === pid)?.name}):
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {platformAccounts.map((account) => {
+                        const active = selectedAccountIds.includes(account.id)
+                        const label = account.display_name || account.username || account.id.slice(0, 8)
+                        const isOrg = isOrgAccount(account)
+                        return (
+                          <button
+                            key={account.id}
+                            type="button"
+                            onClick={() => handleAccountToggle(account)}
+                            className={cn(
+                              'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                              active
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-muted text-muted-foreground hover:border-primary/40'
+                            )}
+                          >
+                            {label}
+                            {isOrg ? ' · Page' : ' · Personal'}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
               {selectedPlatforms.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Need to connect accounts? <Link href="/accounts" className="text-primary hover:underline">Go to Accounts</Link>
@@ -615,10 +776,15 @@ export default function NewPostPage() {
               {mediaFiles.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {mediaFiles.map((file, index) => (
-                    <div key={index} className="relative h-16 w-16 rounded-lg overflow-hidden border">
-                      {file.type.startsWith('image/') && <img src={URL.createObjectURL(file)} alt="Media preview" className="h-full w-full object-cover" />}
-                      <button className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                        onClick={() => setMediaFiles(prev => prev.filter((_, i) => i !== index))}>
+                    <div key={`${file.name}-${index}`} className="relative h-16 w-16 rounded-lg overflow-hidden border">
+                      {file.type.startsWith('image/') && (
+                        <ObjectUrlImage file={file} alt="Media preview" className="h-full w-full object-cover" />
+                      )}
+                      <button
+                        type="button"
+                        className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                        onClick={() => removeMediaAt(index)}
+                      >
                         <X className="h-3 w-3" />
                       </button>
                     </div>
@@ -724,6 +890,11 @@ export default function NewPostPage() {
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3 justify-end border-t pt-4" data-tour="publish-actions">
+            {scheduleDate && (
+              <p className="sm:mr-auto text-xs text-muted-foreground self-center">
+                Schedule preset: <span className="font-medium text-foreground">{scheduleDate.replace('T', ' ')} Athens</span>
+              </p>
+            )}
             <Button variant="outline" onClick={(e) => handleSubmit(e, 'draft')}>
               <Save className="mr-2 h-4 w-4" />Save Draft
             </Button>
@@ -734,11 +905,13 @@ export default function NewPostPage() {
               <DialogContent>
                 <DialogHeader><DialogTitle>Schedule Post</DialogTitle></DialogHeader>
                 <div className="py-4">
-                  <label className="block text-sm font-medium mb-2">Schedule for</label>
-                  <Input type="datetime-local" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} min={new Date().toISOString().slice(0, 16)} />
+                  <label className="block text-sm font-medium mb-2">Schedule for (Europe/Athens)</label>
+                  <Input type="datetime-local" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} min={toAthensDateTimeLocal(new Date())} />
                 </div>
                 <DialogFooter>
-                  <Button variant="outline">Cancel</Button>
+                  <DialogClose asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </DialogClose>
                   <Button onClick={(e) => handleSubmit(e, 'schedule')}>Schedule</Button>
                 </DialogFooter>
               </DialogContent>
@@ -776,10 +949,13 @@ export default function NewPostPage() {
             )}
           </div>
 
-          {PreviewComponent && activePlatformMeta ? (
+          {PreviewComponent && activePlatformMeta && previewIdentity ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-                <span className="font-medium">{activePlatformMeta.name}</span>
+                <span className="font-medium">
+                  {activePlatformMeta.name}
+                  {` · ${previewIdentity.name}`}
+                </span>
                 <div className="flex items-center gap-2">
                   <CharRing count={content.length} max={activePlatformMeta.maxChars} size={28} />
                   <span className={cn(content.length > activePlatformMeta.maxChars ? 'text-destructive font-medium' : '')}>
@@ -790,7 +966,7 @@ export default function NewPostPage() {
                   </span>
                 </div>
               </div>
-              <PreviewComponent content={content} media={mediaFiles} />
+              <PreviewComponent content={content} media={mediaFiles} identity={previewIdentity} />
             </div>
           ) : (
             <div className="rounded-xl border border-dashed bg-muted/20 p-10 text-center">

@@ -213,6 +213,130 @@ async def generate_workflow(
     )
 
 
+@router.post("/import-cloudless-carousel")
+async def import_cloudless_carousel(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register the Cloudless CF→LinkedIn n8n workflow in app templates + workflows."""
+    import json
+    import os
+
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    n8n_id = "cloudless-cf-carousel-linkedin"
+    name = "Cloudless CF Carousel → LinkedIn Company"
+    paths = [
+        os.environ.get("CLOUDLESS_N8N_WORKFLOW_PATH", ""),
+        "/app/n8n-workflows/cloudless-carousel-pipeline.json",
+        "/tmp/cloudless-carousel-pipeline.json",
+    ]
+    workflow = None
+    for path in paths:
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                workflow = json.load(f)
+            break
+    if workflow is None:
+        # Fallback: fetch from mounted host path via known compose layout
+        host_path = "/app/../n8n-workflows/cloudless-carousel-pipeline.json"
+        raise HTTPException(
+            status_code=500,
+            detail="Workflow JSON not found in container; copy to /tmp or set CLOUDLESS_N8N_WORKFLOW_PATH",
+        )
+
+    tmpl = (
+        await db.execute(
+            select(PromptTemplate).where(
+                PromptTemplate.team_id == team.id,
+                PromptTemplate.name == name,
+            )
+        )
+    ).scalar_one_or_none()
+    prompt_tpl = (
+        "Publish a {{num_slides}}-slide LinkedIn carousel about {{topic}} "
+        "as the cloudless.gr Company Page via Cloudflare Workers AI."
+    )
+    desc = "Schedule/webhook → social-api CF carousel → LinkedIn Company Page"
+    if tmpl:
+        tmpl.n8n_workflow_json = workflow
+        tmpl.description = desc
+        tmpl.prompt_template = prompt_tpl
+        tmpl.category = "linkedin"
+        tmpl.tags = ["cloudless", "carousel", "cloudflare", "n8n"]
+        tmpl.is_public = True
+    else:
+        tmpl = PromptTemplate(
+            team_id=team.id,
+            user_id=current_user.id,
+            name=name,
+            description=desc,
+            prompt_template=prompt_tpl,
+            n8n_workflow_json=workflow,
+            category="linkedin",
+            tags=["cloudless", "carousel", "cloudflare", "n8n"],
+            is_public=True,
+        )
+        db.add(tmpl)
+    await db.flush()
+
+    gen = (
+        await db.execute(
+            select(GeneratedWorkflow).where(
+                GeneratedWorkflow.team_id == team.id,
+                GeneratedWorkflow.n8n_workflow_id == n8n_id,
+            )
+        )
+    ).scalar_one_or_none()
+    prompt_text = (
+        "cloudless-cf-carousel-linkedin: Cloudflare txt2img→img2img carousel "
+        "with NLP plain-English fix, publish as cloudless.gr Company Page."
+    )
+    variables = {
+        "n8n_workflow_id": n8n_id,
+        "webhook": "/webhook/cloudless-carousel",
+        "schedule": "next: Fri 28 Aug 03:15 Europe/Athens (CF reset); then every 2 days 19:00 Athens",
+        "target_account_id": "4a8d9440-47d2-4bda-bd11-3776fd9022ba",
+        "endpoint": "/api/v1/ai/run-carousel-and-publish",
+    }
+    if gen:
+        gen.n8n_workflow_json = workflow
+        gen.status = "deployed"
+        gen.prompt_text = prompt_text
+        gen.template_id = tmpl.id
+        gen.variables_used = variables
+        action = "updated"
+    else:
+        gen = GeneratedWorkflow(
+            team_id=team.id,
+            user_id=current_user.id,
+            prompt_text=prompt_text,
+            n8n_workflow_json=workflow,
+            n8n_workflow_id=n8n_id,
+            status="deployed",
+            template_id=tmpl.id,
+            variables_used=variables,
+        )
+        db.add(gen)
+        action = "created"
+    await db.commit()
+    await db.refresh(gen)
+
+    return {
+        "action": action,
+        "generated_workflow_id": str(gen.id),
+        "template_id": str(tmpl.id),
+        "n8n_workflow_id": n8n_id,
+        "status": gen.status,
+        "name": name,
+    }
+
+
 @router.post("/deploy/{workflow_id}")
 async def deploy_workflow(
     workflow_id: uuid.UUID,

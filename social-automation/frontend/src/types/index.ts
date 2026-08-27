@@ -19,7 +19,7 @@ export interface TeamMember {
   id: string
   team_id: string
   user_id: string
-  role: 'owner' | 'admin' | 'member' | 'viewer'
+  role: 'owner' | 'admin' | 'editor' | 'viewer'
   created_at: string
 }
 
@@ -38,6 +38,8 @@ export interface SocialAccount {
   error_message: string | null
   created_at: string
   updated_at: string
+  account_type?: 'person' | 'organization' | string
+  meta_data?: Record<string, unknown>
 }
 
 export interface Post {
@@ -175,21 +177,40 @@ export interface PlatformMetrics {
   scheduled_count: number
   total_impressions: number
   total_engagement: number
+  /** Ratio 0–1 from API */
   engagement_rate: number
 }
 
+/** Top posts from GET /analytics/top-posts */
+export interface TopPost {
+  post_id: string
+  content_text: string | null
+  platform: string
+  impressions: number
+  engagement: number
+  engagement_rate: number
+  published_at: string | null
+}
+
+/** Daily engagement from GET /analytics/engagement */
+export interface EngagementPoint {
+  date: string
+  likes: number
+  comments: number
+  shares: number
+  clicks: number
+  total: number
+}
+
+/** Per-target metrics from GET /analytics/posts/{id}/metrics */
 export interface PostAnalytics {
   post_id: string
   platform: string
-  content: string | null
-  published_at: string | null
-  created_at: string | null
   impressions: number
   clicks: number
   likes: number
   comments: number
   shares: number
-  reach: number
   engagement_rate: number
 }
 

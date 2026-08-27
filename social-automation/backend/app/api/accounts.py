@@ -70,6 +70,8 @@ class SocialAccountResponse(BaseModel):
     scopes: list[str]
     token_expires_at: str | None
     created_at: str
+    account_type: str = "person"  # person | organization
+    meta_data: dict = {}
 
     class Config:
         from_attributes = True
@@ -108,6 +110,8 @@ async def list_accounts(
             scopes=a.scopes,
             token_expires_at=a.token_expires_at.isoformat() if a.token_expires_at else None,
             created_at=a.created_at.isoformat(),
+            account_type=(a.meta_data or {}).get("account_type", "person"),
+            meta_data=a.meta_data or {},
         )
         for a in accounts
     ]
@@ -151,7 +155,16 @@ async def connect_account_body(
         raise HTTPException(status_code=400, detail=f"Unsupported platform: {data.platform}")
 
     scopes = {
-        "linkedin": ["openid", "profile", "email", "w_member_social"],
+        # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
+        "linkedin": [
+            "openid",
+            "profile",
+            "email",
+            "w_member_social",
+            "w_organization_social",
+            "r_organization_social",
+            "r_organization_admin",
+        ],
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
@@ -198,7 +211,15 @@ async def connect_account(
         raise HTTPException(status_code=400, detail="Unsupported platform")
 
     scopes = {
-        "linkedin": ["r_liteprofile", "r_emailaddress", "w_member_social"],
+        "linkedin": [
+            "openid",
+            "profile",
+            "email",
+            "w_member_social",
+            "w_organization_social",
+            "r_organization_social",
+            "r_organization_admin",
+        ],
         "twitter": ["tweet.read", "tweet.write", "users.read"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
@@ -211,6 +232,74 @@ async def connect_account(
     )
 
     return ConnectResponse(authorization_url=authorization_url)
+
+
+@router.post("/linkedin/sync-organizations")
+async def sync_linkedin_organizations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-scan LinkedIn company pages for the connected personal account.
+
+    Requires the token to include ``w_organization_social`` / ``r_organization_social``.
+    Reconnect LinkedIn from Accounts if those scopes are missing.
+    """
+    from app.api.auth import _sync_linkedin_organizations
+    from app.core.security import decrypt_token
+    import httpx
+
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=403, detail="No team found for user")
+
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.platform == "linkedin",
+            SocialAccount.status == "active",
+        )
+    )
+    accounts = result.scalars().all()
+    person = next(
+        (a for a in accounts if (a.meta_data or {}).get("account_type", "person") == "person"),
+        accounts[0] if accounts else None,
+    )
+    if not person:
+        raise HTTPException(status_code=400, detail="Connect a LinkedIn personal account first")
+
+    token = decrypt_token(person.access_token_enc)
+    refresh = decrypt_token(person.refresh_token_enc) if person.refresh_token_enc else None
+    async with httpx.AsyncClient(timeout=60.0) as http:
+        synced = await _sync_linkedin_organizations(
+            db=db,
+            team_id=team.id,
+            access_token=token,
+            refresh_token=refresh,
+            scopes=person.scopes or [],
+            http=http,
+        )
+    await db.commit()
+    return {
+        "synced": [
+            {
+                "id": str(a.id),
+                "account_id": a.account_id,
+                "display_name": a.display_name,
+                "username": a.username,
+                "account_type": (a.meta_data or {}).get("account_type"),
+            }
+            for a in synced
+        ],
+        "hint": (
+            "Reconnect LinkedIn with company-page scopes if this list is empty "
+            "(Community Management API + w_organization_social on your LinkedIn app)."
+            if not synced
+            else None
+        ),
+    }
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

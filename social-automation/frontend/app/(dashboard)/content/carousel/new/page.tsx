@@ -402,7 +402,7 @@ export default function CarouselNewPage() {
   const [platform, setPlatform] = useState('linkedin')
   const [tone, setTone] = useState('professional')
   const [includeCta, setIncludeCta] = useState(true)
-  const [inferenceProvider, setInferenceProvider] = useState('ollama')
+  const [inferenceProvider, setInferenceProvider] = useState('cloudflare')
   const providerAutoSet = useRef(false)
   useEffect(() => {
     if (!providerAutoSet.current && savedProviders.length > 0) {

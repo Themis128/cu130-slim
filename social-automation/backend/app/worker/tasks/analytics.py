@@ -1,16 +1,19 @@
+"""Celery analytics sync — pull LinkedIn (etc.) post metrics into Postgres."""
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
-from sqlalchemy import and_, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.models.analytics import AnalyticsEvent
-from app.models.content import Post
-from app.models.social_account import SocialAccount
+from app.models.user import Team
+from app.services.analytics_sync import sync_team_analytics
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
 
 
 @asynccontextmanager
@@ -25,78 +28,45 @@ async def _worker_db():
 
 
 @shared_task
-def sync_all_analytics() -> None:
-    asyncio.run(_sync_all_analytics_async())
+def sync_all_analytics() -> dict:
+    """Fetch platform analytics for every team and store snapshots in Postgres."""
+    return asyncio.run(_sync_all_analytics_async())
 
 
-async def _sync_all_analytics_async() -> None:
+async def _sync_all_analytics_async() -> dict:
+    summary = {"teams": 0, "synced": 0, "errors": []}
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.status == "active")
-        )
-        accounts = result.scalars().all()
-
-        for account in accounts:
+        teams = (await db.execute(select(Team))).scalars().all()
+        for team in teams:
+            summary["teams"] += 1
             try:
-                await _sync_account_analytics(account, db)
-            except Exception as e:
-                print(f"Failed to sync analytics for account {account.id}: {e}")
-
-        await _sync_post_analytics(db)
-
-
-async def _sync_account_analytics(account: SocialAccount, db: AsyncSession) -> None:
-    platform = account.platform.lower()
-    if platform == "twitter":
-        await _sync_twitter_analytics(account, db)
-    elif platform == "linkedin":
-        await _sync_linkedin_analytics(account, db)
-    elif platform == "instagram":
-        await _sync_instagram_analytics(account, db)
-    elif platform == "facebook":
-        await _sync_facebook_analytics(account, db)
+                result = await sync_team_analytics(db, team.id, days=365)
+                summary["synced"] += result.synced
+                summary["errors"].extend(result.errors[:20])
+            except Exception as exc:  # noqa: BLE001
+                summary["errors"].append(f"team {team.id}: {exc}")
+    return summary
 
 
-async def _sync_twitter_analytics(account: SocialAccount, db: AsyncSession) -> None:
-    pass
+@shared_task
+def sync_team_analytics_task(team_id: str, days: int = 365) -> dict:
+    return asyncio.run(_sync_team_async(team_id, days))
 
 
-async def _sync_linkedin_analytics(account: SocialAccount, db: AsyncSession) -> None:
-    pass
+async def _sync_team_async(team_id: str, days: int) -> dict:
+    import uuid
 
-
-async def _sync_instagram_analytics(account: SocialAccount, db: AsyncSession) -> None:
-    pass
-
-
-async def _sync_facebook_analytics(account: SocialAccount, db: AsyncSession) -> None:
-    pass
-
-
-async def _sync_post_analytics(db: AsyncSession) -> None:
-    since = datetime.now(UTC) - timedelta(days=30)
-    result = await db.execute(
-        select(Post).where(
-            and_(
-                Post.status == "published",
-                Post.published_at >= since,
-            )
-        )
-    )
-    posts = result.scalars().all()
-
-    for post in posts:
-        await db.execute(
-            select(
-                func.count().filter(AnalyticsEvent.event_type == "impression").label("impressions"),
-                func.count().filter(AnalyticsEvent.event_type == "like").label("likes"),
-                func.count().filter(AnalyticsEvent.event_type == "comment").label("comments"),
-                func.count().filter(AnalyticsEvent.event_type == "share").label("shares"),
-                func.count().filter(AnalyticsEvent.event_type == "click").label("clicks"),
-            ).where(AnalyticsEvent.post_id == post.id)
-        )
+    async with _worker_db() as db:
+        result = await sync_team_analytics(db, uuid.UUID(team_id), days=days)
+        return {
+            "synced": result.synced,
+            "skipped": result.skipped,
+            "errors": result.errors,
+            "snapshots": result.snapshots[:50],
+        }
 
 
 @shared_task
 def generate_analytics_report(team_id: str, start_date: str, end_date: str) -> None:
-    pass
+    """On-demand reports: use GET /analytics/reports/export."""
+    return

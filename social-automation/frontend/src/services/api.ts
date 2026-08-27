@@ -193,9 +193,20 @@ export const contentApi = {
     link_url?: string
     link_preview_override?: Record<string, unknown>
     scheduled_at?: string
+    target_account_ids?: string[]
     targets?: Array<{ social_account_id: string }>
     metadata?: Record<string, unknown>
-  }) => api.post('/content/posts', data),
+  }) => {
+    const { targets, target_account_ids, ...rest } = data
+    const accountIds =
+      target_account_ids ??
+      targets?.map((t) => t.social_account_id) ??
+      []
+    return api.post('/content/posts', {
+      ...rest,
+      target_account_ids: accountIds,
+    })
+  },
   updatePost: (id: string, data: Partial<{
     content_text: string
     media_ids: string[]
@@ -209,7 +220,7 @@ export const contentApi = {
   }>) => api.patch(`/content/posts/${id}`, data),
   deletePost: (id: string) => api.delete(`/content/posts/${id}`),
   duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),
-  publishNow: (id: string) => api.post(`/content/posts/${id}/publish`),
+  publishNow: (id: string) => api.post(`/content/posts/${id}/publish-now`),
   schedulePost: (id: string, scheduled_at: string) =>
     api.post(`/content/posts/${id}/schedule`, { scheduled_at }),
   getMedia: (params?: { page?: number; page_size?: number; type?: string }) =>
@@ -247,10 +258,21 @@ export const mediaApi = {
     width?: number
     height?: number
     model?: string
+    provider?: string
     negative_prompt?: string
     steps?: number
     cfg_scale?: number
-  }) => api.post('/ai/generate-image', { prompt, ...options }),
+  }) =>
+    api.post('/ai/generate-image', {
+      prompt,
+      provider: options?.provider ?? 'cloudflare',
+      model: options?.model,
+      negative_prompt: options?.negative_prompt ?? '',
+      steps: options?.steps ?? 4,
+      cfg_scale: options?.cfg_scale ?? 3.5,
+      ...(options?.width != null ? { width: options.width } : {}),
+      ...(options?.height != null ? { height: options.height } : {}),
+    }),
 }
 
 // Workflow endpoints
@@ -284,7 +306,7 @@ export const workflowApi = {
   getWorkflow: (id: string) => api.get(`/workflows/${id}`),
   deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
-undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
+  undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
 }
 
 // Accounts endpoints
@@ -296,7 +318,7 @@ export const accountsApi = {
   disconnect: (id: string) => api.delete(`/accounts/${id}`),
   refresh: (id: string) => api.post(`/accounts/${id}/refresh`),
   validate: (id: string) => api.get(`/accounts/${id}/validate`),
-test: (id: string) => api.post(`/accounts/${id}/test`),
+  test: (id: string) => api.post(`/accounts/${id}/test`),
 }
 
 // Publishing endpoints
@@ -304,28 +326,32 @@ export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
     api.get('/publishing/queue', { params }),
   getQueueItem: (id: string) => api.get(`/publishing/queue/${id}`),
-retryQueueItem: (id: string) => api.post(`/publishing/queue/${id}/retry`),
-cancelQueueItem: (id: string) => api.post(`/publishing/queue/${id}/cancel`),
+  retryQueueItem: (id: string) => api.post(`/publishing/queue/${id}/retry`),
+  cancelQueueItem: (id: string) => api.post(`/publishing/queue/${id}/cancel`),
   getHistory: (params?: { page?: number; page_size?: number }) =>
     api.get('/publishing/history', { params }),
 }
 
-// Analytics endpoints
+// Analytics endpoints (self-hosted social-api → Postgres)
 export const analyticsApi = {
   getOverview: (params?: { days?: number; platform?: string }) =>
     api.get('/analytics/overview', { params }),
   getPlatformMetrics: (params?: { days?: number }) =>
     api.get('/analytics/platforms', { params }),
   getPostAnalytics: (postId: string) =>
-    api.get(`/analytics/posts/${postId}`),
+    api.get(`/analytics/posts/${postId}/metrics`),
   getEngagementTrends: (params?: { days?: number; platform?: string }) =>
     api.get('/analytics/engagement', { params }),
   getFollowerGrowth: (params?: { days?: number; platform?: string }) =>
     api.get('/analytics/followers', { params }),
-  getTopPosts: (params?: { limit?: number; platform?: string }) =>
+  getTopPosts: (params?: { limit?: number; platform?: string; days?: number }) =>
     api.get('/analytics/top-posts', { params }),
   exportReport: (params: { format: 'csv' | 'json'; days: number; platform?: string }) =>
-    api.get('/analytics/export', { params, responseType: 'blob' }),
+    api.get('/analytics/reports/export', { params }),
+  syncFromPlatforms: (data?: { days?: number; async_mode?: boolean }) =>
+    api.post('/analytics/sync', data || { days: 365, async_mode: true }),
+  listSnapshots: (params?: { days?: number; post_id?: string; limit?: number }) =>
+    api.get('/analytics/snapshots', { params }),
 }
 
 // AI endpoints
@@ -360,10 +386,20 @@ export const aiApi = {
   improveContent: (data: {
     content: string
     platform: string
-    instruction: string
-  }) => api.post('/ai/improve-content', data),
-  generateHashtags: (data: { content: string; platform: string; count?: number }) =>
-    api.post('/ai/generate-hashtags', data),
+    goal?: string
+    instruction?: string
+  }) =>
+    api.post('/ai/improve-content', {
+      content: data.content,
+      platform: data.platform,
+      goal: data.goal || data.instruction || 'engagement',
+    }),
+  generateHashtags: (data: { content: string; platform: string; count?: number; max_hashtags?: number }) =>
+    api.post('/ai/generate-hashtags', {
+      content: data.content,
+      platform: data.platform,
+      max_hashtags: data.max_hashtags ?? data.count ?? 10,
+    }),
   generateImagePrompt: (data: { description: string; style?: string }) =>
     api.post('/ai/generate-image-prompt', data),
   analyzeContent: (data: { content: string; platform: string }) =>

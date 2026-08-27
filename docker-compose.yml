@@ -1,3 +1,12 @@
+# Public DNS for outbound HTTPS (Cloudflare Workers AI, etc.).
+# Host /etc/resolv.conf currently points only at Tailscale MagicDNS
+# (100.100.100.100), which fails public lookups in this WSL environment.
+# Docker still uses 127.0.0.11 for *service-name* resolution on the compose network.
+x-public-dns: &public-dns
+  dns:
+  - 1.1.1.1
+  - 8.8.8.8
+
 services:
   comfyui:
     image: baltzakist/cu130-slim-comfyui:2.1.0
@@ -20,6 +29,7 @@ services:
     - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
     - FAL_KEY=${FAL_KEY}
     - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+    <<: *public-dns
     runtime: nvidia
     deploy:
       resources:
@@ -37,6 +47,7 @@ services:
     - 5678:5678
     volumes:
     - ./n8n-data:/home/node/.n8n
+    <<: *public-dns
     environment:
     - N8N_INSTANCE_OWNER_MANAGED_BY_ENV=true
     - N8N_INSTANCE_OWNER_EMAIL=tbaltzakis@cloudless.gr
@@ -50,6 +61,7 @@ services:
     - N8N_BASIC_AUTH_USER=${N8N_USER}
     - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
     - N8N_ENABLED_MODULES=instance-ai
+    - N8N_DISABLED_MODULES=mcp,mcp-registry
     - N8N_INSTANCE_AI_MODEL=ollama/llama3.1:8b
     - N8N_INSTANCE_AI_MODEL_URL=http://ollama:11434
     - N8N_INSTANCE_AI_MODEL_API_KEY=
@@ -64,6 +76,18 @@ services:
     - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
     - N8N_WEBHOOK_URL=http://localhost:5678/
     - N8N_WORKFLOW_FILE_SYSTEM=true
+    - N8N_DIAGNOSTICS_ENABLED=false
+    - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+    - N8N_TEMPLATES_ENABLED=false
+    - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+    - GENERIC_TIMEZONE=Europe/Athens
+    - TZ=Europe/Athens
+    - SOCIAL_API_URL=http://social-api:8000
+    - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
+    - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
+    - CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID=${CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID:-4a8d9440-47d2-4bda-bd11-3776fd9022ba}
+    - CLOUDLESS_CAROUSEL_TOPIC=${CLOUDLESS_CAROUSEL_TOPIC:-}
+    - CLOUDLESS_CAROUSEL_SLIDES=${CLOUDLESS_CAROUSEL_SLIDES:-7}
     restart: unless-stopped
   n8n-sandbox:
     image: n8nio/n8n-sandbox-service-sandbox:latest
@@ -81,8 +105,13 @@ services:
     - POSTGRES_USER=${METABASE_DB_USER}
     - POSTGRES_PASSWORD=${METABASE_DB_PASS}
     volumes:
-    - ./.env:/app/.env:rw
     - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
   metabase:
     image: metabase/metabase:latest
@@ -98,8 +127,16 @@ services:
     - MB_DB_HOST=postgres
     - MB_EMAIL=${MB_EMAIL}
     - MB_PASSWORD=${MB_PASSWORD}
+    - MB_ANON_TRACKING_ENABLED=false
+    - MB_CHECK_FOR_UPDATES=false
+    - MB_LOAD_SAMPLE_CONTENT=false
+    - MB_METABOT_ENABLED=false
     depends_on:
-    - postgres
+      postgres:
+        condition: service_healthy
+    dns:
+    - 1.1.1.1
+    - 8.8.8.8
     restart: unless-stopped
   ollama:
     image: ollama/ollama:latest
@@ -109,6 +146,9 @@ services:
     volumes:
     - ./ollama/models:/root/.ollama/models
     - ./ollama/cache:/root/.ollama/cache
+    dns:
+    - 1.1.1.1
+    - 8.8.8.8
     restart: unless-stopped
     deploy:
       resources:
@@ -177,17 +217,29 @@ services:
     - social_postgres_data:/var/lib/postgresql/data
     ports:
     - 5433:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
   redis:
     image: redis:7-alpine
     container_name: redis
     ports:
     - 6379:6379
+    environment:
+    - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
-    - ./.env:/app/.env:rw
     - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD
-      must be set}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
   social-api:
     build:
@@ -197,6 +249,8 @@ services:
     ports:
     - 8083:8000
     environment:
+    - TZ=Europe/Athens
+    - APP_TIMEZONE=Europe/Athens
     - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     - SECRET_KEY=${SECRET_KEY}
@@ -228,19 +282,30 @@ services:
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
     - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
     - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
+    - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
     volumes:
     - ./.env:/app/.env:rw
     - ./social-automation/backend/app:/app/app
+    - ./social-automation/backend/alembic:/app/alembic
     - social_uploads:/app/uploads
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port
-      8000 --reload"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
-    - social-postgres
-    - redis
-    - n8n
-    - comfyui
-    - ollama
-    - chroma
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+      comfyui:
+        condition: service_started
+      ollama:
+        condition: service_started
+      chroma:
+        condition: service_started
+    dns:
+    - 1.1.1.1
+    - 8.8.8.8
     restart: unless-stopped
   social-worker:
     build:
@@ -248,6 +313,8 @@ services:
       dockerfile: Dockerfile.worker
     container_name: social-worker
     environment:
+    - TZ=Europe/Athens
+    - APP_TIMEZONE=Europe/Athens
     - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     - SECRET_KEY=${SECRET_KEY}
@@ -258,16 +325,26 @@ services:
     - N8N_PASSWORD=${N8N_PASSWORD}
     - COMFYUI_URL=http://comfyui:8000
     - OLLAMA_URL=http://ollama:11434
+    - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
     volumes:
     - ./.env:/app/.env:rw
     - ./social-automation/backend/app:/app/app
     - social_uploads:/app/uploads
     depends_on:
-    - social-postgres
-    - redis
-    - n8n
-    - comfyui
-    - ollama
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+      comfyui:
+        condition: service_started
+      ollama:
+        condition: service_started
+    dns:
+    - 1.1.1.1
+    - 8.8.8.8
     restart: unless-stopped
   social-frontend:
     build:
@@ -277,6 +354,8 @@ services:
     ports:
     - 8082:8083
     environment:
+    - TZ=Europe/Athens
+    - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
     - API_INTERNAL_URL=http://social-api:8000
     - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
     - PORT=8083

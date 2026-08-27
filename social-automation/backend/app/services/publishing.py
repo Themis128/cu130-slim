@@ -58,10 +58,30 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
         select(MediaAsset).where(MediaAsset.id.in_(post.media_ids))
     )
     assets = result.scalars().all()
-    # preserve order
-    id_order = {mid: i for i, mid in enumerate(post.media_ids)}
-    assets_sorted = sorted(assets, key=lambda a: id_order.get(a.id, 999))
-    return [a.storage_path for a in assets_sorted if os.path.exists(a.storage_path)]
+    # preserve order (normalize UUID types — asyncpg UUID vs uuid.UUID)
+    id_order = {str(mid): i for i, mid in enumerate(post.media_ids)}
+    assets_sorted = sorted(assets, key=lambda a: id_order.get(str(a.id), 999))
+    upload_dir = os.environ.get("UPLOAD_DIR", "/app/uploads")
+    paths: list[str] = []
+    missing: list[str] = []
+    for asset in assets_sorted:
+        path = asset.storage_path
+        if not path:
+            missing.append(str(asset.id))
+            continue
+        if not os.path.isabs(path):
+            path = os.path.join(upload_dir, path)
+        if os.path.exists(path):
+            paths.append(path)
+        else:
+            missing.append(path)
+    if post.media_ids and not paths:
+        print(
+            f"[publishing] media_ids={len(post.media_ids)} resolved=0 "
+            f"assets={len(assets)} missing={missing[:5]}",
+            flush=True,
+        )
+    return paths
 
 
 def _build_post_text(post: Post, platform: str) -> str:
@@ -150,6 +170,18 @@ async def _publish_twitter(
 
 # ── LinkedIn ──────────────────────────────────────────────────────────────────
 
+def _linkedin_author_urn(account: SocialAccount) -> str:
+    """Return person or organization author URN based on account metadata."""
+    meta = account.meta_data or {}
+    account_type = (meta.get("account_type") or "person").lower()
+    if account_type in ("organization", "company", "page"):
+        return f"urn:li:organization:{account.account_id}"
+    # Allow full URN stored in metadata
+    if meta.get("author_urn"):
+        return str(meta["author_urn"])
+    return f"urn:li:person:{account.account_id}"
+
+
 async def _publish_linkedin(
     access_token: str,
     text: str,
@@ -157,7 +189,7 @@ async def _publish_linkedin(
     post: Post,
     media_paths: list[str],
 ) -> PublishResult:
-    author_urn = f"urn:li:person:{account.account_id}"
+    author_urn = _linkedin_author_urn(account)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -165,25 +197,29 @@ async def _publish_linkedin(
         "Linkedin-Version": "202608",
     }
 
-    if media_paths:
-        # Post as LinkedIn Document carousel (PDF) using new Documents API
+    if len(media_paths) >= 2:
+        # Organic multi-slide: PDF document via Documents + Posts APIs
         pdf_bytes = _images_to_pdf(media_paths)
         return await _publish_linkedin_document(access_token, text, author_urn, pdf_bytes, headers)
 
-    # Text-only post using new Posts API
+    if len(media_paths) == 1:
+        return await _publish_linkedin_multi_image(access_token, text, author_urn, media_paths, headers)
+
+    # Text-only post via Posts API
     payload: dict = {
         "author": author_urn,
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": text[:3000]},
-                "shareMediaCategory": "NONE",
-            }
+        "commentary": text[:3000],
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": [],
         },
-        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post("https://api.linkedin.com/v2/ugcPosts", headers=headers, json=payload)
+        resp = await client.post("https://api.linkedin.com/rest/posts", headers=headers, json=payload)
         resp.raise_for_status()
         post_id = resp.headers.get("x-restli-id", "")
         return PublishResult(
@@ -200,16 +236,14 @@ async def _publish_linkedin_document(
     pdf_bytes: bytes,
     headers: dict,
 ) -> PublishResult:
+    from urllib.parse import quote
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Step 1: Initialize document upload using new Documents API
+        # Step 1: Initialize document upload
         reg_resp = await client.post(
             "https://api.linkedin.com/rest/documents?action=initializeUpload",
             headers=headers,
-            json={
-                "initializeUploadRequest": {
-                    "owner": author_urn
-                }
-            },
+            json={"initializeUploadRequest": {"owner": author_urn}},
         )
         reg_resp.raise_for_status()
         reg_data = reg_resp.json()
@@ -219,51 +253,141 @@ async def _publish_linkedin_document(
         # Step 2: Upload PDF bytes
         upload_resp = await client.put(
             upload_url,
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/octet-stream"},
+            headers={"Authorization": f"Bearer {access_token}"},
             content=pdf_bytes,
         )
         upload_resp.raise_for_status()
 
-        # Step 3: Wait for document to be processed
+        # Step 3: Poll until AVAILABLE (URN must be fully URL-encoded for Rest.li)
         import asyncio
-        max_retries = 10
+
+        encoded_urn = quote(document_urn, safe="")
+        max_retries = 30
+        last_status = None
         for i in range(max_retries):
             await asyncio.sleep(2)
             status_resp = await client.get(
-                f"https://api.linkedin.com/rest/documents/{document_urn}",
+                f"https://api.linkedin.com/rest/documents/{encoded_urn}",
                 headers=headers,
             )
-            status_resp.raise_for_status()
+            if status_resp.status_code >= 400:
+                print(
+                    f"[publishing] document status HTTP {status_resp.status_code}: {status_resp.text[:300]}",
+                    flush=True,
+                )
+                if i == max_retries - 1:
+                    return PublishResult(
+                        success=False,
+                        error=f"Document status check failed: HTTP {status_resp.status_code} {status_resp.text[:200]}",
+                    )
+                continue
             status_data = status_resp.json()
-            if status_data.get("status") == "AVAILABLE":
+            last_status = status_data.get("status")
+            if last_status == "AVAILABLE":
                 break
+            if last_status == "PROCESSING_FAILED":
+                return PublishResult(success=False, error="LinkedIn document processing failed")
             if i == max_retries - 1:
-                return PublishResult(success=False, error="Document processing timeout")
+                return PublishResult(
+                    success=False,
+                    error=f"Document processing timeout (last status={last_status})",
+                )
 
-        # Step 4: Post with document using UGC Posts API
+        # Step 4: Create post with document via Posts API (ugcPosts is deprecated)
         payload = {
             "author": author_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": text[:3000]},
-                    "shareMediaCategory": "DOCUMENT",
-                    "media": [
-                        {
-                            "status": "READY",
-                            "media": document_urn,
-                            "title": {"text": "Carousel"},
-                        }
-                    ],
+            "commentary": text[:3000],
+            "visibility": "PUBLIC",
+            "distribution": {
+                "feedDistribution": "MAIN_FEED",
+                "targetEntities": [],
+                "thirdPartyDistributionChannels": [],
+            },
+            "content": {
+                "media": {
+                    "title": "cloudless.gr carousel.pdf",
+                    "id": document_urn,
                 }
             },
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            "lifecycleState": "PUBLISHED",
+            "isReshareDisabledByAuthor": False,
         }
         post_resp = await client.post(
-            "https://api.linkedin.com/v2/ugcPosts",
+            "https://api.linkedin.com/rest/posts",
             headers=headers,
             json=payload,
         )
+        post_resp.raise_for_status()
+        post_id = post_resp.headers.get("x-restli-id", "")
+        return PublishResult(
+            success=True,
+            platform_post_id=post_id,
+            platform_url=f"https://www.linkedin.com/feed/update/{post_id}" if post_id else None,
+        )
+
+
+async def _publish_linkedin_multi_image(
+    access_token: str,
+    text: str,
+    author_urn: str,
+    media_paths: list[str],
+    headers: dict,
+) -> PublishResult:
+    """Upload image(s) via Images API and create a Posts API media/multiImage post."""
+    import asyncio
+    from urllib.parse import quote
+
+    image_urns: list[str] = []
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for path in media_paths[:20]:
+            with open(path, "rb") as handle:
+                img_bytes = handle.read()
+            init = await client.post(
+                "https://api.linkedin.com/rest/images?action=initializeUpload",
+                headers=headers,
+                json={"initializeUploadRequest": {"owner": author_urn}},
+            )
+            init.raise_for_status()
+            value = init.json()["value"]
+            upload_url = value["uploadUrl"]
+            image_urn = value["image"]
+            up = await client.put(
+                upload_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                content=img_bytes,
+            )
+            up.raise_for_status()
+            encoded = quote(image_urn, safe="")
+            for _ in range(20):
+                await asyncio.sleep(1)
+                st = await client.get(f"https://api.linkedin.com/rest/images/{encoded}", headers=headers)
+                if st.status_code < 400 and st.json().get("status") == "AVAILABLE":
+                    break
+            image_urns.append(image_urn)
+
+        if len(image_urns) >= 2:
+            content = {
+                "multiImage": {
+                    "images": [{"id": urn, "altText": f"Slide {i + 1}"} for i, urn in enumerate(image_urns)]
+                }
+            }
+        else:
+            content = {"media": {"id": image_urns[0], "title": "Slide"}}
+
+        payload = {
+            "author": author_urn,
+            "commentary": text[:3000],
+            "visibility": "PUBLIC",
+            "distribution": {
+                "feedDistribution": "MAIN_FEED",
+                "targetEntities": [],
+                "thirdPartyDistributionChannels": [],
+            },
+            "content": content,
+            "lifecycleState": "PUBLISHED",
+            "isReshareDisabledByAuthor": False,
+        }
+        post_resp = await client.post("https://api.linkedin.com/rest/posts", headers=headers, json=payload)
         post_resp.raise_for_status()
         post_id = post_resp.headers.get("x-restli-id", "")
         return PublishResult(
