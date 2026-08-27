@@ -541,8 +541,8 @@ async def _call_workers_ai_img2img(
     ``@cf/runwayml/stable-diffusion-v1-5-img2img`` accepts ``image_b64`` + ``prompt``
     + optional ``strength`` / ``num_steps`` / ``guidance``.
     """
-    import base64
     import asyncio
+    import base64
     import io
 
     from PIL import Image
@@ -627,8 +627,8 @@ async def _call_workers_ai_flux2_edit(
 
     Reference images must be ≤512×512. Output can be up to 1024×1024.
     """
-    import base64
     import asyncio
+    import base64
     import io
 
     from PIL import Image

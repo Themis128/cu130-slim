@@ -17,6 +17,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
+from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.inference import (
     STT_MODELS,
     _call_cf_image_pipeline,
@@ -30,7 +31,6 @@ from app.services.inference import (
     transcribe_workers_ai,
 )
 from app.services.media_storage import persist_generated_image
-from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
 
 router = APIRouter()
 settings = get_settings()

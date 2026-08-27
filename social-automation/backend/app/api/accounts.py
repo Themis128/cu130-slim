@@ -244,9 +244,10 @@ async def sync_linkedin_organizations(
     Requires the token to include ``w_organization_social`` / ``r_organization_social``.
     Reconnect LinkedIn from Accounts if those scopes are missing.
     """
+    import httpx
+
     from app.api.auth import _sync_linkedin_organizations
     from app.core.security import decrypt_token
-    import httpx
 
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)

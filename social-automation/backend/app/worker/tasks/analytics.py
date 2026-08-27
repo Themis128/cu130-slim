@@ -34,7 +34,9 @@ def sync_all_analytics() -> dict:
 
 
 async def _sync_all_analytics_async() -> dict:
-    summary = {"teams": 0, "synced": 0, "errors": []}
+    from typing import Any
+
+    summary: dict[str, Any] = {"teams": 0, "synced": 0, "errors": []}
     async with _worker_db() as db:
         teams = (await db.execute(select(Team))).scalars().all()
         for team in teams:

@@ -411,7 +411,19 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=str(team_id),
-        scope=["openid", "profile", "email", "w_member_social", "w_organization_social", "r_organization_social", "r_organization_admin"] if platform == "linkedin" else None,
+        scope=(
+            [
+                "openid",
+                "profile",
+                "email",
+                "w_member_social",
+                "w_organization_social",
+                "r_organization_social",
+                "r_organization_admin",
+            ]
+            if platform == "linkedin"
+            else None
+        ),
     )
 
     return {"authorization_url": authorization_url}

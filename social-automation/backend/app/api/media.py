@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import uuid
 from datetime import UTC, datetime

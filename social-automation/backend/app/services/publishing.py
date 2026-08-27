@@ -365,6 +365,7 @@ async def _publish_linkedin_multi_image(
                     break
             image_urns.append(image_urn)
 
+        content: dict
         if len(image_urns) >= 2:
             content = {
                 "multiImage": {

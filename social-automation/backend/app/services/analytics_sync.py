@@ -147,10 +147,10 @@ async def _fetch_linkedin_org_stats(
             data = resp.json()
             found: set[str] = set()
             for el in data.get("elements") or []:
-                urn, bundle = _parse_share_stats_element(el)
-                if urn:
-                    out[urn] = bundle
-                    found.add(urn)
+                parsed_urn, bundle = _parse_share_stats_element(el)
+                if parsed_urn:
+                    out[parsed_urn] = bundle
+                    found.add(parsed_urn)
             for urn in urns:
                 out.setdefault(urn, MetricBundle(raw={"note": "no_stats_element"}))
 

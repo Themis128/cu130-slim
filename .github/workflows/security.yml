@@ -51,7 +51,7 @@ jobs:
             dependency-check-
 
       - name: Run OWASP Dependency Check
-        uses: dependency-check/action@v5
+        uses: dependency-check/Dependency-Check_Action@main
         with:
           project: 'cu130-slim'
           path: '.'

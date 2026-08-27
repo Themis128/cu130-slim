@@ -243,8 +243,6 @@ async def import_cloudless_carousel(
                 workflow = json.load(f)
             break
     if workflow is None:
-        # Fallback: fetch from mounted host path via known compose layout
-        host_path = "/app/../n8n-workflows/cloudless-carousel-pipeline.json"
         raise HTTPException(
             status_code=500,
             detail="Workflow JSON not found in container; copy to /tmp or set CLOUDLESS_N8N_WORKFLOW_PATH",

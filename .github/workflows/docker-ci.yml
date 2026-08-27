@@ -83,11 +83,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Resolve primary image tag
+        id: image
+        if: github.event_name == 'push'
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          TAG="$(printf '%s\n' "$META_TAGS" | head -n1)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Report high vulnerabilities for ${{ matrix.service.name }}
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ split(steps.meta.outputs.tags, '\n')[0] }}
+          image-ref: ${{ steps.image.outputs.tag }}
           format: 'table'
           exit-code: '0'
           ignore-unfixed: true
@@ -98,7 +107,7 @@ jobs:
         if: github.event_name == 'push'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ split(steps.meta.outputs.tags, '\n')[0] }}
+          image-ref: ${{ steps.image.outputs.tag }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true

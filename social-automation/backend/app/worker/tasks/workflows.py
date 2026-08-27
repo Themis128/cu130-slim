@@ -18,7 +18,7 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def execute_workflow(self: "execute_workflow", workflow_id: str, input_data: dict) -> dict:  # type: ignore[name-defined]
+def execute_workflow(self, workflow_id: str, input_data: dict) -> dict:  # type: ignore[no-untyped-def]
     return asyncio.run(_execute_workflow_async(workflow_id, input_data))
 
 

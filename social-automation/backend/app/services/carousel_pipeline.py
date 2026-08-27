@@ -18,6 +18,7 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.cf_models import CF_CAROUSEL_DEFAULTS, CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
+from app.services.duplicate_detector import is_duplicate
 from app.services.inference import _call_cf_image_pipeline, call_inference
 from app.services.media_storage import persist_generated_image
 from app.services.plain_english import (
@@ -25,7 +26,6 @@ from app.services.plain_english import (
     build_linkedin_caption,
     run_nlp_check_and_fix,
 )
-from app.services.duplicate_detector import is_duplicate
 
 DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
