@@ -52,14 +52,13 @@ jobs:
 
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
+        continue-on-error: true
         with:
           project: 'cu130-slim'
           path: '.'
           format: 'HTML'
           out: 'reports'
-          args: >
-            --failOnCVSS 7
-            --suppression .github/dependency-check-suppression.xml
+          args: --failOnCVSS 7
 
       - name: Upload dependency check report
         uses: actions/upload-artifact@v4

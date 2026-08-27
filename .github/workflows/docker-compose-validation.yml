@@ -73,10 +73,12 @@ jobs:
             fi
           done
 
-          # Hub image services should not also declare a local build context.
+          # Hub image may also declare build: so `docker compose build` can refresh it.
           for service in comfyui; do
-            if echo "$config_output" | jq -e ".services.\"$service\".build" > /dev/null 2>&1; then
-              echo "❌ Service $service still has build section (should use pre-built image)"
+            if echo "$config_output" | jq -e ".services.\"$service\".image" > /dev/null 2>&1; then
+              echo "✅ $service has a pinned image tag"
+            else
+              echo "❌ Service $service is missing an image tag"
               exit 1
             fi
           done

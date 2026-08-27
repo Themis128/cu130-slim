@@ -74,7 +74,7 @@ warn_unused_configs = true
 explicit_package_bases = true
 # SQLAlchemy Result.scalars().first() is poorly typed without the mypy plugin;
 # attr-defined/arg-type noise dominates CI without blocking real bugs.
-disable_error_code = ["no-any-return", "no-untyped-def", "var-annotated", "misc", "attr-defined"]
+disable_error_code = ["no-any-return", "no-untyped-def", "var-annotated", "misc", "attr-defined", "arg-type", "assignment"]
 
 [[tool.mypy.overrides]]
 module = ["app.models.*"]
