@@ -88,4 +88,3 @@ ollama/id_ed25519
 # Local MCP configs
 cline_mcp_settings.json
 brave-search-mcp-server/
-.trivyignore
