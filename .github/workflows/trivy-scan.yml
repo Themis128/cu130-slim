@@ -112,6 +112,17 @@ jobs:
           output: 'trivy-${{ matrix.service }}-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           ignore-unfixed: true
+          exit-code: '0'
+          scanners: 'vuln'
+
+      - name: Fail on CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
           exit-code: '1'
           scanners: 'vuln'
 

@@ -1,18 +1,20 @@
+import base64
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from cryptography.fernet import Fernet
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
 settings = get_settings()
 
-# Use sha256_crypt instead of bcrypt to avoid the 72-byte password limit issue
+# argon2 is the primary scheme; sha256_crypt kept deprecated so existing
+# password hashes still verify and are silently upgraded on next login.
 pwd_context = CryptContext(
-    schemes=["sha256_crypt"],
-    deprecated="auto",
-    sha256_crypt__rounds=290000,
+    schemes=["argon2", "sha256_crypt"],
+    deprecated=["sha256_crypt"],
 )
 
 _fernet: Fernet | None = None
@@ -21,11 +23,13 @@ _fernet: Fernet | None = None
 def get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
-        key = settings.ENCRYPTION_KEY.encode()
-        if len(key) != 32:
-            key = key.ljust(32, b"0")[:32]
-        import base64
-        _fernet = Fernet(base64.urlsafe_b64encode(key))
+        raw = settings.ENCRYPTION_KEY.encode()
+        if len(raw) != 32:
+            raise ValueError(
+                f"ENCRYPTION_KEY must be exactly 32 bytes; got {len(raw)}. "
+                "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(16))\""
+            )
+        _fernet = Fernet(base64.urlsafe_b64encode(raw))
     return _fernet
 
 
@@ -65,7 +69,7 @@ def decode_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 

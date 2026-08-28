@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Compute env file path: /app/.env (mounted from host)
@@ -27,6 +28,16 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        if len(v) < 32 or v == "change-me-in-production":
+            raise ValueError(
+                "JWT_SECRET_KEY must be at least 32 characters and cannot be the default value. "
+                "Set it in .env: JWT_SECRET_KEY=$(python3 -c \"import secrets; print(secrets.token_hex(32))\")"
+            )
+        return v
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
@@ -123,9 +134,11 @@ class Settings(BaseSettings):
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
 
 
-settings = Settings()
-
-
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# Module-level binding for callers that do `from app.core.config import settings`.
+# Points to the same lru_cache singleton as get_settings() — not a second instance.
+settings = get_settings()

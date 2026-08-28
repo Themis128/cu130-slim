@@ -41,17 +41,25 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
 # index lacks torchvision.ops - we need to use torchvision 0.18.0+cu118
 # which is compatible with torch 2.13 and includes the ops module.
 # Install PyTorch packages from cu118 index
-# torchvision 0.20.0+cu118 is compatible with torch >=2.4 (which has torch.library.custom_op)
+# torchvision 0.21.0+cu118 pulls torch 2.6.0+cu118 (fixes CVE-2025-32434 arbitrary code
+# execution via torch.load with malicious checkpoint).  0.21.0 still requires
+# torch.library.custom_op (added 2.4) and is compatible with comfy-kitchen 0.2.x.
 # nvidia-cublas and related CUDA wheels are very large (several GB); use a generous
 # timeout and retry count to survive transient network hiccups during download.
+# Layer 1 (stable, large): PyTorch family — cached independently so volatile
+# security-pin bumps below don't invalidate this multi-GB layer.
 RUN pip install --no-cache-dir --retries 50 --timeout 7200 \
-    "torchvision==0.20.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118 \
-    && pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.31" \
+    "torchvision==0.21.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Layer 2: ComfyUI requirements + comfy-kitchen patches
+RUN pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.31" \
     && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
     && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
-    && grep -v "comfy-kitchen" requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin \
-    && pip install --no-cache-dir --retries 10 --timeout 300 \
+    && grep -v "comfy-kitchen" requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin
+
+# Layer 3: Security-pinned extras — small, changes more often than torch
+RUN pip install --no-cache-dir --retries 10 --timeout 300 \
         replicate \
         natsort \
         decord \
@@ -77,8 +85,10 @@ RUN pip install --no-cache-dir --retries 5 --timeout 60 soundfile
 RUN mkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input} \
     && rm -rf /opt/ComfyUI/custom_nodes /opt/ComfyUI/models /opt/ComfyUI/output /opt/ComfyUI/input
 
-# Create entrypoint script to setup symlinks at runtime
-RUN echo '#!/bin/bash\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\npython3 main.py ${CLI_ARGS:---listen 0.0.0.0 --port 8000}' > /entrypoint.sh \
+# Create entrypoint script to setup symlinks at runtime.
+# Uses printf (not echo) so \n is reliably interpreted; exec replaces bash
+# with python3 so the process becomes PID 1 and receives SIGTERM correctly.
+RUN printf '#!/bin/bash\nset -e\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\nexec python3 main.py ${CLI_ARGS:---listen 0.0.0.0 --port 8000}\n' > /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1

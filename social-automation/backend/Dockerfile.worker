@@ -31,5 +31,11 @@ RUN pip install --no-cache-dir -e .
 # Copy application code
 COPY . .
 
-# Start Celery worker with embedded beat scheduler
-CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4", "--beat", "--scheduler=celery.beat:PersistentScheduler"]
+# Run as non-root user
+RUN addgroup --gid 1001 app \
+    && adduser --uid 1001 --gid 1001 --disabled-password --gecos "" app \
+    && chown -R app:app /app
+USER app
+
+# Worker only — beat scheduler runs in the dedicated celery-beat service
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]

@@ -36,5 +36,11 @@ RUN pip install --no-cache-dir -e .
 # Copy application code
 COPY . .
 
+# Run as non-root user
+RUN addgroup --gid 1001 app \
+    && adduser --uid 1001 --gid 1001 --disabled-password --gecos "" app \
+    && chown -R app:app /app
+USER app
+
 # Run migrations and start
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]

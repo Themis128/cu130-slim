@@ -34,12 +34,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    from app.db.base import Base
     from app.models.user import Team, TeamMember, UserRole
 
     settings = get_settings()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema is managed exclusively by Alembic (run via compose command before uvicorn).
     # Seed admin user if configured, and always ensure they own a team.
     # Registration creates a team; the env-seeded admin path previously did not,
     # which caused "Failed to connect" when linking social accounts.
