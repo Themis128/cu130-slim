@@ -21,6 +21,7 @@ import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
 import type { SocialAccount, MediaAsset } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
+import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 import {
   preferredAccount,
   identityFromAccount,
@@ -779,6 +780,10 @@ export default function NewPostPage() {
                 className="min-h-[200px] font-mono text-sm resize-none"
                 rows={8}
               />
+
+              <div className="mt-3">
+                <SpellCheckButton text={content} onApply={setContent} disabled={aiGenerating || repurposing} />
+              </div>
 
               {/* Per-platform char counts below editor */}
               {selectedPlatforms.length > 0 && (

@@ -12,6 +12,7 @@ import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '
 import { contentApi } from '@/services/api'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
+import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 
 function cn(...c: (string | undefined | false)[]) { return c.filter(Boolean).join(' ') }
 
@@ -206,6 +207,7 @@ export default function NewArticlePage() {
               <span>{wordCount} words</span>
               <span>~{readTime} min read</span>
             </div>
+            <SpellCheckButton text={body} onApply={setBody} />
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tags (comma separated)</label>

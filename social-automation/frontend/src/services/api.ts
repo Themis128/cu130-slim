@@ -461,6 +461,18 @@ export const aiApi = {
   /** Poll/retrieve results of a previously submitted batch request. */
   retrieveBatchInference: (data: { model: string; request_id: string }) =>
     api.post('/ai/workers-ai/batch/retrieve', data),
+  spellcheck: (text: string, language = 'en-US') =>
+    api.post<{
+      matches: Array<{
+        message: string
+        offset: number
+        length: number
+        replacements: string[]
+        rule_id: string
+        context: string
+      }>
+      language: string
+    }>('/ai/spellcheck', { text, language }),
 }
 
 export default api

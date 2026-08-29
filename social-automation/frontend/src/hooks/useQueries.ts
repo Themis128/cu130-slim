@@ -8,6 +8,7 @@ import {
   analyticsApi,
   aiApi,
   aiProvidersApi,
+  getAccessToken,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
@@ -230,6 +231,12 @@ export function useAccounts() {
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
     select: (response) => response.data,
+    enabled: !!getAccessToken(),
+    retry: (failureCount, error: unknown) => {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 401 || status === 403) return false
+      return failureCount < 2
+    },
   })
 }
 

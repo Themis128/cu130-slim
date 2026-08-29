@@ -22,6 +22,7 @@ from app.models.user import Team, User
 from app.core.config import get_settings as _get_settings
 from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, TOGETHER_TXT2IMG_FALLBACK
 from app.services.duplicate_detector import is_duplicate
+from app.services.spellcheck import auto_correct, preprocess_for_render
 from app.services.inference import (
     _call_pixazo_txt2img,
     _call_together_txt2img,
@@ -700,8 +701,15 @@ async def run_cloudless_carousel_pipeline(
     for i, slide in enumerate(slides):
         title = slide.get("title") or f"Slide {i + 1}"
         body = slide.get("body") or ""
+        highlight = slide.get("highlight") or None
         stype = slide.get("slide_type") or "content"
         image_prompt = slide.get("image_prompt") or f"professional photo related to {title}"
+
+        # Pre-process then spell-correct before text is burned into image pixels.
+        title = preprocess_for_render(await auto_correct(title))
+        body = preprocess_for_render(await auto_correct(body))
+        if highlight:
+            highlight = preprocess_for_render(await auto_correct(highlight))
 
         print(f"[n8n-pipeline] slide {i + 1}/{len(slides)} — generating background: {image_prompt[:60]}…", flush=True)
         bg_img = await _cf_generate_background(image_prompt, txt2img_model)
@@ -717,7 +725,7 @@ async def run_cloudless_carousel_pipeline(
             slide_type=stype,
             title=title,
             body=body,
-            highlight=slide.get("highlight"),
+            highlight=highlight,
             motif=slide.get("visual") or slide.get("motif"),
             chart_data=slide.get("chart_data"),
         )

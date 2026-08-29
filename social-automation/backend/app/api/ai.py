@@ -1956,6 +1956,63 @@ async def get_workflow_config(
     return config
 
 
+class SpellcheckMatch(BaseModel):
+    message: str
+    offset: int
+    length: int
+    replacements: list[str]
+    rule_id: str
+    context: str
+
+
+class SpellcheckRequest(BaseModel):
+    text: str
+    language: str = "en-US"
+
+
+class SpellcheckResponse(BaseModel):
+    matches: list[SpellcheckMatch]
+    language: str
+
+
+@router.post("/spellcheck", response_model=SpellcheckResponse)
+async def spellcheck(
+    request: SpellcheckRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Check spelling and grammar via the self-hosted LanguageTool service."""
+    if not request.text.strip():
+        return SpellcheckResponse(matches=[], language=request.language)
+
+    lt_url = settings.LANGUAGETOOL_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{lt_url}/v2/check",
+                data={"text": request.text, "language": request.language},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"LanguageTool error: {exc.response.status_code}")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail="LanguageTool service unreachable — is it running?")
+
+    data = resp.json()
+    matches = []
+    for m in data.get("matches", []):
+        matches.append(SpellcheckMatch(
+            message=m.get("message", ""),
+            offset=m.get("offset", 0),
+            length=m.get("length", 0),
+            replacements=[r["value"] for r in m.get("replacements", [])[:5]],
+            rule_id=m.get("rule", {}).get("id", ""),
+            context=m.get("context", {}).get("text", ""),
+        ))
+
+    return SpellcheckResponse(matches=matches, language=request.language)
+
+
 @router.post("/seed-default-workflows")
 async def seed_default_workflows(
     db: AsyncSession = Depends(get_db),

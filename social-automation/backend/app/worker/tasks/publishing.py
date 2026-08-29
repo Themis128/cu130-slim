@@ -16,6 +16,7 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.publishing import publish_to_platform
+from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,9 @@ async def _process_publish_queue_async() -> None:
                     item.status = QueueStatus.FAILED
                     await db.commit()
                     continue
+
+                if post.content_text:
+                    post.content_text = await auto_correct(post.content_text)
 
                 pub = await publish_to_platform(account, post, db)
 

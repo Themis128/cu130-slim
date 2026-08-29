@@ -16,6 +16,7 @@ import type { Post } from '@/types'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { Undo2 } from 'lucide-react'
+import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 
 export default function EditPostPage() {
@@ -212,6 +213,7 @@ export default function EditPostPage() {
             className="min-h-[200px] font-mono text-base"
             rows={8}
           />
+          <SpellCheckButton text={content} onApply={setContent} />
           <div>
             <label className="block text-sm font-medium mb-2">Link URL</label>
             <Input

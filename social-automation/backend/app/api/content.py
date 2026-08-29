@@ -11,6 +11,7 @@ from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.user import Team, TeamMember, User
+from app.services.spellcheck import auto_correct
 
 router = APIRouter()
 
@@ -83,11 +84,13 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
+    corrected_text = await auto_correct(post_data.content_text or "")
+
     post = Post(
         team_id=team.id,
         user_id=current_user.id,
         status=PostStatus.DRAFT if not post_data.scheduled_at else PostStatus.SCHEDULED,
-        content_text=post_data.content_text,
+        content_text=corrected_text or post_data.content_text,
         media_ids=post_data.media_ids,
         platform_specific=post_data.platform_specific,
         hashtags=post_data.hashtags,
@@ -214,6 +217,9 @@ async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: U
 
     update_data = post_data.model_dump(exclude_unset=True)
     target_account_ids = update_data.pop("target_account_ids", None)
+
+    if "content_text" in update_data and update_data["content_text"]:
+        update_data["content_text"] = await auto_correct(update_data["content_text"])
 
     for field, value in update_data.items():
         setattr(post, field, value)
