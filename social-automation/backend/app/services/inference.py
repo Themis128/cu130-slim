@@ -725,16 +725,16 @@ async def _call_cf_image_pipeline(
     *,
     enhance_prompt: str | None = None,
     txt2img_model: str = CF_TXT2IMG_FREE,
-    img2img_model: str = CF_IMG2IMG_FREE,
+    img2img_model: str | None = None,
     api_key: str | None = None,
     strength: float = 0.45,
     txt2img_steps: int = 4,
     img2img_steps: int = 8,
 ) -> dict:
-    """Cloudflare-only pipeline: text-to-image draft → img2img enhance.
+    """Cloudflare-only pipeline: text-to-image draft, optionally enhanced via img2img.
 
-    On free tier prefers SD img2img; if enhance fails, keep the draft (skip costly
-    FLUX.2 klein) so remaining neurons stay available for other slides.
+    When img2img_model is None (default), the enhance step is skipped entirely.
+    SD img2img is blocked on the current CF plan so callers should omit it.
     """
     import base64
     import io
@@ -768,28 +768,31 @@ async def _call_cf_image_pipeline(
         )
     draft_bytes = base64.b64decode(draft["image_base64"])
 
-    enhance_model_used = img2img_model
-    try:
-        if "flux-2" in (img2img_model or "").lower():
-            enhanced = await _call_workers_ai_flux2_edit(
-                prompt=enhance,
-                image_bytes=draft_bytes,
-                model=img2img_model,
-                api_key=api_key,
-            )
-        else:
-            enhanced = await _call_workers_ai_img2img(
-                prompt=enhance,
-                image_bytes=draft_bytes,
-                model=img2img_model,
-                api_key=api_key,
-                strength=strength,
-                steps=img2img_steps,
-                max_retries=5,
-            )
-    except HTTPException as first_exc:
-        # Free-tier safe: do not cascade into expensive FLUX.2 klein.
-        print(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}", flush=True)
+    if img2img_model:
+        enhance_model_used = img2img_model
+        try:
+            if "flux-2" in img2img_model.lower():
+                enhanced = await _call_workers_ai_flux2_edit(
+                    prompt=enhance,
+                    image_bytes=draft_bytes,
+                    model=img2img_model,
+                    api_key=api_key,
+                )
+            else:
+                enhanced = await _call_workers_ai_img2img(
+                    prompt=enhance,
+                    image_bytes=draft_bytes,
+                    model=img2img_model,
+                    api_key=api_key,
+                    strength=strength,
+                    steps=img2img_steps,
+                    max_retries=5,
+                )
+        except HTTPException as first_exc:
+            print(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}", flush=True)
+            enhance_model_used = "draft-only"
+            enhanced = draft
+    else:
         enhance_model_used = "draft-only"
         enhanced = draft
 

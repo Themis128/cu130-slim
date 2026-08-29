@@ -426,8 +426,6 @@ export const aiApi = {
     include_cta?: boolean
     text_model?: string
     txt2img_model?: string
-    img2img_model?: string
-    strength?: number
   }) => api.post('/ai/generate-carousel-pipeline', data),
   enhanceImagePrompt: (description: string, style?: string) =>
     api.post('/ai/generate-image-prompt', { description, style: style ?? 'photorealistic' }),

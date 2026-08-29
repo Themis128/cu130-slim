@@ -159,7 +159,7 @@ services:
     - 1.1.1.1
     - 8.8.8.8
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/11434'"]
       interval: 15s
       timeout: 5s
       retries: 12
@@ -188,7 +188,7 @@ services:
     - --port
     - '8000'
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/heartbeat || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -386,6 +386,7 @@ services:
     - DIGEST_EMAIL_TO=${DIGEST_EMAIL_TO:-tbaltzakis@cloudless.gr}
     - DIGEST_EMAIL_ISSUES_ONLY=${DIGEST_EMAIL_ISSUES_ONLY:-false}
     - CLOUDFLARE_EMAIL_API_TOKEN=${CLOUDFLARE_EMAIL_API_TOKEN:-}
+    - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
     - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
     volumes:
     - ./.env:/app/.env:ro

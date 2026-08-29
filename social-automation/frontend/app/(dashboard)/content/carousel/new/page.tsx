@@ -746,7 +746,7 @@ export default function CarouselNewPage() {
                 <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
                 <div>
                   <p className="text-sm font-medium">Powered by Cloudflare Workers AI</p>
-                  <p className="text-xs text-muted-foreground">Text: llama-3.3-70b · Images: FLUX Schnell + SD img2img</p>
+                  <p className="text-xs text-muted-foreground">Text: llama-3.3-70b · Images: FLUX Schnell · Fallback: HF → Ollama</p>
                 </div>
               </div>
             </div>

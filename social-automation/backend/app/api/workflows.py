@@ -292,8 +292,8 @@ async def import_cloudless_carousel(
         )
     ).scalar_one_or_none()
     prompt_text = (
-        "cloudless-cf-carousel-linkedin: Cloudflare txt2img→img2img carousel "
-        "with NLP plain-English fix, publish as cloudless.gr Company Page."
+        "cloudless-cf-carousel-linkedin: Cloudflare txt2img carousel "
+        "with NLP plain-English fix, CF→HF→Ollama fallback, publish as cloudless.gr Company Page."
     )
     variables = {
         "n8n_workflow_id": n8n_id,

@@ -17,7 +17,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE, CONTENT_WORKFLOW_CONFIGS
+from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, CONTENT_WORKFLOW_CONFIGS
 from app.services.inference import (
     STT_MODELS,
     _call_cf_image_pipeline,
@@ -1558,8 +1558,6 @@ class GenerateCarouselPipelineRequest(BaseModel):
     include_cta: bool = True
     text_model: str = CF_TEXT_FREE
     txt2img_model: str = CF_TXT2IMG_FREE
-    img2img_model: str = CF_IMG2IMG_FREE
-    strength: float = 0.45
 
 
 class GenerateCarouselPipelineResponse(BaseModel):
@@ -1581,7 +1579,7 @@ async def generate_carousel_pipeline(
 
     1. LLM slide copy
     2. NLP checker + plain-English fixer
-    3. FLUX schnell txt2img → SD img2img enhance (draft-only if enhance fails)
+    3. FLUX schnell txt2img background generation
     4. Persist to media library
     """
     import base64
@@ -1647,13 +1645,11 @@ async def generate_carousel_pipeline(
             f"Sharper details, richer cyan/orange lighting on dark navy, professional polish, "
             f"stronger visual metaphor for: {body}. No text, no logos."
         )
-        print(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img→img2img", flush=True)
+        print(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img", flush=True)
         pipe = await _call_cf_image_pipeline(
             prompt=visual,
             enhance_prompt=enhance,
             txt2img_model=request.txt2img_model,
-            img2img_model=request.img2img_model,
-            strength=request.strength,
         )
         asset = await persist_generated_image(
             db,
@@ -1685,7 +1681,6 @@ async def generate_carousel_pipeline(
         models={
             "text": request.text_model,
             "txt2img": request.txt2img_model,
-            "img2img": request.img2img_model,
             "nlp": "plain-english-check-fix",
         },
         nlp_report=nlp_report.to_dict(),
@@ -1708,8 +1703,6 @@ async def generate_carousel_pipeline(
                     "tone": request.tone,
                     "text_model": request.text_model,
                     "txt2img_model": request.txt2img_model,
-                    "img2img_model": request.img2img_model,
-                    "strength": request.strength,
                     "slide_count": len(slide_results),
                 },
                 tags=["carousel", "auto-saved", request.platform],
@@ -1730,8 +1723,6 @@ class RunCarouselAndPublishRequest(BaseModel):
     text_model: str = CF_TEXT_FREE
     text_provider: str = "cloudflare"  # use CF daily free neurons; falls back to ollama on 429
     txt2img_model: str = CF_TXT2IMG_FREE
-    img2img_model: str = CF_IMG2IMG_FREE
-    strength: float = 0.42
     target_account_id: str | None = None
     publish: bool = True
     wait_for_publish: bool = False
@@ -1767,8 +1758,6 @@ async def run_carousel_and_publish(
         text_model=request.text_model,
         text_provider=request.text_provider,
         txt2img_model=request.txt2img_model,
-        img2img_model=request.img2img_model,
-        strength=request.strength,
         target_account_id=request.target_account_id,
         publish=request.publish,
         wait_for_publish=request.wait_for_publish,
@@ -1790,8 +1779,6 @@ async def run_carousel_and_publish(
                 "tone": request.tone,
                 "text_model": request.text_model,
                 "txt2img_model": request.txt2img_model,
-                "img2img_model": request.img2img_model,
-                "strength": request.strength,
             },
             tags=["carousel", "auto-saved"],
         )

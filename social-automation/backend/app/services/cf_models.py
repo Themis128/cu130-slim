@@ -61,9 +61,7 @@ HF_IMG2IMG_FALLBACK = "timbrooks/instruct-pix2pix"
 CF_CAROUSEL_DEFAULTS: dict[str, str | int] = {
     "text_model": CF_TEXT_FREE,
     "txt2img_model": CF_TXT2IMG_FREE,
-    "img2img_model": CF_IMG2IMG_FREE,
     "txt2img_steps": 4,
-    "img2img_steps": 8,
 }
 
 # ---------------------------------------------------------------------------
@@ -74,15 +72,12 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
     "carousel": {
         "content_type": "carousel",
         "name": "Carousel Generator",
-        "description": "AI-powered LinkedIn carousel with FLUX images and SD img2img enhancement",
+        "description": "AI-powered LinkedIn carousel with FLUX txt2img backgrounds, CF→HF→Ollama text fallback",
         "text_model": CF_TEXT_FREE,
         "txt2img_model": CF_TXT2IMG_FREE,
-        "img2img_model": CF_IMG2IMG_FREE,
         "hf_text_fallback": HF_TEXT_FALLBACK,
         "hf_txt2img_fallback": HF_TXT2IMG_FALLBACK,
-        "hf_img2img_fallback": HF_IMG2IMG_FALLBACK,
         "txt2img_steps": 4,
-        "img2img_steps": 8,
     },
     "post": {
         "content_type": "post",

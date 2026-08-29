@@ -402,7 +402,6 @@ export default function WorkflowsPage() {
                       <div className="rounded-md bg-muted/60 p-2 text-xs text-muted-foreground space-y-0.5">
                         {config.text_model && <div><span className="font-medium">Text:</span> {config.text_model.split('/').pop()}</div>}
                         {config.txt2img_model && <div><span className="font-medium">Image:</span> {config.txt2img_model.split('/').pop()}</div>}
-                        {config.img2img_model && <div><span className="font-medium">Enhance:</span> {config.img2img_model.split('/').pop()}</div>}
                         {config.hf_text_fallback && <div className="text-amber-600 dark:text-amber-400"><span className="font-medium">HF fallback:</span> {config.hf_text_fallback.split('/').pop()}</div>}
                         {config.hf_txt2img_fallback && <div className="text-amber-600 dark:text-amber-400"><span className="font-medium">HF img fallback:</span> {config.hf_txt2img_fallback.split('/').pop()}</div>}
                       </div>
