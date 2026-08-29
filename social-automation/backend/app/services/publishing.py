@@ -774,15 +774,6 @@ async def _publish_tiktok(
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         # 1) Query creator info — required before posting
-        ci = await client.post(
-            "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
-            headers=headers,
-        )
-        ci.raise_for_status()
-        creator = ci.json().get("data", {})
-        privacy_options = creator.get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
-        privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
-
         # 2) Resolve public URLs for media
         public_urls: list[str] = []
         for path in media_paths:

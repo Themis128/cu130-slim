@@ -506,7 +506,7 @@ export default function AnalyticsPage() {
                 const platformColor = PLATFORM_COLOR[post.platform] ?? '#6366f1'
                 return (
                   <Link
-                    key={post.post_id}
+                    key={`${post.post_id}-${index}`}
                     href={`/content/${post.post_id}/edit`}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors group"
                   >

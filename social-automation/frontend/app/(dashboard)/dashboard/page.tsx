@@ -223,7 +223,7 @@ export default function DashboardPage() {
                   const platformColor = PLATFORM_COLOR[post.platform?.toLowerCase() ?? ''] ?? '#6b7280'
                   return (
                     <Link
-                      key={`${post.post_id}-${post.platform ?? idx}`}
+                      key={`${post.post_id}-${post.platform ?? ''}-${idx}`}
                       href={`/content/${post.post_id}/edit`}
                       className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
                     >
