@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     # Cloud AI Provider API Keys
     GROQ_API_KEY: str = ""
     TOGETHER_API_KEY: str = ""
+    PIXAZO_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
     HUGGINGFACE_API_KEY: str = ""
     FAL_KEY: str = ""

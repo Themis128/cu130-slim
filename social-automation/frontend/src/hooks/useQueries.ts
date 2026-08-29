@@ -91,7 +91,7 @@ export function useSchedulePost() {
 }
 
 // Media hooks
-export function useMedia(params?: { page?: number; page_size?: number; type?: string }) {
+export function useMedia(params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string }) {
   return useQuery({
     queryKey: ['media', params],
     queryFn: () => mediaApi.list(params),
@@ -127,6 +127,17 @@ export function useDeleteMedia() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media'] })
       toast.success('Media deleted')
+    },
+  })
+}
+
+export function useBulkDeleteMedia() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: mediaApi.bulkDelete,
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+      toast.success(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`)
     },
   })
 }

@@ -245,11 +245,14 @@ export const contentApi = {
 
 // Media endpoints
 export const mediaApi = {
-  list: (params?: { page?: number; page_size?: number; type?: string }) => {
+  list: (params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string }) => {
     const p = { ...params }
     if (!p.type) delete p.type
+    if (!p.sort) delete p.sort
+    if (!p.search) delete p.search
     return api.get('/media/assets', { params: p })
   },
+  bulkDelete: (ids: string[]) => api.post('/media/assets/bulk-delete', { ids }),
   upload: (file: File, alt_text?: string, tags?: string) => {
     const formData = new FormData()
     formData.append('file', file)

@@ -468,6 +468,8 @@ class GenerateImageRequest(BaseModel):
     cfg_scale: float = 3.5
     seed: int = 0
     steps: int = 4
+    width: int = 1024
+    height: int = 1024
     provider: str = "cloudflare"  # cloudflare | nvidia-flux-dev
     model: str | None = None  # e.g. "@cf/black-forest-labs/flux-1-schnell"
 
@@ -512,6 +514,13 @@ async def generate_image(
     if provider_name == "cloudflare":
         # Cloudflare Workers AI text-to-image (SDXL / FLUX models).
         from app.services.cf_models import CF_TXT2IMG_FREE
+        from app.services.inference import (
+            _call_pixazo_txt2img,
+            _call_together_txt2img,
+            _call_hf_txt2img,
+            TOGETHER_TXT2IMG_FALLBACK,
+            HF_TXT2IMG_FALLBACK,
+        )
 
         _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
         model = request.model or model or CF_TXT2IMG_FREE
@@ -523,14 +532,67 @@ async def generate_image(
                     f"'@cf/stabilityai/stable-diffusion-xl-base-1.0' or '@cf/black-forest-labs/flux-1-schnell'."
                 ),
             )
-        result = await _call_workers_ai_image(
-            prompt=request.prompt,
-            model=model,
-            api_key=api_key,
-            negative_prompt=request.negative_prompt,
-            steps=request.steps,
-            cfg_scale=request.cfg_scale,
-        )
+        result = None
+        cf_error = None
+        try:
+            result = await _call_workers_ai_image(
+                prompt=request.prompt,
+                model=model,
+                api_key=api_key,
+                negative_prompt=request.negative_prompt,
+                width=request.width,
+                height=request.height,
+                steps=request.steps,
+                cfg_scale=request.cfg_scale,
+            )
+        except HTTPException as exc:
+            cf_error = exc
+            print(f"[ai/generate-image] CF failed ({exc.status_code}), trying fallbacks", flush=True)
+
+        if result is None:
+            from app.core.config import settings
+            pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
+            together_key = (settings.TOGETHER_API_KEY or "").strip()
+            hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+
+            if pixazo_key:
+                print("[ai/generate-image] Trying Pixazo", flush=True)
+                try:
+                    result = await _call_pixazo_txt2img(
+                        prompt=request.prompt, api_key=pixazo_key,
+                        width=request.width, height=request.height,
+                    )
+                except HTTPException:
+                    print("[ai/generate-image] Pixazo failed", flush=True)
+
+            if result is None and together_key:
+                print(f"[ai/generate-image] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+                try:
+                    result = await _call_together_txt2img(
+                        prompt=request.prompt, model=TOGETHER_TXT2IMG_FALLBACK,
+                        api_key=together_key, width=request.width, height=request.height,
+                        steps=request.steps,
+                    )
+                except HTTPException:
+                    print("[ai/generate-image] Together failed", flush=True)
+
+            if result is None and hf_key:
+                print(f"[ai/generate-image] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
+                try:
+                    result = await _call_hf_txt2img(
+                        prompt=request.prompt, model=HF_TXT2IMG_FALLBACK,
+                        api_key=hf_key, width=request.width, height=request.height,
+                        steps=request.steps,
+                    )
+                except HTTPException:
+                    print("[ai/generate-image] HF also failed", flush=True)
+
+            if result is None:
+                raise HTTPException(
+                    status_code=502,
+                    detail="All image generation providers exhausted (CF quota + fallbacks failed)",
+                )
+
         image_base64 = result["image_base64"]
     else:
         # NVIDIA FLUX.1-dev (cloud) — default provider.

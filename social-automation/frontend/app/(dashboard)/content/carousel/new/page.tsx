@@ -596,7 +596,7 @@ export default function CarouselNewPage() {
         if (seen.has(plat)) continue
         let acct: typeof connectedAccounts[0] | undefined
         if (plat === 'linkedin') {
-          acct = connectedAccounts.find(a => a.platform === 'linkedin' && (a.meta_data?.account_type === 'organization' || a.account_type === 'organization'))
+          acct = connectedAccounts.find(a => a.platform === 'linkedin' && a.account_type === 'organization')
             ?? connectedAccounts.find(a => a.platform === 'linkedin')
         } else {
           acct = connectedAccounts.find(a => a.platform === plat)

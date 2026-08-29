@@ -38,20 +38,39 @@ CF_IMG2IMG_FREE = "@cf/runwayml/stable-diffusion-v1-5-img2img"
 # Paid-only frontier models (403 on free): kimi-k2.6, glm-5.2/5.3, etc.
 
 # ---------------------------------------------------------------------------
-# Hugging Face Inference API — free-tier failover
+# Groq — primary text fallback (free tier: 14.4K req/day, 30 RPM)
 # ---------------------------------------------------------------------------
-# Used transparently when CF returns 429/503 (neuron budget exhausted).
-# All models below are on HF's free Serverless Inference tier.
+# OpenAI-compatible API, no credit card required.
+# https://console.groq.com/docs/rate-limits
 
-HF_API_BASE = "https://api-inference.huggingface.co"
+GROQ_API_BASE = "https://api.groq.com/openai/v1"
+GROQ_TEXT_FALLBACK = "qwen/qwen3.8-27b"
 
-# Text: Mistral-7B-Instruct-v0.3 — OpenAI-compat endpoint, free tier, Apache-2.0
-HF_TEXT_FALLBACK = "mistralai/Mistral-7B-Instruct-v0.3"
+# ---------------------------------------------------------------------------
+# Pixazo — primary image fallback (FLUX Schnell free, 60 RPM, no daily cap)
+# ---------------------------------------------------------------------------
+# Free FLUX Schnell, no credit card required, returns image URL.
+# https://api-console.pixazo.ai/
 
-# txt2img: FLUX.1-schnell — same model as CF_TXT2IMG_FREE, Apache-2.0
+PIXAZO_TXT2IMG_URL = "https://gateway.pixazo.ai/flux-1-schnell/v1/getData"
+
+# ---------------------------------------------------------------------------
+# Together AI — secondary image fallback (FLUX.1-schnell, $25 signup credits)
+# ---------------------------------------------------------------------------
+
+TOGETHER_API_BASE = "https://api.together.xyz/v1"
+TOGETHER_TXT2IMG_FALLBACK = "black-forest-labs/FLUX.1-schnell-Free"
+TOGETHER_TEXT_FALLBACK = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+
+# ---------------------------------------------------------------------------
+# Hugging Face Inference Providers — tertiary failover
+# ---------------------------------------------------------------------------
+# HF migrated to router.huggingface.co with credit-based billing.
+# Free tier: $0.10/month — exhausts quickly, kept as last cloud fallback.
+
+HF_API_BASE = "https://router.huggingface.co"
+HF_TEXT_FALLBACK = "Qwen/Qwen2.5-72B-Instruct"
 HF_TXT2IMG_FALLBACK = "black-forest-labs/FLUX.1-schnell"
-
-# img2img: InstructPix2Pix — text-guided image editing, free tier
 HF_IMG2IMG_FALLBACK = "timbrooks/instruct-pix2pix"
 
 # ---------------------------------------------------------------------------
@@ -65,16 +84,19 @@ CF_CAROUSEL_DEFAULTS: dict[str, str | int] = {
 }
 
 # ---------------------------------------------------------------------------
-# Per-content-type workflow configs (CF free tier + HF fallback)
+# Per-content-type workflow configs
+# Fallback chain: CF → Groq/Together → HF → Ollama
 # ---------------------------------------------------------------------------
 
 CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
     "carousel": {
         "content_type": "carousel",
         "name": "Carousel Generator",
-        "description": "AI-powered LinkedIn carousel with FLUX txt2img backgrounds, CF→HF→Ollama text fallback",
+        "description": "AI-powered LinkedIn carousel with FLUX txt2img backgrounds, CF→Groq→Ollama text / CF→Together txt2img fallback",
         "text_model": CF_TEXT_FREE,
         "txt2img_model": CF_TXT2IMG_FREE,
+        "groq_text_fallback": GROQ_TEXT_FALLBACK,
+        "together_txt2img_fallback": TOGETHER_TXT2IMG_FALLBACK,
         "hf_text_fallback": HF_TEXT_FALLBACK,
         "hf_txt2img_fallback": HF_TXT2IMG_FALLBACK,
         "txt2img_steps": 4,
@@ -84,6 +106,7 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
         "name": "Social Post Generator",
         "description": "AI-generated posts for LinkedIn, Twitter, Instagram and Facebook",
         "text_model": CF_TEXT_FREE,
+        "groq_text_fallback": GROQ_TEXT_FALLBACK,
         "hf_text_fallback": HF_TEXT_FALLBACK,
     },
     "thread": {
@@ -91,6 +114,7 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
         "name": "Thread Generator",
         "description": "Multi-tweet Twitter/X and Threads content split to platform limits",
         "text_model": CF_TEXT_FREE,
+        "groq_text_fallback": GROQ_TEXT_FALLBACK,
         "hf_text_fallback": HF_TEXT_FALLBACK,
     },
     "story": {
@@ -98,6 +122,7 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
         "name": "Story Creator",
         "description": "Instagram and Facebook story images generated with FLUX",
         "txt2img_model": CF_TXT2IMG_FREE,
+        "together_txt2img_fallback": TOGETHER_TXT2IMG_FALLBACK,
         "hf_txt2img_fallback": HF_TXT2IMG_FALLBACK,
         "txt2img_steps": 4,
     },
@@ -106,6 +131,7 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
         "name": "Poll Generator",
         "description": "Engaging polls with AI-generated question and options",
         "text_model": CF_TEXT_FREE,
+        "groq_text_fallback": GROQ_TEXT_FALLBACK,
         "hf_text_fallback": HF_TEXT_FALLBACK,
     },
     "article": {
@@ -113,6 +139,7 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
         "name": "Article Publisher",
         "description": "Long-form LinkedIn articles with AI-structured content",
         "text_model": CF_TEXT_FREE,
+        "groq_text_fallback": GROQ_TEXT_FALLBACK,
         "hf_text_fallback": HF_TEXT_FALLBACK,
     },
 }

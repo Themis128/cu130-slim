@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.content import MediaAsset
 from app.models.user import Team, TeamMember, User
@@ -208,6 +209,8 @@ async def list_media(
     page_size: int = Query(20, ge=1, le=100),
     type: str | None = Query(None, description="Filter: 'image' | 'video' | 'generated' (AI Generated)"),
     source: str | None = Query(None, description="Filter by exact source (e.g. 'upload', 'comfyui', 'ai-generated')"),
+    sort: str | None = Query(None, description="Sort: 'newest' | 'oldest' | 'largest' | 'smallest' | 'name_asc' | 'name_desc'"),
+    search: str | None = Query(None, description="Search filename, alt_text, and generation_prompt"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -230,11 +233,30 @@ async def list_media(
     elif type in ("generated", "ai-generated"):
         query = query.where(MediaAsset.source.in_(["ai-generated", "comfyui"]))
 
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                MediaAsset.filename.ilike(pattern),
+                MediaAsset.alt_text.ilike(pattern),
+                MediaAsset.generation_prompt.ilike(pattern),
+            )
+        )
+
     from sqlalchemy import func
+
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
-    query = query.order_by(MediaAsset.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    sort_map = {
+        "oldest": MediaAsset.created_at.asc(),
+        "largest": MediaAsset.size_bytes.desc().nulls_last(),
+        "smallest": MediaAsset.size_bytes.asc().nulls_last(),
+        "name_asc": MediaAsset.filename.asc().nulls_last(),
+        "name_desc": MediaAsset.filename.desc().nulls_last(),
+    }
+    order = sort_map.get(sort or "", MediaAsset.created_at.desc())
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     assets = result.scalars().all()
 
@@ -267,6 +289,41 @@ async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_cur
     await db.commit()
 
 
+class BulkDeleteRequest(BaseModel):
+    ids: list[uuid.UUID]
+
+
+@router.post("/assets/bulk-delete", status_code=status.HTTP_200_OK)
+async def bulk_delete_media(
+    body: BulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id.in_(body.ids),
+            MediaAsset.team_id == team.id,
+        )
+    )
+    assets = result.scalars().all()
+    deleted = 0
+    for asset in assets:
+        abs_path = os.path.join(UPLOAD_DIR, asset.storage_path) if not os.path.isabs(asset.storage_path) else asset.storage_path
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+        await db.delete(asset)
+        deleted += 1
+    await db.commit()
+    return {"deleted": deleted}
+
+
 class MediaGenerateOptions(BaseModel):
     width: int | None = None
     height: int | None = None
@@ -288,11 +345,18 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate an image via Cloudflare Workers AI (FLUX schnell) and store it."""
+    """Generate an image via Cloudflare Workers AI (FLUX schnell) with fallback chain."""
     import base64
 
     from app.services.cf_models import CF_TXT2IMG_FREE
-    from app.services.inference import _call_workers_ai_image
+    from app.services.inference import (
+        _call_workers_ai_image,
+        _call_pixazo_txt2img,
+        _call_together_txt2img,
+        _call_hf_txt2img,
+        TOGETHER_TXT2IMG_FALLBACK,
+        HF_TXT2IMG_FALLBACK,
+    )
     from app.services.media_storage import persist_generated_image
 
     result = await db.execute(
@@ -305,23 +369,68 @@ async def generate_image(
     opts = body.options or MediaGenerateOptions()
     model = opts.model or CF_TXT2IMG_FREE
     if model and not model.startswith("@cf/"):
-        # Legacy short names from old workflow templates
         model = f"@cf/stabilityai/{model}" if "stable-diffusion" in model else CF_TXT2IMG_FREE
 
+    width = opts.width or 1024
+    height = opts.height or 1024
+    steps = opts.steps or 4
+
+    generated = None
     try:
         generated = await _call_workers_ai_image(
             prompt=body.prompt,
             model=model,
             negative_prompt=opts.negative_prompt or "",
-            width=opts.width or 768,
-            height=opts.height or 768,
-            steps=opts.steps or 4,
+            width=width,
+            height=height,
+            steps=steps,
             cfg_scale=opts.cfg_scale or 3.5,
         )
-    except HTTPException:
-        raise
+    except HTTPException as exc:
+        print(f"[media/generate] CF failed ({exc.status_code}), trying fallbacks", flush=True)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Image generation failed: {exc}") from exc
+
+    if generated is None:
+        pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
+        together_key = (settings.TOGETHER_API_KEY or "").strip()
+        hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+
+        if pixazo_key:
+            print("[media/generate] Trying Pixazo FLUX Schnell", flush=True)
+            try:
+                generated = await _call_pixazo_txt2img(
+                    prompt=body.prompt, api_key=pixazo_key,
+                    width=width, height=height,
+                )
+            except HTTPException:
+                print("[media/generate] Pixazo failed", flush=True)
+
+        if generated is None and together_key:
+            print(f"[media/generate] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+            try:
+                generated = await _call_together_txt2img(
+                    prompt=body.prompt, model=TOGETHER_TXT2IMG_FALLBACK,
+                    api_key=together_key, width=width, height=height, steps=steps,
+                )
+            except HTTPException:
+                print("[media/generate] Together failed", flush=True)
+
+        if generated is None and hf_key:
+            print(f"[media/generate] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
+            try:
+                generated = await _call_hf_txt2img(
+                    prompt=body.prompt, model=HF_TXT2IMG_FALLBACK,
+                    api_key=hf_key, width=width, height=height, steps=steps,
+                )
+            except HTTPException:
+                print("[media/generate] HF also failed", flush=True)
+
+        if generated is None:
+            raise HTTPException(
+                status_code=502,
+                detail="All image generation providers exhausted (CF quota + fallbacks failed)",
+            )
 
     image_b64 = generated.get("image_base64") or ""
     if not image_b64:

@@ -16,10 +16,16 @@ from app.services.cf_models import (
     CF_IMG2IMG_FREE,
     CF_TEXT_FREE,
     CF_TXT2IMG_FREE,
+    GROQ_API_BASE,
+    GROQ_TEXT_FALLBACK,
     HF_API_BASE,
     HF_IMG2IMG_FALLBACK,
     HF_TEXT_FALLBACK,
     HF_TXT2IMG_FALLBACK,
+    PIXAZO_TXT2IMG_URL,
+    TOGETHER_API_BASE,
+    TOGETHER_TEXT_FALLBACK,
+    TOGETHER_TXT2IMG_FALLBACK,
 )
 
 settings = get_settings()
@@ -53,7 +59,7 @@ PROVIDER_CATALOG = [
     {
         "name": "huggingface",
         "display_name": "Hugging Face",
-        "base_url": "https://api-inference.huggingface.co/v1",
+        "base_url": "https://router.huggingface.co/v1",
         "default_model": "meta-llama/Llama-3.1-70B-Instruct",
         "requires_key": True,
         "description": "HuggingFace Serverless Inference API",
@@ -746,6 +752,8 @@ async def _call_cf_image_pipeline(
         "professional LinkedIn carousel background, no readable text, no logos"
     )
 
+    pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
+    together_key = (settings.TOGETHER_API_KEY or "").strip()
     hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
     try:
         draft = await _call_workers_ai_image(
@@ -755,17 +763,32 @@ async def _call_cf_image_pipeline(
             steps=txt2img_steps,
         )
     except HTTPException as exc:
-        if not _is_cf_quota_error(exc) or not hf_key:
+        if not _is_cf_quota_error(exc):
             raise
-        print(f"[cf-pipeline] CF txt2img quota — falling back to HF FLUX for draft", flush=True)
-        draft = await _call_hf_txt2img(
-            prompt=prompt,
-            model=HF_TXT2IMG_FALLBACK,
-            api_key=hf_key,
-            width=1024,
-            height=1024,
-            steps=txt2img_steps,
-        )
+        draft = None
+        if pixazo_key:
+            print("[cf-pipeline] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
+            try:
+                draft = await _call_pixazo_txt2img(prompt=prompt, api_key=pixazo_key, width=1024, height=1024)
+            except HTTPException:
+                print("[cf-pipeline] Pixazo also failed", flush=True)
+        if draft is None and together_key:
+            print(f"[cf-pipeline] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+            try:
+                draft = await _call_together_txt2img(
+                    prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
+                    width=1024, height=1024, steps=txt2img_steps,
+                )
+            except HTTPException:
+                print("[cf-pipeline] Together txt2img also failed", flush=True)
+        if draft is None and hf_key:
+            print(f"[cf-pipeline] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
+            draft = await _call_hf_txt2img(
+                prompt=prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
+                width=1024, height=1024, steps=txt2img_steps,
+            )
+        if draft is None:
+            raise
     draft_bytes = base64.b64decode(draft["image_base64"])
 
     if img2img_model:
@@ -977,7 +1000,7 @@ async def _call_hf_chat(
         payload["response_format"] = {"type": "json_object"}
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    url = f"{HF_API_BASE}/models/{model}/v1/chat/completions"
+    url = f"{HF_API_BASE}/v1/chat/completions"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
@@ -1019,7 +1042,7 @@ async def _call_hf_txt2img(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(
-            f"{HF_API_BASE}/models/{model}",
+            f"{HF_API_BASE}/hf-inference/models/{model}",
             headers=headers,
             json={"inputs": prompt, "parameters": parameters},
         )
@@ -1064,7 +1087,7 @@ async def _call_hf_img2img(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(
-            f"{HF_API_BASE}/models/{model}",
+            f"{HF_API_BASE}/hf-inference/models/{model}",
             headers=headers,
             json={"inputs": image_b64, "parameters": parameters},
         )
@@ -1079,6 +1102,151 @@ async def _call_hf_img2img(
         "format": "base64",
         "prompt": prompt,
         "provider": "huggingface",
+        "model": model,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pixazo — free FLUX Schnell txt2img (60 RPM, no daily cap)
+# ---------------------------------------------------------------------------
+
+async def _call_pixazo_txt2img(
+    prompt: str,
+    api_key: str,
+    width: int = 1024,
+    height: int = 1024,
+) -> dict:
+    """Pixazo free FLUX Schnell — returns image URL, we download and base64-encode it."""
+    import base64
+
+    headers = {
+        "Content-Type": "application/json",
+        "Ocp-Apim-Subscription-Key": api_key,
+    }
+    payload: dict = {"prompt": prompt}
+    if width != 1024 or height != 1024:
+        payload["width"] = width
+        payload["height"] = height
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(PIXAZO_TXT2IMG_URL, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Pixazo txt2img error {resp.status_code}: {resp.text[:300]}",
+            )
+        data = resp.json()
+        image_url = data.get("output") or data.get("url") or data.get("image_url") or ""
+        if not image_url:
+            raise HTTPException(status_code=502, detail="Pixazo returned no image URL")
+
+        img_resp = await client.get(image_url, timeout=60.0)
+        if img_resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Pixazo image download failed: {img_resp.status_code}",
+            )
+
+    return {
+        "image_base64": base64.b64encode(img_resp.content).decode("utf-8"),
+        "format": "base64",
+        "prompt": prompt,
+        "provider": "pixazo",
+        "model": "flux-1-schnell",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Groq — free-tier text fallback (14.4K req/day, 30 RPM)
+# ---------------------------------------------------------------------------
+
+async def _call_groq_chat(
+    prompt: str,
+    model: str,
+    api_key: str,
+    schema: dict | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    """Groq — OpenAI-compatible chat completions."""
+    system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
+    user_msg = prompt
+    if schema:
+        user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
+
+    payload: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.7,
+        "max_tokens": max_tokens or (4096 if schema else 1024),
+    }
+    if schema:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    url = f"{GROQ_API_BASE}/chat/completions"
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Groq text fallback error {resp.status_code}: {resp.text[:300]}",
+            )
+
+    content = resp.json()["choices"][0]["message"].get("content", "")
+    if schema:
+        return _parse_json_response(content)
+    return {"text": content}
+
+
+# ---------------------------------------------------------------------------
+# Together AI — free FLUX.1-schnell txt2img fallback
+# ---------------------------------------------------------------------------
+
+async def _call_together_txt2img(
+    prompt: str,
+    model: str,
+    api_key: str,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 4,
+) -> dict:
+    """Together AI — text-to-image via their images/generations endpoint."""
+    import base64
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "steps": max(1, min(steps, 8)),
+        "n": 1,
+        "response_format": "b64_json",
+    }
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(
+            f"{TOGETHER_API_BASE}/images/generations",
+            headers=headers,
+            json=payload,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Together txt2img fallback error {resp.status_code}: {resp.text[:300]}",
+            )
+
+    data = resp.json()
+    img_b64 = data["data"][0]["b64_json"]
+    return {
+        "image_base64": img_b64,
+        "format": "base64",
+        "prompt": prompt,
+        "provider": "together",
         "model": model,
     }
 
@@ -1134,14 +1302,32 @@ async def call_inference(
             except HTTPException as exc:
                 if not _is_cf_quota_error(exc):
                     raise
+                # CF txt2img exhausted → Pixazo → Together → HF
+                pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
+                if pixazo_key:
+                    print("[inference] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
+                    try:
+                        return await _call_pixazo_txt2img(prompt, api_key=pixazo_key, width=1024, height=1024)
+                    except HTTPException:
+                        print("[inference] Pixazo also failed — trying Together", flush=True)
+                together_key = (settings.TOGETHER_API_KEY or "").strip()
+                if together_key:
+                    print(f"[inference] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+                    try:
+                        return await _call_together_txt2img(
+                            prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
+                            width=1024, height=1024, steps=4,
+                        )
+                    except HTTPException:
+                        print("[inference] Together txt2img also failed — trying HF", flush=True)
                 hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-                if not hf_key:
-                    raise
-                print(f"[inference] CF txt2img quota — falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
-                return await _call_hf_txt2img(
-                    prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
-                    width=1024, height=1024, steps=4,
-                )
+                if hf_key:
+                    print(f"[inference] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
+                    return await _call_hf_txt2img(
+                        prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
+                        width=1024, height=1024, steps=4,
+                    )
+                raise
         try:
             return await _call_workers_ai_chat(
                 prompt, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
@@ -1149,14 +1335,25 @@ async def call_inference(
         except HTTPException as exc:
             if not _is_cf_quota_error(exc):
                 raise
+            # CF text exhausted → Groq → HF
+            groq_key = (settings.GROQ_API_KEY or "").strip()
+            if groq_key:
+                print(f"[inference] CF text quota — falling back to Groq {GROQ_TEXT_FALLBACK}", flush=True)
+                try:
+                    return await _call_groq_chat(
+                        prompt, model=GROQ_TEXT_FALLBACK, api_key=groq_key,
+                        schema=schema, max_tokens=max_tokens,
+                    )
+                except HTTPException as groq_exc:
+                    print(f"[inference] Groq failed: {getattr(groq_exc, 'detail', groq_exc)!s:.200s} — trying HF", flush=True)
             hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-            if not hf_key:
-                raise
-            print(f"[inference] CF text quota — falling back to HF {HF_TEXT_FALLBACK}", flush=True)
-            return await _call_hf_chat(
-                prompt, model=HF_TEXT_FALLBACK, api_key=hf_key,
-                schema=schema, max_tokens=max_tokens,
-            )
+            if hf_key:
+                print(f"[inference] Falling back to HF {HF_TEXT_FALLBACK}", flush=True)
+                return await _call_hf_chat(
+                    prompt, model=HF_TEXT_FALLBACK, api_key=hf_key,
+                    schema=schema, max_tokens=max_tokens,
+                )
+            raise
     return await _call_openai_compat(
         prompt, base_url=base_url, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
     )

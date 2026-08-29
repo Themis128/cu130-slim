@@ -262,6 +262,7 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
+    image: baltzakist/social-api:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
@@ -322,6 +323,9 @@ services:
     - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN:-}
     - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET:-}
     - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+    - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+    - GROQ_API_KEY=${GROQ_API_KEY:-}
+    - PIXAZO_API_KEY=${PIXAZO_API_KEY:-}
     - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
     - MINIO_ENDPOINT=minio:9000
     - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
@@ -354,6 +358,7 @@ services:
     - 8.8.8.8
     restart: unless-stopped
   social-worker:
+    image: baltzakist/social-worker:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -387,6 +392,9 @@ services:
     - DIGEST_EMAIL_ISSUES_ONLY=${DIGEST_EMAIL_ISSUES_ONLY:-false}
     - CLOUDFLARE_EMAIL_API_TOKEN=${CLOUDFLARE_EMAIL_API_TOKEN:-}
     - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+    - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+    - GROQ_API_KEY=${GROQ_API_KEY:-}
+    - PIXAZO_API_KEY=${PIXAZO_API_KEY:-}
     - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
     volumes:
     - ./.env:/app/.env:ro
@@ -411,6 +419,7 @@ services:
     - 8.8.8.8
     restart: unless-stopped
   celery-beat:
+    image: baltzakist/social-worker:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -468,6 +477,7 @@ services:
     - social-api
 
   social-frontend:
+    image: baltzakist/social-frontend:v2.00
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile.dev

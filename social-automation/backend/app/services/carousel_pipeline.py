@@ -19,9 +19,12 @@ from sqlalchemy.orm import selectinload
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE
+from app.core.config import get_settings as _get_settings
+from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, TOGETHER_TXT2IMG_FALLBACK
 from app.services.duplicate_detector import is_duplicate
 from app.services.inference import (
+    _call_pixazo_txt2img,
+    _call_together_txt2img,
     _call_workers_ai_image,
     call_inference,
 )
@@ -452,7 +455,7 @@ async def _cf_generate_background(
     image_prompt: str,
     txt2img_model: str,
 ) -> Image.Image | None:
-    """Generate a unique realistic background via CF txt2img (flux-1-schnell).
+    """Generate a unique realistic background via CF → Together AI fallback.
 
     Adds random photographic style and mood modifiers to ensure every generation
     looks different, even for similar prompts.
@@ -464,6 +467,9 @@ async def _cf_generate_background(
         f"professional photography, high quality, sharp focus, "
         f"no text, no letters, no words, no watermark"
     )
+    raw_bytes = None
+
+    # Try CF first
     try:
         t2i_result = await _call_workers_ai_image(
             prompt_t2i,
@@ -475,12 +481,48 @@ async def _cf_generate_background(
         raw_bytes = base64.b64decode(t2i_result["image_base64"])
     except Exception as e:
         print(f"[carousel] CF txt2img failed (non-fatal): {e}", flush=True)
+
+    # CF failed → Pixazo FLUX Schnell (free, no daily cap)
+    if raw_bytes is None:
+        pixazo_key = (_get_settings().PIXAZO_API_KEY or "").strip()
+        if pixazo_key:
+            try:
+                t2i_result = await _call_pixazo_txt2img(
+                    prompt=prompt_t2i,
+                    api_key=pixazo_key,
+                    width=1024,
+                    height=1024,
+                )
+                raw_bytes = base64.b64decode(t2i_result["image_base64"])
+                print("[carousel] Pixazo FLUX Schnell succeeded", flush=True)
+            except Exception as e:
+                print(f"[carousel] Pixazo txt2img failed (non-fatal): {e}", flush=True)
+
+    # Pixazo failed → Together AI FLUX.1-schnell
+    if raw_bytes is None:
+        together_key = (_get_settings().TOGETHER_API_KEY or "").strip()
+        if together_key:
+            try:
+                t2i_result = await _call_together_txt2img(
+                    prompt=prompt_t2i,
+                    model=TOGETHER_TXT2IMG_FALLBACK,
+                    api_key=together_key,
+                    width=1024,
+                    height=1024,
+                    steps=4,
+                )
+                raw_bytes = base64.b64decode(t2i_result["image_base64"])
+                print("[carousel] Together AI txt2img succeeded", flush=True)
+            except Exception as e:
+                print(f"[carousel] Together txt2img also failed (non-fatal): {e}", flush=True)
+
+    if raw_bytes is None:
         return None
 
     try:
         return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     except Exception as e:
-        print(f"[carousel] Could not decode CF image: {e}", flush=True)
+        print(f"[carousel] Could not decode image: {e}", flush=True)
         return None
 
 
@@ -586,8 +628,8 @@ async def run_cloudless_carousel_pipeline(
 ) -> dict:
     """Full pipeline: CF copy → NLP → txt2img bg → brand slides → post → publish.
 
-    Text: CF Workers AI → HF Mistral-7B → Ollama (last resort).
-    Images: CF FLUX Schnell txt2img → subtle background tint on each slide.
+    Text: CF Workers AI → Groq → HF → Ollama (last resort).
+    Images: CF FLUX Schnell → Together AI FLUX → HF → solid color fallback.
     """
     target_id = uuid.UUID(target_account_id or DEFAULT_ORG_ACCOUNT_ID)
     account = (
@@ -602,12 +644,11 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — CF primary → HF fallback (inside call_inference) → Ollama last resort
-    from app.core.config import get_settings as _get_settings
+    # 1) Copy — CF primary → Groq → HF fallback (inside call_inference) → Ollama last resort
     _ollama_model = _get_settings().OLLAMA_DEFAULT_MODEL
     effective_provider = text_provider
     try:
-        # call_inference() handles CF→HF internally on quota errors when HF_TOKEN is set
+        # call_inference() handles CF→Groq→HF internally on quota errors
         raw = await generate_carousel_copy(
             topic=topic,
             num_slides=num_slides,
@@ -620,9 +661,9 @@ async def run_cloudless_carousel_pipeline(
         )
     except (HTTPException, Exception) as exc:
         detail = str(getattr(exc, "detail", exc))
-        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded", "hf", "hugging", "connect", "timeout", "no address", "unreachable")):
-            # CF+HF both exhausted — Ollama is the last resort
-            print(f"[carousel] CF+HF quota exhausted, falling back to Ollama ({_ollama_model}): {detail[:100]}", flush=True)
+        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded", "hf", "hugging", "groq", "together", "connect", "timeout", "no address", "unreachable")):
+            # CF+Groq+HF all exhausted — Ollama is the last resort
+            print(f"[carousel] All cloud providers exhausted, falling back to Ollama ({_ollama_model}): {detail[:100]}", flush=True)
             effective_provider = "ollama"
             raw = await generate_carousel_copy(
                 topic=topic,
