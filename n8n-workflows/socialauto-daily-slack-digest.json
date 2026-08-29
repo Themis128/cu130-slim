@@ -1,0 +1,142 @@
+{
+  "id": "socialauto-daily-slack-digest",
+  "name": "SocialAuto Daily Digest → #socialauto",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched-daily-digest",
+      "name": "Daily 09:00 Athens",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "socialauto-daily-digest",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-daily-digest",
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200],
+      "webhookId": "socialauto-daily-digest"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst days = Number(body.days || $env.SOCIALAUTO_DIGEST_DAYS || 1);\nconst post = body.post_to_slack === false ? false : true;\nreturn [{ json: { days: Math.max(1, Math.min(30, days || 1)), post_to_slack: post } }];"
+      },
+      "id": "resolve-digest-config",
+      "name": "Resolve Digest Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "login-social-api",
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ops/daily-digest?days=' + $('Resolve Digest Config').item.json.days + '&post_to_slack=' + $('Resolve Digest Config').item.json.post_to_slack }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "call-daily-digest",
+      "name": "Run Daily Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 100],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!first.posted_to_slack,\n    slack_error: first.slack_error || null,\n    issue_count: (first.issues || []).length,\n    team_name: first.team_name || null,\n  }\n}];"
+      },
+      "id": "summarize",
+      "name": "Summarize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 100]
+    }
+  ],
+  "connections": {
+    "Daily 09:00 Athens": {
+      "main": [[{ "node": "Resolve Digest Config", "type": "main", "index": 0 }]]
+    },
+    "Manual Webhook": {
+      "main": [[{ "node": "Resolve Digest Config", "type": "main", "index": 0 }]]
+    },
+    "Resolve Digest Config": {
+      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+    },
+    "Login Social API": {
+      "main": [[{ "node": "Run Daily Digest", "type": "main", "index": 0 }]]
+    },
+    "Run Daily Digest": {
+      "main": [[{ "node": "Summarize Result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    { "name": "cloudless" },
+    { "name": "socialauto" },
+    { "name": "slack" }
+  ]
+}

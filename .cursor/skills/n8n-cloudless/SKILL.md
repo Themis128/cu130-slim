@@ -27,9 +27,20 @@ description: >-
 | Schedule | every 2 days at **19:00 Europe/Athens** |
 | Calls | social-api login → `/api/v1/ai/run-carousel-and-publish` (`wait_for_publish=false`) |
 
+| Workflow id | `socialauto-daily-slack-digest` |
+| Name | `SocialAuto Daily Digest → #socialauto` |
+| JSON | `n8n-workflows/socialauto-daily-slack-digest.json` |
+| Prod webhook | `POST http://localhost:5678/webhook/socialauto-daily-digest` |
+| Schedule | daily **09:00 Europe/Athens** |
+| Calls | social-api login → `POST /api/v1/ops/daily-digest` → Slack |
+
 n8n env (compose): `SOCIAL_API_URL`, `SOCIAL_ADMIN_EMAIL`, `SOCIAL_ADMIN_PASSWORD`,
 `CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID`, `CLOUDLESS_CAROUSEL_TOPIC`, `CLOUDLESS_CAROUSEL_SLIDES`,
-`GENERIC_TIMEZONE=Europe/Athens`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+`SOCIALAUTO_DIGEST_DAYS`, `GENERIC_TIMEZONE=Europe/Athens`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+
+Slack posting needs `SLACK_WEBHOOK_URL` (or `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`) on
+`social-api` / `social-worker`. Channel: `#socialauto` (`C0BT263L17U`).
+Celery beat also runs the same digest at `SLACK_DIGEST_HOUR` (default 09:00 Athens).
 
 ## n8n 2.x rules (from docs)
 
@@ -45,6 +56,9 @@ From repo root:
 ```bash
 # Import + publish workflow (CLI), then restart n8n
 .cursor/skills/n8n-cloudless/scripts/deploy-workflow.sh
+
+# Daily analytics + issues digest → Slack #socialauto
+.cursor/skills/n8n-cloudless/scripts/deploy-daily-digest.sh
 
 # Register in social app Workflows UI (template + deployed workflow)
 .cursor/skills/n8n-cloudless/scripts/register-workflow.py

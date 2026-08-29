@@ -45,4 +45,16 @@ docker compose up -d n8n social-api social-worker
 ## Related skills
 
 - `cloudless-carousel-pipeline` — CF carousel + LinkedIn org
-- `n8n-cloudless` — automate via n8n webhook/schedule
+- `n8n-cloudless` — automate via n8n webhook/schedule (includes daily Slack digest → `#socialauto`)
+
+## Slack daily digest (#socialauto)
+
+- Channel: `#socialauto` (`C0BT263L17U`)
+- Slack: `SLACK_BOT_TOKEN` must be `xoxb-…` (not Slack CLI `xoxe-…`)
+- Email: reports + warnings/errors to `DIGEST_EMAIL_TO`=`tbaltzakis@cloudless.gr`
+  (dedicated mail client → omv-ha dovecot).
+  - **Free path:** `EMAIL_PROVIDER=smtp` → `smtp.resend.com:587` (same Resend
+    relay as omv-ha). Inbound: CF Email Routing → `mail-ingest` → Maildir.
+  - Do **not** use paid Cloudflare Email Sending for this.
+- Recreate `social-api` / `social-worker` after changing email/Slack env.
+- Manual: login as admin → `POST /api/v1/ops/daily-digest?post_to_slack=true&post_to_email=true`
