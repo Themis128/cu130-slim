@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import random
 import re
 import uuid
 from datetime import UTC, datetime
@@ -163,11 +164,11 @@ def _draw_infographic(
     *,
     motif: str,
     highlight: str | None,
+    chart_data: dict | None = None,
 ) -> None:
     """Data-driven infographics — charts, tables, process flows (no AI text)."""
-    # Background card
+    # Background card with semi-transparent dark overlay for readability
     draw.rounded_rectangle((80, 530, 1000, 930), radius=32, fill=CARD, outline=(35, 55, 75), width=2)
-    # ── Section label ─────────────────────────────────────────────────────────
     RED = (220, 70, 70)
 
     if motif == "cover":
@@ -257,13 +258,15 @@ def _draw_infographic(
         return
 
     if motif == "rocket":
-        # Key metric cards — 3 KPIs in a row
         draw.text((110, 555), "By the numbers", font=_font(24, "bold"), fill=SUB)
-        kpis = [
-            ("< 5 min", "deploy time"),
-            ("99.9%",   "uptime SLA"),
-            ("80%",     "ops saved"),
-        ]
+        if chart_data and isinstance(chart_data.get("items"), list) and len(chart_data["items"]) >= 2:
+            kpis = [(str(item.get("value", "")), str(item.get("label", ""))) for item in chart_data["items"][:3]]
+        else:
+            kpis = [
+                ("< 5 min", "deploy time"),
+                ("99.9%",   "uptime SLA"),
+                ("80%",     "ops saved"),
+            ]
         for i, (val, label) in enumerate(kpis):
             x = 110 + i * 296
             draw.rounded_rectangle((x, 610, x + 266, 820), radius=20, fill=(20, 28, 44), outline=(40, 55, 75), width=2)
@@ -289,14 +292,15 @@ def _draw_infographic(
         return
 
     if motif == "stat":
-        # Big stat with a horizontal gauge bar
         big = _ascii_safe(highlight) if highlight else "80%"
-        # Centre the big number
         bw = int(draw.textlength(big, font=_font(110, "bold")))
         draw.text(((1080 - bw) // 2, 590), big, font=_font(110, "bold"), fill=ACCENT)
-        label = "of ops overhead eliminated"
-        lw = int(draw.textlength(label, font=_font(26)))
-        draw.text(((1080 - lw) // 2, 720), label, font=_font(26), fill=SUB)
+        label = (chart_data or {}).get("label", "") if chart_data else ""
+        if not label:
+            label = "key metric"
+        label = _ascii_safe(label)
+        lw = int(draw.textlength(label[:50], font=_font(26)))
+        draw.text(((1080 - lw) // 2, 720), label[:50], font=_font(26), fill=SUB)
         # Gauge bar
         gauge_x1, gauge_x2 = 160, 920
         draw.rounded_rectangle((gauge_x1, 778, gauge_x2, 814), radius=18, fill=(30, 38, 54))
@@ -344,6 +348,7 @@ def compose_branded_slide(
     body: str,
     highlight: str | None = None,
     motif: str | None = None,
+    chart_data: dict | None = None,
 ) -> Image.Image:
     """Infographic slide: vector art + PIL text only (correct spelling, no AI glyphs)."""
     title = _ascii_safe(title)
@@ -355,11 +360,11 @@ def compose_branded_slide(
         else:
             body = ""
 
-    # Brand canvas — dark base, optionally tinted with CF-generated texture.
+    # Brand canvas — dark base, blended with realistic CF-generated background.
     img = Image.new("RGB", (1080, 1080), BG)
     if bg_img is not None:
         bg_resized = bg_img.resize((1080, 1080), Image.Resampling.LANCZOS).convert("RGB")
-        img = Image.blend(img, bg_resized, alpha=0.22)
+        img = Image.blend(img, bg_resized, alpha=0.35)
     draw = ImageDraw.Draw(img)
     _draw_grid(draw)
     _draw_soft_orbs(draw)
@@ -385,7 +390,7 @@ def compose_branded_slide(
     if body:
         _draw_wrapped(draw, body, (PAD, y), _font(32, "regular"), SUB, 940)
 
-    _draw_infographic(draw, motif=motif_key, highlight=highlight)
+    _draw_infographic(draw, motif=motif_key, highlight=highlight, chart_data=chart_data)
 
     # Footer brand strip
     draw.rectangle((0, 1044, 1080, 1080), fill=(10, 12, 20))
@@ -414,20 +419,50 @@ def _dedupe_slide_copy(slides: list[dict]) -> list[dict]:
     return out or slides
 
 
+_PHOTO_STYLES = [
+    "shot on Canon EOS R5, 35mm lens, natural light",
+    "shot on Sony A7IV, wide angle, golden hour",
+    "drone photography, DJI Mavic, bird's eye view",
+    "Hasselblad medium format, shallow depth of field",
+    "shot on Fujifilm X-T5, moody color grading",
+    "DSLR macro photography, bokeh background",
+    "editorial photography, studio lighting setup",
+    "National Geographic style, vivid colors",
+    "architectural photography, leading lines",
+    "street photography, urban environment, contrast",
+    "low angle shot, dramatic perspective",
+    "long exposure photography, motion blur",
+    "tilt-shift miniature effect, selective focus",
+    "infrared photography style, surreal tones",
+]
+
+_MOODS = [
+    "warm tones, amber and gold",
+    "cool tones, blue and teal",
+    "high contrast, dramatic shadows",
+    "soft diffused light, pastel undertones",
+    "neon-lit, cyberpunk atmosphere",
+    "minimalist, clean composition",
+    "moody, dark and atmospheric",
+    "bright and airy, overexposed highlights",
+]
+
+
 async def _cf_generate_background(
-    topic: str,
+    image_prompt: str,
     txt2img_model: str,
 ) -> Image.Image | None:
-    """Generate a dark abstract tech background via CF txt2img (flux-1-schnell).
+    """Generate a unique realistic background via CF txt2img (flux-1-schnell).
 
-    Returns None if CF is unavailable (quota / error).
-    Note: SD img2img (@cf/runwayml/stable-diffusion-v1-5-img2img) is not
-    available on the current CF plan and has been removed from the pipeline.
+    Adds random photographic style and mood modifiers to ensure every generation
+    looks different, even for similar prompts.
     """
+    style = random.choice(_PHOTO_STYLES)
+    mood = random.choice(_MOODS)
     prompt_t2i = (
-        f"dark abstract technology background, deep space navy and cyan tones, "
-        f"subtle circuit patterns, minimalist, ultra-dark, no text, no letters, "
-        f"cinematic lighting, theme: {topic[:60]}"
+        f"{image_prompt}, {style}, {mood}, "
+        f"professional photography, high quality, sharp focus, "
+        f"no text, no letters, no words, no watermark"
     )
     try:
         t2i_result = await _call_workers_ai_image(
@@ -477,10 +512,26 @@ SLIDE RULES:
 - slide_type: cover (first), content (middle), stat (if there's a number), cta (last if include_cta={include_cta}).
 - UNIQUENESS: no two slides share the same benefit/idea. No filler words.
 
+IMAGE PROMPT RULES (one per slide — CRITICAL for visual quality):
+- image_prompt: a short (15-25 words) realistic/photographic scene description for the slide background.
+- Style: professional photography, real-world scenes, no abstract patterns, no text/letters/words in image.
+- Each slide MUST have a COMPLETELY DIFFERENT scene, setting, and subject. Vary the environment (indoor/outdoor/aerial/macro), time of day, and visual subject.
+- Be SPECIFIC and CREATIVE — describe exact objects, materials, environments. Generic prompts like "technology background" or "business meeting" are NOT allowed.
+- Good examples: "close-up of fiber optic cables with blue light pulses inside dark server room", "hands assembling a Raspberry Pi IoT sensor on a wooden workbench", "raindrops on a glass window reflecting blurred city traffic at night", "overhead shot of a whiteboard covered in architecture diagrams and sticky notes".
+- BAD examples (too generic): "technology background", "business concept", "abstract network", "person working".
+- Never reuse scenes between slides. Each must tell a different visual story.
+
+INFOGRAPHIC DATA (for slides with numbers/comparisons):
+- chart_data: optional object with data for infographic rendering.
+  For stat slides: {{"value": "85%", "label": "reduction in deploy time", "comparison": "was 2 hours, now 18 min"}}
+  For comparison slides: {{"items": [{{"label": "Before", "value": "4 hours"}}, {{"label": "After", "value": "18 min"}}]}}
+  For list slides: {{"items": ["point 1", "point 2", "point 3"]}}
+  Leave null for cover/cta slides.
+
 {PLAIN_ENGLISH_RULES}
 
 Return JSON only:
-- slides: array of exactly {num} objects with title, body, highlight, slide_type
+- slides: array of exactly {num} objects with title, body, highlight, slide_type, image_prompt, chart_data
 - suggested_caption: the engaging 2-3 sentence post caption
 - hashtags: 5-7 relevant hashtags without #"""
 
@@ -496,8 +547,10 @@ Return JSON only:
                         "body": {"type": "string"},
                         "highlight": {"type": ["string", "null"]},
                         "slide_type": {"type": "string"},
+                        "image_prompt": {"type": "string"},
+                        "chart_data": {"type": ["object", "null"]},
                     },
-                    "required": ["title", "body", "slide_type"],
+                    "required": ["title", "body", "slide_type", "image_prompt"],
                 },
             },
             "suggested_caption": {"type": "string"},
@@ -567,7 +620,7 @@ async def run_cloudless_carousel_pipeline(
         )
     except (HTTPException, Exception) as exc:
         detail = str(getattr(exc, "detail", exc))
-        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded", "hf", "hugging")):
+        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded", "hf", "hugging", "connect", "timeout", "no address", "unreachable")):
             # CF+HF both exhausted — Ollama is the last resort
             print(f"[carousel] CF+HF quota exhausted, falling back to Ollama ({_ollama_model}): {detail[:100]}", flush=True)
             effective_provider = "ollama"
@@ -601,21 +654,21 @@ async def run_cloudless_carousel_pipeline(
     )
     slides = _dedupe_slide_copy(slides)
 
-    # 3) CF txt2img: one branded background texture for all slides
-    print("[n8n-pipeline] generating CF background texture (txt2img)…", flush=True)
-    bg_img = await _cf_generate_background(topic, txt2img_model)
-    if bg_img:
-        print("[n8n-pipeline] CF background ready — compositing at 22% opacity", flush=True)
-    else:
-        print("[n8n-pipeline] CF images unavailable — pure brand canvas fallback", flush=True)
-
-    # 4) Brand slides with CF background tint
+    # 3) Per-slide CF txt2img: unique realistic background for each slide
     media_ids: list[uuid.UUID] = []
     for i, slide in enumerate(slides):
         title = slide.get("title") or f"Slide {i + 1}"
         body = slide.get("body") or ""
         stype = slide.get("slide_type") or "content"
-        print(f"[n8n-pipeline] rendering slide {i + 1}/{len(slides)}", flush=True)
+        image_prompt = slide.get("image_prompt") or f"professional photo related to {title}"
+
+        print(f"[n8n-pipeline] slide {i + 1}/{len(slides)} — generating background: {image_prompt[:60]}…", flush=True)
+        bg_img = await _cf_generate_background(image_prompt, txt2img_model)
+        if bg_img:
+            print(f"[n8n-pipeline] slide {i + 1} background ready", flush=True)
+        else:
+            print(f"[n8n-pipeline] slide {i + 1} CF unavailable — pure brand canvas", flush=True)
+
         branded = compose_branded_slide(
             bg_img,
             index=i + 1,
@@ -625,6 +678,7 @@ async def run_cloudless_carousel_pipeline(
             body=body,
             highlight=slide.get("highlight"),
             motif=slide.get("visual") or slide.get("motif"),
+            chart_data=slide.get("chart_data"),
         )
         buf = io.BytesIO()
         branded.save(buf, format="PNG", optimize=True)
