@@ -317,11 +317,22 @@ services:
     - DIGEST_EMAIL_TO=${DIGEST_EMAIL_TO:-tbaltzakis@cloudless.gr}
     - DIGEST_EMAIL_ISSUES_ONLY=${DIGEST_EMAIL_ISSUES_ONLY:-false}
     - CLOUDFLARE_EMAIL_API_TOKEN=${CLOUDFLARE_EMAIL_API_TOKEN:-}
+    - TWITTER_API_KEY=${TWITTER_API_KEY:-}
+    - TWITTER_API_SECRET=${TWITTER_API_SECRET:-}
+    - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN:-}
+    - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET:-}
+    - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+    - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
+    - MINIO_ENDPOINT=minio:9000
+    - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+    - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+    - MINIO_BUCKET=social-media
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
     - ./social-automation/backend/alembic:/app/alembic
     - ./social-automation/uploads:/app/uploads
+    - tunnel_url:/run/tunnel
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
     - host.docker.internal:host-gateway
@@ -375,10 +386,12 @@ services:
     - DIGEST_EMAIL_TO=${DIGEST_EMAIL_TO:-tbaltzakis@cloudless.gr}
     - DIGEST_EMAIL_ISSUES_ONLY=${DIGEST_EMAIL_ISSUES_ONLY:-false}
     - CLOUDFLARE_EMAIL_API_TOKEN=${CLOUDFLARE_EMAIL_API_TOKEN:-}
+    - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
     - ./social-automation/uploads:/app/uploads
+    - tunnel_url:/run/tunnel
     extra_hosts:
     - host.docker.internal:host-gateway
     depends_on:
@@ -442,10 +455,21 @@ services:
     - 1.1.1.1
     - 8.8.8.8
     restart: unless-stopped
+  cloudflared:
+    image: baltzakist/cloudflared:v0.2
+    pull_policy: always
+    container_name: social-cloudflared
+    volumes:
+    - tunnel_url:/run/tunnel
+    - ./social-automation/cloudflared-entrypoint.sh:/entrypoint.sh:ro
+    restart: unless-stopped
+    depends_on:
+    - social-api
+
   social-frontend:
     build:
       context: ./social-automation/frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: social-frontend
     ports:
     - 8082:8083
@@ -453,8 +477,12 @@ services:
     - TZ=Europe/Athens
     - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
     - API_INTERNAL_URL=http://social-api:8000
-    - NEXT_PUBLIC_API_URL=http://localhost:8083/api/v1
+    - NEXT_PUBLIC_API_URL=http://localhost:8082/api/v1
     - PORT=8083
+    volumes:
+    - ./social-automation/frontend:/app
+    - /app/node_modules
+    - /app/.next
     depends_on:
     - social-api
     restart: unless-stopped
@@ -463,3 +491,4 @@ volumes:
   postgres_data: null
   social_postgres_data: null
   redis_data: null
+  tunnel_url: null

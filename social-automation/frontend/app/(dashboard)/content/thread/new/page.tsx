@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Plus, Trash2, Image as ImageIcon, Loader2, Save, Send, ArrowLeft,
@@ -182,6 +182,12 @@ export default function NewThreadPage() {
   const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))]
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([])
+
+  useEffect(() => {
+    if (connectedAccounts.length === 0 || selectedPlatforms.length > 0) return
+    setSelectedPlatforms(connectedPlatforms)
+  }, [connectedAccounts])
+
   const [posts, setPosts] = useState<ThreadPost[]>([
     { id: crypto.randomUUID(), text: '', mediaIds: [], mediaFiles: [] },
     { id: crypto.randomUUID(), text: '', mediaIds: [], mediaFiles: [] },
@@ -320,10 +326,14 @@ export default function NewThreadPage() {
 
     setPublishing(true)
     try {
-      const connectedAccounts = (accounts as SocialAccount[] | undefined) || []
-      const targets = connectedAccounts
-        .filter(a => selectedPlatforms.includes(a.platform))
-        .map(a => ({ social_account_id: a.id }))
+      const allAccounts = (accounts as SocialAccount[] | undefined) || []
+      const seen = new Set<string>()
+      const targets: Array<{ social_account_id: string }> = []
+      for (const plat of selectedPlatforms) {
+        if (seen.has(plat)) continue
+        const acct = allAccounts.find(a => a.platform === plat)
+        if (acct) { targets.push({ social_account_id: acct.id }); seen.add(plat) }
+      }
 
       const post = await createPostMutation.mutateAsync({
         content_text: filledPosts.map((p, i) => `[${i + 1}/${filledPosts.length}] ${p.text}`).join('\n\n'),

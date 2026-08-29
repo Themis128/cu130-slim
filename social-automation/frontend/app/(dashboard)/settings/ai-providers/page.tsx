@@ -1,11 +1,15 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Loader2, Plug, Zap, Trash2, TestTube, CheckCircle, XCircle, Eye, EyeOff, Search } from 'lucide-react'
+import {
+  Loader2, Plug, Trash2, TestTube, CheckCircle, XCircle,
+  Eye, EyeOff, Search, ChevronDown, ChevronRight, Zap,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Switch } from '@/components/ui/Switch'
 import { useAIProviderCatalog, useAIProviders, useUpsertAIProvider, useDeleteAIProvider, useTestAIProvider, useAIProviderModels } from '@/hooks/useQueries'
 
 function ModelBrowser({ onPick }: { onPick: (id: string) => void }) {
@@ -24,20 +28,18 @@ function ModelBrowser({ onPick }: { onPick: (id: string) => void }) {
       (m.description || '').toLowerCase().includes(search.toLowerCase())),
   )
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading Workers AI catalog…
-      </div>
-    )
-  }
-  if (isError) {
-    return <p className="text-sm text-destructive py-2">Failed to load model catalog — check Cloudflare credentials.</p>
-  }
+  if (isLoading) return (
+    <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" /> Loading Workers AI catalog…
+    </div>
+  )
+  if (isError) return (
+    <p className="text-sm text-destructive py-2">Failed to load model catalog — check Cloudflare credentials.</p>
+  )
 
   return (
     <div className="rounded-md border p-3 space-y-2">
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex gap-2">
         <Input
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -47,21 +49,21 @@ function ModelBrowser({ onPick }: { onPick: (id: string) => void }) {
         <select
           value={taskFilter}
           onChange={e => setTaskFilter(e.target.value)}
-          className="h-8 text-xs rounded-md border bg-background px-2"
+          className="h-8 text-xs rounded-md border bg-background px-2 shrink-0"
         >
           <option value="all">All tasks</option>
           {tasks.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
       <p className="text-xs text-muted-foreground">
-        {filtered.length} of {models.length} models — click one to set it as the Default Model
+        {filtered.length} of {models.length} models — click to select
       </p>
-      <div className="max-h-64 overflow-y-auto divide-y divide-border rounded">
+      <div className="max-h-56 overflow-y-auto divide-y divide-border rounded">
         {filtered.map(m => (
           <button
             key={m.id}
             type="button"
-            className="w-full text-left px-2 py-1.5 hover:bg-muted rounded transition-colors"
+            className="w-full text-left px-2 py-1.5 hover:bg-muted transition-colors"
             onClick={() => onPick(m.id)}
           >
             <span className="text-xs font-medium font-mono">{m.id}</span>
@@ -92,20 +94,21 @@ export default function AIProvidersPage() {
   const deleteMutation = useDeleteAIProvider()
   const testMutation = useTestAIProvider()
 
-  const isLoading = catalogLoading || savedLoading
-  const isError = catalogError || savedError
-
-  // Local state per provider form
   const [testingProvider, setTestingProvider] = useState<string | null>(null)
   const [browsingModels, setBrowsingModels] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const [forms, setForms] = useState<Record<string, {
-    api_key: string; base_url: string; default_model: string; is_enabled: boolean; is_default: boolean; showKey: boolean
+    api_key: string; base_url: string; default_model: string
+    is_enabled: boolean; is_default: boolean; showKey: boolean
   }>>({})
+
+  const savedMap = useMemo(() => Object.fromEntries(saved.map(p => [p.name, p])), [saved])
 
   const getForm = (name: string) => {
     if (forms[name]) return forms[name]
-    const savedProvider = saved.find(p => p.name === name)
+    const savedProvider = savedMap[name]
     const catalogEntry = catalog.find(c => c.name === name)
     return {
       api_key: '',
@@ -117,9 +120,8 @@ export default function AIProvidersPage() {
     }
   }
 
-  const setField = (name: string, field: string, value: unknown) => {
+  const setField = (name: string, field: string, value: unknown) =>
     setForms(prev => ({ ...prev, [name]: { ...getForm(name), [field]: value } }))
-  }
 
   const handleSave = async (name: string) => {
     const form = getForm(name)
@@ -136,9 +138,14 @@ export default function AIProvidersPage() {
     setForms(prev => ({ ...prev, [name]: { ...prev[name] || getForm(name), api_key: '' } }))
   }
 
-  const savedMap = Object.fromEntries(saved.map(p => [p.name, p]))
+  const toggleExpanded = (name: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
 
-  if (isLoading) {
+  if (catalogLoading || savedLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -146,28 +153,20 @@ export default function AIProvidersPage() {
     )
   }
 
-  if (isError) {
+  if (catalogError || savedError) {
     return (
       <div className="max-w-4xl space-y-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">AI Providers</h1>
-        </div>
+        <h1 className="text-3xl font-bold tracking-tight">AI Providers</h1>
         <Card className="border-destructive/30">
           <CardContent className="flex flex-col items-center gap-4 py-12">
             <XCircle className="h-10 w-10 text-destructive" />
             <div className="text-center">
               <p className="font-medium">Failed to load AI providers</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your session may have expired. Try refreshing or logging in again.
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">Your session may have expired.</p>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { refetchCatalog(); refetchSaved() }}>
-                Retry
-              </Button>
-              <Button variant="default" onClick={() => window.location.href = '/login'}>
-                Log in again
-              </Button>
+              <Button variant="outline" onClick={() => { refetchCatalog(); refetchSaved() }}>Retry</Button>
+              <Button onClick={() => window.location.href = '/login'}>Log in again</Button>
             </div>
           </CardContent>
         </Card>
@@ -175,150 +174,190 @@ export default function AIProvidersPage() {
     )
   }
 
+  // Sort: enabled first, then disabled
+  const sorted = [...catalog].sort((a, b) => {
+    const aEnabled = savedMap[a.name]?.is_enabled ? 1 : 0
+    const bEnabled = savedMap[b.name]?.is_enabled ? 1 : 0
+    return bEnabled - aEnabled
+  })
+
+  const enabledCount = saved.filter(p => p.is_enabled).length
+  const defaultProvider = saved.find(p => p.is_default)
+
   return (
     <div className="max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">AI Providers</h1>
-        <p className="text-muted-foreground mt-1">
-          Configure cloud inference APIs. Once saved, any AI feature can route to your chosen provider.
-        </p>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">AI Providers</h1>
+          <p className="text-muted-foreground mt-1">
+            Configure cloud inference APIs. Once saved, any AI feature routes to your chosen provider.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-1">
+          <Badge variant={enabledCount > 0 ? 'success' : 'secondary'} className="text-xs gap-1.5">
+            <Zap className="h-3 w-3" />
+            {enabledCount} of {catalog.length} active
+          </Badge>
+          {defaultProvider && (
+            <Badge variant="default" className="text-xs">
+              Default: {defaultProvider.display_name ?? defaultProvider.name}
+            </Badge>
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-4">
-        {catalog.map(entry => {
+      {/* Provider cards */}
+      <div className="space-y-3">
+        {sorted.map(entry => {
           const form = getForm(entry.name)
           const existing = savedMap[entry.name]
+          const isOpen = expanded.has(entry.name)
           const isSaving = upsertMutation.isPending
           const isTesting = testingProvider === entry.name
+          const isEnabled = existing?.is_enabled ?? false
 
           return (
-            <Card key={entry.name} className={existing?.is_enabled ? 'border-primary/40' : ''}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{PROVIDER_ICONS[entry.name] || '🤖'}</span>
-                    <div>
-                      <CardTitle className="text-base">{entry.display_name}</CardTitle>
-                      <p className="text-xs text-muted-foreground">{entry.description}</p>
+            <Card
+              key={entry.name}
+              className={isEnabled ? 'border-primary/40' : 'border-muted'}
+            >
+              {/* Collapsed header — always visible */}
+              <button
+                type="button"
+                className="w-full text-left"
+                onClick={() => toggleExpanded(entry.name)}
+              >
+                <CardHeader className="pb-3 pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {isOpen
+                        ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                      <span className="text-xl shrink-0">{PROVIDER_ICONS[entry.name] || '🤖'}</span>
+                      <div className="min-w-0">
+                        <CardTitle className="text-sm font-semibold">{entry.display_name}</CardTitle>
+                        <p className="text-xs text-muted-foreground truncate">{entry.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {existing?.is_default && <Badge variant="default" className="text-xs">Default</Badge>}
+                      {isEnabled ? (
+                        <Badge variant="success" className="text-xs flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3" />Enabled
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {existing?.is_default && <Badge variant="default" className="text-xs">Default</Badge>}
-                    {existing?.is_enabled ? (
-                      <Badge variant="success" className="text-xs flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3" />Enabled
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-xs">Disabled</Badge>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
+                </CardHeader>
+              </button>
 
-              <CardContent className="space-y-3">
-                {/* API key */}
-                {entry.requires_key && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      API Key {existing?.has_key && <span className="text-green-500 normal-case">(saved)</span>}
-                    </label>
-                    <div className="relative">
+              {/* Expanded form */}
+              {isOpen && (
+                <CardContent className="space-y-4 pt-0">
+                  {/* API key */}
+                  {entry.requires_key && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        API Key{existing?.has_key && <span className="text-green-500 normal-case ml-1">(saved)</span>}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type={form.showKey ? 'text' : 'password'}
+                          value={form.api_key}
+                          onChange={e => setField(entry.name, 'api_key', e.target.value)}
+                          placeholder={existing?.has_key ? '•••••••••••• (leave blank to keep existing)' : `Enter ${entry.display_name} API key`}
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setField(entry.name, 'showKey', !form.showKey)}
+                        >
+                          {form.showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Base URL + Default Model */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Base URL</label>
                       <Input
-                        type={form.showKey ? 'text' : 'password'}
-                        value={form.api_key}
-                        onChange={e => setField(entry.name, 'api_key', e.target.value)}
-                        placeholder={existing?.has_key ? '••••••••••••  (leave blank to keep existing)' : `Enter ${entry.display_name} API key`}
-                        className="pr-10"
+                        value={form.base_url}
+                        onChange={e => setField(entry.name, 'base_url', e.target.value)}
+                        placeholder={entry.base_url || (entry.name === 'ollama' ? 'http://ollama:11434' : 'https://api.example.com/v1')}
+                        className="text-xs"
                       />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        onClick={() => setField(entry.name, 'showKey', !form.showKey)}
-                      >
-                        {form.showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Default Model</label>
+                      <Input
+                        value={form.default_model}
+                        onChange={e => setField(entry.name, 'default_model', e.target.value)}
+                        placeholder={entry.default_model}
+                        list={`models-${entry.name}`}
+                        className="text-xs"
+                      />
+                      <datalist id={`models-${entry.name}`}>
+                        {entry.model_examples.map(m => <option key={m} value={m} />)}
+                      </datalist>
                     </div>
                   </div>
-                )}
 
-                {/* Base URL */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Base URL</label>
-                    <Input
-                      value={form.base_url}
-                      onChange={e => setField(entry.name, 'base_url', e.target.value)}
-                      placeholder={entry.base_url || 'http://localhost:11435'}
-                      className="text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Default Model</label>
-                    <Input
-                      value={form.default_model}
-                      onChange={e => setField(entry.name, 'default_model', e.target.value)}
-                      placeholder={entry.default_model}
-                      list={`models-${entry.name}`}
-                      className="text-xs"
-                    />
-                    <datalist id={`models-${entry.name}`}>
-                      {entry.model_examples.map(m => <option key={m} value={m} />)}
-                    </datalist>
-                  </div>
-                </div>
+                  {/* Cloudflare model browser */}
+                  {entry.name === 'cloudflare' && (
+                    <div className="space-y-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => setBrowsingModels(prev => prev === 'cloudflare' ? null : 'cloudflare')}
+                      >
+                        <Search className="mr-2 h-3.5 w-3.5" />
+                        {browsingModels === 'cloudflare' ? 'Hide model catalog' : 'Browse Workers AI models'}
+                      </Button>
+                      {browsingModels === 'cloudflare' && (
+                        <ModelBrowser onPick={id => setField('cloudflare', 'default_model', id)} />
+                      )}
+                    </div>
+                  )}
 
-                {/* Cloudflare: browse the full live Workers AI model catalog */}
-                {entry.name === 'cloudflare' && (
-                  <div className="space-y-2">
+                  {/* Enabled + Default toggles */}
+                  <div className="flex items-center gap-6 py-1">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Switch
+                        checked={form.is_enabled}
+                        onCheckedChange={(v: boolean) => setField(entry.name, 'is_enabled', v)}
+                      />
+                      <span className="text-sm">Enabled</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <Switch
+                        checked={form.is_default}
+                        onCheckedChange={(v: boolean) => setField(entry.name, 'is_default', v)}
+                      />
+                      <span className="text-sm">Set as default</span>
+                    </label>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-1">
                     <Button
                       size="sm"
-                      variant="outline"
-                      type="button"
-                      onClick={() => setBrowsingModels(prev => (prev === 'cloudflare' ? null : 'cloudflare'))}
+                      onClick={() => handleSave(entry.name)}
+                      disabled={isSaving}
                     >
-                      <Search className="mr-2 h-3.5 w-3.5" />
-                      {browsingModels === 'cloudflare' ? 'Hide model catalog' : 'Browse Workers AI models'}
+                      {isSaving
+                        ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        : <Plug className="mr-2 h-3.5 w-3.5" />}
+                      Save
                     </Button>
-                    {browsingModels === 'cloudflare' && (
-                      <ModelBrowser onPick={id => setField('cloudflare', 'default_model', id)} />
-                    )}
-                  </div>
-                )}
 
-                {/* Toggles */}
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded"
-                      checked={form.is_enabled}
-                      onChange={e => setField(entry.name, 'is_enabled', e.target.checked)}
-                    />
-                    <span className="text-sm">Enabled</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded"
-                      checked={form.is_default}
-                      onChange={e => setField(entry.name, 'is_default', e.target.checked)}
-                    />
-                    <span className="text-sm">Set as default</span>
-                  </label>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    onClick={() => handleSave(entry.name)}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-2 h-3.5 w-3.5" />}
-                    Save
-                  </Button>
-                  {existing && (
-                    <>
+                    {existing && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -328,22 +367,53 @@ export default function AIProvidersPage() {
                         }}
                         disabled={isTesting}
                       >
-                        {isTesting ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <TestTube className="mr-2 h-3.5 w-3.5" />}
+                        {isTesting
+                          ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          : <TestTube className="mr-2 h-3.5 w-3.5" />}
                         Test
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive ml-auto"
-                        onClick={() => deleteMutation.mutate(entry.name)}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
+                    )}
+
+                    {existing && (
+                      <div className="ml-auto">
+                        {confirmDelete === entry.name ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-destructive">Remove this provider?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                deleteMutation.mutate(entry.name)
+                                setConfirmDelete(null)
+                              }}
+                              disabled={deleteMutation.isPending}
+                            >
+                              Remove
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setConfirmDelete(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setConfirmDelete(entry.name)}
+                          >
+                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              )}
             </Card>
           )
         })}

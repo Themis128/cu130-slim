@@ -3,14 +3,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { toPng } from 'html-to-image'
-import { Sparkles, ChevronLeft, ChevronRight, Download, Send, Loader2, Plus, Trash2, Palette, ArrowLeft, Check } from 'lucide-react'
+import { Sparkles, ChevronLeft, ChevronRight, Download, Send, Loader2, Plus, Trash2, Palette, ArrowLeft, Check, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
-import { useAccounts, useAIProviders } from '@/hooks/useQueries'
+import { useAccounts } from '@/hooks/useQueries'
 import { useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { contentApi, aiApi } from '@/services/api'
 import toast from 'react-hot-toast'
@@ -109,7 +109,7 @@ const DEFAULT_BRAND: BrandConfig = {
   showBranding: true,
 }
 
-function SlideRenderer({ slide, theme, index, total, brand = DEFAULT_BRAND }: { slide: Slide; theme: ThemeKey; index: number; total: number; brand?: BrandConfig }) {
+function SlideRenderer({ slide, theme, index, total, brand = DEFAULT_BRAND, backgroundImageUrl }: { slide: Slide; theme: ThemeKey; index: number; total: number; brand?: BrandConfig; backgroundImageUrl?: string }) {
   const t = THEMES[theme]
   const isCloudless = theme === 'cloudless'
   const branding = brand.showBranding
@@ -119,7 +119,7 @@ function SlideRenderer({ slide, theme, index, total, brand = DEFAULT_BRAND }: { 
       style={{
         width: '1080px',
         height: '1080px',
-        background: t.bg,
+        background: backgroundImageUrl ? `url(${backgroundImageUrl}) center/cover no-repeat` : t.bg,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
@@ -130,7 +130,11 @@ function SlideRenderer({ slide, theme, index, total, brand = DEFAULT_BRAND }: { 
         overflow: 'hidden',
       }}
     >
-      {/* Background decoration */}
+      {/* Dark overlay when using AI background image */}
+      {backgroundImageUrl && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.52)', pointerEvents: 'none' }} />
+      )}
+      {/* Background decoration (hidden when AI background active) */}
       <div style={{
         position: 'absolute',
         top: '-200px',
@@ -390,7 +394,6 @@ type Step = 'setup' | 'preview' | 'export'
 export default function CarouselNewPage() {
   const router = useRouter()
   const { data: accounts } = useAccounts()
-  const { data: savedProviders = [] } = useAIProviders()
   const createPostMutation = useCreatePost()
   const uploadMediaMutation = useUploadMedia()
   // Step
@@ -402,15 +405,6 @@ export default function CarouselNewPage() {
   const [platform, setPlatform] = useState('linkedin')
   const [tone, setTone] = useState('professional')
   const [includeCta, setIncludeCta] = useState(true)
-  const [inferenceProvider, setInferenceProvider] = useState('cloudflare')
-  const providerAutoSet = useRef(false)
-  useEffect(() => {
-    if (!providerAutoSet.current && savedProviders.length > 0) {
-      const def = savedProviders.find(p => p.is_default && p.is_enabled)
-      if (def) setInferenceProvider(def.name)
-      providerAutoSet.current = true
-    }
-  }, [savedProviders])
 
   // Generated data
   const [slides, setSlides] = useState<Slide[]>([])
@@ -423,6 +417,11 @@ export default function CarouselNewPage() {
   const [theme, setTheme] = useState<ThemeKey>('cloudless')
   const [brand, setBrand] = useState<BrandConfig>(DEFAULT_BRAND)
   const [showBrandPanel, setShowBrandPanel] = useState(false)
+  // AI background images (index → media display URL)
+  const [bgImages, setBgImages] = useState<Record<number, string>>({})
+  const [generatingBgs, setGeneratingBgs] = useState(false)
+  const [bgProgress, setBgProgress] = useState(0)
+  const [autoConfiguring, setAutoConfiguring] = useState(false)
 
   // Export
   const [exporting, setExporting] = useState(false)
@@ -432,8 +431,37 @@ export default function CarouselNewPage() {
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  const connectedAccounts: Array<{ id: string; platform: string; display_name: string | null; username: string | null }> = accounts || []
-  const connectedPlatforms = connectedAccounts.map(a => a.platform)
+  const connectedAccounts: Array<{ id: string; platform: string; account_type?: string; display_name: string | null; username: string | null }> = accounts || []
+
+  // Auto-select all platforms when accounts load
+  useEffect(() => {
+    if (connectedAccounts.length === 0 || selectedPublishPlatforms.length > 0) return
+    const allPlatforms = [...new Set(connectedAccounts.map(a => a.platform))]
+    setSelectedPublishPlatforms(allPlatforms)
+  }, [connectedAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-configure from topic ────────────────────────────────────────────────
+
+  const handleAutoConfigure = async () => {
+    if (!topic.trim()) { toast.error('Enter a topic first'); return }
+    setAutoConfiguring(true)
+    try {
+      const res = await aiApi.autoConfigurePrompt(topic.trim(), 'carousel')
+      const data = (res as { data?: { platform?: string; tone?: string; num_slides?: number } })?.data
+      if (data) {
+        const PLATFORM_MAP: Record<string, string> = { linkedin: 'linkedin', instagram: 'instagram', twitter: 'linkedin' }
+        const TONE_MAP: Record<string, string> = { professional: 'professional', casual: 'conversational', inspirational: 'inspiring', educational: 'educational', humorous: 'conversational' }
+        if (data.platform && PLATFORM_MAP[data.platform]) setPlatform(PLATFORM_MAP[data.platform])
+        if (data.tone && TONE_MAP[data.tone]) setTone(TONE_MAP[data.tone])
+        if (data.num_slides && data.num_slides >= 4 && data.num_slides <= 10) setNumSlides(data.num_slides)
+        toast.success('Settings auto-configured — review and generate')
+      }
+    } catch {
+      toast.error('Auto-configure failed')
+    } finally {
+      setAutoConfiguring(false)
+    }
+  }
 
   // ── Step 1: Generate ────────────────────────────────────────────────────────
 
@@ -447,7 +475,7 @@ export default function CarouselNewPage() {
         platform,
         tone,
         include_cta: includeCta,
-        provider: inferenceProvider,
+        provider: 'cloudflare',
       })
       setSlides(res.data.slides)
       setCaption(res.data.suggested_caption)
@@ -460,6 +488,52 @@ export default function CarouselNewPage() {
     } finally {
       setGenerating(false)
     }
+  }
+
+  // ── AI Background Generation ─────────────────────────────────────────────────
+
+  const handleGenerateBackgrounds = async () => {
+    if (slides.length === 0) return
+    setGeneratingBgs(true)
+    setBgProgress(0)
+    const newBgs: Record<number, string> = {}
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+
+    for (let i = 0; i < slides.length; i++) {
+      const slide = slides[i]
+      const visual = (
+        `LinkedIn carousel background for a slide titled "${slide.title}". ` +
+        `${slide.body}. Dark navy abstract tech aesthetic, cyan and soft orange accents, ` +
+        `clean modern composition, square 1:1, no readable text, no logos, no watermark.`
+      )
+      try {
+        const res = await fetch(`${apiBase}/ai/generate-image`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
+          },
+          body: JSON.stringify({
+            prompt: visual,
+            provider: 'cloudflare',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.storage_path) {
+            newBgs[i] = `${apiBase}/media/view?path=${encodeURIComponent(data.storage_path)}`
+          } else if (data.image_base64) {
+            newBgs[i] = `data:image/png;base64,${data.image_base64}`
+          }
+        }
+      } catch { /* continue to next slide */ }
+      setBgProgress(i + 1)
+    }
+    setBgImages(prev => ({ ...prev, ...newBgs }))
+    setGeneratingBgs(false)
+    toast.success(`${Object.keys(newBgs).length}/${slides.length} backgrounds generated`)
   }
 
   // ── Step 2: Edit ────────────────────────────────────────────────────────────
@@ -499,7 +573,7 @@ export default function CarouselNewPage() {
       }
       setExportedMediaIds(mediaIds)
       // Pre-select all connected platforms
-      setSelectedPublishPlatforms(connectedPlatforms)
+      setSelectedPublishPlatforms([...new Set(connectedAccounts.map(a => a.platform))])
       toast.success('All slides ready to publish!')
     } catch (err) {
       console.error(err)
@@ -507,7 +581,7 @@ export default function CarouselNewPage() {
     } finally {
       setExporting(false)
     }
-  }, [slides, uploadMediaMutation, connectedPlatforms])
+  }, [slides, uploadMediaMutation])
 
   const handlePublish = async (asDraft: boolean) => {
     if (exportedMediaIds.length === 0) { toast.error('Export slides first'); return }
@@ -515,10 +589,20 @@ export default function CarouselNewPage() {
     setPublishing(true)
     try {
       const fullCaption = `${caption}\n\n${hashtags.map(h => `#${h}`).join(' ')}`
-      // Build targets from selected platforms → match to connected account IDs
-      const targets = connectedAccounts
-        .filter(a => selectedPublishPlatforms.includes(a.platform))
-        .map(a => ({ social_account_id: a.id }))
+      // Build targets for all selected platforms; for LinkedIn always use cloudless-gr org
+      const seen = new Set<string>()
+      const targets: Array<{ social_account_id: string }> = []
+      for (const plat of selectedPublishPlatforms) {
+        if (seen.has(plat)) continue
+        let acct: typeof connectedAccounts[0] | undefined
+        if (plat === 'linkedin') {
+          acct = connectedAccounts.find(a => a.platform === 'linkedin' && (a.meta_data?.account_type === 'organization' || a.account_type === 'organization'))
+            ?? connectedAccounts.find(a => a.platform === 'linkedin')
+        } else {
+          acct = connectedAccounts.find(a => a.platform === plat)
+        }
+        if (acct) { targets.push({ social_account_id: acct.id }); seen.add(plat) }
+      }
       const createdPost = await createPostMutation.mutateAsync({
         content_text: fullCaption,
         hashtags,
@@ -533,7 +617,7 @@ export default function CarouselNewPage() {
             platform,
             tone,
             num_slides: slides.length,
-            provider: inferenceProvider,
+            provider: 'cloudflare',
           },
         },
       })
@@ -603,6 +687,17 @@ export default function CarouselNewPage() {
                 className="text-base"
               />
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAutoConfigure}
+              disabled={autoConfiguring || !topic.trim()}
+              className="w-full"
+            >
+              {autoConfiguring
+                ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Auto-configuring…</>
+                : <><Zap className="mr-2 h-3.5 w-3.5" />Auto-configure settings from topic</>}
+            </Button>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Platform</label>
@@ -647,25 +742,12 @@ export default function CarouselNewPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-2">
-                <label className="text-sm font-medium">AI Provider</label>
-                <Select value={inferenceProvider} onValueChange={setInferenceProvider}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ollama">🦙 Local (Ollama)</SelectItem>
-                    {savedProviders.filter(p => p.is_enabled).map(p => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.name === 'nvidia' ? '🟢' : p.name === 'huggingface' ? '🤗' : p.name === 'openai' ? '✨' : p.name === 'groq' ? '⚡' : '🔗'}{' '}
-                        {p.display_name} — {p.default_model}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {savedProviders.filter(p => p.is_enabled).length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Add cloud providers in <a href="/settings/ai-providers" className="underline">Settings → AI Providers</a>
-                  </p>
-                )}
+              <div className="col-span-2 flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3">
+                <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">Powered by Cloudflare Workers AI</p>
+                  <p className="text-xs text-muted-foreground">Text: llama-3.3-70b · Images: FLUX Schnell + SD img2img</p>
+                </div>
               </div>
             </div>
             <Button onClick={handleGenerate} disabled={generating || !topic.trim()} className="w-full" size="lg">
@@ -700,6 +782,17 @@ export default function CarouselNewPage() {
                 className={`px-3 py-1 rounded text-xs font-medium border transition-colors ml-2 ${showBrandPanel ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-accent'}`}
               >
                 Brand Settings
+              </button>
+              <button
+                onClick={Object.keys(bgImages).length > 0 ? () => setBgImages({}) : handleGenerateBackgrounds}
+                disabled={generatingBgs}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors ml-auto flex items-center gap-1 ${Object.keys(bgImages).length > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-accent'}`}
+              >
+                {generatingBgs
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />{bgProgress}/{slides.length}</>
+                  : Object.keys(bgImages).length > 0
+                    ? <>✕ Remove AI Backgrounds</>
+                    : <><Sparkles className="h-3 w-3" /> AI Backgrounds</>}
               </button>
             </div>
 
@@ -748,7 +841,7 @@ export default function CarouselNewPage() {
                 }}
               >
                 <div ref={el => { slideRefs.current[activeSlide] = el }}>
-                  <SlideRenderer slide={slides[activeSlide]} theme={theme} index={activeSlide} total={slides.length} brand={brand} />
+                  <SlideRenderer slide={slides[activeSlide]} theme={theme} index={activeSlide} total={slides.length} brand={brand} backgroundImageUrl={bgImages[activeSlide]} />
                 </div>
               </div>
             </div>
@@ -839,7 +932,7 @@ export default function CarouselNewPage() {
           <div style={{ position: 'fixed', left: '-9999px', top: 0, pointerEvents: 'none' }}>
             {slides.map((slide, i) => (
               <div key={i} ref={el => { slideRefs.current[i] = el }} style={{ width: '1080px', height: '1080px' }}>
-                <SlideRenderer slide={slide} theme={theme} index={i} total={slides.length} brand={brand} />
+                <SlideRenderer slide={slide} theme={theme} index={i} total={slides.length} brand={brand} backgroundImageUrl={bgImages[i]} />
               </div>
             ))}
           </div>
@@ -862,7 +955,7 @@ export default function CarouselNewPage() {
                       marginBottom: `-${1080 * 0.88}px`,
                       marginRight: `-${1080 * 0.88}px`,
                     }}>
-                      <SlideRenderer slide={slide} theme={theme} index={i} total={slides.length} brand={brand} />
+                      <SlideRenderer slide={slide} theme={theme} index={i} total={slides.length} brand={brand} backgroundImageUrl={bgImages[i]} />
                     </div>
                     {exportedMediaIds[i] && (
                       <div className="absolute inset-0 flex items-center justify-center bg-green-500/20 rounded">

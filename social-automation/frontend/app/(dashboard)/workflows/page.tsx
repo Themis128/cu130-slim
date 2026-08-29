@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, ExternalLink, Sparkles, Brain, Loader2, LayoutTemplate, Library, CheckCircle2, XCircle, Clock, History } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useTemplates, useGenerateWorkflow, useWorkflows, useDeployWorkflow } from '@/hooks/useQueries'
-import { workflowApi } from '@/services/api'
+import { workflowApi, aiApi } from '@/services/api'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useUndoDelete } from '@/hooks/useUndoDelete'
 import type { PromptTemplate, GeneratedWorkflow } from '@/types'
@@ -130,6 +130,29 @@ export default function WorkflowsPage() {
   const generateMutation = useGenerateWorkflow()
   const deployMutation = useDeployWorkflow()
 
+  const [seeding, setSeeding] = useState(false)
+
+  const handleSeedWorkflows = async () => {
+    setSeeding(true)
+    try {
+      await aiApi.seedDefaultWorkflows()
+      await refetchTemplates()
+    } catch {
+      toast.error('Could not seed default workflows')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  // Auto-seed default content-type workflows on first load (idempotent upsert)
+  useEffect(() => {
+    handleSeedWorkflows()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const CONTENT_TYPE_EMOJIS: Record<string, string> = {
+    carousel: '🖼️', post: '📝', thread: '🧵', story: '📸', poll: '📊', article: '📄',
+  }
+
   const allTemplates = Array.isArray(templatesData) ? templatesData : (templatesData?.items || [])
   const workflows = Array.isArray(workflowsData) ? workflowsData : (workflowsData?.items || [])
 
@@ -140,7 +163,15 @@ export default function WorkflowsPage() {
     }
   )
 
-  const templates = allTemplates.filter((t: PromptTemplate) => !pendingTemplateIds.has(t.id))
+  // Deduplicate by name (Strict Mode double-fires effects; seed may run twice in parallel)
+  const seen = new Set<string>()
+  const templates = allTemplates
+    .filter((t: PromptTemplate) => !pendingTemplateIds.has(t.id))
+    .filter((t: PromptTemplate) => {
+      if (seen.has(t.name)) return false
+      seen.add(t.name)
+      return true
+    })
 
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return
@@ -251,6 +282,10 @@ export default function WorkflowsPage() {
           <p className="text-muted-foreground mt-1">Automate your social media with n8n workflows</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleSeedWorkflows} disabled={seeding}>
+            {seeding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
+            {seeding ? 'Seeding…' : 'Refresh Defaults'}
+          </Button>
           <Button variant="outline" onClick={() => setActiveTab('generate')}>
             <Sparkles className="mr-2 h-4 w-4" />
             AI Generate
@@ -313,7 +348,7 @@ export default function WorkflowsPage() {
 
           {templatesLoading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3].map((i) => (
+              {[1, 2, 3, 4, 5, 6].map((i) => (
                 <Card key={i}>
                   <CardContent className="pt-6">
                     <Skeleton className="h-6 w-3/4 mb-2" />
@@ -324,54 +359,70 @@ export default function WorkflowsPage() {
                 </Card>
               ))}
             </div>
-          ) : templates.length === 0 ? (
-            <Card>
-              <CardContent className="p-0">
-                {search || categoryFilter ? (
-                  <EmptyState
-                    icon={Search}
-                    title="No templates match your filter"
-                    description="Try a different search term or category, or generate a new template from scratch."
-                    primaryAction={{ label: 'Clear filters', onClick: () => { (document.querySelector('input[placeholder*="Search"]') as HTMLInputElement)?.focus() }, variant: 'outline' }}
-                    secondaryAction={{ label: 'Generate new', onClick: () => setActiveTab('generate'), icon: Sparkles }}
-                  />
-                ) : (
-                  <EmptyState
-                    icon={LayoutTemplate}
-                    title="No workflow templates yet"
-                    description="Templates are reusable AI prompts that generate n8n automation workflows. Describe what you want to automate and let AI build it."
-                    primaryAction={{ label: 'Generate template', onClick: () => setActiveTab('generate'), icon: Sparkles }}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {templates.map((template: PromptTemplate) => (
-                <Card key={template.id}>
+          ) : (() => {
+            const defaultWorkflows = templates.filter((t: PromptTemplate) =>
+              t.tags?.includes('default') && t.tags?.includes('auto')
+            )
+            const customTemplates = templates.filter((t: PromptTemplate) =>
+              !(t.tags?.includes('default') && t.tags?.includes('auto'))
+            )
+            const filteredCustom = customTemplates.filter((t: PromptTemplate) => {
+              const matchSearch = !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.description?.toLowerCase().includes(search.toLowerCase())
+              const matchCat = !categoryFilter || t.category === categoryFilter
+              return matchSearch && matchCat
+            })
+
+            const TemplateCard = ({ template }: { template: PromptTemplate }) => {
+              const config = template.n8n_workflow_json as Record<string, string> | null
+              const isDefault = template.tags?.includes('default')
+              return (
+                <Card key={template.id} className={isDefault ? 'border-primary/30 bg-primary/5' : ''}>
                   <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{template.name}</CardTitle>
-                        <CardDescription>{template.description}</CardDescription>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2">
+                        {isDefault && (
+                          <span className="text-2xl leading-none mt-0.5">
+                            {CONTENT_TYPE_EMOJIS[template.category ?? ''] ?? '⚙️'}
+                          </span>
+                        )}
+                        <div>
+                          <CardTitle className="text-base leading-tight">
+                            {isDefault ? template.name.replace('[Default] ', '') : template.name}
+                          </CardTitle>
+                          <CardDescription className="mt-0.5">{template.description}</CardDescription>
+                        </div>
                       </div>
-                      <Badge variant="outline" className="capitalize">{template.category}</Badge>
+                      <Badge variant={isDefault ? 'default' : 'outline'} className="capitalize shrink-0">
+                        {template.category}
+                      </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="flex flex-wrap gap-1 mb-4">
-                      {template.tags?.slice(0, 4).map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                      ))}
-                      {template.tags && template.tags.length > 4 && (
-                        <Badge variant="secondary" className="text-xs">+{template.tags.length - 4} more</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>By {template.user_id || 'Unknown'}</span>
-                      <span>{template.usage_count} uses</span>
-                    </div>
-                  </CardContent>
+                  {isDefault && config && (
+                    <CardContent className="pt-0 pb-2">
+                      <div className="rounded-md bg-muted/60 p-2 text-xs text-muted-foreground space-y-0.5">
+                        {config.text_model && <div><span className="font-medium">Text:</span> {config.text_model.split('/').pop()}</div>}
+                        {config.txt2img_model && <div><span className="font-medium">Image:</span> {config.txt2img_model.split('/').pop()}</div>}
+                        {config.img2img_model && <div><span className="font-medium">Enhance:</span> {config.img2img_model.split('/').pop()}</div>}
+                        {config.hf_text_fallback && <div className="text-amber-600 dark:text-amber-400"><span className="font-medium">HF fallback:</span> {config.hf_text_fallback.split('/').pop()}</div>}
+                        {config.hf_txt2img_fallback && <div className="text-amber-600 dark:text-amber-400"><span className="font-medium">HF img fallback:</span> {config.hf_txt2img_fallback.split('/').pop()}</div>}
+                      </div>
+                    </CardContent>
+                  )}
+                  {!isDefault && (
+                    <CardContent className="pt-0">
+                      <div className="flex flex-wrap gap-1 mb-4">
+                        {template.tags?.slice(0, 4).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                        ))}
+                        {template.tags && template.tags.length > 4 && (
+                          <Badge variant="secondary" className="text-xs">+{template.tags.length - 4} more</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>{template.usage_count} uses</span>
+                      </div>
+                    </CardContent>
+                  )}
                   <CardFooter className="flex gap-2">
                     <Button
                       size="sm"
@@ -384,33 +435,91 @@ export default function WorkflowsPage() {
                         : <><Zap className="mr-1.5 h-3.5 w-3.5" />Generate & Deploy</>
                       }
                     </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setGeneratePrompt(template.prompt_template); setActiveTab('generate') }}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit prompt
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDuplicateTemplate(template)}>
-                          <Copy className="mr-2 h-4 w-4" />
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTemplate(template)}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {!isDefault && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => { setGeneratePrompt(template.prompt_template); setActiveTab('generate') }}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit prompt
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDuplicateTemplate(template)}>
+                            <Copy className="mr-2 h-4 w-4" />
+                            Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTemplate(template)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </CardFooter>
                 </Card>
-              ))}
-            </div>
-          )}
+              )
+            }
+
+            return (
+              <div className="space-y-6">
+                {/* Content Workflows — auto-seeded per content type */}
+                {defaultWorkflows.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Content Workflows</h2>
+                      <Badge variant="secondary" className="text-xs">CF free tier · HF fallback</Badge>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {defaultWorkflows.map((t: PromptTemplate) => <TemplateCard key={t.id} template={t} />)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom / saved templates */}
+                {filteredCustom.length > 0 && (
+                  <div>
+                    {defaultWorkflows.length > 0 && (
+                      <div className="flex items-center gap-2 mb-3">
+                        <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Saved Templates</h2>
+                      </div>
+                    )}
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {filteredCustom.map((t: PromptTemplate) => <TemplateCard key={t.id} template={t} />)}
+                    </div>
+                  </div>
+                )}
+
+                {filteredCustom.length === 0 && defaultWorkflows.length === 0 && (
+                  <Card>
+                    <CardContent className="p-0">
+                      {search || categoryFilter ? (
+                        <EmptyState
+                          icon={Search}
+                          title="No templates match your filter"
+                          description="Try a different search term or category, or generate a new template from scratch."
+                          primaryAction={{ label: 'Clear filters', onClick: () => { setSearch(''); setCategoryFilter('') }, variant: 'outline' }}
+                          secondaryAction={{ label: 'Generate new', onClick: () => setActiveTab('generate'), icon: Sparkles }}
+                        />
+                      ) : (
+                        <EmptyState
+                          icon={LayoutTemplate}
+                          title="No workflow templates yet"
+                          description="Templates are reusable AI prompts that generate n8n automation workflows."
+                          primaryAction={{ label: 'Generate template', onClick: () => setActiveTab('generate'), icon: Sparkles }}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )
+          })()}
         </TabsContent>
 
         {/* Gallery Tab — curated starter templates */}

@@ -4,7 +4,14 @@ const nextConfig = {
   output: 'standalone',
   transpilePackages: ['@hello-pangea/dnd'],
   images: {
-    domains: ['localhost', 'avatars.githubusercontent.com', 'lh3.googleusercontent.com', 'platform-lookaside.fbsbx.com', 'pbs.twimg.com', 'media.licdn.com'],
+    remotePatterns: [
+      { protocol: 'http',  hostname: 'localhost' },
+      { protocol: 'https', hostname: 'avatars.githubusercontent.com' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+      { protocol: 'https', hostname: 'platform-lookaside.fbsbx.com' },
+      { protocol: 'https', hostname: 'pbs.twimg.com' },
+      { protocol: 'https', hostname: 'media.licdn.com' },
+    ],
   },
   async rewrites() {
     return [

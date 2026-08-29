@@ -154,9 +154,13 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
     transparently re-encoded to PNG with Pillow.
     """
-    # Path traversal guard: resolved path must stay inside UPLOAD_DIR.
+    # Normalise: strip absolute UPLOAD_DIR prefix so both absolute and relative
+    # storage_path values work (old records store abs paths, new ones store relative).
+    real_upload = os.path.realpath(UPLOAD_DIR)
+    if os.path.isabs(path) and os.path.realpath(path).startswith(real_upload + os.sep):
+        path = os.path.relpath(os.path.realpath(path), real_upload)
     abs_path = os.path.realpath(os.path.join(UPLOAD_DIR, path))
-    if not abs_path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+    if not abs_path.startswith(real_upload + os.sep):
         raise HTTPException(status_code=400, detail="Invalid media path")
 
     if not os.path.isfile(abs_path):

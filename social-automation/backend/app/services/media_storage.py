@@ -114,6 +114,7 @@ async def persist_generated_image(
 
     filename = f"{source}_{uuid.uuid4().hex[:8]}{extension}"
     abs_path = os.path.join(target_dir, filename)
+    relative_path = os.path.join(date_folder, filename)
 
     async with aiofiles.open(abs_path, "wb") as f:
         await f.write(image_bytes)
@@ -133,7 +134,7 @@ async def persist_generated_image(
         size_bytes=len(image_bytes),
         width=width,
         height=height,
-        storage_path=abs_path,
+        storage_path=relative_path,
         alt_text=prompt,
         tags=["ai-generated"] if source == "ai-generated" else [],
         source=source,

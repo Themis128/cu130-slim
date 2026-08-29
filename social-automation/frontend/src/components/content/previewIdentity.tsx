@@ -4,9 +4,6 @@ import { useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 
-/** Prefer cloudless.gr Company Page when multiple LinkedIn accounts exist. */
-export const PREFERRED_LINKEDIN_ACCOUNT_ID = '4a8d9440-47d2-4bda-bd11-3776fd9022ba'
-
 export type PreviewIdentity = {
   name: string
   handle: string
@@ -19,11 +16,7 @@ export type PreviewIdentity = {
 export function isOrgAccount(account: SocialAccount): boolean {
   const accountType =
     account.account_type || (account.meta_data?.account_type as string | undefined)
-  return (
-    account.id === PREFERRED_LINKEDIN_ACCOUNT_ID ||
-    accountType === 'organization' ||
-    (account.username || '').toLowerCase() === 'cloudless-gr'
-  )
+  return accountType === 'organization'
 }
 
 export function preferredAccount(
@@ -33,11 +26,7 @@ export function preferredAccount(
   const list = accounts.filter((a) => a.platform === platform && (!a.status || a.status === 'active'))
   if (list.length === 0) return undefined
   if (platform === 'linkedin') {
-    return (
-      list.find((a) => a.id === PREFERRED_LINKEDIN_ACCOUNT_ID) ||
-      list.find((a) => isOrgAccount(a)) ||
-      list[0]
-    )
+    return list.find((a) => isOrgAccount(a)) || list[0]
   }
   return list[0]
 }

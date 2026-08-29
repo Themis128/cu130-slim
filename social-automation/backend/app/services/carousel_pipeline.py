@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 import re
@@ -19,7 +20,11 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.duplicate_detector import is_duplicate
-from app.services.inference import call_inference
+from app.services.inference import (
+    _call_workers_ai_image,
+    _call_workers_ai_img2img,
+    call_inference,
+)
 from app.services.media_storage import persist_generated_image
 from app.services.plain_english import (
     PLAIN_ENGLISH_RULES,
@@ -351,9 +356,11 @@ def compose_branded_slide(
         else:
             body = ""
 
-    # Brand canvas — CF bg ignored, we own every pixel.
-    _ = bg_img
+    # Brand canvas — dark base, optionally tinted with CF-generated texture.
     img = Image.new("RGB", (1080, 1080), BG)
+    if bg_img is not None:
+        bg_resized = bg_img.resize((1080, 1080), Image.Resampling.LANCZOS).convert("RGB")
+        img = Image.blend(img, bg_resized, alpha=0.22)
     draw = ImageDraw.Draw(img)
     _draw_grid(draw)
     _draw_soft_orbs(draw)
@@ -408,6 +415,60 @@ def _dedupe_slide_copy(slides: list[dict]) -> list[dict]:
     return out or slides
 
 
+async def _cf_generate_background(
+    topic: str,
+    txt2img_model: str,
+    img2img_model: str,
+    strength: float,
+) -> Image.Image | None:
+    """Generate a dark abstract tech background via CF txt2img → img2img.
+
+    txt2img produces a raw abstract visual; img2img refines it toward the
+    dark brand palette. Returns None if CF is unavailable (quota / error).
+    """
+    prompt_t2i = (
+        f"dark abstract technology background, deep space navy and cyan tones, "
+        f"subtle circuit patterns, minimalist, ultra-dark, no text, no letters, "
+        f"cinematic lighting, theme: {topic[:60]}"
+    )
+    try:
+        t2i_result = await _call_workers_ai_image(
+            prompt_t2i,
+            model=txt2img_model,
+            width=512,
+            height=512,
+            steps=20,
+        )
+        raw_bytes = base64.b64decode(t2i_result["image_base64"])
+    except Exception as e:
+        print(f"[carousel] CF txt2img failed (non-fatal): {e}", flush=True)
+        return None
+
+    # img2img: darken + brand-tint the raw texture
+    prompt_i2i = (
+        "dark minimalist tech background, deep navy and cyan, "
+        "abstract glowing circuit, no text, ultra dark"
+    )
+    try:
+        i2i_result = await _call_workers_ai_img2img(
+            prompt=prompt_i2i,
+            image_bytes=raw_bytes,
+            model=img2img_model,
+            strength=strength,
+            steps=15,
+        )
+        final_bytes = base64.b64decode(i2i_result["image_base64"])
+    except Exception as e:
+        print(f"[carousel] CF img2img failed, using txt2img output: {e}", flush=True)
+        final_bytes = raw_bytes
+
+    try:
+        return Image.open(io.BytesIO(final_bytes)).convert("RGB")
+    except Exception as e:
+        print(f"[carousel] Could not decode CF image: {e}", flush=True)
+        return None
+
+
 async def generate_carousel_copy(
     *,
     topic: str,
@@ -415,7 +476,7 @@ async def generate_carousel_copy(
     tone: str,
     include_cta: bool,
     text_model: str,
-    text_provider: str = "ollama",
+    text_provider: str = "cloudflare",
     db: AsyncSession,
     team_id,
 ) -> dict:
@@ -484,7 +545,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "ollama",   # default to local Ollama — free and fast
+    text_provider: str = "cloudflare",   # CF primary; Ollama is last resort
     txt2img_model: str = CF_TXT2IMG_FREE,
     img2img_model: str = CF_IMG2IMG_FREE,
     strength: float = 0.42,
@@ -492,10 +553,11 @@ async def run_cloudless_carousel_pipeline(
     publish: bool = True,
     wait_for_publish: bool = False,
 ) -> dict:
-    """Full pipeline: copy (Ollama) → NLP → brand slides → post → optional publish.
+    """Full pipeline: CF copy → NLP → txt2img+img2img bg → brand slides → post → publish.
 
-    CF image generation is skipped: compose_branded_slide creates its own canvas,
-    so CF txt2img output was never used. Text uses Ollama (local, free) by default.
+    Text: Cloudflare Workers AI first (free 10k neurons/day); falls back to
+    Ollama automatically on 429/quota. Images: CF txt2img → img2img → subtle
+    background tint on each slide. Ollama is always last resort.
     """
     target_id = uuid.UUID(target_account_id or DEFAULT_ORG_ACCOUNT_ID)
     account = (
@@ -510,34 +572,65 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — use Ollama (local, free) or override via text_provider
-    raw = await generate_carousel_copy(
-        topic=topic,
-        num_slides=num_slides,
-        tone=tone,
-        include_cta=include_cta,
-        text_model=text_model,
-        text_provider=text_provider,
-        db=db,
-        team_id=team.id,
-    )
+    # 1) Copy — CF first, Ollama as last resort fallback on quota exhaustion
+    from app.core.config import get_settings as _get_settings
+    _ollama_model = _get_settings().OLLAMA_DEFAULT_MODEL
+    effective_provider = text_provider
+    try:
+        raw = await generate_carousel_copy(
+            topic=topic,
+            num_slides=num_slides,
+            tone=tone,
+            include_cta=include_cta,
+            text_model=text_model,
+            text_provider=effective_provider,
+            db=db,
+            team_id=team.id,
+        )
+    except (HTTPException, Exception) as exc:
+        detail = str(getattr(exc, "detail", exc))
+        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded")):
+            print(f"[carousel] CF text quota hit, falling back to Ollama ({_ollama_model}): {detail[:100]}", flush=True)
+            effective_provider = "ollama"
+            raw = await generate_carousel_copy(
+                topic=topic,
+                num_slides=num_slides,
+                tone=tone,
+                include_cta=include_cta,
+                text_model=_ollama_model,   # use Ollama model, not CF model name
+                text_provider="ollama",
+                db=db,
+                team_id=team.id,
+            )
+        else:
+            raise
+
     slides = list(raw.get("slides") or [])[:num_slides]
     caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
     hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
 
     # 2) NLP checker + fixer (runs on both slides and caption)
+    _nlp_model = _ollama_model if effective_provider == "ollama" else text_model
     slides, caption, nlp_report = await run_nlp_check_and_fix(
         slides=slides,
         caption=caption,
-        provider_name=text_provider,
-        model=text_model,
+        provider_name=effective_provider,
+        model=_nlp_model,
         db=db,
         team_id=team.id,
         force_fix=True,
     )
     slides = _dedupe_slide_copy(slides)
 
-    # 3) Brand slides (no CF images — compose_branded_slide builds its own canvas)
+    # 3) CF txt2img → img2img: one branded background texture for all slides
+    print("[n8n-pipeline] generating CF background texture (txt2img → img2img)…", flush=True)
+    bg_img = await _cf_generate_background(topic, txt2img_model, img2img_model, strength)
+    if bg_img:
+        print("[n8n-pipeline] CF background ready — compositing at 22% opacity", flush=True)
+    else:
+        print("[n8n-pipeline] CF images unavailable — pure brand canvas fallback", flush=True)
+
+    # 4) Brand slides with CF background tint
     media_ids: list[uuid.UUID] = []
     for i, slide in enumerate(slides):
         title = slide.get("title") or f"Slide {i + 1}"
@@ -545,7 +638,7 @@ async def run_cloudless_carousel_pipeline(
         stype = slide.get("slide_type") or "content"
         print(f"[n8n-pipeline] rendering slide {i + 1}/{len(slides)}", flush=True)
         branded = compose_branded_slide(
-            None,
+            bg_img,
             index=i + 1,
             total=len(slides),
             slide_type=stype,

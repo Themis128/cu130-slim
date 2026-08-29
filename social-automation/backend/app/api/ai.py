@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
@@ -17,7 +17,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client
-from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE
+from app.services.cf_models import CF_IMG2IMG_FREE, CF_TEXT_FREE, CF_TXT2IMG_FREE, CONTENT_WORKFLOW_CONFIGS
 from app.services.inference import (
     STT_MODELS,
     _call_cf_image_pipeline,
@@ -127,9 +127,8 @@ class GenerateWorkflowResponse(BaseModel):
 
 
 async def call_ollama(prompt: str, model: str | None = None, schema: dict | None = None) -> dict:
-    """Backwards-compatible shim — delegates to the unified inference service.
-    Defaults to Groq (cloud) instead of Ollama for faster inference."""
-    return await call_inference(prompt, provider_name="groq", schema=schema, model_override=model)
+    """Backwards-compatible shim — delegates to Cloudflare Workers AI (70B fp8)."""
+    return await call_inference(prompt, provider_name="cloudflare", schema=schema, model_override=model)
 
 
 class TranscribeResponse(BaseModel):
@@ -293,14 +292,23 @@ async def generate_image_prompt(
     request: GenerateImagePromptRequest,
     current_user: User = Depends(get_current_user),
 ):
-    prompt = f"""Generate a detailed Stable Diffusion image prompt for this social media post concept:
+    """Enhance a rough description into an optimised FLUX / SD image prompt."""
+    prompt = f"""You are an expert at writing image generation prompts for FLUX and Stable Diffusion models.
 
-Description: "{request.description}"
-Style: {request.style}
+Convert this rough idea into a highly detailed, optimised image prompt:
 
-Return JSON with:
-- prompt: detailed positive prompt (include lighting, composition, style keywords)
-- negative_prompt: things to exclude (e.g. blurry, low quality, text, watermark)"""
+Idea: "{request.description}"
+Requested style: {request.style}
+
+Rules:
+- Write a rich, descriptive positive prompt (lighting, composition, mood, colours, camera details)
+- Tailor the keywords to the requested style
+- Keep prompts concise but dense with useful descriptors (under 120 words)
+- Write a negative_prompt listing things to exclude
+
+Return JSON with exactly:
+- prompt: string (the optimised positive prompt)
+- negative_prompt: string (what to exclude)"""
 
     schema = {
         "type": "object",
@@ -311,10 +319,94 @@ Return JSON with:
         "required": ["prompt", "negative_prompt"],
     }
 
-    result = await call_ollama(prompt, schema=schema)
+    result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
     return GenerateImagePromptResponse(
         prompt=result.get("prompt", request.description),
-        negative_prompt=result.get("negative_prompt", "blurry, low quality, text, watermark, nsfw"),
+        negative_prompt=result.get("negative_prompt", "blurry, low quality, watermark, text overlay, logo, nsfw"),
+    )
+
+
+class AutoConfigureRequest(BaseModel):
+    prompt: str
+    context: str = "auto"  # "image" | "carousel" | "auto"
+
+
+class AutoConfigureResponse(BaseModel):
+    task_type: str  # "image" | "carousel" | "text"
+    model: str
+    steps: int
+    style: str
+    platform: str
+    tone: str
+    num_slides: int
+    enhanced_prompt: str | None = None
+    negative_prompt: str | None = None
+
+
+@router.post("/auto-configure", response_model=AutoConfigureResponse)
+async def auto_configure(
+    request: AutoConfigureRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Analyse a free-text prompt and return the best task type, model, and settings."""
+    ctx_hint = {
+        "image": " The user is on the image-generation page — default to task_type=image.",
+        "carousel": " The user is on the carousel creation page — default to task_type=carousel.",
+        "auto": "",
+    }.get(request.context, "")
+
+    llm_prompt = f"""You are an AI workflow router. Analyse the user's prompt and decide the best task type, Cloudflare Workers AI model, and generation settings.{ctx_hint}
+
+User prompt: "{request.prompt}"
+
+Rules:
+- task_type must be one of: "image", "carousel", "text"
+- For image tasks use model "@cf/black-forest-labs/flux-1-schnell"
+- For text/carousel tasks use model "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+- steps: 4 (fast, abstract/simple), 6 (balanced, most cases), 8 (best, photorealistic/detailed)
+- style: one of photorealistic, professional, cinematic, illustration, abstract, dark
+- platform: one of linkedin, instagram, twitter — infer from context clues (professional→linkedin, visual/lifestyle→instagram, short→twitter); default to linkedin
+- tone: one of professional, casual, inspirational, educational, humorous — infer from prompt; default professional
+- num_slides: 3-8 for carousel, infer from topic complexity; default 5
+- enhanced_prompt: if task_type is image, write an optimised FLUX prompt (under 100 words); else null
+- negative_prompt: if task_type is image, list exclusions; else null
+
+Return JSON with: task_type, model, steps, style, platform, tone, num_slides, enhanced_prompt, negative_prompt"""
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "task_type": {"type": "string"},
+            "model": {"type": "string"},
+            "steps": {"type": "integer"},
+            "style": {"type": "string"},
+            "platform": {"type": "string"},
+            "tone": {"type": "string"},
+            "num_slides": {"type": "integer"},
+            "enhanced_prompt": {"type": "string"},
+            "negative_prompt": {"type": "string"},
+        },
+        "required": ["task_type", "model", "steps", "style", "platform", "tone", "num_slides"],
+    }
+
+    def _str_or_join(v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return ", ".join(str(x) for x in v)
+        return str(v)
+
+    result = await call_inference(llm_prompt, provider_name="cloudflare", schema=schema)
+    return AutoConfigureResponse(
+        task_type=str(result.get("task_type", "image")),
+        model=str(result.get("model", CF_TXT2IMG_FREE)),
+        steps=int(result.get("steps", 6)),
+        style=str(result.get("style", "photorealistic")),
+        platform=str(result.get("platform", "linkedin")),
+        tone=str(result.get("tone", "professional")),
+        num_slides=int(result.get("num_slides", 5)),
+        enhanced_prompt=_str_or_join(result.get("enhanced_prompt")),
+        negative_prompt=_str_or_join(result.get("negative_prompt")),
     )
 
 
@@ -474,6 +566,30 @@ async def generate_image(
             prompt=request.prompt,
             source="ai-generated",
         )
+
+    # Auto-save successful generation as a reusable workflow template
+    if asset and team:
+        try:
+            await _save_generation_template(
+                db=db,
+                team=team,
+                user=current_user,
+                name=f"Image: {request.prompt[:60]}",
+                category="image",
+                prompt_template=request.prompt,
+                settings={
+                    "type": "image",
+                    "provider": provider_name,
+                    "model": request.model or CF_TXT2IMG_FREE,
+                    "steps": request.steps,
+                    "negative_prompt": request.negative_prompt,
+                    "cfg_scale": request.cfg_scale,
+                    "seed": request.seed,
+                },
+                tags=["image", "auto-saved"],
+            )
+        except Exception:
+            pass
 
     return GenerateImageResponse(
         image_base64=image_base64,
@@ -1561,7 +1677,7 @@ async def generate_carousel_pipeline(
             )
         )
 
-    return GenerateCarouselPipelineResponse(
+    pipeline_response = GenerateCarouselPipelineResponse(
         slides=slide_results,
         suggested_caption=cleaned_caption,
         hashtags=copy.hashtags,
@@ -1575,6 +1691,34 @@ async def generate_carousel_pipeline(
         nlp_report=nlp_report.to_dict(),
     )
 
+    # Auto-save successful generation as a reusable workflow template
+    if media_ids and team:
+        try:
+            await _save_generation_template(
+                db=db,
+                team=team,
+                user=current_user,
+                name=f"Carousel: {request.topic[:60]}",
+                category="carousel",
+                prompt_template=request.topic,
+                settings={
+                    "type": "carousel",
+                    "platform": request.platform,
+                    "num_slides": request.num_slides,
+                    "tone": request.tone,
+                    "text_model": request.text_model,
+                    "txt2img_model": request.txt2img_model,
+                    "img2img_model": request.img2img_model,
+                    "strength": request.strength,
+                    "slide_count": len(slide_results),
+                },
+                tags=["carousel", "auto-saved", request.platform],
+            )
+        except Exception:
+            pass
+
+    return pipeline_response
+
 
 class RunCarouselAndPublishRequest(BaseModel):
     topic: str = (
@@ -1584,6 +1728,7 @@ class RunCarouselAndPublishRequest(BaseModel):
     tone: str = "clear and friendly"
     include_cta: bool = True
     text_model: str = CF_TEXT_FREE
+    text_provider: str = "cloudflare"  # use CF daily free neurons; falls back to ollama on 429
     txt2img_model: str = CF_TXT2IMG_FREE
     img2img_model: str = CF_IMG2IMG_FREE
     strength: float = 0.42
@@ -1611,7 +1756,7 @@ async def run_carousel_and_publish(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    return await run_cloudless_carousel_pipeline(
+    result = await run_cloudless_carousel_pipeline(
         db=db,
         user=current_user,
         team=team,
@@ -1620,6 +1765,7 @@ async def run_carousel_and_publish(
         tone=request.tone,
         include_cta=request.include_cta,
         text_model=request.text_model,
+        text_provider=request.text_provider,
         txt2img_model=request.txt2img_model,
         img2img_model=request.img2img_model,
         strength=request.strength,
@@ -1627,5 +1773,186 @@ async def run_carousel_and_publish(
         publish=request.publish,
         wait_for_publish=request.wait_for_publish,
     )
+
+    # Auto-save successful run as a reusable workflow template
+    try:
+        await _save_generation_template(
+            db=db,
+            team=team,
+            user=current_user,
+            name=f"Carousel: {request.topic[:60]}",
+            category="carousel",
+            prompt_template=request.topic,
+            settings={
+                "type": "carousel",
+                "platform": "linkedin",
+                "num_slides": request.num_slides,
+                "tone": request.tone,
+                "text_model": request.text_model,
+                "txt2img_model": request.txt2img_model,
+                "img2img_model": request.img2img_model,
+                "strength": request.strength,
+            },
+            tags=["carousel", "auto-saved"],
+        )
+    except Exception:
+        pass  # never fail the main response
+
+    return result
+
+
+# ── Generation template helpers ───────────────────────────────────────────────
+
+class SaveGenerationTemplateRequest(BaseModel):
+    name: str
+    category: str = "generation"
+    prompt_template: str
+    settings: dict = {}
+    tags: list[str] = []
+    is_public: bool = False
+
+
+class SaveGenerationTemplateResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    category: str | None
+    tags: list[str]
+    created_at: datetime
+
+
+async def _save_generation_template(
+    *,
+    db: AsyncSession,
+    team,
+    user,
+    name: str,
+    category: str,
+    prompt_template: str,
+    settings: dict,
+    tags: list[str],
+    is_public: bool = False,
+) -> PromptTemplate | None:
+    """Upsert a PromptTemplate with the generation settings (idempotent by name+team)."""
+    existing = await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.team_id == team.id,
+            PromptTemplate.name == name,
+        )
+    )
+    tmpl = existing.scalar_one_or_none()
+    if tmpl:
+        tmpl.n8n_workflow_json = settings
+        tmpl.tags = tags
+    else:
+        tmpl = PromptTemplate(
+            team_id=team.id,
+            user_id=user.id,
+            name=name,
+            description=f"Auto-saved from successful {category} generation",
+            prompt_template=prompt_template,
+            n8n_workflow_json=settings,
+            category=category,
+            tags=tags,
+            is_public=is_public,
+        )
+        db.add(tmpl)
+    await db.commit()
+    await db.refresh(tmpl)
+    return tmpl
+
+
+@router.post("/save-generation-template", response_model=SaveGenerationTemplateResponse)
+async def save_generation_template(
+    request: SaveGenerationTemplateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a successful generation run as a reusable template in the Workflows page."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    tmpl = await _save_generation_template(
+        db=db,
+        team=team,
+        user=current_user,
+        name=request.name,
+        category=request.category,
+        prompt_template=request.prompt_template,
+        settings=request.settings,
+        tags=request.tags,
+        is_public=request.is_public,
+    )
+    return SaveGenerationTemplateResponse(
+        id=tmpl.id,
+        name=tmpl.name,
+        category=tmpl.category,
+        tags=tmpl.tags,
+        created_at=tmpl.created_at,
+    )
+
+
+@router.get("/workflow-config/{content_type}")
+async def get_workflow_config(
+    content_type: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return the auto-selected model config for a given content type."""
+    config = CONTENT_WORKFLOW_CONFIGS.get(content_type)
+    if not config:
+        raise HTTPException(status_code=404, detail=f"No workflow config for content type: {content_type}")
+    return config
+
+
+@router.post("/seed-default-workflows")
+async def seed_default_workflows(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert one default PromptTemplate per content type so Workflows page shows them."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # Delete ALL existing default templates for this team first (handles duplicates
+    # created by parallel calls from React Strict Mode double-invocation).
+    await db.execute(
+        delete(PromptTemplate).where(
+            PromptTemplate.team_id == team.id,
+            PromptTemplate.name.like("[Default]%"),
+        )
+    )
+    await db.flush()
+
+    seeded: list[str] = []
+    for content_type, config in CONTENT_WORKFLOW_CONFIGS.items():
+        template_name = f"[Default] {config['name']}"
+        primary_model = config.get("text_model") or config.get("txt2img_model", "")
+        prompt_text = (
+            f"Default {content_type} workflow. "
+            f"Primary model: {primary_model}. "
+            f"Fallback: {config.get('hf_text_fallback') or config.get('hf_txt2img_fallback', 'HF free tier')}."
+        )
+        db.add(PromptTemplate(
+            id=str(uuid.uuid4()),
+            name=template_name,
+            description=config["description"],
+            prompt_template=prompt_text,
+            category=content_type,
+            tags=[content_type, "default", "auto"],
+            is_public=False,
+            team_id=team.id,
+            n8n_workflow_json=config,
+        ))
+        seeded.append(template_name)
+
+    await db.commit()
+    return {"seeded": seeded}
 
 

@@ -12,7 +12,15 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember
-from app.services.cf_models import CF_IMG2IMG_FREE, CF_TXT2IMG_FREE
+from app.services.cf_models import (
+    CF_IMG2IMG_FREE,
+    CF_TEXT_FREE,
+    CF_TXT2IMG_FREE,
+    HF_API_BASE,
+    HF_IMG2IMG_FALLBACK,
+    HF_TEXT_FALLBACK,
+    HF_TXT2IMG_FALLBACK,
+)
 
 settings = get_settings()
 
@@ -608,6 +616,25 @@ async def _call_workers_ai_img2img(
                 "model": model,
             }
 
+    # CF img2img exhausted all retries — try HF failover
+    hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+    if hf_key:
+        print(f"[inference] CF img2img quota/retries exhausted — falling back to HF {HF_IMG2IMG_FALLBACK}", flush=True)
+        try:
+            return await _call_hf_img2img(
+                prompt=prompt,
+                image_b64=image_b64,
+                model=HF_IMG2IMG_FALLBACK,
+                api_key=hf_key,
+                negative_prompt=negative_prompt,
+                strength=strength,
+                steps=min(steps, 20),
+                width=width,
+                height=height,
+            )
+        except HTTPException:
+            pass  # HF also failed — fall through to original error
+
     raise HTTPException(
         status_code=502,
         detail=f"Cloudflare Workers AI img2img capacity exceeded after retries: {last_error}",
@@ -719,12 +746,26 @@ async def _call_cf_image_pipeline(
         "professional LinkedIn carousel background, no readable text, no logos"
     )
 
-    draft = await _call_workers_ai_image(
-        prompt=prompt,
-        model=txt2img_model,
-        api_key=api_key,
-        steps=txt2img_steps,
-    )
+    hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+    try:
+        draft = await _call_workers_ai_image(
+            prompt=prompt,
+            model=txt2img_model,
+            api_key=api_key,
+            steps=txt2img_steps,
+        )
+    except HTTPException as exc:
+        if not _is_cf_quota_error(exc) or not hf_key:
+            raise
+        print(f"[cf-pipeline] CF txt2img quota — falling back to HF FLUX for draft", flush=True)
+        draft = await _call_hf_txt2img(
+            prompt=prompt,
+            model=HF_TXT2IMG_FALLBACK,
+            api_key=hf_key,
+            width=1024,
+            height=1024,
+            steps=txt2img_steps,
+        )
     draft_bytes = base64.b64decode(draft["image_base64"])
 
     enhance_model_used = img2img_model
@@ -887,9 +928,161 @@ async def retrieve_workers_ai_batch(
     }
 
 
+# ---------------------------------------------------------------------------
+# Cloudflare quota / rate-limit detection
+# ---------------------------------------------------------------------------
+
+def _is_cf_quota_error(exc: HTTPException) -> bool:
+    """Return True when the HTTPException signals a CF neuron-budget or rate-limit."""
+    if exc.status_code == 429:
+        return True
+    if exc.status_code == 503:
+        return True
+    if exc.status_code in (403, 502):
+        lower = str(exc.detail or "").lower()
+        return any(kw in lower for kw in ("neuron", "quota", "budget", "limit", "rate", "exceed", "capacity"))
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face Inference API — free-tier callables
+# ---------------------------------------------------------------------------
+
+async def _call_hf_chat(
+    prompt: str,
+    model: str,
+    api_key: str,
+    schema: dict | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    """HF Serverless Inference — per-model OpenAI-compat chat completions."""
+    system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
+    user_msg = prompt
+    if schema:
+        user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
+
+    payload: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.7,
+        "max_tokens": max_tokens or (4096 if schema else 1024),
+    }
+    if schema:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    url = f"{HF_API_BASE}/models/{model}/v1/chat/completions"
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"HF text fallback error {resp.status_code}: {resp.text[:300]}",
+            )
+
+    content = resp.json()["choices"][0]["message"].get("content", "")
+    if schema:
+        return _parse_json_response(content)
+    return {"text": content}
+
+
+async def _call_hf_txt2img(
+    prompt: str,
+    model: str,
+    api_key: str,
+    negative_prompt: str = "",
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 4,
+) -> dict:
+    """HF Serverless Inference — text-to-image (raw binary PNG response)."""
+    import base64
+
+    is_flux = "flux" in model.lower()
+    parameters: dict = {
+        "num_inference_steps": max(1, min(steps, 50)),
+        "width": width,
+        "height": height,
+    }
+    if negative_prompt and not is_flux:
+        parameters["negative_prompt"] = negative_prompt
+    if not is_flux:
+        parameters["guidance_scale"] = 7.5
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(
+            f"{HF_API_BASE}/models/{model}",
+            headers=headers,
+            json={"inputs": prompt, "parameters": parameters},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"HF txt2img fallback error {resp.status_code}: {resp.text[:300]}",
+            )
+
+    return {
+        "image_base64": base64.b64encode(resp.content).decode("utf-8"),
+        "format": "base64",
+        "prompt": prompt,
+        "provider": "huggingface",
+        "model": model,
+    }
+
+
+async def _call_hf_img2img(
+    prompt: str,
+    image_b64: str,
+    model: str,
+    api_key: str,
+    negative_prompt: str = "",
+    strength: float = 0.6,
+    steps: int = 20,
+    width: int = 512,
+    height: int = 512,
+) -> dict:
+    """HF Serverless Inference — image-to-image (instruct-pix2pix style)."""
+    import base64
+
+    parameters: dict = {
+        "prompt": prompt,
+        "strength": max(0.1, min(float(strength), 1.0)),
+        "num_inference_steps": max(1, min(steps, 50)),
+        "target_size": {"width": width, "height": height},
+    }
+    if negative_prompt:
+        parameters["negative_prompt"] = negative_prompt
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(
+            f"{HF_API_BASE}/models/{model}",
+            headers=headers,
+            json={"inputs": image_b64, "parameters": parameters},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"HF img2img fallback error {resp.status_code}: {resp.text[:300]}",
+            )
+
+    return {
+        "image_base64": base64.b64encode(resp.content).decode("utf-8"),
+        "format": "base64",
+        "prompt": prompt,
+        "provider": "huggingface",
+        "model": model,
+    }
+
+
 async def call_inference(
     prompt: str,
-    provider_name: str = "groq",
+    provider_name: str = "cloudflare",
     db: AsyncSession | None = None,
     team_id: uuid.UUID | None = None,
     schema: dict | None = None,
@@ -903,6 +1096,16 @@ async def call_inference(
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:
         model = model_override
+    # Cloudflare: auto-select the correct model per task type so callers never
+    # have to specify one.  Text/structured tasks → CF_TEXT_FREE; if the
+    # configured default_model happens to be an image model, silently correct it.
+    if provider_name == "cloudflare" and not model_override:
+        if schema or not _is_workers_ai_image_model(model):
+            if _is_workers_ai_image_model(model):
+                model = CF_TEXT_FREE  # image model misconfigured as default — fix it
+            elif not model:
+                model = CF_TEXT_FREE
+        # image tasks with no schema keep whatever model was resolved (caller controls)
     # Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) are
     # environment-level, not stored per-team.  _call_workers_ai_chat already
     # falls back to the env var and validates it, so we must not reject a
@@ -923,10 +1126,34 @@ async def call_inference(
                         f"model such as '@cf/meta/llama-3.1-8b-instruct' for content tasks."
                     ),
                 )
-            return await _call_workers_ai_image(prompt, model=model, api_key=api_key)
-        return await _call_workers_ai_chat(
-            prompt, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
-        )
+            try:
+                return await _call_workers_ai_image(prompt, model=model, api_key=api_key)
+            except HTTPException as exc:
+                if not _is_cf_quota_error(exc):
+                    raise
+                hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+                if not hf_key:
+                    raise
+                print(f"[inference] CF txt2img quota — falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
+                return await _call_hf_txt2img(
+                    prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
+                    width=1024, height=1024, steps=4,
+                )
+        try:
+            return await _call_workers_ai_chat(
+                prompt, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
+            )
+        except HTTPException as exc:
+            if not _is_cf_quota_error(exc):
+                raise
+            hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+            if not hf_key:
+                raise
+            print(f"[inference] CF text quota — falling back to HF {HF_TEXT_FALLBACK}", flush=True)
+            return await _call_hf_chat(
+                prompt, model=HF_TEXT_FALLBACK, api_key=hf_key,
+                schema=schema, max_tokens=max_tokens,
+            )
     return await _call_openai_compat(
         prompt, base_url=base_url, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
     )

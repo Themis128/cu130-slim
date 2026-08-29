@@ -105,6 +105,29 @@ class Settings(BaseSettings):
     THREADS_CLIENT_SECRET: str = ""
     THREADS_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/threads/callback"
 
+    # Twitter v1.0a app credentials (for media upload via v1.1 API)
+    TWITTER_API_KEY: str = ""
+    TWITTER_API_SECRET: str = ""
+    TWITTER_ACCESS_TOKEN: str = ""
+    TWITTER_ACCESS_TOKEN_SECRET: str = ""
+
+    # Media serving — set to a publicly reachable base URL so Instagram
+    # can fetch images. E.g. https://yourdomain.com or an ngrok URL.
+    # When empty, Instagram posts without images fall back gracefully.
+    MEDIA_PUBLIC_BASE_URL: str = ""
+
+    # Webhook fired after every successful publish. Payload is a JSON object:
+    # {event, post_id, platform, account_id, platform_url, published_at,
+    #  workflow_run_id, workflow_id}
+    PUBLISH_SUCCESS_WEBHOOK_URL: str = ""
+
+    # MinIO (internal object storage)
+    MINIO_ENDPOINT: str = "minio:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET: str = "social-media"
+    MINIO_SECURE: bool = False
+
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
     SOCIAL_ADMIN_PASSWORD: str = ""

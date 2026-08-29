@@ -16,8 +16,9 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
-import { contentApi, aiApi } from '@/services/api'
-import type { SocialAccount } from '@/types'
+import { contentApi, aiApi, mediaUrl } from '@/services/api'
+import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
+import type { SocialAccount, MediaAsset } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
 import {
@@ -308,6 +309,8 @@ export default function NewPostPage() {
   const [previewPlatform, setPreviewPlatform] = useState<string>('')
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
   const [mediaIds, setMediaIds] = useState<string[]>([])
+  const [libraryAssets, setLibraryAssets] = useState<MediaAsset[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
@@ -336,6 +339,27 @@ export default function NewPostPage() {
   useEffect(() => {
     setCtx({ content, selectedPlatforms, hasMedia: mediaFiles.length > 0, aiUsed })
   }, [content, selectedPlatforms, mediaFiles, aiUsed, setCtx])
+
+  // Auto-select all accounts on first load; for LinkedIn always use cloudless-gr org
+  useEffect(() => {
+    if (connectedAccounts.length === 0 || selectedPlatforms.length > 0) return
+    const seen = new Set<string>()
+    const toSelect: SocialAccount[] = []
+    // LinkedIn: cloudless-gr org first
+    const cloudless = connectedAccounts.find(
+      (a) => a.platform === 'linkedin' && isOrgAccount(a)
+    ) ?? connectedAccounts.find((a) => a.platform === 'linkedin')
+    if (cloudless) { toSelect.push(cloudless); seen.add('linkedin') }
+    // All other platforms: first connected account per platform
+    for (const a of connectedAccounts) {
+      if (!seen.has(a.platform)) { toSelect.push(a); seen.add(a.platform) }
+    }
+    if (toSelect.length > 0) {
+      setSelectedPlatforms(toSelect.map((a) => a.platform))
+      setSelectedAccountIds(toSelect.map((a) => a.id))
+      setPreviewPlatform(cloudless ? 'linkedin' : toSelect[0].platform)
+    }
+  }, [connectedAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select preview platform when selection changes
   useEffect(() => {
@@ -443,6 +467,24 @@ export default function NewPostPage() {
   const removeMediaAt = (index: number) => {
     setMediaFiles((prev) => prev.filter((_, i) => i !== index))
     setMediaIds((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleLibrarySelect = (assets: MediaAsset[]) => {
+    const slots = 10 - mediaFiles.length - libraryAssets.length
+    const picks = assets.slice(0, slots)
+    setLibraryAssets((prev) => {
+      const existingIds = new Set(prev.map((a) => a.id))
+      return [...prev, ...picks.filter((a) => !existingIds.has(a.id))]
+    })
+    setMediaIds((prev) => {
+      const existingIds = new Set(prev)
+      return [...prev, ...picks.map((a) => a.id).filter((id) => !existingIds.has(id))]
+    })
+  }
+
+  const removeLibraryAssetAt = (assetId: string) => {
+    setLibraryAssets((prev) => prev.filter((a) => a.id !== assetId))
+    setMediaIds((prev) => prev.filter((id) => id !== assetId))
   }
 
   const handleSubmit = async (e: React.FormEvent, action: 'draft' | 'publish' | 'schedule') => {
@@ -765,15 +807,26 @@ export default function NewPostPage() {
                 <div className="flex items-center gap-2">
                   <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden"
                     onChange={(e) => e.target.files && handleMediaUpload(e.target.files)} />
-                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={mediaFiles.length >= 10}>
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={mediaFiles.length + libraryAssets.length >= 10}>
                     <ImageIcon className="mr-2 h-3.5 w-3.5" />
-                    Media {mediaFiles.length > 0 && `(${mediaFiles.length})`}
+                    Upload {mediaFiles.length > 0 && `(${mediaFiles.length})`}
                   </Button>
+                  <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)} disabled={mediaFiles.length + libraryAssets.length >= 10}>
+                    <Layers className="mr-2 h-3.5 w-3.5" />
+                    Library {libraryAssets.length > 0 && `(${libraryAssets.length})`}
+                  </Button>
+                  <MediaPickerDialog
+                    open={pickerOpen}
+                    onOpenChange={setPickerOpen}
+                    onSelect={handleLibrarySelect}
+                    multiple
+                    title="Select from Media Library"
+                  />
                 </div>
                 <span className="text-xs text-muted-foreground">{content.length} chars</span>
               </div>
 
-              {mediaFiles.length > 0 && (
+              {(mediaFiles.length > 0 || libraryAssets.length > 0) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {mediaFiles.map((file, index) => (
                     <div key={`${file.name}-${index}`} className="relative h-16 w-16 rounded-lg overflow-hidden border">
@@ -784,6 +837,23 @@ export default function NewPostPage() {
                         type="button"
                         className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
                         onClick={() => removeMediaAt(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {libraryAssets.map((asset) => (
+                    <div key={asset.id} className="relative h-16 w-16 rounded-lg overflow-hidden border border-primary/40">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={mediaUrl(asset.storage_path)}
+                        alt={asset.alt_text || asset.filename || ''}
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                        onClick={() => removeLibraryAssetAt(asset.id)}
                       >
                         <X className="h-3 w-3" />
                       </button>

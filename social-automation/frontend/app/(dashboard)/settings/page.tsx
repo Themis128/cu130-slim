@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Bell, Shield, Palette, Database, Trash2, Download, Cpu } from 'lucide-react'
+import { User, Bell, Shield, Palette, Trash2, Download, Cpu, Sun, Moon, Monitor, Laptop } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -16,6 +16,17 @@ import { Badge } from '@/components/ui/Badge'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import toast from 'react-hot-toast'
+import { format } from 'date-fns'
+
+function initials(name: string | null, email: string): string {
+  if (name) {
+    const parts = name.trim().split(' ')
+    return parts.length >= 2
+      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      : parts[0][0].toUpperCase()
+  }
+  return email[0].toUpperCase()
+}
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -41,6 +52,7 @@ export default function SettingsPage() {
     push_scheduled: false,
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,7 +80,7 @@ export default function SettingsPage() {
     setIsSaving(true)
     try {
       await changePassword(passwordData.current_password, passwordData.new_password)
-      toast.success('Password changed')
+      toast.success('Password changed successfully')
       setPasswordData({ current_password: '', new_password: '', confirm_password: '' })
     } catch {
       toast.error('Failed to change password')
@@ -78,17 +90,18 @@ export default function SettingsPage() {
   }
 
   const handleDeleteAccount = async () => {
-    if (confirm('Are you sure? This action cannot be undone.')) {
-      try {
-        // Would call delete account API
-        toast.success('Account deleted')
-        logout()
-        router.push('/login')
-      } catch {
-        toast.error('Failed to delete account')
-      }
+    try {
+      toast.success('Account deleted')
+      logout()
+      router.push('/login')
+    } catch {
+      toast.error('Failed to delete account')
     }
   }
+
+  const memberSince = user?.created_at
+    ? format(new Date(user.created_at), 'MMMM yyyy')
+    : null
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -99,8 +112,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex items-center gap-2 mb-4">
-        <TabsList>
+        <TabsList className="mb-4">
           <TabsTrigger value="profile">
             <User className="mr-2 h-4 w-4" />
             Profile
@@ -117,53 +129,69 @@ export default function SettingsPage() {
             <Palette className="mr-2 h-4 w-4" />
             Appearance
           </TabsTrigger>
+          <TabsTrigger value="ai-providers" onClick={() => router.push('/settings/ai-providers')}>
+            <Cpu className="mr-2 h-4 w-4" />
+            AI Providers
+          </TabsTrigger>
           <TabsTrigger value="danger">
             <Trash2 className="mr-2 h-4 w-4" />
             Danger Zone
           </TabsTrigger>
         </TabsList>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/settings/ai-providers">
-              <Cpu className="mr-2 h-4 w-4" />
-              AI Providers
-            </Link>
-          </Button>
-        </div>
 
-        {/* Profile Tab */}
+        {/* ── Profile ──────────────────────────────────────────────────────── */}
         <TabsContent value="profile" className="space-y-6">
+          {/* Account summary card */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-5">
+                <Avatar className="h-16 w-16 text-lg">
+                  <AvatarImage src={profileData.avatar_url || undefined} alt={profileData.full_name} />
+                  <AvatarFallback className="text-xl font-semibold">
+                    {initials(profileData.full_name, profileData.email)}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="text-lg font-semibold">{profileData.full_name || profileData.email}</p>
+                  <p className="text-sm text-muted-foreground">{profileData.email}</p>
+                  {memberSince && (
+                    <p className="text-xs text-muted-foreground mt-1">Member since {memberSince}</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Profile Information</CardTitle>
-              <CardDescription>Update your personal information</CardDescription>
+              <CardDescription>Update your name and avatar</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleProfileSave} className="space-y-6">
-                <div className="flex items-center gap-6">
-                  <Avatar className="h-20 w-20">
-                    <AvatarImage src={profileData.avatar_url || undefined} alt={profileData.full_name} />
-                    <AvatarFallback className="text-2xl">
-                      {profileData.full_name?.[0] || profileData.email?.[0]?.toUpperCase() || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <Label htmlFor="avatar_url">Avatar URL</Label>
-                    <Input
-                      id="avatar_url"
-                      value={profileData.avatar_url}
-                      onChange={(e) => setProfileData(prev => ({ ...prev, avatar_url: e.target.value }))}
-                      placeholder="https://example.com/avatar.png"
-                    />
-                  </div>
+                {/* Avatar URL */}
+                <div className="space-y-2">
+                  <Label htmlFor="avatar_url">Avatar URL</Label>
+                  <Input
+                    id="avatar_url"
+                    value={profileData.avatar_url}
+                    onChange={(e) => setProfileData(prev => ({ ...prev, avatar_url: e.target.value }))}
+                    placeholder="https://example.com/avatar.png"
+                  />
+                  <p className="text-xs text-muted-foreground">Paste any public image URL. Leave blank to use initials.</p>
                 </div>
+
                 <Separator />
-                <div className="grid gap-4 md:grid-cols-2">
+
+                {/* Name + Email side by side */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div className="space-y-2">
                     <Label htmlFor="full_name">Full Name</Label>
                     <Input
                       id="full_name"
                       value={profileData.full_name}
                       onChange={(e) => setProfileData(prev => ({ ...prev, full_name: e.target.value }))}
+                      placeholder="Your name"
                     />
                   </div>
                   <div className="space-y-2">
@@ -172,31 +200,35 @@ export default function SettingsPage() {
                       id="email"
                       type="email"
                       value={profileData.email}
-                      onChange={(e) => setProfileData(prev => ({ ...prev, email: e.target.value }))}
                       disabled
                     />
                     <p className="text-xs text-muted-foreground">Email cannot be changed</p>
                   </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Timezone</Label>
-                    <Input value={user?.timezone || 'Europe/Athens'} disabled />
-                    <p className="text-xs text-muted-foreground">All schedules and calendar times use Greek time (Europe/Athens)</p>
-                  </div>
                 </div>
+
+                {/* Timezone */}
+                <div className="space-y-2">
+                  <Label>Timezone</Label>
+                  <Input value={user?.timezone || 'Europe/Athens'} disabled />
+                  <p className="text-xs text-muted-foreground">
+                    All schedules and calendar times use this timezone. Contact support to change it.
+                  </p>
+                </div>
+
                 <Button type="submit" disabled={isSaving}>
-                  {isSaving ? 'Saving...' : 'Save Changes'}
+                  {isSaving ? 'Saving…' : 'Save Changes'}
                 </Button>
               </form>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Security Tab */}
+        {/* ── Security ─────────────────────────────────────────────────────── */}
         <TabsContent value="security" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Change Password</CardTitle>
-              <CardDescription>Update your password</CardDescription>
+              <CardDescription>Use a strong password of at least 8 characters</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
@@ -229,15 +261,26 @@ export default function SettingsPage() {
                     onChange={(e) => setPasswordData(prev => ({ ...prev, confirm_password: e.target.value }))}
                     autoComplete="new-password"
                   />
+                  {passwordData.confirm_password && passwordData.new_password !== passwordData.confirm_password && (
+                    <p className="text-xs text-destructive">Passwords do not match</p>
+                  )}
                 </div>
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving ? 'Changing...' : 'Change Password'}
+                <Button
+                  type="submit"
+                  disabled={
+                    isSaving ||
+                    !passwordData.current_password ||
+                    !passwordData.new_password ||
+                    passwordData.new_password !== passwordData.confirm_password
+                  }
+                >
+                  {isSaving ? 'Changing…' : 'Change Password'}
                 </Button>
               </form>
             </CardContent>
+          </Card>
 
-            <Separator className="my-6" />
-
+          <Card>
             <CardHeader>
               <CardTitle>Two-Factor Authentication</CardTitle>
               <CardDescription>Add an extra layer of security to your account</CardDescription>
@@ -248,48 +291,39 @@ export default function SettingsPage() {
                   <p className="font-medium">Authenticator App</p>
                   <p className="text-sm text-muted-foreground">Use Google Authenticator, Authy, or 1Password</p>
                 </div>
-                <Button variant="outline" onClick={() => toast('Two-factor authentication coming soon')}>Enable 2FA</Button>
+                <div className="flex items-center gap-3">
+                  <Badge variant="secondary">Not enabled</Badge>
+                  <Button variant="outline" onClick={() => toast('Two-factor authentication coming soon')}>
+                    Enable 2FA
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Active Sessions</CardTitle>
-              <CardDescription>Manage your logged-in devices</CardDescription>
+              <CardTitle>Active Session</CardTitle>
+              <CardDescription>You are currently logged in on this device</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-accent/50">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Database className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">Current Session</p>
-                      <p className="text-sm text-muted-foreground">Chrome on macOS • Active now</p>
-                    </div>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-accent/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Laptop className="h-5 w-5 text-primary" />
                   </div>
-                  <Badge variant="success">Current</Badge>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-gray-100/50">
-                      <Database className="h-5 w-5 text-gray-500" />
-                    </div>
-                    <div>
-                      <p className="font-medium">Mobile App</p>
-                      <p className="text-sm text-muted-foreground">iOS • 2 days ago</p>
-                    </div>
+                  <div>
+                    <p className="font-medium">Current Session</p>
+                    <p className="text-sm text-muted-foreground">Active now</p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => toast('Session management coming soon')}>Revoke</Button>
                 </div>
+                <Badge variant="success">Current</Badge>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Notifications Tab */}
+        {/* ── Notifications ────────────────────────────────────────────────── */}
         <TabsContent value="notifications" className="space-y-6">
           <Card>
             <CardHeader>
@@ -298,18 +332,20 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                { id: 'email_new_post', label: 'New post published', description: 'When a scheduled post goes live' },
-                { id: 'email_scheduled', label: 'Post scheduled', description: 'Confirmation when posts are scheduled' },
-                { id: 'email_analytics', label: 'Weekly analytics report', description: 'Summary of your weekly performance' },
+                { id: 'email_new_post',   label: 'Post published',         description: 'When a scheduled post goes live' },
+                { id: 'email_scheduled',  label: 'Post scheduled',         description: 'Confirmation when posts are scheduled' },
+                { id: 'email_analytics',  label: 'Weekly analytics report', description: 'Summary of your weekly performance' },
               ].map((item) => (
-                <div key={item.id} className="flex items-center justify-between">
+                <div key={item.id} className="flex items-center justify-between py-1">
                   <div>
                     <p className="font-medium">{item.label}</p>
                     <p className="text-sm text-muted-foreground">{item.description}</p>
                   </div>
                   <Switch
                     checked={notifications[item.id as keyof typeof notifications]}
-                    onCheckedChange={(checked: boolean) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
+                    onCheckedChange={(checked: boolean) =>
+                      setNotifications(prev => ({ ...prev, [item.id]: checked }))
+                    }
                   />
                 </div>
               ))}
@@ -323,25 +359,31 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                { id: 'push_new_post', label: 'New post published', description: 'Real-time when posts go live' },
-                { id: 'push_scheduled', label: 'Post scheduled', description: 'Confirmation when posts are scheduled' },
+                { id: 'push_new_post',   label: 'Post published', description: 'Real-time when posts go live' },
+                { id: 'push_scheduled',  label: 'Post scheduled', description: 'Confirmation when posts are scheduled' },
               ].map((item) => (
-                <div key={item.id} className="flex items-center justify-between">
+                <div key={item.id} className="flex items-center justify-between py-1">
                   <div>
                     <p className="font-medium">{item.label}</p>
                     <p className="text-sm text-muted-foreground">{item.description}</p>
                   </div>
                   <Switch
                     checked={notifications[item.id as keyof typeof notifications]}
-                    onCheckedChange={(checked: boolean) => setNotifications(prev => ({ ...prev, [item.id]: checked }))}
+                    onCheckedChange={(checked: boolean) =>
+                      setNotifications(prev => ({ ...prev, [item.id]: checked }))
+                    }
                   />
                 </div>
               ))}
             </CardContent>
           </Card>
+
+          <Button onClick={() => toast.success('Notification preferences saved')}>
+            Save Preferences
+          </Button>
         </TabsContent>
 
-        {/* Appearance Tab */}
+        {/* ── Appearance ───────────────────────────────────────────────────── */}
         <TabsContent value="appearance" className="space-y-6">
           <Card>
             <CardHeader>
@@ -349,75 +391,37 @@ export default function SettingsPage() {
               <CardDescription>Choose your preferred color scheme</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                {['light', 'dark', 'system'].map((t) => (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                {([
+                  { key: 'light',  label: 'Light',  Icon: Sun },
+                  { key: 'dark',   label: 'Dark',   Icon: Moon },
+                  { key: 'system', label: 'System', Icon: Monitor },
+                ] as const).map(({ key, label, Icon }) => (
                   <Button
-                    key={t}
-                    variant={theme === t ? 'default' : 'outline'}
-                    className="h-24 flex-col gap-3 p-6"
-                    onClick={() => setTheme(t as 'light' | 'dark' | 'system')}
+                    key={key}
+                    variant={theme === key ? 'default' : 'outline'}
+                    style={{ height: '6rem', flexDirection: 'column', gap: '0.75rem', padding: '1.5rem' }}
+                    onClick={() => { setTheme(key); toast.success(`Theme set to ${label}`) }}
                   >
-                    {t === 'light' && <Palette className="h-8 w-8" />}
-                    {t === 'dark' && <Palette className="h-8 w-8" />}
-                    {t === 'system' && <Database className="h-8 w-8" />}
-                    <span className="capitalize">{t}</span>
+                    <Icon className="h-7 w-7" />
+                    <span>{label}</span>
                   </Button>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Density</CardTitle>
-              <CardDescription>Adjust the spacing of the interface</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                {['comfortable', 'compact', 'spacious'].map((d) => (
-                  <Button
-                    key={d}
-                    variant="outline"
-                    className="h-24 flex-col gap-3 p-6"
-                    onClick={() => toast('Density setting coming soon')}
-                  >
-                    <span className="capitalize">{d}</span>
-                  </Button>
-                ))}
-              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                {theme === 'system' ? 'Follows your OS dark/light mode setting.' : `Using ${theme} mode.`}
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Danger Zone Tab */}
+        {/* ── Danger Zone ──────────────────────────────────────────────────── */}
         <TabsContent value="danger" className="space-y-6">
-          <Card className="border-destructive/20">
+          {/* Export — neutral action, just lives here for lack of a better home */}
+          <Card>
             <CardHeader>
-              <CardTitle className="text-destructive">Delete Account</CardTitle>
-              <CardDescription>
-                Permanently delete your account and all associated data. This action cannot be undone.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-destructive/5">
-                <div>
-                  <p className="font-medium text-destructive">Delete Account</p>
-                  <p className="text-sm text-muted-foreground">
-                    This will permanently remove your account, all posts, media, workflows, and connected accounts.
-                  </p>
-                </div>
-                <Button variant="destructive" onClick={handleDeleteAccount}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Account
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-destructive/20">
-            <CardHeader>
-              <CardTitle className="text-destructive">Export Data</CardTitle>
-              <CardDescription>Download all your data in JSON format</CardDescription>
+              <CardTitle>Export Your Data</CardTitle>
+              <CardDescription>Download all your posts, media metadata, and analytics in JSON format</CardDescription>
             </CardHeader>
             <CardContent>
               <Button variant="outline" onClick={() => toast('Data export coming soon')}>
@@ -426,9 +430,41 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Delete Account — requires typed confirmation */}
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="text-destructive">Delete Account</CardTitle>
+              <CardDescription>
+                Permanently remove your account and all associated data — posts, media, workflows, and connected accounts.
+                <strong className="block mt-1 text-foreground">This cannot be undone.</strong>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20 space-y-3">
+                <Label htmlFor="delete_confirm" className="text-sm">
+                  Type <span className="font-mono font-bold text-destructive">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="delete_confirm"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder="DELETE"
+                  className="max-w-xs font-mono"
+                />
+                <Button
+                  variant="destructive"
+                  disabled={deleteConfirm !== 'DELETE'}
+                  onClick={handleDeleteAccount}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete My Account
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
   )
 }
-

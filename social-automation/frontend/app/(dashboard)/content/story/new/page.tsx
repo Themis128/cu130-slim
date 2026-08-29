@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2, Save, Send, ArrowLeft, X, Type, Link as LinkIcon, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -27,10 +27,17 @@ export default function NewStoryPage() {
   const uploadMediaMutation = useUploadMedia()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const connectedPlatforms = (accounts as SocialAccount[] | undefined)
-    ?.map(a => a.platform).filter(p => STORY_PLATFORMS.includes(p)) || []
+  const connectedAccounts = ((accounts as SocialAccount[] | undefined) || []).filter(
+    a => STORY_PLATFORMS.includes(a.platform)
+  )
+  const connectedPlatforms = [...new Set(connectedAccounts.map(a => a.platform))]
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([])
+
+  useEffect(() => {
+    if (connectedAccounts.length === 0 || selectedPlatforms.length > 0) return
+    setSelectedPlatforms(connectedPlatforms)
+  }, [connectedAccounts])
   const [mediaFile, setMediaFile] = useState<File | null>(null)
   const [mediaId, setMediaId] = useState<string | null>(null)
   const [mediaPreview, setMediaPreview] = useState<string | null>(null)
@@ -81,10 +88,14 @@ export default function NewStoryPage() {
 
     setPublishing(true)
     try {
-      const connectedAccounts = (accounts as SocialAccount[] | undefined) || []
-      const targets = connectedAccounts
-        .filter(a => selectedPlatforms.includes(a.platform))
-        .map(a => ({ social_account_id: a.id }))
+      const allAccounts = (accounts as SocialAccount[] | undefined) || []
+      const seen = new Set<string>()
+      const targets: Array<{ social_account_id: string }> = []
+      for (const plat of selectedPlatforms) {
+        if (seen.has(plat)) continue
+        const acct = allAccounts.find(a => a.platform === plat)
+        if (acct) { targets.push({ social_account_id: acct.id }); seen.add(plat) }
+      }
 
       const post = await createPostMutation.mutateAsync({
         content_text: overlayText || undefined,

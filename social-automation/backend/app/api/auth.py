@@ -413,22 +413,25 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
+    PLATFORM_SCOPES: dict[str, list[str]] = {
+        "linkedin": [
+            "openid", "profile", "email",
+            "w_member_social", "w_organization_social",
+            "r_organization_social", "r_organization_admin",
+        ],
+        "facebook": [
+            "public_profile", "email",
+            "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+        ],
+        "instagram": [
+            "instagram_basic", "instagram_content_publish",
+            "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+        ],
+    }
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=str(team_id),
-        scope=(
-            [
-                "openid",
-                "profile",
-                "email",
-                "w_member_social",
-                "w_organization_social",
-                "r_organization_social",
-                "r_organization_admin",
-            ]
-            if platform == "linkedin"
-            else None
-        ),
+        scope=PLATFORM_SCOPES.get(platform),
     )
 
     return {"authorization_url": authorization_url}
@@ -461,7 +464,13 @@ async def oauth_callback(
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
-    token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
+    try:
+        token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token exchange failed for {platform}: {exc}",
+        ) from exc
 
     # Get user info from platform
     access_token = token["access_token"]
@@ -501,12 +510,48 @@ async def oauth_callback(
             avatar_url = None
             scopes = ["tweet.read", "tweet.write", "users.read"]
         elif platform == "facebook":
-            resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,email,picture"})
+            resp = await http.get(
+                "https://graph.facebook.com/me",
+                headers=headers,
+                params={"fields": "id,name,email,picture"},
+            )
             user_info = resp.json()
-            account_id = user_info["id"]
-            username = user_info.get("email")
-            display_name = user_info["name"]
-            avatar_url = user_info.get("picture", {}).get("data", {}).get("url")
+            if "error" in user_info:
+                raise HTTPException(status_code=400, detail=f"Facebook /me failed: {user_info['error'].get('message')}")
+
+            # Exchange short-lived user token for long-lived token (~60 days)
+            ll_resp = await http.get(
+                "https://graph.facebook.com/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.FACEBOOK_CLIENT_ID,
+                    "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                    "fb_exchange_token": access_token,
+                },
+            )
+            ll_data = ll_resp.json()
+            long_lived_token = ll_data.get("access_token", access_token)
+
+            # Fetch managed pages — page tokens are permanent and required for posting
+            pages_resp = await http.get(
+                "https://graph.facebook.com/me/accounts",
+                params={"fields": "id,name,access_token,picture", "access_token": long_lived_token},
+            )
+            pages = pages_resp.json().get("data", [])
+            if pages:
+                page = pages[0]
+                account_id = page["id"]
+                username = page.get("name")
+                display_name = page.get("name", user_info.get("name", ""))
+                avatar_url = (page.get("picture") or {}).get("data", {}).get("url") or (user_info.get("picture") or {}).get("data", {}).get("url")
+                # Store the page token directly — it never expires and works for posting
+                access_token = page.get("access_token", long_lived_token)
+            else:
+                account_id = user_info["id"]
+                username = user_info.get("email") or user_info.get("name")
+                display_name = user_info.get("name", "")
+                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+                access_token = long_lived_token
             scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]
         elif platform == "threads":
             resp = await http.get(
@@ -561,7 +606,7 @@ async def oauth_callback(
     account = result.scalar_one_or_none()
 
     if account:
-        account.access_token_enc = encrypt_token(token["access_token"])
+        account.access_token_enc = encrypt_token(access_token)
         if "refresh_token" in token:
             account.refresh_token_enc = encrypt_token(token["refresh_token"])
         account.token_expires_at = None  # TODO: parse expires_in
@@ -584,7 +629,7 @@ async def oauth_callback(
             username=username,
             display_name=display_name,
             avatar_url=avatar_url,
-            access_token_enc=encrypt_token(token["access_token"]),
+            access_token_enc=encrypt_token(access_token),
             refresh_token_enc=encrypt_token(token["refresh_token"]) if "refresh_token" in token else None,
             scopes=scopes,
             status="active",
@@ -599,3 +644,68 @@ async def oauth_callback(
     await db.commit()
 
     return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
+
+
+@router.post("/linkedin/sync-orgs")
+async def linkedin_sync_orgs(
+    db: AsyncSession = Depends(get_db),
+    current_user: "User" = Depends(get_current_user),
+):
+    """Re-sync LinkedIn organization pages for the current user's team."""
+    from app.core.security import decrypt_token
+
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.platform == "linkedin",
+        )
+    )
+    accounts = result.scalars().all()
+    personal = next(
+        (a for a in accounts if (a.meta_data or {}).get("account_type") == "person"),
+        accounts[0] if accounts else None,
+    )
+    if not personal:
+        raise HTTPException(status_code=404, detail="No LinkedIn account connected")
+
+    try:
+        raw_enc = bytes(personal.access_token_enc)
+        access_token = decrypt_token(raw_enc)
+        refresh_raw = bytes(personal.refresh_token_enc) if personal.refresh_token_enc else None
+        refresh_token = decrypt_token(refresh_raw) if refresh_raw else None
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Token decrypt failed: {exc}")
+
+    # Probe what scopes LinkedIn actually accepted
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        probe = await http.get(
+            "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Linkedin-Version": "202608",
+                "X-Restli-Protocol-Version": "2.0.0",
+            },
+        )
+        raw = probe.json()
+
+    if probe.status_code != 200:
+        raise HTTPException(
+            status_code=probe.status_code,
+            detail=f"LinkedIn org ACL query failed ({probe.status_code}): {raw}",
+        )
+
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        synced = await _sync_linkedin_organizations(
+            db=db,
+            team_id=personal.team_id,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            scopes=personal.scopes or [],
+            http=http,
+        )
+    await db.commit()
+
+    return {
+        "synced": len(synced),
+        "organizations": [{"id": str(a.id), "display_name": a.display_name, "account_id": a.account_id} for a in synced],
+        "raw_acl_response": raw,
+    }

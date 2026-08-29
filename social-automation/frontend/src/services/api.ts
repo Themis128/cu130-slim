@@ -3,6 +3,12 @@ import type { TokenResponse, ApiError } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
+/** Return a displayable URL for any media asset storage_path (abs or relative). */
+export function mediaUrl(storagePath?: string | null): string {
+  if (!storagePath) return ''
+  return `${API_BASE}/media/view?path=${encodeURIComponent(storagePath)}`
+}
+
 const api = axios.create({
   baseURL: API_BASE,
   headers: {
@@ -412,6 +418,32 @@ export const aiApi = {
     include_cta?: boolean
     provider?: string
   }) => api.post('/ai/generate-carousel', data),
+  generateCarouselPipeline: (data: {
+    topic: string
+    num_slides?: number
+    platform?: string
+    tone?: string
+    include_cta?: boolean
+    text_model?: string
+    txt2img_model?: string
+    img2img_model?: string
+    strength?: number
+  }) => api.post('/ai/generate-carousel-pipeline', data),
+  enhanceImagePrompt: (description: string, style?: string) =>
+    api.post('/ai/generate-image-prompt', { description, style: style ?? 'photorealistic' }),
+  autoConfigurePrompt: (prompt: string, context?: 'image' | 'carousel' | 'auto') =>
+    api.post('/ai/auto-configure', { prompt, context: context ?? 'auto' }),
+  saveGenerationTemplate: (data: {
+    name: string
+    category?: string
+    prompt_template: string
+    settings?: Record<string, unknown>
+    tags?: string[]
+    is_public?: boolean
+  }) => api.post('/ai/save-generation-template', data),
+  getWorkflowConfig: (contentType: string) =>
+    api.get(`/ai/workflow-config/${contentType}`),
+  seedDefaultWorkflows: () => api.post('/ai/seed-default-workflows'),
   transcribeAudio: (file: File, model?: string) => {
     const form = new FormData()
     form.append('file', file)

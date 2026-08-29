@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bell, Moon, Sun, Search, Command, Settings, Map, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-react'
+import { Bell, Moon, Sun, Search, Command, Settings, Map, CheckCircle2, AlertCircle, AlertTriangle, Info, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/DropdownMenu'
@@ -30,7 +30,7 @@ export function Header() {
   const { start: startTour } = useTour()
   const [paletteOpen, setPaletteOpen] = useState(false)
 
-  const { notifications, unreadCount, markAllRead, markRead } = useNotifications()
+  const { notifications, unreadCount, markAllRead, markRead, dismiss } = useNotifications()
 
   // Global ⌘K / Ctrl+K shortcut
   useEffect(() => {
@@ -111,7 +111,7 @@ export function Header() {
                     <DropdownMenuItem
                       key={n.id}
                       className={cn(
-                        'flex items-start gap-3 px-3 py-2.5 cursor-pointer focus:bg-accent',
+                        'flex items-start gap-3 px-3 py-2.5 cursor-pointer focus:bg-accent group',
                         !n.read && 'bg-accent/30'
                       )}
                       onClick={() => {
@@ -127,9 +127,17 @@ export function Header() {
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
                       </div>
-                      {!n.read && (
-                        <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-                      )}
+                      <button
+                        type="button"
+                        aria-label="Dismiss notification"
+                        className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          dismiss(n.id)
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </DropdownMenuItem>
                   ))
                 )}

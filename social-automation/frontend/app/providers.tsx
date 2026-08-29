@@ -12,8 +12,15 @@ export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 1000 * 60 * 5, // 5 minutes
+        staleTime: 1000 * 60 * 5,
         refetchOnWindowFocus: false,
+        // Don't retry on 401/403 — the axios interceptor already handles token
+        // refresh. Retrying here would just flood the console with duplicate errors.
+        retry: (failureCount, error) => {
+          const status = (error as { response?: { status?: number } })?.response?.status
+          if (status === 401 || status === 403) return false
+          return failureCount < 2
+        },
       },
     },
   }))

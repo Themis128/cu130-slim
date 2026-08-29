@@ -23,7 +23,9 @@ export default function NewArticlePage() {
   const generateContentMutation = useGenerateContent()
   const coverInputRef = useRef<HTMLInputElement>(null)
 
-  const connectedLinkedIn = (accounts as SocialAccount[] | undefined)?.find(a => a.platform === 'linkedin')
+  const linkedInAccounts = (accounts as SocialAccount[] | undefined)?.filter(a => a.platform === 'linkedin') || []
+  const connectedLinkedIn = linkedInAccounts.find(a => a.account_type === 'organization' || a.meta_data?.account_type === 'organization')
+    ?? linkedInAccounts[0]
 
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')

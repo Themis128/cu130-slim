@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Loader2, Save, Send, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -33,10 +33,17 @@ export default function NewPollPage() {
   const { data: accounts } = useAccounts()
   const createPostMutation = useCreatePost()
 
-  const connectedPlatforms = (accounts as SocialAccount[] | undefined)
-    ?.map(a => a.platform).filter(p => POLL_PLATFORMS.includes(p)) || []
+  const connectedAccounts = ((accounts as SocialAccount[] | undefined) || []).filter(
+    a => POLL_PLATFORMS.includes(a.platform)
+  )
+  const connectedPlatforms = [...new Set(connectedAccounts.map(a => a.platform))]
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([])
+
+  useEffect(() => {
+    if (connectedAccounts.length === 0 || selectedPlatforms.length > 0) return
+    setSelectedPlatforms(connectedPlatforms)
+  }, [connectedAccounts])
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState(['', ''])
   const [duration, setDuration] = useState('3')
@@ -73,10 +80,20 @@ export default function NewPollPage() {
 
     setPublishing(true)
     try {
-      const connectedAccounts = (accounts as SocialAccount[] | undefined) || []
-      const targets = connectedAccounts
-        .filter(a => selectedPlatforms.includes(a.platform))
-        .map(a => ({ social_account_id: a.id }))
+      const allAccounts = (accounts as SocialAccount[] | undefined) || []
+      const seen = new Set<string>()
+      const targets: Array<{ social_account_id: string }> = []
+      for (const plat of selectedPlatforms) {
+        if (seen.has(plat)) continue
+        let acct: SocialAccount | undefined
+        if (plat === 'linkedin') {
+          acct = allAccounts.find(a => a.platform === 'linkedin' && (a.meta_data?.account_type === 'organization' || a.account_type === 'organization'))
+            ?? allAccounts.find(a => a.platform === 'linkedin')
+        } else {
+          acct = allAccounts.find(a => a.platform === plat)
+        }
+        if (acct) { targets.push({ social_account_id: acct.id }); seen.add(plat) }
+      }
 
       const contentText = context.trim()
         ? `${context}\n\n${question}\n${filledOptions.map((o, i) => `${i + 1}. ${o}`).join('\n')}`

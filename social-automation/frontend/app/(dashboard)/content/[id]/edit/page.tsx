@@ -103,8 +103,9 @@ export default function EditPostPage() {
       try {
         await deleteMutation.mutateAsync(id)
         router.push('/content')
-      } catch {
-        toast.error('Failed to delete post')
+      } catch (err: unknown) {
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        toast.error(detail ?? 'Failed to delete post')
       }
     }
 

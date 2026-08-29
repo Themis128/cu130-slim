@@ -19,25 +19,30 @@ export interface AppNotification {
 }
 
 const LS_KEY = 'sa_read_nids'
+const LS_DISMISS_KEY = 'sa_dismissed_nids'
 
-function loadReadIds(): Set<string> {
+function loadSet(key: string): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {
-    const raw = localStorage.getItem(LS_KEY)
+    const raw = localStorage.getItem(key)
     return new Set(raw ? (JSON.parse(raw) as string[]) : [])
   } catch {
     return new Set()
   }
 }
 
-function saveReadIds(ids: Set<string>): void {
+function saveSet(key: string, ids: Set<string>): void {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(Array.from(ids).slice(-300)))
+    localStorage.setItem(key, JSON.stringify(Array.from(ids).slice(-300)))
   } catch { /* storage quota */ }
 }
 
+const loadReadIds = () => loadSet(LS_KEY)
+const saveReadIds = (ids: Set<string>) => saveSet(LS_KEY, ids)
+
 export function useNotifications() {
   const [readIds, setReadIds] = useState<Set<string>>(loadReadIds)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => loadSet(LS_DISMISS_KEY))
 
   const { data: postsRaw } = useQuery({
     queryKey: ['posts-notifications'],
@@ -118,11 +123,13 @@ export function useNotifications() {
       }
     }
 
-    return items.sort((a, b) => {
-      if (a.read !== b.read) return a.read ? 1 : -1
-      return 0
-    })
-  }, [posts, accounts, readIds])
+    return items
+      .filter(n => !dismissedIds.has(n.id))
+      .sort((a, b) => {
+        if (a.read !== b.read) return a.read ? 1 : -1
+        return 0
+      })
+  }, [posts, accounts, readIds, dismissedIds])
 
   const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications])
 
@@ -145,5 +152,22 @@ export function useNotifications() {
     })
   }, [])
 
-  return { notifications, unreadCount, markAllRead, markRead }
+  const dismiss = useCallback((id: string) => {
+    setDismissedIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      saveSet(LS_DISMISS_KEY, next)
+      return next
+    })
+    // also mark read so the unread count drops immediately
+    setReadIds(prev => {
+      if (prev.has(id)) return prev
+      const next = new Set(prev)
+      next.add(id)
+      saveReadIds(next)
+      return next
+    })
+  }, [])
+
+  return { notifications, unreadCount, markAllRead, markRead, dismiss }
 }

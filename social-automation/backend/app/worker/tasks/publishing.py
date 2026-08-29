@@ -1,7 +1,11 @@
 import asyncio
+import json as _json
+import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import httpx
 from celery import shared_task
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,6 +17,36 @@ from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.publishing import publish_to_platform
 from app.worker.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+
+async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:
+    """Fire-and-forget webhook when a publish succeeds.
+
+    Reads PUBLISH_SUCCESS_WEBHOOK_URL from the environment. If the post has a
+    workflow_run_id, it is included in the payload so downstream systems can
+    correlate the publish event back to the originating workflow run.
+    """
+    webhook_url = os.environ.get("PUBLISH_SUCCESS_WEBHOOK_URL", "")
+    if not webhook_url:
+        return
+    payload = {
+        "event": "publish.success",
+        "post_id": str(post.id),
+        "platform": account.platform,
+        "account_id": str(account.id),
+        "platform_url": platform_url,
+        "published_at": datetime.now(UTC).isoformat(),
+        "workflow_run_id": str(post.workflow_run_id) if post.workflow_run_id else None,
+        "workflow_id": str(post.workflow_id) if post.workflow_id else None,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(webhook_url, json=payload)
+            logger.info("Publish success webhook → %s  status=%s", webhook_url, r.status_code)
+    except Exception as exc:
+        logger.warning("Publish success webhook failed: %s", exc)
 
 # Bind shared tasks in this process to the Redis-backed app (not default AMQP).
 celery_app.set_default()
@@ -88,6 +122,7 @@ async def _process_publish_queue_async() -> None:
                         target.published_at = datetime.now(UTC)
                     post.published_at = datetime.now(UTC)
                     post.status = PostStatus.PUBLISHED
+                    await _notify_publish_success(post, account, pub.platform_url)
                 else:
                     item.attempts += 1
                     if item.attempts >= item.max_attempts:
