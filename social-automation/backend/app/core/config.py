@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     THREADS_CLIENT_SECRET: str = ""
     THREADS_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/threads/callback"
 
+    TIKTOK_CLIENT_KEY: str = ""
+    TIKTOK_CLIENT_SECRET: str = ""
+    TIKTOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/tiktok/callback"
+
     # Twitter v1.0a app credentials (for media upload via v1.1 API)
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""

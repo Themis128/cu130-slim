@@ -38,6 +38,7 @@ const PLATFORM_COLOR: Record<string, string> = {
   instagram: '#e1306c',
   facebook: '#1877f2',
   threads: '#000000',
+  tiktok: '#010101',
 }
 
 export default function DashboardPage() {

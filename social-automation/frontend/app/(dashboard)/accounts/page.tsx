@@ -7,6 +7,14 @@ import {
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
 } from 'lucide-react'
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/>
+    </svg>
+  )
+}
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -206,16 +214,55 @@ const platforms: PlatformSetup[] = [
       {
         text: 'Under Threads API → Quickstart → add your Threads / Instagram account as a test user.',
       },
-{
-	        text: 'Add this redirect URI under Threads API → Settings:',
-	        code: 'http://localhost:8083/api/v1/auth/oauth/threads/callback',
-	      },
+      {
+        text: 'Add this redirect URI under Threads API → Settings:',
+        code: 'http://localhost:8083/api/v1/auth/oauth/threads/callback',
+      },
       {
         text: 'Go to Settings → Basic. Copy App ID → THREADS_CLIENT_ID and App Secret → THREADS_CLIENT_SECRET.',
         note: 'These may be the same values as your Facebook/Instagram app if you added Threads to the same app.',
       },
       {
         text: 'Save THREADS_CLIENT_ID and THREADS_CLIENT_SECRET in the Env Manager, then restart the API.',
+      },
+    ],
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    icon: TikTokIcon,
+    color: 'bg-black',
+    textColor: 'text-black dark:text-white',
+    description: 'Short-form video and photo carousels',
+    devPortalUrl: 'https://developers.tiktok.com/',
+    scopes: ['user.info.basic', 'video.publish', 'video.upload'],
+    envVars: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'],
+    steps: [
+      {
+        text: 'Go to the TikTok Developer Portal and sign in with your TikTok account.',
+        code: 'https://developers.tiktok.com/',
+      },
+      {
+        text: 'Click "Manage apps" → "Connect an app". Choose "Create a new app". Set App name (e.g. "Cloudless Social"), category "Social Networking".',
+      },
+      {
+        text: 'Under "Add products", enable "Login Kit" and "Content Posting API".',
+        note: 'Content Posting API allows publishing videos and photo carousels. Login Kit handles OAuth.',
+      },
+      {
+        text: 'Under Login Kit → Settings, add this redirect URI:',
+        code: 'http://localhost:8083/api/v1/auth/oauth/tiktok/callback',
+      },
+      {
+        text: 'Go to "App details". Copy the Client key → TIKTOK_CLIENT_KEY and Client secret → TIKTOK_CLIENT_SECRET.',
+        note: 'TikTok uses "Client key" (not Client ID). Make sure to copy from the correct field.',
+      },
+      {
+        text: 'Add your TikTok account (@cloudless_gr) as a sandbox tester under "Sandbox testers" so you can post immediately without app review.',
+        note: 'Production publishing to a real audience requires submitting the app for review (typically 1–2 weeks).',
+      },
+      {
+        text: 'Save TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in the Env Manager, then restart the API.',
       },
     ],
   },
@@ -227,6 +274,7 @@ const platformColors: Record<string, string> = {
   instagram: 'bg-pink-500',
   facebook: 'bg-blue-700',
   threads: 'bg-gray-900',
+  tiktok: 'bg-black',
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────

@@ -172,6 +172,17 @@ instagram_client = BaseOAuth2(
     base_scopes=["instagram_basic", "instagram_content_publish", "pages_show_list"],
     name="instagram",
 )
+# TikTok OAuth 2.0 — uses client_key (not client_id) and custom token endpoint
+tiktok_client = BaseOAuth2(
+    settings.TIKTOK_CLIENT_KEY,
+    settings.TIKTOK_CLIENT_SECRET,
+    authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
+    access_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
+    refresh_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
+    base_scopes=["user.info.basic", "video.publish", "video.upload"],
+    name="tiktok",
+    token_endpoint_auth_method="client_secret_post",
+)
 
 
 class TokenResponse(BaseModel):
@@ -427,11 +438,19 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
             "instagram_basic", "instagram_content_publish",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
         ],
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }
+
+    # TikTok requires client_key as the client_id param in the authorize URL
+    extra_params: dict = {}
+    if platform == "tiktok":
+        extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=str(team_id),
         scope=PLATFORM_SCOPES.get(platform),
+        extras_params=extra_params,
     )
 
     return {"authorization_url": authorization_url}
@@ -566,32 +585,103 @@ async def oauth_callback(
             avatar_url = user_info.get("threads_profile_picture_url")
             scopes = ["threads_basic", "threads_content_publish"]
         elif platform == "instagram":
-            # Get Facebook user, then find linked Instagram business account
             resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,picture"})
             fb_info = resp.json()
-            # Try to get linked Instagram account via pages
+
+            # Exchange for long-lived token (~60 days)
+            ll_resp = await http.get(
+                "https://graph.facebook.com/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.FACEBOOK_CLIENT_ID,
+                    "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                    "fb_exchange_token": access_token,
+                },
+            )
+            long_lived_token = ll_resp.json().get("access_token", access_token)
+
+            # Fetch all pages with page tokens + IG business account link
             ig_resp = await http.get(
                 "https://graph.facebook.com/me/accounts",
-                headers=headers,
-                params={"fields": "instagram_business_account{id,username,profile_picture_url,name}"}
+                params={
+                    "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
+                    "access_token": long_lived_token,
+                },
             )
             ig_data = ig_resp.json()
             ig_account = None
+            page_token = None
+
             for page in ig_data.get("data", []):
                 if page.get("instagram_business_account"):
                     ig_account = page["instagram_business_account"]
+                    page_token = page.get("access_token")
                     break
+
+            # Fallback: check page_backed_instagram_accounts on each page
+            if not ig_account:
+                for page in ig_data.get("data", []):
+                    pt = page.get("access_token", long_lived_token)
+                    pbi_resp = await http.get(
+                        f"https://graph.facebook.com/{page['id']}/page_backed_instagram_accounts",
+                        params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": pt},
+                    )
+                    for acct in pbi_resp.json().get("data", []):
+                        if acct.get("id"):
+                            ig_account = acct
+                            page_token = pt
+                            break
+                    if ig_account:
+                        break
+
+            # Fallback: check Business Manager owned pages
+            if not ig_account:
+                biz_resp = await http.get(
+                    "https://graph.facebook.com/me/businesses",
+                    params={"access_token": long_lived_token},
+                )
+                for biz in biz_resp.json().get("data", []):
+                    biz_ig = await http.get(
+                        f"https://graph.facebook.com/{biz['id']}/instagram_accounts",
+                        params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": long_lived_token},
+                    )
+                    for acct in biz_ig.json().get("data", []):
+                        if acct.get("id"):
+                            ig_account = acct
+                            page_token = long_lived_token
+                            break
+                    if ig_account:
+                        break
+
             if ig_account:
                 account_id = ig_account["id"]
                 username = ig_account.get("username")
                 display_name = ig_account.get("name") or ig_account.get("username", "")
                 avatar_url = ig_account.get("profile_picture_url")
+                access_token = page_token or long_lived_token
             else:
                 account_id = fb_info["id"]
                 username = fb_info.get("name")
                 display_name = fb_info.get("name", "")
                 avatar_url = fb_info.get("picture", {}).get("data", {}).get("url")
+                access_token = long_lived_token
             scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list"]
+        elif platform == "tiktok":
+            # TikTok token response includes open_id alongside access_token
+            open_id = token.get("open_id", "")
+            # Fetch basic user info
+            resp = await http.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                params={"fields": "open_id,union_id,avatar_url,display_name"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            tt_info = resp.json().get("data", {}).get("user", {})
+            account_id = open_id or tt_info.get("open_id", "")
+            username = tt_info.get("display_name") or account_id
+            display_name = tt_info.get("display_name", "")
+            avatar_url = tt_info.get("avatar_url")
+            # Store open_id in metadata — needed for every API call
+            scopes = ["user.info.basic", "video.publish", "video.upload"]
         else:
             raise HTTPException(status_code=400, detail="Unsupported platform")
 
@@ -621,7 +711,17 @@ async def oauth_callback(
                 "account_type": "person",
                 "author_urn": f"urn:li:person:{account_id}",
             }
+        elif platform == "tiktok":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "open_id": token.get("open_id", account_id),
+            }
     else:
+        _meta: dict = {}
+        if platform == "linkedin":
+            _meta = {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
+        elif platform == "tiktok":
+            _meta = {"open_id": token.get("open_id", account_id)}
         account = SocialAccount(
             team_id=team_id,
             platform=platform,
@@ -633,11 +733,7 @@ async def oauth_callback(
             refresh_token_enc=encrypt_token(token["refresh_token"]) if "refresh_token" in token else None,
             scopes=scopes,
             status="active",
-            meta_data=(
-                {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
-                if platform == "linkedin"
-                else {}
-            ),
+            meta_data=_meta,
         )
         db.add(account)
 
