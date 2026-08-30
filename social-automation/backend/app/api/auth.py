@@ -31,6 +31,13 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
+# Instagram2 client (Instagram API with Instagram Login)
+instagram2_client = BaseOAuth2(
+    client_id=settings.INSTAGRAM2_CLIENT_ID,
+    client_secret=settings.INSTAGRAM2_CLIENT_SECRET,
+    authorize_endpoint="https://www.instagram.com/oauth/authorize",
+    token_endpoint="https://api.instagram.com/oauth/access_token",
+)
 
 
 async def _sync_linkedin_organizations(
@@ -421,6 +428,10 @@ async def reset_password(request: Request, data: ResetPasswordRequest, db: Async
 # OAuth endpoints
 @router.get("/oauth/{platform}/authorize")
 async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User = Depends(get_current_user)):
+    if platform == "instagram2":
+        # Instagram Business Login uses a custom flow
+        return await instagram2_authorize(team_id, current_user)
+
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
@@ -438,6 +449,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
             "instagram_basic", "instagram_content_publish",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
         ],
+        "instagram2": ["user_profile", "user_media"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }
 
@@ -740,6 +752,154 @@ async def oauth_callback(
     await db.commit()
 
     return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
+
+
+# ── Instagram Business Login (Instagram API with Instagram Login) ─────────────
+# Separate path from the Facebook-Login flow above. Uses graph.instagram.com
+# and an Instagram user token (no Facebook Page required).
+
+@router.get("/oauth/instagram2/authorize")
+async def instagram2_authorize(
+    team_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """Initiate Instagram Business Login OAuth flow."""
+    if not settings.INSTAGRAM2_CLIENT_ID:
+        raise HTTPException(status_code=400, detail="Instagram Business Login not configured (INSTAGRAM2_CLIENT_ID missing)")
+
+    state = json.dumps({"t": str(team_id)})
+    state_b64 = base64.urlsafe_b64encode(state.encode()).rstrip(b"=").decode()
+
+    scope = "user_profile,user_media"
+    auth_url = (
+        f"https://www.instagram.com/oauth/authorize"
+        f"?client_id={settings.INSTAGRAM2_CLIENT_ID}"
+        f"&redirect_uri={settings.INSTAGRAM2_REDIRECT_URI}"
+        f"&scope={scope}"
+        f"&response_type=code"
+        f"&state={state_b64}"
+    )
+    return {"authorization_url": auth_url}
+
+
+@router.get("/oauth/instagram2/callback")
+async def instagram2_callback(
+    state: str,
+    db: AsyncSession = Depends(get_db),
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """Handle Instagram Business Login callback."""
+    if error:
+        raise HTTPException(status_code=400, detail=f"OAuth error from Instagram: {error} — {error_description}")
+    if not code:
+        raise HTTPException(status_code=400, detail="No authorization code returned by Instagram")
+
+    # Decode state
+    try:
+        state_data = json.loads(base64.urlsafe_b64decode(state + "==").decode())
+        team_id = uuid.UUID(state_data["t"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        # Exchange code for short-lived user token
+        token_resp = await http.post(
+            "https://api.instagram.com/oauth/access_token",
+            data={
+                "client_id": settings.INSTAGRAM2_CLIENT_ID,
+                "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.INSTAGRAM2_REDIRECT_URI,
+                "code": code,
+            },
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Instagram token exchange failed: {token_resp.text[:400]}")
+        token_data = token_resp.json()
+
+        ig_user_id = token_data.get("user_id")
+        access_token = token_data.get("access_token")
+
+        # Exchange for long-lived token (valid ~60 days, refreshable)
+        ll_resp = await http.get(
+            "https://graph.instagram.com/access_token",
+            params={
+                "grant_type": "ig_exchange_token",
+                "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                "access_token": access_token,
+            },
+        )
+        ll_data = ll_resp.json()
+        long_lived_token = ll_data.get("access_token", access_token)
+        expires_in = ll_data.get("expires_in")
+        token_type = ll_data.get("token_type")
+
+        # Get user profile info
+        profile_resp = await http.get(
+            f"https://graph.instagram.com/{ig_user_id}",
+            params={"fields": "id,username,account_type,media_count", "access_token": long_lived_token},
+        )
+        profile = profile_resp.json() if profile_resp.status_code == 200 else {}
+
+    # Store the account
+    account_id = str(ig_user_id)
+    username = profile.get("username", "")
+    display_name = profile.get("username", "")
+    scopes = ["user_profile", "user_media"]
+
+    # Compute expiry
+    token_expires_at = None
+    if expires_in:
+        from datetime import datetime, timedelta, timezone
+        token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+
+    # Upsert
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team_id,
+            SocialAccount.platform == "instagram",
+            SocialAccount.account_id == account_id,
+        )
+    )
+    account = result.scalar_one_or_none()
+
+    if account:
+        account.access_token_enc = encrypt_token(long_lived_token)
+        account.token_expires_at = token_expires_at
+        account.scopes = scopes
+        account.status = "active"
+        account.username = username
+        account.display_name = display_name
+        account.meta_data = {
+            **(account.meta_data or {}),
+            "account_type": profile.get("account_type", ""),
+            "ig_business_id": account_id,
+            "login_type": "business_login",
+        }
+    else:
+        account = SocialAccount(
+            team_id=team_id,
+            platform="instagram",
+            account_id=account_id,
+            username=username,
+            display_name=display_name,
+            access_token_enc=encrypt_token(long_lived_token),
+            token_expires_at=token_expires_at,
+            scopes=scopes,
+            status="active",
+            meta_data={
+                "account_type": profile.get("account_type", ""),
+                "ig_business_id": account_id,
+                "login_type": "business_login",
+            },
+        )
+        db.add(account)
+
+    await db.commit()
+
+    return {"message": "instagram account connected successfully", "account_id": str(account.id)}
 
 
 @router.post("/linkedin/sync-orgs")

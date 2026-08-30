@@ -302,7 +302,7 @@ services:
     - TWITTER_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/twitter/callback
     - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
     - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
-    - INSTAGRAM_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/instagram/callback
+    - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/instagram/callback}
     - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
     - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
     - FACEBOOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/facebook/callback

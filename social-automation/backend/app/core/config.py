@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     INSTAGRAM_CLIENT_SECRET: str = ""
     INSTAGRAM_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/instagram/callback"
 
+    # Instagram Business Login (Instagram API with Instagram Login, graph.instagram.com)
+    INSTAGRAM2_CLIENT_ID: str = ""
+    INSTAGRAM2_CLIENT_SECRET: str = ""
+    INSTAGRAM2_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/instagram2/callback"
+
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
     FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/facebook/callback"
