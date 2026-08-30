@@ -461,6 +461,11 @@ export const aiApi = {
   /** Poll/retrieve results of a previously submitted batch request. */
   retrieveBatchInference: (data: { model: string; request_id: string }) =>
     api.post('/ai/workers-ai/batch/retrieve', data),
+  analyzeSeo: (data: {
+    content: string
+    platform?: string
+    title?: string
+  }) => api.post('/ai/seo', data),
   spellcheck: (text: string, language = 'en-US') =>
     api.post<{
       matches: Array<{
@@ -473,6 +478,75 @@ export const aiApi = {
       }>
       language: string
     }>('/ai/spellcheck', { text, language }),
+}
+
+// LinkedIn endpoints
+export const linkedinApi = {
+  generatePost: (data: {
+    topic: string
+    tone?: string
+    length?: 'short' | 'medium' | 'long'
+    include_hashtags?: boolean
+    include_site_link?: boolean
+    site?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-post', data),
+  generateArticle: (data: {
+    topic: string
+    tone?: string
+    sections?: number
+    include_takeaways?: boolean
+    include_cta?: boolean
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-article', data),
+  generateHashtags: (data: {
+    content: string
+    count?: number
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-hashtags', data),
+  improvePost: (data: {
+    content: string
+    goal?: string
+    tone?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/improve-post', data),
+  generateComment: (data: {
+    post_text: string
+    reply_context?: string
+    tone?: string
+    length?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-comment', data),
+  bestTime: (account_type?: string) =>
+    api.get('/linkedin/best-time', { params: { account_type } }),
+  validateAccount: (accountId: string) =>
+    api.get(`/linkedin/accounts/${accountId}/validate`),
+  followers: (accountId: string) =>
+    api.get(`/linkedin/accounts/${accountId}/followers`),
+  postAnalytics: (postUrn: string, accountId: string) =>
+    api.get(`/linkedin/analytics/post/${encodeURIComponent(postUrn)}`, { params: { account_id: accountId } }),
+  organizationAnalytics: (accountId: string) =>
+    api.get('/linkedin/analytics/organization', { params: { account_id: accountId } }),
+  publish: (data: {
+    account_id: string
+    commentary: string
+    link_url?: string
+    link_title?: string
+    link_description?: string
+    visibility?: string
+  }) => api.post('/linkedin/publish', data),
+  comment: (data: {
+    account_id: string
+    post_urn: string
+    text: string
+  }) => api.post('/linkedin/comment', data),
+  companyPageUrl: (accountId: string) =>
+    api.get('/linkedin/company-page-url', { params: { account_id: accountId } }),
 }
 
 export default api

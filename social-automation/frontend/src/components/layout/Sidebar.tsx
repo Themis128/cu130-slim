@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   CalendarDays,
+  Linkedin,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -28,6 +29,7 @@ import { useAuth } from '@/hooks/useAuth'
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Content', href: '/content/new', icon: FileText },
+  { name: 'LinkedIn', href: '/content/linkedin', icon: Linkedin },
   { name: 'Calendar', href: '/calendar', icon: CalendarDays },
   { name: 'Media Library', href: '/media', icon: Image },
   { name: 'Generate Image', href: '/media/generate', icon: Wand2 },

@@ -8,6 +8,7 @@ import {
   analyticsApi,
   aiApi,
   aiProvidersApi,
+  linkedinApi,
   getAccessToken,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
@@ -387,6 +388,16 @@ export function useAnalyzeContent() {
   })
 }
 
+export function useAnalyzeSeo() {
+  return useMutation({
+    mutationFn: aiApi.analyzeSeo,
+    onSuccess: () => {
+      toast.success('SEO analysis complete')
+    },
+    onError: () => toast.error('SEO analysis failed'),
+  })
+}
+
 // AI Providers hooks
 export function useAIProviderCatalog() {
   return useQuery({
@@ -457,5 +468,100 @@ export function useAIProviderModels(name: string | null) {
       r.data as Array<{ id: string; task: string | null; description: string }>,
     enabled: !!name,
     staleTime: 10 * 60 * 1000, // live vendor catalog — cache for 10 min
+  })
+}
+
+// LinkedIn hooks
+export function useLinkedinGeneratePost() {
+  return useMutation({
+    mutationFn: linkedinApi.generatePost,
+    onSuccess: () => toast.success('LinkedIn post generated'),
+  })
+}
+
+export function useLinkedinGenerateArticle() {
+  return useMutation({
+    mutationFn: linkedinApi.generateArticle,
+    onSuccess: () => toast.success('LinkedIn article generated'),
+  })
+}
+
+export function useLinkedinGenerateHashtags() {
+  return useMutation({
+    mutationFn: linkedinApi.generateHashtags,
+    onSuccess: () => toast.success('Hashtags generated'),
+  })
+}
+
+export function useLinkedinImprovePost() {
+  return useMutation({
+    mutationFn: linkedinApi.improvePost,
+    onSuccess: () => toast.success('Post improved'),
+  })
+}
+
+export function useLinkedinGenerateComment() {
+  return useMutation({
+    mutationFn: linkedinApi.generateComment,
+    onSuccess: () => toast.success('Comment generated'),
+  })
+}
+
+export function useLinkedinBestTime() {
+  return useMutation({
+    mutationFn: ({ account_type }: { account_type?: string }) => linkedinApi.bestTime(account_type),
+    onSuccess: () => toast.success('Best time loaded'),
+  })
+}
+
+export function useLinkedinValidateAccount(accountId: string) {
+  return useQuery({
+    queryKey: ['linkedin-validate', accountId],
+    queryFn: () => linkedinApi.validateAccount(accountId),
+    select: (response) => response.data,
+    enabled: !!accountId,
+  })
+}
+
+export function useLinkedinFollowers(accountId: string) {
+  return useQuery({
+    queryKey: ['linkedin-followers', accountId],
+    queryFn: () => linkedinApi.followers(accountId),
+    select: (response) => response.data,
+    enabled: !!accountId,
+    refetchInterval: 5 * 60 * 1000,
+  })
+}
+
+export function useLinkedinPublish() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: linkedinApi.publish,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      toast.success('Published to LinkedIn')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to publish to LinkedIn')
+    },
+  })
+}
+
+export function useLinkedinPostAnalytics(postUrn: string, accountId: string) {
+  return useQuery({
+    queryKey: ['linkedin-analytics', 'post', postUrn, accountId],
+    queryFn: () => linkedinApi.postAnalytics(postUrn, accountId),
+    select: (response) => response.data,
+    enabled: !!postUrn && !!accountId,
+  })
+}
+
+export function useLinkedinOrganizationAnalytics(accountId: string) {
+  return useQuery({
+    queryKey: ['linkedin-analytics', 'organization', accountId],
+    queryFn: () => linkedinApi.organizationAnalytics(accountId),
+    select: (response) => response.data,
+    enabled: !!accountId,
   })
 }
