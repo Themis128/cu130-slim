@@ -12,8 +12,8 @@ RUN apt-get update && apt-get update --fix-missing && \
     libssl-dev \
     libtinfo6 \
     openssl \
-    perl-base \
-    && apt-get dist-upgrade -y && \
+    && apt-get full-upgrade -y && \
+    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip, wheel, setuptools, msgpack, and other security-critical packages to patched versions.
@@ -29,8 +29,10 @@ RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools
 # Copy dependency files
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies and re-apply security-pins so transitive deps cannot downgrade them.
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
+    find /usr/local/lib/python*/site-packages -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete
 
 # Copy application code
 COPY main.py .
