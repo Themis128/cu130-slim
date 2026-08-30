@@ -17,7 +17,7 @@ class SocialAccount(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
-    platform: Mapped[str] = mapped_column(String(30), nullable=False)  # linkedin, twitter, instagram, facebook, threads
+    platform: Mapped[str] = mapped_column(String(30), nullable=False)  # linkedin, twitter, instagram, facebook, threads, tiktok
     account_id: Mapped[str] = mapped_column(String(100), nullable=False)  # platform's user ID
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

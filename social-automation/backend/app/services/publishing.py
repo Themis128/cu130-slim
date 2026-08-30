@@ -110,10 +110,10 @@ def _build_post_text(post: Post, platform: str) -> str:
 
     if post.hashtags:
         tags = " ".join(f"#{t.lstrip('#')}" for t in post.hashtags)
-        if platform in ("twitter", "instagram"):
+        if platform in ("twitter", "instagram", "tiktok"):
             parts.append(tags)
 
-    if post.link_url and platform != "twitter":
+    if post.link_url and platform not in ("twitter", "threads", "tiktok"):
         parts.append(post.link_url)
 
     return "\n\n".join(p for p in parts if p)

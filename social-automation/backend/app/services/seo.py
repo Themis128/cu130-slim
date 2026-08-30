@@ -47,6 +47,7 @@ _PLATFORM_HINTS: dict[str, dict[str, int | tuple[int, int] | None]] = {
     "instagram": {"max_chars": 2200, "ideal_hashtags": (5, 10), "title_len": (0, 0), "meta_desc_len": (0, 0)},
     "facebook": {"max_chars": 63206, "ideal_hashtags": (0, 3), "title_len": (40, 70), "meta_desc_len": (120, 160)},
     "threads": {"max_chars": 500, "ideal_hashtags": (0, 2), "title_len": (0, 0), "meta_desc_len": (0, 0)},
+    "tiktok": {"max_chars": 2200, "ideal_hashtags": (3, 5), "title_len": (0, 0), "meta_desc_len": (0, 0)},
 }
 
 
@@ -170,9 +171,9 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
             f"Reduce hashtags to {h_max} or fewer for {platform}."
         )
 
-    # Link score: one link is ideal for LinkedIn/Facebook, none for Twitter/Threads.
+    # Link score: one link is ideal for LinkedIn/Facebook, none for Twitter/Threads/Instagram/TikTok.
     l_count = _count_links(text)
-    if platform in ("twitter", "threads"):
+    if platform in ("twitter", "threads", "instagram", "tiktok"):
         report.links = 100 if l_count == 0 else 50
     else:
         if l_count == 1:

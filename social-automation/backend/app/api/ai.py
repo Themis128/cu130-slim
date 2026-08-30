@@ -446,7 +446,7 @@ async def analyze_content(
 
     platform_limits = {
         "twitter": 280, "linkedin": 3000, "instagram": 2200,
-        "facebook": 63206, "threads": 500,
+        "facebook": 63206, "threads": 500, "tiktok": 2200,
     }
     limit = platform_limits.get(request.platform, 3000)
 
@@ -962,7 +962,7 @@ async def list_drafts(
 
 class PostDraftRequest(BaseModel):
     draft_id: str
-    platform: str  # linkedin, twitter, instagram, facebook, threads
+    platform: str  # linkedin, twitter, instagram, facebook, threads, tiktok
     account_id: str | None = None
     caption: str | None = None
     hashtags: list[str] = []
@@ -1270,6 +1270,7 @@ async def generate_content(
         "instagram": "Visual-first, engaging. 2200 char limit. 10-15 hashtags. Use emojis. Plain everyday English.",
         "facebook": "Community-focused, conversational. No strict limit. 1-3 hashtags. Plain everyday English.",
         "threads": "Casual, text-based. 500 char limit. Minimal hashtags. Plain everyday English.",
+        "tiktok": "Short-form video/photo caption. 2200 char limit. 3-5 hashtags. Hook in the first line. Use emojis. Plain everyday English.",
     }
 
     guide = platform_guides.get(request.platform, platform_guides["linkedin"])
