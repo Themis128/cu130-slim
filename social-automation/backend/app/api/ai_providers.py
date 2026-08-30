@@ -189,8 +189,10 @@ async def test_provider(
         "groq": "qwen/qwen3.6-27b",
         "cloudflare": "@cf/meta/llama-3.2-3b-instruct",
     }
+    if not re.fullmatch(r"^[A-Za-z0-9_-]+$", name):
+        raise HTTPException(status_code=400, detail="Invalid provider name")
+
     test_model = FAST_TEST_MODELS.get(name)
-    safe_name = re.sub(r"[\r\n\x00-\x1f]", " ", str(name))[:128]
 
     try:
         if name in IMAGE_GEN_PROVIDERS:
@@ -208,9 +210,6 @@ async def test_provider(
         )
         text = result.get("text") or ""
         return {"ok": True, "response": text[:200]}
-    except HTTPException:
-        logger.warning("Provider test failed for %s", safe_name)
-        return {"ok": False, "error": "Provider test failed"}
     except Exception:
-        logger.exception("Provider test failed for %s", safe_name)
+        logger.exception("Provider test failed for %s", name)
         return {"ok": False, "error": "Provider test failed. Check server logs for details."}
