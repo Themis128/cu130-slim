@@ -1,0 +1,11 @@
+name: "Cloudless CodeQL config"
+
+paths-ignore:
+  # Generated artifacts
+  - "social-automation/frontend/playwright-report/**"
+  - "social-automation/frontend/.next/**"
+  - "env-manager/frontend/.next/**"
+  - "**/.nyc_output/**"
+  # Vendored dependencies
+  - "**/node_modules/**"
+  - "social-automation/backend/alembic/versions/**"

@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -208,6 +209,7 @@ async def test_provider(
         return {"ok": True, "response": text[:200]}
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
-    except Exception:
-        logger.exception("Provider test failed for %s", name)
+    except Exception:  # lgtm[py/stack-trace-exposure]
+        safe_name = re.sub(r"[\r\n\x00-\x1f]", " ", str(name))[:128]
+        logger.exception("Provider test failed for %s", safe_name)
         return {"ok": False, "error": "Provider test failed. Check server logs for details."}
