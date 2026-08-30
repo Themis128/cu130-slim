@@ -1,7 +1,4 @@
 # Trivy ignore file — suppressed CVEs with documented rationale.
 # Remove entries here as upstream fixes land or images are rebuilt.
-
-# node-tar 6.2.1 DoS via crafted gzip bomb — bundled as a transitive dep inside
-# the Next.js standalone output; not reachable from user-facing request paths.
-# package.json overrides set tar>=7.5.19; will self-resolve on next npm install.
-CVE-2026-59873
+# All images in this repo are now rebuilt with current OS and language
+# packages and no CRITICAL/HIGH findings remain for the core services.

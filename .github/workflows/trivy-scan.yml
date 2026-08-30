@@ -89,7 +89,7 @@ jobs:
 
       - name: Build ${{ matrix.service }} image
         run: |
-          docker compose --project-name cu130-slim --env-file .github/test.env build "${{ matrix.service }}"
+          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache "${{ matrix.service }}"
 
       - name: Resolve image ref
         id: image
@@ -126,6 +126,18 @@ jobs:
           exit-code: '1'
           scanners: 'vuln'
 
+      - name: Fail on CRITICAL and HIGH for core services
+        if: matrix.service != 'comfyui'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+          scanners: 'vuln'
+
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
@@ -149,7 +161,7 @@ jobs:
 
       - name: Build Docker images for SBOM
         run: |
-          docker compose --project-name cu130-slim --env-file .github/test.env build comfyui
+          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
 
       - name: Resolve ComfyUI image ref
         id: comfy

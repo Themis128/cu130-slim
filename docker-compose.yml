@@ -9,7 +9,7 @@ x-public-dns: &public-dns
 
 services:
   comfyui:
-    image: baltzakist/cu130-slim-comfyui:2.1.0
+    image: baltzakist/cu130-slim-comfyui:2.2.0
     build:
       context: .
       dockerfile: Dockerfile
@@ -214,6 +214,7 @@ services:
     - portainer_data:/data
     restart: unless-stopped
   env-manager-backend:
+    image: baltzakist/env-manager-backend:v2.00
     build:
       context: ./env-manager/backend
       dockerfile: Dockerfile
@@ -227,6 +228,7 @@ services:
     - ENV_MANAGER_PASS=${ENV_MANAGER_PASS}
     restart: unless-stopped
   env-manager-frontend:
+    image: baltzakist/env-manager-frontend:v2.00
     build:
       context: ./env-manager/frontend
       dockerfile: Dockerfile

@@ -1,15 +1,5 @@
-[CVEs]
-# Ignore OS-level vulnerabilities that are not fixed in the base image
-# libncursesw6: CVE-2025-69720
-# libssl-dev: CVE-2026-14456
-# libtinfo6: CVE-2025-69720
-# openssl: CVE-2026-14456
-# perl-base: CVE-2026-13221, CVE-2026-42496, CVE-2026-8376, CVE-2026-42497, CVE-2026-57433, CVE-2026-9538
-CVE-2025-69720
-CVE-2026-14456
-CVE-2026-13221
-CVE-2026-42496
-CVE-2026-8376
-CVE-2026-42497
-CVE-2026-57433
-CVE-2026-9538
+# Trivy ignore file for the social-automation backend image.
+# The Dockerfile now applies full OS upgrades and pins Python packaging/security
+# packages to patched versions, so no permanent suppressions are required.
+# Re-add entries only with a CVE ID, why the finding is not exploitable, and
+# a target date to re-evaluate.

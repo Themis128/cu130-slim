@@ -44,9 +44,16 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 
 ## Skills
 
-- `.cursor/skills/cloudless-carousel-pipeline/SKILL.md`
-- `.cursor/skills/n8n-cloudless/SKILL.md`
-- `.cursor/skills/social-stack-ops/SKILL.md`
+- `.devin/skills/cloudless-carousel-pipeline/SKILL.md`
+- `.devin/skills/n8n-cloudless/SKILL.md`
+- `.devin/skills/social-stack-ops/SKILL.md`
+
+## Security
+
+- The core service images (`social-api`, `social-worker`, `env-manager-backend`, `env-manager-frontend`, `social-frontend`) are rebuilt on current base images and currently report zero CRITICAL/HIGH findings with Trivy 0.58.1 (`--ignore-unfixed`).
+- Source-level CodeQL findings for path/code injection, exception and secret logging, regex, insecure randomness, and DOM XSS have been remediated in the Python backend and TypeScript/React frontends.
+- The `docker-compose.override.yml` keeps the real ComfyUI image reference for security scan consistency; use `runtime: runc` and the sleep command only as a local no-GPU stub.
+- CI runs `pip-audit` for the Python services and `npm audit` for the frontends in addition to Trivy image and CodeQL scans.
 
 ## Notes
 

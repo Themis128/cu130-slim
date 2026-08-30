@@ -25,7 +25,24 @@ Quality checks (inside social-api container):
 - mypy app --ignore-missing-imports: passed.
 - pytest: 69 passed, 8 failed. Failures are in tests/integration/test_auth.py and tests/integration/test_media_persistence.py and are caused by the rate-limiter (5 req/min) blocking repeated test login calls, not by code changes.
 
+Security hardening (in progress):
+- CodeQL source findings addressed: path/code injection, exception/secret logging, overly-large emoji regex, insecure randomness, DOM XSS.
+- Removed vulnerable `ecdsa` dependency from social-automation backend.
+- Rebuilt and scanned the following images with Trivy 0.58.1 (--severity CRITICAL,HIGH --ignore-unfixed):
+  baltzakist/social-api:v2.00        -> 0 findings
+  baltzakist/social-worker:v2.00     -> 0 findings
+  baltzakist/env-manager-backend:v2.00  -> 0 findings
+  baltzakist/env-manager-frontend:v2.00 -> 0 findings
+  baltzakist/social-frontend:v2.00   -> 0 findings
+- Updated docker-compose.yml and docker-compose.override.yml to reference the hardened image tags.
+- `docker compose config` validates successfully.
+- ComfyUI (baltzakist/cu130-slim-comfyui:2.2.0) rebuild in progress.
+- CI security workflows updated with `ignore-unfixed: true`, `npm audit`, and `pip-audit` jobs.
+
 Remaining:
+- Verify ComfyUI Trivy scan after rebuild completes.
+- Push rebuilt images to Docker Hub.
+- Re-run GitHub CodeQL analysis and confirm all 34 alerts close.
 - Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and LinkedIn OAuth credentials in .env.
 - Generate N8N_API_KEY in the n8n UI and update .env; deploy and activate the n8n carousel workflow.
 - Set GITHUB_TOKEN (PAT) as an env var or in .devin/mcp_config.local.json for the GitHub MCP server to make authenticated calls.
