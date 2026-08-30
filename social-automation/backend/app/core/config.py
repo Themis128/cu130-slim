@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     # When empty, Instagram posts without images fall back gracefully.
     MEDIA_PUBLIC_BASE_URL: str = ""
 
+    # Cloudflare R2 (free object storage / free egress)
+    # R2 is used via the Cloudflare REST API (PUT object, max 300MB) or the
+    # S3-compatible API. R2_PUBLIC_URL must end with a trailing slash.
+    R2_BUCKET_NAME: str = ""
+    R2_PUBLIC_URL: str = ""
+    R2_API_BASE: str = "https://api.cloudflare.com/client/v4"
+
     # Webhook fired after every successful publish. Payload is a JSON object:
     # {event, post_id, platform, account_id, platform_url, published_at,
     #  workflow_run_id, workflow_id}

@@ -169,10 +169,11 @@ flowchart LR
     FastAPI --> Redis[(Redis / Celery)]
     FastAPI --> Chroma[(Chroma)]
     FastAPI -->|inference| WorkersAI[Cloudflare Workers AI]
-    WorkersAI -->|fallback| Groq[Groq]
-    WorkersAI -->|fallback| Together[Together]
-    WorkersAI -->|fallback| HF[Hugging Face]
-    WorkersAI -->|fallback| Ollama[Ollama]
+    WorkersAI -->|free fallback| Groq[Groq]
+    WorkersAI -->|free fallback| Pixazo[Pixazo FLUX]
+    WorkersAI -->|free fallback| HF[Hugging Face]
+    WorkersAI -->|local fallback| Ollama[Ollama]
+    FastAPI --> R2[(Cloudflare R2)]
     Redis --> Worker[social-worker Celery]
     Worker --> LinkedIn[LinkedIn API]
     Worker --> Twitter[X / Twitter API]
@@ -180,21 +181,28 @@ flowchart LR
     Worker --> Meta[Meta Graph API]
     n8n -->|triggers| FastAPI
     Worker --> n8n
+    User -->|public assets| R2
+    Meta -->|fetch media| R2
+    TikTok -->|fetch media| R2
+    Instagram -->|fetch media| R2
 ```
 
-#### AI provider fallback chain
+#### AI provider fallback chain (free first, Ollama last resort)
 
 ```mermaid
 flowchart TD
     A[call_inference task] --> B{Cloudflare Workers AI}
-    B -->|quota/5xx| C[Groq]
-    B -->|text| D[CF text model]
-    B -->|image| E[CF image model]
-    C -->|fail| F[Hugging Face]
-    D -->|invalid image for JSON| G[HTTP 400]
-    E -->|quota| H[Pixazo]
-    H -->|fail| I[Together]
-    I -->|fail| J[Hugging Face]
+    B -->|text| T[CF LLM @cf/meta/llama-3.3-70b-instruct-fp8-fast]
+    B -->|image| I[CF FLUX schnell / SDXL]
+    B -->|vision| V[CF Moondream / Llama 3.2 Vision]
+    T -->|quota / 5xx| G[Groq free tier]
+    I -->|quota / 5xx| P[Pixazo FLUX schnell free]
+    P -->|fail| T2[Together FLUX.1-schnell-Free]
+    T2 -->|fail| HF[HF serverless free tier]
+    V -->|quota / 5xx| V2[Ollama llava / bakllava]
+    G -->|fail| H2[Hugging Face free tier]
+    H2 -->|fail| O[Ollama llama3.1/mistral]
+    O -->|unavailable| E[HTTP 503]
     B -->|log success/failure| K[(AIUsageLog)]
 ```
 
@@ -204,6 +212,9 @@ flowchart TD
 - Add OpenAPI examples for `/ai/seo`, `/ai/analyze-content`, and `/linkedin/publish`.
 
 ### 4.2 Provider routing & fallback policy
+- **Free-first, Cloudflare-first**: the default `call_inference` provider is `cloudflare` using free-tier models (`llama-3.3-70b-instruct-fp8-fast`, `flux-1-schnell`, `moondream3.1-9B-A2B`).
+- Free fallbacks (key required but free tier): Groq (text), Pixazo (image), Hugging Face (text/image).
+- **Ollama is the last resort** for text and vision when every cloud option fails or is unconfigured.
 - Extend `AIProvider` model with `fallback_chain: list[str]`, `timeout_seconds: int`, `max_retries: int`, `daily_quota: int | None`.
 - `call_inference` will read provider config from DB or env, attempt the primary, then iterate the fallback chain with exponential back-off.
 - Cloudless carousel pipeline (`/ai/run-carousel-and-publish`) remains locked to `cloudflare` unless explicitly overridden by an admin flag.
@@ -290,9 +301,30 @@ flowchart TD
 - `Post.content` stored once; per-platform rendering in `app/services/content_renderer.py`.
 
 ### 4.8 Media lifecycle
-- Store original + generated assets in `uploads/` and `MediaAsset` table.
-- Add alt-text, tags, and search index (Chroma) for reuse.
-- Cleanup job for orphan files older than 30 days.
+
+```mermaid
+flowchart TD
+    A[Upload / Generate] --> B[downscale_image_bytes]
+    B --> C{Storage backend}
+    C -->|R2 configured| D[Cloudflare R2 bucket]
+    C -->|fallback| L[local /app/uploads]
+    D --> P[public R2 URL]
+    L --> P2[/api/v1/media/view]
+    A --> M[MediaAsset row]
+    M --> T[(Postgres)]
+    M --> AI[AI auto-tag Moondream / Llama 3.2 Vision]
+    AI --> Tags[ai_tags + ai_caption]
+    Tags --> Chroma[Chroma embedding + document]
+    Chroma --> S[semantic search / duplicate detection]
+    M --> Col[MediaCollection]
+    M --> U[usage_count + published posts]
+```
+
+- Cloudflare R2 is the default, free storage target when `R2_BUCKET_NAME` and `R2_PUBLIC_URL` are configured; local disk remains a fallback.
+- `MediaAsset` tracks `storage_backend`, `public_url`, `ai_tags`, `ai_caption`, `embedding_id`, `is_favorite`, `is_archived`, `usage_count`, and `collection_id`.
+- AI auto-tagging uses free Cloudflare vision models (`@cf/moondream/moondream3.1-9B-A2B` / `@cf/meta/llama-3.2-11b-vision-instruct`) with Ollama vision as last resort.
+- Chroma stores a textual description embedding for each asset, enabling keyword + semantic search and duplicate/similar-image discovery.
+- Cleanup job removes orphan R2 objects and local files older than 30 days.
 
 ### 4.9 Workflow execution & n8n
 
@@ -433,8 +465,29 @@ flowchart LR
 - Execution history with status, logs, and failure details.
 
 ### 5.11 Media library
+
+```mermaid
+flowchart TD
+    A[Media Library] --> B[Drag-and-drop / paste upload]
+    A --> C[Generate with FLUX schnell]
+    B --> D[Cloudflare R2 / local]
+    C --> D
+    D --> E[AI auto-tag + caption]
+    E --> F[ai_tags, ai_caption]
+    F --> G[Chroma embedding]
+    G --> H[Semantic search]
+    A --> I[Collections / folders]
+    A --> J[Bulk actions]
+    A --> K[Lightbox preview]
+    A --> L[One-click insert into composer]
+    H --> A
+    I --> A
+```
+
 - Upload, generate, tag, alt-text, search, and reuse.
 - Duplicate/similar-image warning from Chroma.
+- Collections, favorites, archives, and usage counters.
+- Public R2 URL support for Instagram/TikTok/Twitter media posts.
 
 ### 5.12 Team & settings
 

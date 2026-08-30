@@ -39,6 +39,7 @@ class User(Base):
     team_memberships: Mapped[list["TeamMember"]] = relationship("TeamMember", back_populates="user")
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="author")
     media_assets: Mapped[list["MediaAsset"]] = relationship("MediaAsset", back_populates="uploader")
+    media_collections: Mapped[list["MediaCollection"]] = relationship("MediaCollection", back_populates="creator")
     prompt_templates: Mapped[list["PromptTemplate"]] = relationship("PromptTemplate", back_populates="creator")
     generated_workflows: Mapped[list["GeneratedWorkflow"]] = relationship("GeneratedWorkflow", back_populates="creator")
 
@@ -56,6 +57,7 @@ class Team(Base):
     social_accounts: Mapped[list["SocialAccount"]] = relationship("SocialAccount", back_populates="team", cascade="all, delete-orphan")
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="team", cascade="all, delete-orphan")
     media_assets: Mapped[list["MediaAsset"]] = relationship("MediaAsset", back_populates="team", cascade="all, delete-orphan")
+    media_collections: Mapped[list["MediaCollection"]] = relationship("MediaCollection", back_populates="team", cascade="all, delete-orphan")
     prompt_templates: Mapped[list["PromptTemplate"]] = relationship("PromptTemplate", back_populates="team", cascade="all, delete-orphan")
     generated_workflows: Mapped[list["GeneratedWorkflow"]] = relationship("GeneratedWorkflow", back_populates="team", cascade="all, delete-orphan")
 

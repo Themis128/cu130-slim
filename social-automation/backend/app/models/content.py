@@ -57,31 +57,74 @@ class Post(Base):
     targets: Mapped[list["PostTarget"]] = relationship("PostTarget", back_populates="post", cascade="all, delete-orphan")
 
 
-class MediaAsset(Base):
-    __tablename__ = "media_assets"
+class MediaCollection(Base):
+    __tablename__ = "media_collections"
     __table_args__ = (
-        Index("ix_media_assets_team", "team_id"),
+        Index("ix_media_collections_team", "team_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+
+    team: Mapped["Team"] = relationship("Team", back_populates="media_collections")
+    creator: Mapped["User"] = relationship("User", back_populates="media_collections")
+    assets: Mapped[list["MediaAsset"]] = relationship("MediaAsset", back_populates="collection")
+
+
+class StorageBackend(enum.StrEnum):
+    local = "local"
+    r2 = "r2"
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+    __table_args__ = (
+        Index("ix_media_assets_team", "team_id"),
+        Index("ix_media_assets_collection", "collection_id"),
+        Index("ix_media_assets_backend", "storage_backend"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("media_collections.id", ondelete="SET NULL"), nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(nullable=True)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_backend: Mapped[StorageBackend] = mapped_column(
+        SQLEnum(StorageBackend, values_callable=lambda obj: [e.value for e in obj]),
+        default=StorageBackend.local,
+        nullable=False,
+    )
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)  # relative path for local, R2 key for r2
+    public_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     width: Mapped[int | None] = mapped_column(nullable=True)
     height: Mapped[int | None] = mapped_column(nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(nullable=True)
     alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
-    source: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload, comfyui, url, ai-generated
+    ai_tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    ai_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload, url, ai-generated
     generation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     comfyui_workflow_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    embedding_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    is_favorite: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+    usage_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     team: Mapped["Team"] = relationship("Team", back_populates="media_assets")
     uploader: Mapped["User"] = relationship("User", back_populates="media_assets")
+    collection: Mapped["MediaCollection"] = relationship("MediaCollection", back_populates="assets")
 
 
 class PostTarget(Base):
