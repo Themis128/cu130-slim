@@ -78,6 +78,7 @@ vi.mock('lucide-react', () => ({
   Upload: () => <svg data-testid="upload-icon" />,
   LogOut: () => <svg data-testid="log-out-icon" />,
   Cpu: () => <svg data-testid="cpu-icon" />,
+  Linkedin: () => <svg data-testid="linkedin-icon" />,
 }))
 
 // Mock next/navigation

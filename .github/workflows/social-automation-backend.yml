@@ -6,10 +6,13 @@ name: Social Automation Backend CI
     branches: [master]
     paths:
       - 'social-automation/backend/**'
+      - '.github/workflows/social-automation-backend.yml'
   pull_request:
     branches: [master]
     paths:
       - 'social-automation/backend/**'
+      - '.github/workflows/social-automation-backend.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
