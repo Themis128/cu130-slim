@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.user import User
 
 settings = get_settings()
@@ -71,6 +71,26 @@ async def init_db() -> None:
                 # Defensive: should not happen, but don't continue if the user still can't be resolved.
                 await session.rollback()
                 return
+
+            # Keep the env-seeded admin permanently in sync with the current config so
+            # these credentials are always accepted: re-hash the password and refresh
+            # name/timezone on every startup (e.g. after .env rotation or a DB re-import).
+            try:
+                password_matches = verify_password(
+                    settings.SOCIAL_ADMIN_PASSWORD, admin_user.password_hash
+                )
+            except Exception:
+                password_matches = False
+            desired_name = settings.SOCIAL_ADMIN_NAME or "Admin User"
+            if (
+                not password_matches
+                or admin_user.name != desired_name
+                or admin_user.timezone != settings.APP_TIMEZONE
+            ):
+                admin_user.password_hash = hash_password(settings.SOCIAL_ADMIN_PASSWORD)
+                admin_user.name = desired_name
+                admin_user.timezone = settings.APP_TIMEZONE
+                print(f"Synced env admin credentials for {settings.SOCIAL_ADMIN_EMAIL}")
 
             membership = await session.execute(
                 select(TeamMember).where(TeamMember.user_id == admin_user.id)
