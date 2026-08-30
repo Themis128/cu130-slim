@@ -1007,20 +1007,27 @@ async def post_draft(
     )
 
 
+def _validate_comfyui_job_id(job_id: str) -> str:
+    """Return a validated ComfyUI job ID."""
+    match = re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    return match.group(0)
+
+
 @router.get("/generate-image/{job_id}")
 async def get_image_status(
     job_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    match = re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id)
-    if not match:
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    safe_job_id = match.group(0)
+    safe_job_id = _validate_comfyui_job_id(job_id)
+    # URL-encode the path segment so no special characters (including slashes
+    # or query string markers) can alter the request target.
+    safe_path = urllib.parse.quote(safe_job_id, safe="")
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            safe_path = urllib.parse.quote(safe_job_id, safe="")
             resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_path}")
             if resp.status_code == 200:
                 history = resp.json()

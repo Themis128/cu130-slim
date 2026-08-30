@@ -30,11 +30,7 @@ def safe_resolve(root: str | os.PathLike, *parts: str) -> pathlib.Path:
     ``ValueError``-on-traversal path as a sanitizer.
     """
     base = pathlib.Path(os.path.realpath(root))
-    joined = pathlib.Path(base, *parts)
-    target = pathlib.Path(os.path.realpath(joined))
-    try:
-        target.relative_to(base)
-    except ValueError as exc:
-        if target != base:
-            raise ValueError(f"Resolved path {target!r} escapes root {base!r}") from exc
+    target = pathlib.Path(os.path.realpath(pathlib.Path(base, *parts)))
+    # Raises ValueError on traversal, which CodeQL treats as a taint barrier.
+    target.relative_to(base)
     return target
