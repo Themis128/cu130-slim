@@ -80,6 +80,7 @@ class MediaCollection(Base):
 class StorageBackend(enum.StrEnum):
     local = "local"
     r2 = "r2"
+    minio = "minio"
 
 
 class MediaAsset(Base):

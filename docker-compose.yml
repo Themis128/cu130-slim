@@ -194,6 +194,25 @@ services:
       retries: 10
       start_period: 20s
     restart: unless-stopped
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+    - 9000:9000
+    - 9001:9001
+    environment:
+    - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+    - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+    - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local --config-dir /tmp/.mc 2>/dev/null || curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
   languagetool:
     image: erikvl87/languagetool
     container_name: languagetool
@@ -347,6 +366,13 @@ services:
     - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
     - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
     - MINIO_BUCKET=social-media
+    - MINIO_SECURE=false
+    - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
+    - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+    - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+    - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+    - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+    - R2_S3_ENDPOINT=${R2_S3_ENDPOINT:-}
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -368,6 +394,8 @@ services:
       ollama:
         condition: service_healthy
       chroma:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     dns:
     - 1.1.1.1
@@ -391,8 +419,21 @@ services:
     - N8N_PASSWORD=${N8N_PASSWORD}
     - COMFYUI_URL=http://comfyui:8000
     - OLLAMA_URL=http://ollama:11434
+    - CHROMA_URL=http://chroma:8000
+    - LANGUAGETOOL_URL=http://languagetool:8010
     - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
     - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+    - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+    - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+    - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+    - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+    - R2_S3_ENDPOINT=${R2_S3_ENDPOINT:-}
+    - MINIO_ENDPOINT=minio:9000
+    - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+    - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+    - MINIO_BUCKET=social-media
+    - MINIO_SECURE=false
     - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
     - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
     - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0BT263L17U}
@@ -440,6 +481,10 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      chroma:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     dns:
     - 1.1.1.1
     - 8.8.8.8
@@ -462,6 +507,21 @@ services:
     - N8N_PASSWORD=${N8N_PASSWORD}
     - COMFYUI_URL=http://comfyui:8000
     - OLLAMA_URL=http://ollama:11434
+    - CHROMA_URL=http://chroma:8000
+    - LANGUAGETOOL_URL=http://languagetool:8010
+    - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
+    - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+    - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+    - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+    - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+    - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+    - R2_S3_ENDPOINT=${R2_S3_ENDPOINT:-}
+    - MINIO_ENDPOINT=minio:9000
+    - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+    - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+    - MINIO_BUCKET=social-media
+    - MINIO_SECURE=false
     - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
     - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
     - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0BT263L17U}
@@ -529,3 +589,4 @@ volumes:
   social_postgres_data: null
   redis_data: null
   tunnel_url: null
+  minio_data: null

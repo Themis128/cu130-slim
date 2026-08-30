@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.path_utils import safe_path_component, safe_resolve
 from app.models.content import MediaAsset, StorageBackend
-from app.services import r2_storage
+from app.services import minio_storage, r2_storage
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.worker.celery_app import celery_app
 
@@ -57,6 +57,10 @@ def _r2_enabled() -> bool:
         (settings.CLOUDFLARE_ACCOUNT_ID or "").strip(),
         (settings.CLOUDFLARE_API_TOKEN or "").strip(),
     ])
+
+
+def _minio_enabled() -> bool:
+    return minio_storage.minio_enabled()
 
 
 def _public_local_url(storage_path: str) -> str | None:
@@ -122,11 +126,15 @@ async def _store_bytes(
     mime_type: str,
     date_folder: str,
 ) -> tuple[StorageBackend, str, str | None]:
-    """Store bytes on R2 if enabled, otherwise local disk. Returns backend, path/key, public_url."""
+    """Store bytes using the fallback chain: R2 → MinIO → local disk.
+
+    Returns (backend, path/key, public_url).
+    """
     ext = pathlib.Path(filename).suffix.lower() or ".bin"
     safe_name = f"{uuid.uuid4().hex[:16]}{ext}"
     key = f"{date_folder}/{safe_name}"
 
+    # Tier 1: Cloudflare R2 (free, cloud, preferred)
     if _r2_enabled():
         try:
             r2 = await r2_storage.upload_object(key, data, content_type=mime_type)
@@ -134,6 +142,15 @@ async def _store_bytes(
         except HTTPException:
             pass
 
+    # Tier 2: MinIO (local S3-compatible, fast, no egress cost)
+    if _minio_enabled():
+        try:
+            mn = await minio_storage.upload_object(key, data, content_type=mime_type)
+            return StorageBackend.minio, key, mn.get("public_url")
+        except HTTPException:
+            pass
+
+    # Tier 3: Local disk (always available, no network dependency)
     abs_path = safe_resolve(UPLOAD_DIR, date_folder, safe_name)
     upload_root = pathlib.Path(UPLOAD_DIR).resolve()
     relative_path = abs_path.relative_to(upload_root).as_posix()

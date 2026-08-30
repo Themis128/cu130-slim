@@ -17,7 +17,7 @@ from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
 from app.models.user import Team, TeamMember, User
-from app.services import r2_presigned, r2_storage
+from app.services import minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
@@ -315,10 +315,12 @@ async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_cur
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Delete file from local disk or R2.
+    # Delete file from local disk, R2, or MinIO.
     try:
         if asset.storage_backend == "r2":
             await r2_storage.delete_object(asset.storage_path)
+        elif asset.storage_backend == "minio":
+            await minio_storage.delete_object(asset.storage_path)
         else:
             file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
             if file_path.is_file():
@@ -359,6 +361,8 @@ async def bulk_delete_media(
         try:
             if asset.storage_backend == "r2":
                 await r2_storage.delete_object(asset.storage_path)
+            elif asset.storage_backend == "minio":
+                await minio_storage.delete_object(asset.storage_path)
             else:
                 file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
                 if file_path.is_file():

@@ -25,7 +25,7 @@ from app.core.config import get_settings
 from app.core.path_utils import safe_resolve
 from app.db.session import async_session_maker
 from app.models.content import MediaAsset
-from app.services import chroma_client, r2_storage
+from app.services import chroma_client, minio_storage, r2_storage
 from app.services.media_spellcheck import correct_tags, correct_text
 
 logger = logging.getLogger(__name__)
@@ -52,10 +52,12 @@ def _raw_b64(image_bytes: bytes) -> str:
 
 
 async def _load_image_bytes(asset: MediaAsset) -> bytes | None:
-    """Load image bytes from R2 or local disk."""
+    """Load image bytes from R2, MinIO, or local disk."""
     try:
         if asset.storage_backend == "r2":
             return await r2_storage.get_object(asset.storage_path)
+        if asset.storage_backend == "minio":
+            return await minio_storage.get_object(asset.storage_path)
         return safe_resolve(UPLOAD_DIR, asset.storage_path).read_bytes()
     except Exception as exc:
         logger.warning("Failed to load image bytes for asset %s: %s", asset.id, exc)
