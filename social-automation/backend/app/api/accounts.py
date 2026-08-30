@@ -16,6 +16,7 @@ from app.api.auth import (
     instagram_client,
     linkedin_client,
     threads_client,
+    tiktok_client,
     twitter_client,
 )
 from app.core.config import get_settings
@@ -57,6 +58,7 @@ PLATFORM_CLIENTS = {
     "facebook": facebook_client,
     "instagram": instagram_client,
     "threads": threads_client,
+    "tiktok": tiktok_client,
 }
 
 
@@ -162,6 +164,7 @@ async def connect_account_body(
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish"],
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(data.platform, [])
 
     # Twitter OAuth 2.0 requires PKCE
