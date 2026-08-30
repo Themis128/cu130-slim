@@ -31,6 +31,10 @@ def safe_resolve(root: str | os.PathLike, *parts: str) -> pathlib.Path:
     """
     base = pathlib.Path(root).resolve()
     candidate = pathlib.Path(base, *parts).resolve()
-    # CodeQL CWE-22 barrier: relative_to raises ValueError on traversal.
-    candidate.relative_to(base)
+    # CodeQL CWE-22 barrier: the ValueError-on-traversal path is treated as a
+    # sanitizer. Use an explicit try/except to match the recognised shape.
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Resolved path {candidate!r} escapes root {base!r}") from exc
     return candidate
