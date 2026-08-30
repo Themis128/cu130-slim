@@ -141,22 +141,17 @@ async def upload_media(
 
 
 @router.get("/view")
-async def view_media(path: str = Query(..., description="Relative storage path of the asset")):
+async def view_media(path: str = Query(..., description="Relative storage path or object key of the asset")):
     """Serve any stored media for display, converting non-web formats to PNG.
 
     Unauthenticated by design — mirrors the public ``/api/v1/uploads`` static
     mount so ``<img>`` tags can render assets without auth headers.  Formats
     browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
     transparently re-encoded to PNG with Pillow.
-    """
-    # Resolve and validate the requested path inside UPLOAD_DIR.
-    try:
-        target = safe_resolve(UPLOAD_DIR, path)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid media path")
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="Media file not found")
 
+    Tries local disk first, then MinIO, then R2 — so assets stored on any
+    backend can be served through this single endpoint.
+    """
     ext_mime = {
         ".png": "image/png",
         ".jpg": "image/jpeg",
@@ -173,27 +168,82 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         ".webm": "video/webm",
         ".mov": "video/quicktime",
     }
-    ext = target.suffix.lower()
+
+    # Determine the file extension / mime type from the path (works for all backends).
+    ext = pathlib.Path(path).suffix.lower()
     mime = ext_mime.get(ext, "application/octet-stream")
 
-    if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
-        return FileResponse(str(target), media_type=mime)
-
-    # Non-native image format → re-encode to PNG so every browser can show it.
-    # Read the file into a buffer so the image decoder never opens a user-controlled path directly.
+    # --- Try local disk first ---
     try:
-        buf = target.read_bytes()
-        img = Image.open(io.BytesIO(buf))
-        img.load()
-    except Exception:
-        raise HTTPException(
-            status_code=415,
-            detail="This format cannot be previewed in the browser. Download the file to view it.",
-        )
-    buf = io.BytesIO()
-    out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
-    out.save(buf, format="PNG")
-    return Response(content=buf.getvalue(), media_type="image/png")
+        target = safe_resolve(UPLOAD_DIR, path)
+        if target.is_file():
+            if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+                return FileResponse(str(target), media_type=mime)
+            try:
+                buf = target.read_bytes()
+                img = Image.open(io.BytesIO(buf))
+                img.load()
+            except Exception:
+                raise HTTPException(
+                    status_code=415,
+                    detail="This format cannot be previewed in the browser. Download the file to view it.",
+                )
+            buf = io.BytesIO()
+            out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+            out.save(buf, format="PNG")
+            return Response(content=buf.getvalue(), media_type="image/png")
+    except ValueError:
+        pass  # path not valid for local filesystem — try remote backends
+    except HTTPException:
+        raise
+
+    # --- Try MinIO ---
+    if minio_storage.minio_enabled():
+        try:
+            data = await minio_storage.get_object(path)
+            if data:
+                if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+                    return Response(content=data, media_type=mime)
+                try:
+                    img = Image.open(io.BytesIO(data))
+                    img.load()
+                except Exception:
+                    raise HTTPException(
+                        status_code=415,
+                        detail="This format cannot be previewed in the browser.",
+                    )
+                buf = io.BytesIO()
+                out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+                out.save(buf, format="PNG")
+                return Response(content=buf.getvalue(), media_type="image/png")
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                pass  # not in MinIO — try R2
+            else:
+                raise
+
+    # --- Try R2 ---
+    try:
+        data = await r2_storage.get_object(path)
+        if data:
+            if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+                return Response(content=data, media_type=mime)
+            try:
+                img = Image.open(io.BytesIO(data))
+                img.load()
+            except Exception:
+                raise HTTPException(
+                    status_code=415,
+                    detail="This format cannot be previewed in the browser.",
+                )
+            buf = io.BytesIO()
+            out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+            out.save(buf, format="PNG")
+            return Response(content=buf.getvalue(), media_type="image/png")
+    except HTTPException:
+        pass
+
+    raise HTTPException(status_code=404, detail="Media file not found on any storage backend")
 
 
 @router.get("/assets", response_model=MediaListResponse)
@@ -548,9 +598,17 @@ async def prepare_upload(
         size_bytes=body.size_bytes,
     )
     if not url:
+        # Fall back to MinIO presigned URL if R2 S3 credentials are not configured
+        url = minio_storage.presigned_upload_url(
+            team_id=str(team.id),
+            filename=body.filename,
+            mime_type=body.mime_type,
+            size_bytes=body.size_bytes,
+        )
+    if not url:
         raise HTTPException(
             status_code=503,
-            detail="R2 S3 credentials are not configured. Use the server-side /upload endpoint instead.",
+            detail="Neither R2 nor MinIO S3 credentials are configured. Use the server-side /upload endpoint instead.",
         )
     return url
 

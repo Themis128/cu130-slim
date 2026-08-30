@@ -50,7 +50,8 @@ curl http://localhost:8083/health
 
 - LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not a personal profile.
 - Carousel generation uses **Cloudflare Workers AI only**.
-- **Cloudflare-first, free-first** for all inference and object storage; prefer Cloudflare Workers AI and R2. Use Ollama as the last-resort fallback.
+- **Cloudflare-first, free-first** for all inference and object storage; prefer Cloudflare Workers AI and R2. Use MinIO as the local S3-compatible failover, and local disk as the last resort. Use Ollama as the last-resort fallback for inference.
+- **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password).
 - Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `ollama:11435`, `comfyui:8000`, `metabase:3000`). New internal services may use unmapped ports only after confirming no conflicts.

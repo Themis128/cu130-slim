@@ -43,7 +43,7 @@ async def test_upload_object_success():
     assert result["key"] == "test/file.txt"
     assert result["etag"] == "abc123"
     assert result["size"] == 5
-    assert "minio:9000/social-media/test/file.txt" in result["public_url"]
+    assert "/api/v1/media/view?path=test/file.txt" in result["public_url"]
 
 
 @pytest.mark.asyncio

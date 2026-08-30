@@ -102,8 +102,14 @@ async def upload_object(
     resp = client.put_object(**params)
     etag = resp.get("ETag", "").strip('"')
 
-    scheme = "https" if settings.MINIO_SECURE else "http"
-    public_url = f"{scheme}://{settings.MINIO_ENDPOINT}/{bucket}/{key}"
+    # Route through the API /view endpoint so the browser can reach the object
+    # without needing direct access to the internal MinIO hostname.
+    base = (settings.MEDIA_PUBLIC_BASE_URL or "").rstrip("/")
+    if base:
+        public_url = f"{base}/api/v1/media/view?path={key}"
+    else:
+        # Use a relative URL that works regardless of the host/domain.
+        public_url = f"/api/v1/media/view?path={key}"
 
     return {
         "key": key,
@@ -162,3 +168,80 @@ async def object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def presigned_upload_url(
+    team_id,
+    filename: str,
+    mime_type: str,
+    size_bytes: int,
+    expiry: int = 300,
+) -> dict | None:
+    """Return a presigned PUT URL for direct browser upload to MinIO.
+
+    Returns ``{"key", "upload_url", "public_url"}`` or ``None`` if MinIO
+    is not configured.
+    """
+    if not ensure_bucket():
+        return None
+
+    client = _client()
+    if not client:
+        return None
+
+    bucket = _bucket()
+    key = _team_key(team_id, filename, mime_type)
+
+    params = {
+        "Bucket": bucket,
+        "Key": key,
+        "ContentType": mime_type,
+        "ContentLength": size_bytes,
+    }
+    url = client.generate_presigned_url(
+        "put_object",
+        Params=params,
+        ExpiresIn=expiry,
+        HttpMethod="PUT",
+    )
+
+    base = (settings.MEDIA_PUBLIC_BASE_URL or "").rstrip("/")
+    if base:
+        public_url = f"{base}/api/v1/media/view?path={key}"
+    else:
+        public_url = f"/api/v1/media/view?path={key}"
+
+    return {
+        "key": key,
+        "upload_url": url,
+        "public_url": public_url,
+    }
+
+
+def presigned_download_url(key: str, expiry: int = 3600) -> str | None:
+    """Return a presigned GET URL for a MinIO object."""
+    if not ensure_bucket():
+        return None
+
+    client = _client()
+    if not client:
+        return None
+
+    bucket = _bucket()
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": key},
+        ExpiresIn=expiry,
+    )
+
+
+def _team_key(team_id, filename: str, mime_type: str) -> str:
+    """Generate a team-scoped storage key."""
+    import uuid
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    date_part = now.strftime("%Y/%m/%d")
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
+    safe = f"{uuid.uuid4().hex[:16]}.{ext}"
+    return f"{team_id}/{date_part}/{safe}"
