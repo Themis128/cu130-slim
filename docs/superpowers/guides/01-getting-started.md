@@ -30,7 +30,10 @@ This guide walks a first-time user from login to a healthy, ready-to-use SocialA
 1. Go to **Settings > Env Manager**.
 2. Add the keys you will use:
    - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` — required for Workers AI and R2.
+     The token must have **Account → Workers AI → Read** and **Account → Workers AI → Run**.
+     `Workers AI → Edit` by itself will fail with a `401` on `/ai/run` because it does not grant model inference.
    - `R2_BUCKET_NAME` and `R2_PUBLIC_URL` — optional; local storage is used if not set.
+     R2 direct uploads also need `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from **R2 → Manage API Tokens**.
    - Platform-specific keys (e.g. `LINKEDIN_CLIENT_ID`, `TWITTER_CLIENT_ID`) — see [Connecting social accounts](02-connecting-accounts.md).
 3. Click **Save** and **Restart social-api** so the changes are loaded.
 

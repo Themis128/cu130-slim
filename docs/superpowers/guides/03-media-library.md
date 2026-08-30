@@ -92,3 +92,28 @@ The media library is a team-scoped digital asset manager backed by Cloudflare R2
 - `POST /api/v1/media/collections` — create a collection.
 - `POST /api/v1/media/collections/{id}/assets` — add an asset to a collection.
 - `DELETE /api/v1/media/collections/{id}/assets/{asset_id}` — remove an asset from a collection.
+
+## Troubleshooting
+
+### AI auto-tagging fails with "Cloudflare vision error 401"
+
+The `CLOUDFLARE_API_TOKEN` needs **both** of these permissions on the account:
+
+- **Workers AI → Read**
+- **Workers AI → Run**
+
+`Workers AI → Edit` alone does **not** grant the right to call `/ai/run`. If the token only has `Edit`, edit it in the Cloudflare dashboard and add `Run`, then copy the regenerated token value into `.env` and restart `social-api` and `social-worker`.
+
+Verify the token with:
+
+```bash
+source .env
+curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify"
+```
+
+You should see `"status":"active"`. If the inference call still fails after adding `Run`, ensure the token is scoped to the correct account (`fb7dc7b69b662480cd5961a4d1913c78`).
+
+### R2 presigned URLs generate but uploads fail
+
+Check that `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` come from **R2 → Manage API Tokens** and that the token has `Object Read & Write` for `app-media-bucket`.
