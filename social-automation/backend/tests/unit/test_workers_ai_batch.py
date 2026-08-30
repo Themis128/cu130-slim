@@ -10,6 +10,7 @@ def cf_settings(monkeypatch):
     """Point the module-level settings at a fake Cloudflare account."""
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account-123")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
     yield
 
 
