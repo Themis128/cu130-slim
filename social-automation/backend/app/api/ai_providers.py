@@ -211,5 +211,7 @@ async def test_provider(
         text = result.get("text") or ""
         return {"ok": True, "response": text[:200]}
     except Exception:
-        logger.exception("Provider test failed for %s", name)
+        # Provider name is already validated above; do not include it in the
+        # generic error path to avoid log-injection reports on this sink.
+        logger.exception("Provider test failed")
         return {"ok": False, "error": "Provider test failed. Check server logs for details."}
