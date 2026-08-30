@@ -37,11 +37,12 @@ import toast from 'react-hot-toast'
 type PreviewProps = { content: string; media: File[]; identity: PreviewIdentity }
 
 const platforms = [
-  { id: 'linkedin',  name: 'LinkedIn',   icon: 'in', color: 'bg-blue-600',  textColor: 'text-blue-600',  borderColor: 'border-blue-600',  maxChars: 3000  },
+  { id: 'linkedin',  name: 'LinkedIn',    icon: 'in', color: 'bg-blue-600',  textColor: 'text-blue-600',  borderColor: 'border-blue-600',  maxChars: 3000  },
   { id: 'twitter',   name: 'Twitter / X', icon: '𝕏',  color: 'bg-sky-500',   textColor: 'text-sky-500',   borderColor: 'border-sky-500',   maxChars: 280   },
-  { id: 'instagram', name: 'Instagram',  icon: '📷', color: 'bg-pink-500',  textColor: 'text-pink-500',  borderColor: 'border-pink-500',  maxChars: 2200  },
-  { id: 'facebook',  name: 'Facebook',   icon: 'f',  color: 'bg-blue-700',  textColor: 'text-blue-700',  borderColor: 'border-blue-700',  maxChars: 63206 },
-  { id: 'threads',   name: 'Threads',    icon: '@',  color: 'bg-gray-800',  textColor: 'text-gray-800',  borderColor: 'border-gray-800',  maxChars: 500   },
+  { id: 'instagram', name: 'Instagram',   icon: '📷', color: 'bg-pink-500',  textColor: 'text-pink-500',  borderColor: 'border-pink-500',  maxChars: 2200  },
+  { id: 'facebook',  name: 'Facebook',    icon: 'f',  color: 'bg-blue-700',  textColor: 'text-blue-700',  borderColor: 'border-blue-700',  maxChars: 63206 },
+  { id: 'threads',   name: 'Threads',     icon: '@',  color: 'bg-gray-800',  textColor: 'text-gray-800',  borderColor: 'border-gray-800',  maxChars: 500   },
+  { id: 'tiktok',    name: 'TikTok',      icon: 'TT', color: 'bg-black',     textColor: 'text-black',     borderColor: 'border-black',     maxChars: 2200  },
 ]
 
 // SVG character ring
@@ -287,12 +288,48 @@ function ThreadsPreview({ content, media, identity }: PreviewProps) {
   )
 }
 
+function TikTokPreview({ content, media, identity }: PreviewProps) {
+  return (
+    <div className="rounded-xl border bg-black text-white dark:bg-zinc-950 shadow-sm overflow-hidden text-[13px] flex flex-col h-[420px]">
+      <div className="flex items-center justify-between px-3 py-2 text-white/80">
+        <span className="font-semibold text-[12px]">For You</span>
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/></svg>
+      </div>
+      <div className="relative flex-1 bg-zinc-900 flex items-center justify-center">
+        {media.length > 0
+          ? <ObjectUrlImage file={media[0]} className="h-full w-full object-contain" />
+          : <div className="text-center text-white/40"><PlaySquare className="h-10 w-10 mx-auto mb-2" />Upload a video or image to preview</div>
+        }
+      </div>
+      <div className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <AccountAvatar
+            identity={identity}
+            className="w-8 h-8 rounded-full flex-shrink-0 text-[10px]"
+            fallbackClass="bg-white text-black"
+          />
+          <span className="font-semibold text-[12px]">{identity.handle}</span>
+        </div>
+        <p className="whitespace-pre-wrap leading-relaxed text-zinc-100 text-[12px]">
+          {content || <span className="text-white/40 italic">Start typing to preview...</span>}
+        </p>
+        <div className="flex items-center gap-4 text-white/70">
+          <Heart className="h-4 w-4" />
+          <MessageCircle className="h-4 w-4" />
+          <Share2 className="h-4 w-4" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const PreviewComponents: Record<string, React.ComponentType<PreviewProps>> = {
   linkedin: LinkedInPreview,
   twitter: TwitterPreview,
   instagram: InstagramPreview,
   facebook: FacebookPreview,
   threads: ThreadsPreview,
+  tiktok: TikTokPreview,
 }
 
 export default function NewPostPage() {
@@ -379,6 +416,7 @@ export default function NewPostPage() {
       instagram: 'inspirational',
       facebook: 'casual',
       threads: 'casual',
+      tiktok: 'trendy',
     }
     const primary = selectedPlatforms[0]
     if (primary && defaults[primary]) setTone(defaults[primary])
@@ -559,7 +597,7 @@ export default function NewPostPage() {
     setOpenVariants(new Set(selectedPlatforms))
     const platformTones: Record<string, string> = {
       linkedin: 'professional', twitter: 'witty', instagram: 'inspirational',
-      facebook: 'casual', threads: 'casual',
+      facebook: 'casual', threads: 'casual', tiktok: 'trendy',
     }
     try {
       const results = await Promise.allSettled(
@@ -612,7 +650,7 @@ export default function NewPostPage() {
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                 {[
                   { label: 'Post',     icon: AlignLeft,    href: null,                      active: true,  desc: 'All' },
-                  { label: 'Carousel', icon: LayoutTemplate, href: '/content/carousel/new', active: false, desc: 'LI · IG' },
+                  { label: 'Carousel', icon: LayoutTemplate, href: '/content/carousel/new', active: false, desc: 'LI · IG · TT' },
                   { label: 'Thread',   icon: List,          href: '/content/thread/new',    active: false, desc: 'X · Threads' },
                   { label: 'Poll',     icon: BarChart2,     href: '/content/poll/new',      active: false, desc: 'X · LI' },
                   { label: 'Story',    icon: PlaySquare,    href: '/content/story/new',     active: false, desc: 'IG · FB' },
@@ -755,6 +793,7 @@ export default function NewPostPage() {
                   { id: 'witty',         label: 'Witty',        emoji: '😄' },
                   { id: 'inspirational', label: 'Inspirational',emoji: '✨' },
                   { id: 'educational',   label: 'Educational',  emoji: '📚' },
+                  { id: 'trendy',        label: 'Trendy',       emoji: '🔥' },
                 ] as const).map((t) => (
                   <button
                     key={t.id}
