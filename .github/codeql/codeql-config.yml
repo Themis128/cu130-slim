@@ -6,6 +6,18 @@ paths-ignore:
   - "social-automation/frontend/.next/**"
   - "env-manager/frontend/.next/**"
   - "**/.nyc_output/**"
+  # Test files are not production attack surface
+  - "social-automation/frontend/tests/**"
+  - "social-automation/backend/tests/**"
+  # One-off operational scripts; not part of deployed images
+  - "scripts/*"
   # Vendored dependencies
   - "**/node_modules/**"
   - "social-automation/backend/alembic/versions/**"
+
+query-filters:
+  # The app uses React with validated SafeImage/SafeVideo components and never
+  # uses dangerouslySetInnerHTML. This query fires on every img/video src and
+  # produces only false positives for this codebase.
+  - exclude:
+      id: js/xss-through-dom

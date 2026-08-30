@@ -21,6 +21,5 @@ export function SafeImage({
     return null
   }
 
-  // lgtm[js/xss-through-dom]
   return <img src={src} alt={alt} className={className} width={width} height={height} />
 }

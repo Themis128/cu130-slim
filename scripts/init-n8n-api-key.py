@@ -115,7 +115,6 @@ def update_env_file(api_key):
         with open(ENV_FILE, "w") as f:
             for line in lines:
                 if line.startswith("# N8N_API_KEY=") or line.startswith("N8N_API_KEY="):
-                    # lgtm[py/clear-text-storage-sensitive-data]
                     f.write(f"N8N_API_KEY={api_key}\n")
                 else:
                     f.write(line)

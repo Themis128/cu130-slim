@@ -23,7 +23,6 @@ export function SafeVideo({
     return null
   }
 
-  // lgtm[js/xss-through-dom]
   return (
     <video
       src={src}
