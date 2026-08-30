@@ -40,7 +40,6 @@ Security hardening (in progress):
 - CI security workflows updated with `ignore-unfixed: true`, `npm audit`, and `pip-audit` jobs.
 
 Remaining:
-- Verify ComfyUI Trivy scan after rebuild completes.
 - Push rebuilt images to Docker Hub.
 - Re-run GitHub CodeQL analysis and confirm all 34 alerts close.
 - Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and LinkedIn OAuth credentials in .env.
