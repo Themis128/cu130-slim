@@ -6,11 +6,13 @@ GITHUB_PERSONAL_ACCESS_TOKEN, SMTP password) cannot be generated; the script
 leaves those empty and prints a checklist.
 
 Usage:
-    python3 scripts/generate-env-secrets.py > .env
+    python3 scripts/generate-env-secrets.py
+    python3 scripts/generate-env-secrets.py --output /path/to/.env
 
 WARNING: This overwrites .env. Back it up first if it contains real secrets.
 """
 
+import argparse
 import re
 import secrets
 import sys
@@ -49,14 +51,18 @@ def main() -> int:
         print(".env.example not found", file=sys.stderr)
         return 1
 
+    parser = argparse.ArgumentParser(description="Generate a development .env file")
+    parser.add_argument("--output", type=Path, default=repo_root / ".env", help="Output .env path")
+    args = parser.parse_args()
+
     text = example.read_text(encoding="utf-8")
 
     for key, value in GENERATED.items():
         # Replace the first occurrence of KEY=... with the generated value.
         text = re.sub(rf"^{re.escape(key)}=.*$", f"{key}={value}", text, count=1, flags=re.MULTILINE)
 
-    # lgtm[py/clear-text-logging-sensitive-data]
-    print(text)
+    args.output.write_text(text, encoding="utf-8")
+    print(f"Wrote generated secrets to {args.output}")
 
     print("\n# =============================================================================")
     print("# PRODUCTION CREDENTIALS CHECKLIST (fill these manually before deploying)")
