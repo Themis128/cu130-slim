@@ -1,7 +1,10 @@
 """AI auto-tagging for media assets using Cloudflare Workers AI vision models.
 
 Cloudflare-first, free-tier:
-- `@cf/moondream/moondream3.1-9B-A2B` for image captioning and keyword query.
+- `@cf/meta/llama-4-scout-17b-16e-instruct` (primary, 0.6 neurons) — multimodal,
+  function calling, 40x cheaper than moondream.
+- `@cf/moondream/moondream3.1-9B-A2B` (fallback, 24 neurons) — dedicated vision
+  model with caption/query/point/detect tasks.
 - Ollama `llava` is used as a last-resort fallback if Cloudflare is unavailable.
 
 The service is best-effort: failures are logged and do not block uploads.
@@ -30,7 +33,10 @@ settings = get_settings()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
-CF_VISION_MODEL = "@cf/moondream/moondream3.1-9B-A2B"
+# Primary vision model: llama-4-scout (0.6 neurons, multimodal, function calling)
+CF_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+# Fallback vision model: moondream (24 neurons, dedicated vision tasks)
+CF_VISION_FALLBACK_MODEL = "@cf/moondream/moondream3.1-9B-A2B"
 OLLAMA_VISION_MODEL = "llava"
 
 
@@ -38,6 +44,11 @@ def _data_uri(image_bytes: bytes, mime_type: str = "image/png") -> str:
     """Convert image bytes to a base64 data URI for Workers AI."""
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{b64}"
+
+
+def _raw_b64(image_bytes: bytes) -> str:
+    """Convert image bytes to raw base64 (no data URI prefix) for llama-4."""
+    return base64.b64encode(image_bytes).decode("utf-8")
 
 
 async def _load_image_bytes(asset: MediaAsset) -> bytes | None:
@@ -57,25 +68,67 @@ async def _call_cloudflare_vision(
     prompt: str,
     max_tokens: int = 512,
 ) -> dict:
-    """Call a Cloudflare Workers AI vision model."""
+    """Call a Cloudflare Workers AI vision model.
+
+    Tries llama-4-scout first (chat-format multimodal, 0.6 neurons), then falls
+    back to moondream (task-based vision, 24 neurons) if the primary model fails.
+    """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    token = (settings.CLOUDFLARE_AI_TOKEN or "").strip()
     if not account_id or not token:
         raise RuntimeError("Cloudflare credentials not configured")
 
     from urllib.parse import quote
 
-    model = quote(CF_VISION_MODEL, safe="@/")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    # Strip data URI prefix for llama-4 (it wants raw base64 in a list)
+    raw_b64 = image_b64.split(",", 1)[-1] if image_b64.startswith("data:") else image_b64
 
+    # --- Primary: llama-4-scout (chat format, 0.6 neurons) ---
+    try:
+        model = quote(CF_VISION_MODEL, safe="@/")
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+        if task == "caption":
+            user_msg = "Generate a concise one-sentence caption for this image."
+        else:
+            user_msg = prompt
+        payload = {
+            "image": [raw_b64],
+            "messages": [
+                {"role": "user", "content": user_msg},
+            ],
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning("llama-4-scout vision returned %s, falling back to moondream", resp.status_code)
+    except Exception as exc:
+        logger.warning("llama-4-scout vision failed: %s, falling back to moondream", exc)
+
+    # --- Fallback: moondream (task format, 24 neurons) ---
+    model = quote(CF_VISION_FALLBACK_MODEL, safe="@/")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     payload: dict = {
         "task": task,
         "image": image_b64,
-        "prompt": prompt,
+        "stream": False,
         "max_tokens": max_tokens,
     }
     if task == "caption":
         payload["caption_length"] = "normal"
+    elif task == "query":
+        payload["question"] = prompt
+    else:
+        payload["prompt"] = prompt
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
@@ -94,16 +147,35 @@ async def _call_cloudflare_vision(
 
 
 def _extract_caption(result: dict) -> str | None:
-    """Extract caption text from a Moondream/LLaMA-vision response."""
-    # Workers AI can wrap the response under `result` or return it directly.
+    """Extract caption text from a vision model response.
+
+    Handles both llama-4-scout (``result.response``) and moondream
+    (``result.result.caption``) response formats.
+    """
     data = result.get("result") or result
-    return data.get("description") or data.get("caption") or data.get("response") or data.get("text")
+    inner = data.get("result") or data
+    # llama-4-scout: result.response is the text
+    text = data.get("response") or inner.get("response")
+    if text:
+        return text
+    # moondream: result.result.caption
+    return inner.get("caption") or data.get("caption") or inner.get("description") or data.get("description")
 
 
 def _extract_query_text(result: dict) -> str | None:
-    """Extract query answer text."""
+    """Extract query answer text from a vision model response.
+
+    Handles both llama-4-scout (``result.response``) and moondream
+    (``result.result.answer``) response formats.
+    """
     data = result.get("result") or result
-    return data.get("description") or data.get("response") or data.get("text") or data.get("answer")
+    inner = data.get("result") or data
+    # llama-4-scout: result.response is the text
+    text = data.get("response") or inner.get("response")
+    if text:
+        return text
+    # moondream: result.result.answer
+    return inner.get("answer") or data.get("answer") or inner.get("description") or data.get("description")
 
 
 async def _call_ollama_vision(image_b64: str, prompt: str) -> dict:

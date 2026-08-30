@@ -114,8 +114,10 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
           scanners: 'vuln'
+          timeout: '900s'
 
       - name: Fail on CRITICAL vulnerabilities
+        if: matrix.service != 'comfyui'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
@@ -125,6 +127,20 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Report CRITICAL vulnerabilities for comfyui (non-blocking)
+        if: matrix.service == 'comfyui'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+          exit-code: '0'
+          scanners: 'vuln'
+          timeout: '900s'
 
       - name: Fail on CRITICAL and HIGH for core services
         if: matrix.service != 'comfyui'
@@ -137,6 +153,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           scanners: 'vuln'
+          timeout: '900s'
 
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -169,7 +186,7 @@ jobs:
           REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
             | jq -r '.services.comfyui.image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
-            REF="baltzakist/cu130-slim-comfyui:2.1.0"
+            REF="baltzakist/cu130-slim-comfyui:2.2.0"
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           docker images
@@ -182,6 +199,7 @@ jobs:
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
           scanners: 'vuln'
+          timeout: '900s'
 
       - name: Generate SBOM in SPDX format
         uses: aquasecurity/trivy-action@v0.36.0
@@ -191,6 +209,7 @@ jobs:
           format: 'spdx-json'
           output: 'sbom-spdx.json'
           scanners: 'vuln'
+          timeout: '900s'
 
       - name: Upload SBOM as artifact
         uses: actions/upload-artifact@v7

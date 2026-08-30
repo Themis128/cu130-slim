@@ -29,7 +29,7 @@ def _make_png() -> bytes:
 
 
 async def _call_cf_caption(image_b64: str, settings) -> dict | None:
-    if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip() or not (settings.CLOUDFLARE_API_TOKEN or "").strip():
+    if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip() or not (settings.CLOUDFLARE_AI_TOKEN or "").strip():
         return None
     try:
         return await media_ai._call_cloudflare_vision(
@@ -49,8 +49,8 @@ async def main() -> int:
     missing = []
     if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip():
         missing.append("CLOUDFLARE_ACCOUNT_ID")
-    if not (settings.CLOUDFLARE_API_TOKEN or "").strip():
-        missing.append("CLOUDFLARE_API_TOKEN")
+    if not (settings.CLOUDFLARE_AI_TOKEN or "").strip():
+        missing.append("CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN)")
     if missing:
         print(f"  MISSING: {', '.join(missing)}")
         print("  Please add these to .env and ensure the token has Workers AI / AI:Run permissions.")
@@ -145,7 +145,9 @@ async def main() -> int:
 
         await media_ai.auto_tag_asset(asset.id)
 
-        # Reload asset to see updated fields
+        # Reload asset to see updated fields (expire cache first since
+        # auto_tag_asset committed in a separate session).
+        db.expire_all()
         result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset.id))
         asset = result.scalar_one()
         print(f"  AI_CAPTION: {asset.ai_caption}")

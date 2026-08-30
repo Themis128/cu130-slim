@@ -198,7 +198,7 @@ async def _get_provider_config(
         "openai": settings.OPENAI_API_KEY,
         "nvidia-flux": settings.NVIDIA_API_KEY,
         "nvidia-flux-dev": settings.NVIDIA_API_KEY,
-        "cloudflare": settings.CLOUDFLARE_API_TOKEN,
+        "cloudflare": settings.CLOUDFLARE_AI_TOKEN,
     }
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
@@ -233,11 +233,11 @@ async def list_workers_ai_models() -> list[dict]:
     embeddings, etc. Uses the paginated ``/ai/models/search`` endpoint.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    api_key = (settings.CLOUDFLARE_AI_TOKEN or "").strip()
     if not account_id or not api_key:
         raise HTTPException(
             status_code=400,
-            detail="CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured to list Workers AI models.",
+            detail="CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN) must be configured to list Workers AI models.",
         )
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/models/search"
@@ -287,7 +287,7 @@ async def transcribe_workers_ai(
     returning ``{"result": {"text": ...}}``.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (api_key or settings.CLOUDFLARE_API_TOKEN or "").strip()
+    api_key = (api_key or settings.CLOUDFLARE_AI_TOKEN or "").strip()
 
     if not account_id:
         raise HTTPException(
@@ -300,7 +300,7 @@ async def transcribe_workers_ai(
     if not api_key:
         raise HTTPException(
             status_code=400,
-            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+            detail="CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN) is not configured for Cloudflare Workers AI.",
         )
 
     model = _validate_workers_ai_model(model)
@@ -366,7 +366,7 @@ async def _call_workers_ai_chat(
     and returns ``{"result": {"response": ...}}``.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (api_key or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    api_key = (api_key or "").strip() or (settings.CLOUDFLARE_AI_TOKEN or "").strip()
 
     if not account_id:
         raise HTTPException(
@@ -376,7 +376,7 @@ async def _call_workers_ai_chat(
     if not api_key:
         raise HTTPException(
             status_code=400,
-            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+            detail="CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN) is not configured for Cloudflare Workers AI.",
         )
 
     model = _validate_workers_ai_model(model)
@@ -879,7 +879,7 @@ async def _call_cf_image_pipeline(
 def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
     """Return ``(account_id, api_key)`` for Workers AI, raising 400 if unset."""
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    key = (api_key or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    key = (api_key or "").strip() or (settings.CLOUDFLARE_AI_TOKEN or "").strip()
     if not account_id:
         raise HTTPException(
             status_code=400,
@@ -888,7 +888,7 @@ def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
     if not key:
         raise HTTPException(
             status_code=400,
-            detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
+            detail="CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN) is not configured for Cloudflare Workers AI.",
         )
     return account_id, key
 
@@ -1311,10 +1311,11 @@ async def _do_call_inference(
             elif not model:
                 model = CF_TEXT_FREE
         # image tasks with no schema keep whatever model was resolved (caller controls)
-    # Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID) are
-    # environment-level, not stored per-team.  _call_workers_ai_chat already
-    # falls back to the env var and validates it, so we must not reject a
-    # missing per-team key here for Cloudflare (same pattern as local-sd35).
+    # Cloudflare credentials (CLOUDFLARE_AI_API_TOKEN / CLOUDFLARE_API_TOKEN /
+    # CLOUDFLARE_ACCOUNT_ID) are environment-level, not stored per-team.
+    # _call_workers_ai_chat already falls back to the env var and validates it,
+    # so we must not reject a missing per-team key here for Cloudflare (same
+    # pattern as local-sd35).
     if not api_key and provider_name not in ("local-sd35", "cloudflare"):
         raise HTTPException(
             status_code=400,

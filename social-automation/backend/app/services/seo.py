@@ -228,8 +228,10 @@ async def suggest_meta(title: str | None, body: str, platform: str = "linkedin")
         return {"title": "", "description": ""}
 
     hints = _PLATFORM_HINTS.get(platform.lower(), _PLATFORM_HINTS["linkedin"])
-    title_range = hints.get("title_len") or (40, 70)
-    desc_range = hints.get("meta_desc_len") or (120, 160)
+    title_range_raw = hints.get("title_len")
+    title_range: tuple[int, int] = title_range_raw if isinstance(title_range_raw, tuple) else (40, 70)
+    desc_range_raw = hints.get("meta_desc_len")
+    desc_range: tuple[int, int] = desc_range_raw if isinstance(desc_range_raw, tuple) else (120, 160)
 
     prompt = f"""Given this content, write a concise SEO title and meta description.
 

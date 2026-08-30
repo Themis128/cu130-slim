@@ -5,6 +5,14 @@ There is no unlimited "free model" — these IDs are free-*tier eligible* and
 low neuron cost so a carousel run is more likely to fit in the daily budget.
 
 Pricing reference: https://developers.cloudflare.com/workers-ai/platform/pricing/
+
+Neuron costs (measured 2026-08-31 on account fb7dc7b69b662480cd5961a4d1913c78):
+  llama-4-scout-17b-16e-instruct  0.6 neurons  (text + vision, function calling)
+  llama-3.2-3b-instruct           0.3 neurons  (tiny text fallback)
+  llama-3.3-70b-instruct-fp8-fast 1.5 neurons  (best quality text)
+  moondream3.1-9B-A2B            24.0 neurons  (dedicated vision fallback)
+  flux-1-schnell                172.8 neurons  (txt2img, 4 steps)
+  bge-m3                          0.0 neurons  (multilingual embeddings)
 """
 
 from __future__ import annotations
@@ -17,25 +25,48 @@ from __future__ import annotations
 # Best for carousel copy, NLP plain-English rewrite, prompt enhancement.
 CF_TEXT_FREE = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
+# Multimodal model (17B MoE, 0.6 neurons) — cheapest text model, also does vision.
+# Best for short-form content, tag generation, and cost-sensitive workloads.
+CF_TEXT_CHEAP = "@cf/meta/llama-4-scout-17b-16e-instruct"
+
 # Lightweight fallback when 70B is capacity-limited (3B ~ 1/10 the cost).
 CF_TEXT_FREE_SMALL = "@cf/meta/llama-3.2-3b-instruct"
 # Tiny emergency fallback
 CF_TEXT_FREE_TINY = "@cf/meta/llama-3.2-1b-instruct"
 
 # ---------------------------------------------------------------------------
+# Vision models (image-to-text)
+# ---------------------------------------------------------------------------
+
+# Primary vision model: llama-4-scout (0.6 neurons, multimodal, function calling).
+# 40x cheaper than moondream and handles captioning + VQA via chat format.
+CF_VISION_PRIMARY = "@cf/meta/llama-4-scout-17b-16e-instruct"
+# Fallback: moondream (24 neurons, dedicated vision tasks: caption/query/point/detect)
+CF_VISION_FALLBACK = "@cf/moondream/moondream3.1-9B-A2B"
+
+# ---------------------------------------------------------------------------
 # Image generation models
 # ---------------------------------------------------------------------------
 
-# Fast txt2img — FLUX.1-schnell (4-8 steps, free tier)
+# Fast txt2img — FLUX.1-schnell (4-8 steps, free tier, 172.8 neurons/image)
 CF_TXT2IMG_FREE = "@cf/black-forest-labs/flux-1-schnell"
 
 # img2img enhancement — SD v1.5 img2img (free tier; far cheaper than FLUX.2)
 CF_IMG2IMG_FREE = "@cf/runwayml/stable-diffusion-v1-5-img2img"
 
 # Avoid as default on free tier (higher neuron cost):
-#   @cf/black-forest-labs/flux-2-klein-4b / flux-2-klein-9b
+#   @cf/black-forest-labs/flux-2-klein-4b / flux-2-klein-9b (require multipart API)
 #   @cf/meta/llama-3.1-8b-instruct (non-fp8)
-# Paid-only frontier models (403 on free): kimi-k2.6, glm-5.2/5.3, etc.
+# Paid-only frontier models (403 on free): kimi-k2.6, glm-5.2/5.3, deepseek-v4, etc.
+
+# ---------------------------------------------------------------------------
+# Embedding models (for Chroma semantic search)
+# ---------------------------------------------------------------------------
+
+# Multilingual embeddings (supports Greek + 100 languages, 0 neurons)
+CF_EMBEDDING_MULTILINGUAL = "@cf/baai/bge-m3"
+# Lightweight English embeddings (0 neurons)
+CF_EMBEDDING_EN = "@cf/baai/bge-base-en-v1.5"
 
 # ---------------------------------------------------------------------------
 # Groq — primary text fallback (free tier: 14.4K req/day, 30 RPM)

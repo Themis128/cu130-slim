@@ -89,7 +89,7 @@ export default function LinkedInPage() {
 
   const [topic, setTopic] = useState('')
   const [tone, setTone] = useState('professional')
-  const [length, setLength] = useState('medium')
+  const [length, setLength] = useState<'short' | 'medium' | 'long'>('medium')
   const [includeHashtags, setIncludeHashtags] = useState(true)
   const [includeSiteLink, setIncludeSiteLink] = useState(true)
   const [site, setSite] = useState('www.cloudless.gr')

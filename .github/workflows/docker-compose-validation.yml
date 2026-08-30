@@ -53,7 +53,7 @@ jobs:
           echo "Checking pre-built image references..."
           # Hub-published images that must stay pinned (not rebuilt in this compose).
           expected_images=(
-            "baltzakist/cu130-slim-comfyui:2.1.0"
+            "baltzakist/cu130-slim-comfyui:2.2.0"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
