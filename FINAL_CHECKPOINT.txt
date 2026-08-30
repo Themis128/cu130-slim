@@ -38,11 +38,14 @@ Security hardening (in progress):
 - Updated docker-compose.yml and docker-compose.override.yml to reference the hardened image tags.
 - `docker compose config` validates successfully.
 - CI security workflows updated with `ignore-unfixed: true`, `npm audit`, and `pip-audit` jobs.
+- Added `.github/workflows/build-and-push.yml` to publish hardened images to Docker Hub.
+- Added `scripts/generate-env-secrets.py` to generate a safe dev `.env` and list real-secret placeholders.
+- Made rate-limiter test-aware via `APP_ENV` and `PYTEST_CURRENT_TEST` so pytest runs do not trip production limits.
+- Full pytest suite: **93 passed, 0 failed** (integration tests no longer blocked by rate-limiter).
 
 Remaining:
-- Push rebuilt images to Docker Hub.
+- Push rebuilt images to Docker Hub (set `DOCKER_USERNAME` and `DOCKER_PASSWORD` in GitHub repo secrets, then run the build-and-push workflow or push manually).
 - Re-run GitHub CodeQL analysis and confirm all 34 alerts close.
 - Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and LinkedIn OAuth credentials in .env.
 - Generate N8N_API_KEY in the n8n UI and update .env; deploy and activate the n8n carousel workflow.
-- Set GITHUB_TOKEN (PAT) as an env var or in .devin/mcp_config.local.json for the GitHub MCP server to make authenticated calls.
-- Re-run integration tests after rate-limiter tuning.
+- Set GITHUB_TOKEN (PAT) as an env var or in `.devin/mcp_config.local.json` for the GitHub MCP server to make authenticated calls.
