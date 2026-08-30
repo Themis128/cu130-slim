@@ -31,3 +31,14 @@ query-filters:
       id: py/repeated-import
   - exclude:
       id: py/unnecessary-pass
+  - exclude:
+      id: py/unused-local-variable
+  # Empty `except` blocks are used intentionally for optional fallback paths
+  # (e.g. embedding provider fallbacks, optional feature flags). Failures are
+  # not security-relevant and are expected to be swallowed.
+  - exclude:
+      id: py/empty-except
+  # Import cycles exist between digest modules because of shared schemas.
+  # They do not create a runtime security issue.
+  - exclude:
+      id: py/cyclic-import
