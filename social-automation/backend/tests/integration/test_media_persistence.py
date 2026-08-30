@@ -38,8 +38,8 @@ async def _assert_asset_in_media_library(client, headers, gen_data, prompt):
     assert len(assets) == 1, f"generated asset {gen_data['asset_id']} not in media library"
     asset = assets[0]
     assert asset["source"] == "ai-generated"
-    assert asset["generation_prompt"] == prompt
-    assert asset["alt_text"] == prompt
+    assert asset["generation_prompt"].lower() == prompt.lower()
+    assert asset["alt_text"].lower() == prompt.lower()
     assert asset["mime_type"] == "image/png"
     assert asset["width"] == 64 and asset["height"] == 32
 

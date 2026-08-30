@@ -1083,7 +1083,7 @@ def _validate_comfyui_job_id(job_id: str) -> str:
     The regex matches only safe characters; the original value is returned so
     CodeQL's taint tracker sees the validated input as a sanitizer.
     """
-    if not re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id):
+    if not re.fullmatch(r"^[a-zA-Z0-9\-]{1,64}$", job_id):
         raise HTTPException(status_code=400, detail="Invalid job ID")
     return job_id
 
@@ -1144,8 +1144,11 @@ async def get_image_status(
                                             source="comfyui",
                                             extension=ext,
                                         )
-                                        # Keep the human-readable ComfyUI filename
+                                        # Keep the human-readable ComfyUI filename and a stable
+                                        # internal key for duplicate detection.
                                         asset.filename = filename
+                                        asset.generation_prompt = f"comfyui:{safe_job_id}"
+                                        asset.alt_text = f"comfyui:{safe_job_id}"
                                         await db.commit()
                                         await db.refresh(asset)
                                         asset_id = asset.id
