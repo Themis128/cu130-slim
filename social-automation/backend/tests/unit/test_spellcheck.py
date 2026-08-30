@@ -4,7 +4,6 @@ import pytest
 
 from app.services.spellcheck import _normalize, auto_correct, preprocess_for_render
 
-
 # -- _normalize ----------------------------------------------------------------
 
 def test_normalize_nfkc_fullwidth():
