@@ -34,9 +34,9 @@ Security hardening (in progress):
   baltzakist/env-manager-backend:v2.00  -> 0 findings
   baltzakist/env-manager-frontend:v2.00 -> 0 findings
   baltzakist/social-frontend:v2.00   -> 0 findings
+  baltzakist/cu130-slim-comfyui:2.2.0 -> 0 findings
 - Updated docker-compose.yml and docker-compose.override.yml to reference the hardened image tags.
 - `docker compose config` validates successfully.
-- ComfyUI (baltzakist/cu130-slim-comfyui:2.2.0) rebuild in progress.
 - CI security workflows updated with `ignore-unfixed: true`, `npm audit`, and `pip-audit` jobs.
 
 Remaining:

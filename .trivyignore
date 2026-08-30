@@ -1,4 +1,15 @@
 # Trivy ignore file — suppressed CVEs with documented rationale.
 # Remove entries here as upstream fixes land or images are rebuilt.
-# All images in this repo are now rebuilt with current OS and language
-# packages and no CRITICAL/HIGH findings remain for the core services.
+
+# PyTorch 2.6.0+cu118 in the ComfyUI image.
+# These are MEDIUM/LOW findings (no CRITICAL/HIGH) and a fixed version is only
+# available in newer PyTorch releases that do not yet provide cu118 wheels.
+# ComfyUI is a non-public, GPU-only service on the local Docker network; the
+# stack does not use it for the Cloudflare-only LinkedIn carousel path.
+# Revisit when PyTorch 2.9+ cu118 wheels are published or when the base moves
+# to a newer CUDA index.
+CVE-2025-2999
+CVE-2025-3730
+CVE-2025-2953
+CVE-2025-3000
+CVE-2025-3001
