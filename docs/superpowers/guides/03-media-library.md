@@ -4,11 +4,22 @@ The media library is a team-scoped digital asset manager backed by Cloudflare R2
 
 ## 1. Upload media
 
+### Server-side upload (default)
+
 1. Open **Media Library**.
 2. Drag and drop files onto the grid, or click **Upload**.
 3. Supported: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, `.webm`, `.mov`, `.avif`, `.heic`.
 4. *Optional:* enter **Alt text** and **Tags** in the upload dialog.
 5. Click **Upload**. The file is stored in R2 if `R2_BUCKET_NAME` is set, otherwise on local disk.
+
+### Direct R2 upload (presigned URL)
+
+1. Set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` in the Env Manager.
+2. The frontend calls `POST /api/v1/media/upload/prepare` with the filename, MIME type, and size.
+3. The API returns a presigned R2 PUT URL and the object key.
+4. The browser PUTs the file directly to that URL.
+5. After the upload, the browser calls `POST /api/v1/media/upload/complete` with the key and metadata.
+6. This avoids sending large files through the API server.
 
 ## 2. Generate an image with AI
 
@@ -53,3 +64,14 @@ The media library is a team-scoped digital asset manager backed by Cloudflare R2
 
 - **R2** gives 10 GB free storage and free egress. Set `R2_PUBLIC_URL` to a public custom domain or the default `r2.dev` URL.
 - **Local disk** is used when R2 is not configured. In that case, media is served through `/api/v1/media/view?path=...`.
+
+## API quick reference
+
+- `POST /api/v1/media/upload` — server-side upload.
+- `POST /api/v1/media/upload/prepare` — request a presigned R2 PUT URL.
+- `POST /api/v1/media/upload/complete` — finalise a direct R2 upload.
+- `GET /api/v1/media/search` — search and filter assets.
+- `PATCH /api/v1/media/assets/{id}` — update asset metadata.
+- `POST /api/v1/media/collections` — create a collection.
+- `POST /api/v1/media/collections/{id}/assets` — add an asset to a collection.
+- `DELETE /api/v1/media/collections/{id}/assets/{asset_id}` — remove an asset from a collection.

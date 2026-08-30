@@ -15,9 +15,9 @@ from app.api.auth import get_current_user
 from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
-from app.models.content import MediaAsset
+from app.models.content import MediaAsset, MediaCollection
 from app.models.user import Team, TeamMember, User
-from app.services import r2_storage
+from app.services import r2_presigned, r2_storage
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
 
@@ -491,6 +491,385 @@ async def generate_image(
         source="ai-generated",
     )
     return asset
+
+
+# ---------------------------------------------------------------------------
+# Presigned R2 upload flow
+# ---------------------------------------------------------------------------
+
+class PresignedUploadRequest(BaseModel):
+    filename: str
+    mime_type: str
+    size_bytes: int
+    alt_text: str | None = None
+    tags: list[str] | None = None
+
+
+class PresignedUploadResponse(BaseModel):
+    key: str
+    upload_url: str
+    public_url: str | None
+
+
+class CompleteUploadRequest(BaseModel):
+    key: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = None
+    tags: list[str] | None = None
+
+
+@router.post("/upload/prepare", response_model=PresignedUploadResponse)
+async def prepare_upload(
+    body: PresignedUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    url = r2_presigned.presigned_upload_url(
+        team_id=str(team.id),
+        filename=body.filename,
+        mime_type=body.mime_type,
+        size_bytes=body.size_bytes,
+    )
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail="R2 S3 credentials are not configured. Use the server-side /upload endpoint instead.",
+        )
+    return url
+
+
+@router.post("/upload/complete", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
+async def complete_upload(
+    body: CompleteUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    corrected_alt = await correct_text(body.alt_text)
+    corrected_tags = await correct_tags(body.tags or [])
+    public_url = r2_presigned._public_url(body.key)
+
+    asset = MediaAsset(
+        team_id=team.id,
+        user_id=current_user.id,
+        filename=body.filename,
+        mime_type=body.mime_type,
+        size_bytes=body.size_bytes,
+        storage_backend="r2",
+        storage_path=body.key,
+        public_url=public_url,
+        width=body.width,
+        height=body.height,
+        alt_text=corrected_alt,
+        tags=corrected_tags,
+        source="upload",
+    )
+    db.add(asset)
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+class MediaCollectionCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    cover_asset_id: uuid.UUID | None = None
+
+
+class MediaCollectionUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    cover_asset_id: uuid.UUID | None = None
+
+
+class MediaCollectionResponse(BaseModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    user_id: uuid.UUID | None
+    name: str
+    description: str | None
+    cover_asset_id: uuid.UUID | None
+    asset_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CollectionListResponse(BaseModel):
+    collections: list[MediaCollectionResponse]
+    total: int
+
+
+@router.post("/collections", response_model=MediaCollectionResponse, status_code=status.HTTP_201_CREATED)
+async def create_collection(
+    body: MediaCollectionCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    corrected_name = (await correct_text(body.name)) or body.name
+    collection = MediaCollection(
+        team_id=team.id,
+        user_id=current_user.id,
+        name=corrected_name,
+        description=body.description,
+        cover_asset_id=body.cover_asset_id,
+    )
+    db.add(collection)
+    await db.commit()
+    await db.refresh(collection)
+
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = 0
+    return response
+
+
+@router.get("/collections", response_model=CollectionListResponse)
+async def list_collections(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.team_id == team.id)
+    )
+    collections = result.scalars().all()
+
+    items = []
+    for col in collections:
+        count = await db.execute(
+            select(MediaAsset).where(MediaAsset.collection_id == col.id)
+        )
+        item = MediaCollectionResponse.model_validate(col)
+        item.asset_count = len(count.scalars().all())
+        items.append(item)
+
+    return CollectionListResponse(collections=items, total=len(items))
+
+
+@router.get("/collections/{collection_id}", response_model=MediaCollectionResponse)
+async def get_collection(
+    collection_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    count = await db.execute(
+        select(MediaAsset).where(MediaAsset.collection_id == collection_id)
+    )
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = len(count.scalars().all())
+    return response
+
+
+@router.patch("/collections/{collection_id}", response_model=MediaCollectionResponse)
+async def update_collection(
+    collection_id: uuid.UUID,
+    body: MediaCollectionUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    if body.name is not None:
+        collection.name = (await correct_text(body.name)) or body.name
+    if body.description is not None:
+        collection.description = body.description
+    if body.cover_asset_id is not None:
+        collection.cover_asset_id = body.cover_asset_id
+
+    await db.commit()
+    await db.refresh(collection)
+
+    count = await db.execute(
+        select(MediaAsset).where(MediaAsset.collection_id == collection_id)
+    )
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = len(count.scalars().all())
+    return response
+
+
+@router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_collection(
+    collection_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    await db.delete(collection)
+    await db.commit()
+
+
+class CollectionAssetRequest(BaseModel):
+    asset_id: uuid.UUID
+
+
+@router.post("/collections/{collection_id}/assets", response_model=MediaAssetResponse)
+async def add_asset_to_collection(
+    collection_id: uuid.UUID,
+    body: CollectionAssetRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection, MediaAsset)
+        .join(MediaAsset, MediaAsset.id == body.asset_id)
+        .where(
+            MediaCollection.id == collection_id,
+            MediaCollection.team_id == MediaAsset.team_id,
+        )
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Collection or asset not found or not in the same team")
+
+    collection, asset = row
+    asset.collection_id = collection.id
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+
+@router.delete("/collections/{collection_id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_asset_from_collection(
+    collection_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.collection_id == collection_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found in collection")
+
+    asset.collection_id = None
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+@router.get("/search", response_model=MediaListResponse)
+async def search_media(
+    q: str | None = Query(None),
+    mime_type: str | None = Query(None),
+    source: str | None = Query(None),
+    collection_id: uuid.UUID | None = Query(None),
+    tags: list[str] | None = Query(None),
+    is_favorite: bool | None = Query(None),
+    is_archived: bool | None = Query(None),
+    sort: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    query = select(MediaAsset).where(MediaAsset.team_id == team.id)
+
+    if q:
+        query = query.where(
+            or_(
+                MediaAsset.filename.ilike(f"%{q}%"),
+                MediaAsset.alt_text.ilike(f"%{q}%"),
+                MediaAsset.ai_caption.ilike(f"%{q}%"),
+                MediaAsset.tags.any(q),
+                MediaAsset.ai_tags.any(q),
+            )
+        )
+
+    if mime_type:
+        query = query.where(MediaAsset.mime_type.ilike(f"%{mime_type}%"))
+    if source:
+        query = query.where(MediaAsset.source == source)
+    if collection_id:
+        query = query.where(MediaAsset.collection_id == collection_id)
+    if is_favorite is not None:
+        query = query.where(MediaAsset.is_favorite == is_favorite)
+    if is_archived is not None:
+        query = query.where(MediaAsset.is_archived == is_archived)
+    if tags:
+        query = query.where(MediaAsset.tags.overlap(tags))
+
+    count_result = await db.execute(query.with_only_columns(MediaAsset.id))
+    total = len(count_result.scalars().all())
+
+    sort_map = {
+        "newest": MediaAsset.created_at.desc(),
+        "oldest": MediaAsset.created_at.asc(),
+        "name": MediaAsset.filename.asc(),
+        "size": MediaAsset.size_bytes.desc(),
+    }
+    order = sort_map.get(sort or "", MediaAsset.created_at.desc())
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
 
 
 # Need to import User

@@ -137,6 +137,12 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = ""
     R2_PUBLIC_URL: str = ""
     R2_API_BASE: str = "https://api.cloudflare.com/client/v4"
+    # S3-compatible credentials for presigned upload/download URLs.
+    # If not set, presigned URLs are unavailable and the REST API is used
+    # for server-side uploads.
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_S3_ENDPOINT: str = ""
 
     # Webhook fired after every successful publish. Payload is a JSON object:
     # {event, post_id, platform, account_id, platform_url, published_at,

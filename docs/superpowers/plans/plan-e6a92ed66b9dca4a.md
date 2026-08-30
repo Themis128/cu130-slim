@@ -305,12 +305,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Upload / Generate"] --> B["downscale_image_bytes"]
+    A["Upload / Generate"] --> UP{Direct upload?}
+    UP -->|yes| PREP["/media/upload/prepare"]
+    PREP --> PUT["presigned R2 PUT URL"]
+    PUT --> R2["Cloudflare R2 bucket"]
+    UP -->|no / fallback| B["downscale_image_bytes"]
     B --> C{Storage backend}
     C -->|"R2 configured"| D["Cloudflare R2 bucket"]
     C -->|fallback| L["local /app/uploads"]
     D --> P["public R2 URL"]
     L --> P2["/api/v1/media/view"]
+    R2 --> COMP["/media/upload/complete"]
     A --> SC["media_spellcheck: alt, tags, caption, prompt"]
     SC --> M["MediaAsset row"]
     M --> T[(Postgres)]
@@ -324,6 +329,7 @@ flowchart TD
 ```
 
 - Cloudflare R2 is the default, free storage target when `R2_BUCKET_NAME` and `R2_PUBLIC_URL` are configured; local disk remains a fallback. Free egress and 10 GB free storage.
+- Direct browser upload via presigned R2 PUT URL (`POST /media/upload/prepare` → client PUT → `POST /media/upload/complete`) is available when `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are set; otherwise the server-side `/upload` endpoint is used.
 - `MediaAsset` tracks `storage_backend`, `public_url`, `ai_tags`, `ai_caption`, `embedding_id`, `is_favorite`, `is_archived`, `usage_count`, and `collection_id`.
 - AI auto-tagging uses free Cloudflare vision models (`@cf/moondream/moondream3.1-9B-A2B` / `@cf/meta/llama-3.2-11b-vision-instruct`) with Ollama vision as last resort.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before it is stored or indexed.
