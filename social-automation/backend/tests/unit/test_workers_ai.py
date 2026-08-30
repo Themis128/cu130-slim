@@ -10,6 +10,8 @@ def cf_settings(monkeypatch):
     """Point the module-level settings at a fake Cloudflare account."""
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account-123")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+    # Clear the dedicated AI token so CLOUDFLARE_AI_TOKEN falls back to CLOUDFLARE_API_TOKEN
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
     yield
 
 
@@ -105,6 +107,7 @@ async def test_transcribe_workers_ai_success(monkeypatch, cf_settings):
 async def test_transcribe_workers_ai_requires_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference.transcribe_workers_ai(b"audio", "audio/wav")

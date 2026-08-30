@@ -117,18 +117,18 @@ async def _call_cloudflare_vision(
     # --- Fallback: moondream (task format, 24 neurons) ---
     model = quote(CF_VISION_FALLBACK_MODEL, safe="@/")
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
-    payload: dict = {
+    moondream_payload: dict = {
         "task": task,
         "image": image_b64,
         "stream": False,
         "max_tokens": max_tokens,
     }
     if task == "caption":
-        payload["caption_length"] = "normal"
+        moondream_payload["caption_length"] = "normal"
     elif task == "query":
-        payload["question"] = prompt
+        moondream_payload["question"] = prompt
     else:
-        payload["prompt"] = prompt
+        moondream_payload["prompt"] = prompt
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
@@ -137,7 +137,7 @@ async def _call_cloudflare_vision(
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
             },
-            json=payload,
+            json=moondream_payload,
         )
 
     if resp.status_code != 200:
@@ -150,7 +150,7 @@ def _extract_caption(result: dict) -> str | None:
     """Extract caption text from a vision model response.
 
     Handles both llama-4-scout (``result.response``) and moondream
-    (``result.result.caption``) response formats.
+    (``result.result.caption``) response formats, plus legacy ``text``/``description``.
     """
     data = result.get("result") or result
     inner = data.get("result") or data
@@ -159,14 +159,21 @@ def _extract_caption(result: dict) -> str | None:
     if text:
         return text
     # moondream: result.result.caption
-    return inner.get("caption") or data.get("caption") or inner.get("description") or data.get("description")
+    return (
+        inner.get("caption")
+        or data.get("caption")
+        or inner.get("description")
+        or data.get("description")
+        or inner.get("text")
+        or data.get("text")
+    )
 
 
 def _extract_query_text(result: dict) -> str | None:
     """Extract query answer text from a vision model response.
 
     Handles both llama-4-scout (``result.response``) and moondream
-    (``result.result.answer``) response formats.
+    (``result.result.answer``) response formats, plus legacy ``text``/``description``.
     """
     data = result.get("result") or result
     inner = data.get("result") or data
@@ -175,7 +182,14 @@ def _extract_query_text(result: dict) -> str | None:
     if text:
         return text
     # moondream: result.result.answer
-    return inner.get("answer") or data.get("answer") or inner.get("description") or data.get("description")
+    return (
+        inner.get("answer")
+        or data.get("answer")
+        or inner.get("description")
+        or data.get("description")
+        or inner.get("text")
+        or data.get("text")
+    )
 
 
 async def _call_ollama_vision(image_b64: str, prompt: str) -> dict:
