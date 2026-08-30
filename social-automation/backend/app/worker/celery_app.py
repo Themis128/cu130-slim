@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.worker.tasks.workflows",
         "app.worker.tasks.analytics",
         "app.worker.tasks.digest",
+        "app.worker.tasks.media",
     ],
 )
 

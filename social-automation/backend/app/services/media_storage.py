@@ -23,10 +23,21 @@ from app.core.path_utils import safe_path_component, safe_resolve
 from app.models.content import MediaAsset, StorageBackend
 from app.services import r2_storage
 from app.services.media_spellcheck import correct_tags, correct_text
+from app.worker.celery_app import celery_app
 
 settings = get_settings()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
+
+
+def _enqueue_auto_tag(asset: MediaAsset) -> None:
+    """Schedule AI auto-tagging as a Celery task; never block the request."""
+    try:
+        celery_app.send_task("app.worker.tasks.media.auto_tag_asset_task", args=[str(asset.id)])
+    except Exception:
+        pass
+
+
 # Cap longest edge for library storage (saves disk; zoom in viewer for detail).
 # Set MEDIA_MAX_EDGE=0 to disable. Carousel slides pass max_edge=None to keep 1080.
 MEDIA_MAX_EDGE = int(os.environ.get("MEDIA_MAX_EDGE", "768"))
@@ -176,6 +187,7 @@ async def save_uploaded_media(
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
+    _enqueue_auto_tag(asset)
     return asset
 
 
@@ -253,4 +265,5 @@ async def persist_generated_image(
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
+    _enqueue_auto_tag(asset)
     return asset

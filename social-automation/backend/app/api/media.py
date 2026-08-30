@@ -18,8 +18,10 @@ from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
 from app.models.user import Team, TeamMember, User
 from app.services import r2_presigned, r2_storage
+from app.services.media_ai import get_similar_assets
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
+from app.worker.celery_app import celery_app
 
 router = APIRouter()
 
@@ -584,6 +586,10 @@ async def complete_upload(
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
+    try:
+        celery_app.send_task("app.worker.tasks.media.auto_tag_asset_task", args=[str(asset.id)])
+    except Exception:
+        pass
     return asset
 
 
@@ -870,6 +876,83 @@ async def search_media(
     assets = result.scalars().all()
 
     return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
+
+
+# ---------------------------------------------------------------------------
+# AI auto-tagging and similarity
+# ---------------------------------------------------------------------------
+
+class SimilarAssetResponse(BaseModel):
+    asset_id: uuid.UUID | None
+    ai_caption: str | None
+
+
+@router.post("/assets/{asset_id}/tag", response_model=MediaAssetResponse)
+async def retag_asset(
+    asset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.team_id == team.id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    try:
+        celery_app.send_task("app.worker.tasks.media.auto_tag_asset_task", args=[str(asset.id)])
+    except Exception:
+        pass
+    return asset
+
+
+@router.get("/assets/{asset_id}/similar", response_model=list[SimilarAssetResponse])
+async def similar_assets(
+    asset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.team_id == team.id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    similar = await get_similar_assets(team.id, asset.id)
+    if not similar:
+        return []
+
+    ids = [uuid.UUID(s["embedding_id"]) for s in similar if s.get("embedding_id")]
+    result = await db.execute(
+        select(MediaAsset.id, MediaAsset.ai_caption).where(
+            MediaAsset.id.in_(ids),
+            MediaAsset.team_id == team.id,
+        )
+    )
+    rows = result.all()
+    return [SimilarAssetResponse(asset_id=row[0], ai_caption=row[1]) for row in rows]
 
 
 # Need to import User

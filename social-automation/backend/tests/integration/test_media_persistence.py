@@ -304,3 +304,49 @@ async def test_media_type_filters(client, db):
     assert upload_only == {str(upload.json()["id"]), str(vid.id)}
 
 
+@pytest.mark.asyncio
+async def test_auto_tag_and_similar_assets(client, db):
+    """AI auto-tagging populates ai_caption/ai_tags and indexes the asset in Chroma."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.services import media_ai
+
+    headers = await _register_and_login(client)
+    png = _make_png(color=(60, 120, 180))
+
+    upload = await client.post(
+        "/api/v1/media/upload",
+        data={"alt_text": "coastline"},
+        files={"file": ("coast.png", png, "image/png")},
+        headers=headers,
+    )
+    assert upload.status_code == 201, upload.text
+    asset_id = upload.json()["id"]
+
+    async def _fake_caption(image_b64: str, task: str, prompt: str, max_tokens: int = 512) -> dict:
+        if task == "caption":
+            return {"description": "A coastline with blue water"}
+        return {"description": "coastline, water, sky, beach, rocks"}
+
+    with (
+        patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(side_effect=_fake_caption)),
+        patch.object(media_ai, "_call_ollama_vision", new=AsyncMock()),
+        patch("app.services.chroma_client.add_content", new=AsyncMock()) as mock_add,
+    ):
+        await media_ai.auto_tag_asset(asset_id)
+
+    # Fetch the updated asset
+    result = await client.get(f"/api/v1/media/assets/{asset_id}", headers=headers)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["ai_caption"] == "A coastline with blue water"
+    ai_tags_lower = [t.lower() for t in body["ai_tags"]]
+    assert "coastline" in ai_tags_lower
+    assert "water" in ai_tags_lower
+    assert mock_add.called
+
+    # Similar-asset query should use Chroma (the asset itself is filtered out)
+    with patch("app.services.chroma_client.query_similar", new=AsyncMock(return_value=[str(asset_id)])):
+        similar = await client.get(f"/api/v1/media/assets/{asset_id}/similar", headers=headers)
+    assert similar.status_code == 200, similar.text
+    assert isinstance(similar.json(), list)
