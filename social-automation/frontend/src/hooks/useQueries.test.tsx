@@ -93,6 +93,7 @@ vi.mock('@/services/api', async (importOriginal) => {
     publishingApi: mockPublishingApi,
     analyticsApi: mockAnalyticsApi,
     aiApi: mockAiApi,
+    getAccessToken: vi.fn(() => 'test-token'),
   }
 })
 
