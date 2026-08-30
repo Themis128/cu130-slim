@@ -168,21 +168,36 @@ async def _tag_image(image_b64: str) -> list[str]:
     return tags
 
 
-def _resize_for_vision(image_bytes: bytes, max_edge: int = 768) -> tuple[bytes, str]:
-    """Downscale large images before sending them to a vision model."""
+def _resize_for_vision(image_bytes: bytes, mime_type: str | None = None, max_edge: int = 768) -> tuple[bytes, str]:
+    """Downscale large images before sending them to a vision model.
+
+    Preserves the original format when possible (PNG/JPEG/WebP). Falls back to
+    PNG if the format cannot be determined or saved.
+    """
     try:
         img = Image.open(io.BytesIO(image_bytes))
         w, h = img.size
         if max(w, h) > max_edge:
             scale = max_edge / float(max(w, h))
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        fmt = "PNG" if img.mode in ("RGBA", "P") else "JPEG"
-        if fmt == "JPEG" and img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        img.save(buf, format=fmt, optimize=True)
-        mime = "image/png" if fmt == "PNG" else "image/jpeg"
-        return buf.getvalue(), mime
+
+        fmt = (img.format or "").upper()
+        if mime_type:
+            inferred_fmt = mime_type.split("/")[-1].split("+")[0].upper()
+            if inferred_fmt:
+                fmt = inferred_fmt
+
+        if fmt == "JPEG" or fmt == "JPG" or fmt == "WEBP":
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(buf := io.BytesIO(), format=fmt, quality=85, optimize=True)
+            return buf.getvalue(), "image/jpeg" if fmt in ("JPEG", "JPG") else "image/webp"
+
+        # Default to PNG for everything else (PNG, GIF, AVIF, HEIC fallback, ...)
+        if img.mode == "P":
+            img = img.convert("RGBA")
+        img.save(buf := io.BytesIO(), format="PNG", optimize=True)
+        return buf.getvalue(), "image/png"
     except Exception:
         return image_bytes, "image/png"
 
