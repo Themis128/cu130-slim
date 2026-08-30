@@ -25,12 +25,16 @@ def safe_path_component(value: str | None, max_length: int = 128) -> str:
 def safe_resolve(root: str | os.PathLike, *parts: str) -> pathlib.Path:
     """Resolve ``root/parts`` and raise if it escapes ``root``.
 
-    Uses ``os.path.realpath`` for normalization and an explicit prefix check,
-    which CodeQL's path-injection query recognizes as a robust guard.
+    Uses ``os.path.realpath`` for normalization and ``Path.relative_to`` as the
+    guard. CodeQL's path-injection taint tracker recognises the
+    ``ValueError``-on-traversal path as a sanitizer.
     """
-    base = os.path.realpath(root)
-    joined = os.path.join(base, *parts)
-    target = os.path.realpath(joined)
-    if target != base and not target.startswith(base + os.sep):
-        raise ValueError(f"Resolved path {target!r} escapes root {base!r}")
-    return pathlib.Path(target)
+    base = pathlib.Path(os.path.realpath(root))
+    joined = pathlib.Path(base, *parts)
+    target = pathlib.Path(os.path.realpath(joined))
+    try:
+        target.relative_to(base)
+    except ValueError as exc:
+        if target != base:
+            raise ValueError(f"Resolved path {target!r} escapes root {base!r}") from exc
+    return target

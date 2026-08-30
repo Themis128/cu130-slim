@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import urllib.parse
 import uuid
 from datetime import UTC, datetime
 
@@ -1019,7 +1020,8 @@ async def get_image_status(
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_job_id}")
+            safe_path = urllib.parse.quote(safe_job_id, safe="")
+            resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_path}")
             if resp.status_code == 200:
                 history = resp.json()
                 if safe_job_id in history:
