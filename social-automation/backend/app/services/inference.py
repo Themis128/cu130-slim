@@ -1,6 +1,7 @@
 """Unified inference service — routes to Ollama (local) or any OpenAI-compatible cloud API."""
 import json
 import re
+import time
 import uuid
 from urllib.parse import quote
 
@@ -13,6 +14,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember
+from app.services import usage_tracker
 from app.services.cf_models import (
     CF_TEXT_FREE,
     CF_TXT2IMG_FREE,
@@ -1282,7 +1284,7 @@ async def _call_together_txt2img(
     }
 
 
-async def call_inference(
+async def _do_call_inference(
     prompt: str,
     provider_name: str = "cloudflare",
     db: AsyncSession | None = None,
@@ -1393,6 +1395,90 @@ async def call_inference(
     return await _call_openai_compat(
         prompt, base_url=base_url, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
     )
+
+
+async def call_inference(
+    prompt: str,
+    provider_name: str = "cloudflare",
+    db: AsyncSession | None = None,
+    team_id: uuid.UUID | None = None,
+    schema: dict | None = None,
+    model_override: str | None = None,
+    max_tokens: int | None = None,
+    allow_fallback: bool = True,
+    *,
+    endpoint: str = "",
+) -> dict:
+    """Public inference entry point with usage tracking.
+
+    ``_do_call_inference`` performs the actual request. This wrapper records the
+    provider, model, latency and success/failure to ``AIUsageLog``.
+    """
+    # Resolve the intended model for logging (best effort; _do_call_inference may
+    # override it for provider-specific reasons).
+    tracked_model = model_override
+    if not tracked_model and db is not None:
+        try:
+            _, configured_model, _ = await _get_provider_config(provider_name, team_id, db)
+            tracked_model = configured_model
+        except Exception:
+            tracked_model = None
+
+    if not tracked_model and provider_name == "cloudflare":
+        tracked_model = CF_TXT2IMG_FREE if (schema is None and _is_workers_ai_image_model(model_override or CF_TEXT_FREE)) else CF_TEXT_FREE
+    if not tracked_model:
+        tracked_model = model_override or provider_name
+
+    start = time.perf_counter()
+    try:
+        result = await _do_call_inference(
+            prompt,
+            provider_name=provider_name,
+            db=db,
+            team_id=team_id,
+            schema=schema,
+            model_override=model_override,
+            max_tokens=max_tokens,
+            allow_fallback=allow_fallback,
+        )
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        await usage_tracker.track_inference(
+            provider=provider_name,
+            model=tracked_model,
+            prompt=prompt,
+            team_id=team_id,
+            endpoint=endpoint or None,
+            latency_ms=latency_ms,
+            success=True,
+            meta_data={"schema": bool(schema)},
+        )
+        return result
+    except HTTPException as exc:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        await usage_tracker.track_inference(
+            provider=provider_name,
+            model=tracked_model,
+            prompt=prompt,
+            team_id=team_id,
+            endpoint=endpoint or None,
+            latency_ms=latency_ms,
+            success=False,
+            error=f"HTTP {exc.status_code}: {exc.detail}"[:500],
+        )
+        raise
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        await usage_tracker.track_inference(
+            provider=provider_name,
+            model=tracked_model,
+            prompt=prompt,
+            team_id=team_id,
+            endpoint=endpoint or None,
+            latency_ms=latency_ms,
+            success=False,
+            error=str(exc)[:500],
+        )
+        raise
 
 
 async def _call_ollama(prompt: str, schema: dict | None = None, model_override: str | None = None, max_tokens: int | None = None) -> dict:

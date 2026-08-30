@@ -18,7 +18,7 @@ from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
-from app.services import chroma_client
+from app.services import chroma_client, seo
 from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, CONTENT_WORKFLOW_CONFIGS
 from app.services.inference import (
     STT_MODELS,
@@ -33,6 +33,7 @@ from app.services.inference import (
     transcribe_workers_ai,
 )
 from app.services.media_storage import persist_generated_image
+from app.services.plain_english import check_plain_english
 from app.worker.celery_app import celery_app
 from app.worker.tasks.publishing import process_publish_queue, publish_post_now
 
@@ -289,6 +290,24 @@ class AnalyzeContentResponse(BaseModel):
     suggestions: list[str]
     hashtag_score: int
     engagement_prediction: str
+    plain_english_issues: list[dict] = []
+    average_sentence_words: float = 0.0
+
+
+class SeoRequest(BaseModel):
+    content: str
+    platform: str = "linkedin"
+    title: str | None = None
+
+
+class SeoResponse(BaseModel):
+    platform: str
+    score: dict
+    keywords: list[dict]
+    meta: dict
+    character_count: int
+    hashtag_count: int
+    link_count: int
 
 
 @router.post("/generate-image-prompt", response_model=GenerateImagePromptResponse)
@@ -458,15 +477,67 @@ Return JSON with:
         "required": ["sentiment", "readability_score", "estimated_reach", "suggestions", "hashtag_score", "engagement_prediction"],
     }
 
-    result = await call_ollama(prompt, schema=schema)
+    try:
+        result = await call_ollama(prompt, schema=schema)
+    except Exception:
+        result = {
+            "sentiment": "neutral",
+            "readability_score": 7.0,
+            "estimated_reach": "medium",
+            "suggestions": [],
+            "hashtag_score": 5,
+            "engagement_prediction": "medium",
+        }
+
+    plain_english_issues = [
+        {
+            "field": issue.field,
+            "reason": issue.reason,
+            "matches": issue.matches,
+        }
+        for issue in check_plain_english(request.content)
+    ]
+
+    sentences = [s for s in re.split(r"[.!?]+", request.content) if s.strip()]
+    avg_sentence_words = (
+        sum(len(s.split()) for s in sentences) / max(1, len(sentences))
+        if sentences
+        else 0.0
+    )
+
     return AnalyzeContentResponse(
         sentiment=result.get("sentiment", "neutral"),
         readability_score=float(result.get("readability_score", 7.0)),
         estimated_reach=result.get("estimated_reach", "medium"),
-        suggestions=result.get("suggestions", []),
+        suggestions=result.get("suggestions", []) + [i["reason"] for i in plain_english_issues],
         hashtag_score=int(result.get("hashtag_score", 5)),
         engagement_prediction=result.get("engagement_prediction", "medium"),
+        plain_english_issues=plain_english_issues,
+        average_sentence_words=round(avg_sentence_words, 1),
     )
+
+
+@router.post("/seo", response_model=SeoResponse)
+async def analyze_seo_endpoint(
+    request: SeoRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Analyze content for SEO: keywords, score, meta title/description, and recommendations."""
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    team_id = team.id if team else None
+
+    result = await seo.analyze_seo(
+        request.content,
+        platform=request.platform,
+        title=request.title,
+        db=db,
+        team_id=team_id,
+    )
+    return SeoResponse(**result)
 
 
 class GenerateImageRequest(BaseModel):

@@ -1,3 +1,4 @@
+from app.models.ai_usage import AIUsageLog
 from app.models.analytics import AnalyticsEvent, PostAnalyticsSnapshot
 from app.models.content import MediaAsset, Post, PostTarget
 from app.models.queue import PublishQueue
@@ -18,4 +19,5 @@ __all__ = [
     "PublishQueue",
     "AnalyticsEvent",
     "PostAnalyticsSnapshot",
+    "AIUsageLog",
 ]
