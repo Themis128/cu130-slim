@@ -21,10 +21,11 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 
 ## Quick start
 
-1. Copy and fill `.env`:
+1. Generate and fill `.env`:
    ```bash
-   cp .env.example .env
-   # Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and platform OAuth secrets
+   python3 scripts/generate-env-secrets.py > .env
+   # Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, LinkedIn OAuth,
+   # GITHUB_PERSONAL_ACCESS_TOKEN, N8N_API_KEY, and any other platform secrets.
    ```
 
 2. Start the stack:
