@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402, I001
 """CLI for LinkedIn setup, AI content generation, and manual API testing.
 
 Runs inside the social-api container (or anywhere with DATABASE_URL set) and
@@ -39,7 +40,6 @@ from app.models.user import Team, TeamMember, User
 from app.services.linkedin_api import LinkedInAPIClient
 from app.services.linkedin_ai import (
     generate_linkedin_article,
-    generate_linkedin_comment,
     generate_linkedin_hashtags,
     generate_linkedin_post,
     improve_linkedin_post,

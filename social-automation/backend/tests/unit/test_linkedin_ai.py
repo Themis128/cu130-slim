@@ -26,7 +26,11 @@ def mock_inference(monkeypatch):
     """Replace call_inference with a controllable fake."""
     calls: list[dict] = []
 
-    async def fake_call_inference(prompt, *, provider_name="cloudflare", db=None, team_id=None, schema=None, model_override=None, max_tokens=None, allow_fallback=True):
+    async def fake_call_inference(
+        prompt, *,
+        provider_name="cloudflare", db=None, team_id=None,
+        schema=None, model_override=None, max_tokens=None, allow_fallback=True,
+    ):
         calls.append({
             "prompt": prompt,
             "provider_name": provider_name,
