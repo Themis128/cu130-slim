@@ -152,7 +152,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['python', 'javascript', 'typescript']
+        # CodeQL treats JavaScript and TypeScript as a single language.
+        # Using both in the matrix triggers a duplicate-language warning.
+        language: ['python', 'javascript']
     steps:
       - uses: actions/checkout@v7
 
