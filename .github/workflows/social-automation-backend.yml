@@ -80,13 +80,13 @@ jobs:
       - name: Run tests
         run: |
           cd social-automation/backend
-          pytest -v --tb=short --cov=app --cov-report=xml
+          pytest -v --tb=short --cov=app --cov-report=xml -m "not integration"
         env:
           CI: "true"
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: test-secret-key-for-testing-only
-          ENCRYPTION_KEY: test-encryption-key-32-bytes-long!!
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
           JWT_SECRET_KEY: test-jwt-secret-key-for-testing-only
 
       - name: Upload coverage

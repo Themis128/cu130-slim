@@ -276,7 +276,7 @@ export default function LinkedInPage() {
                 </div>
                 <div>
                   <Label>Length</Label>
-                  <Select value={length} onValueChange={setLength}>
+                  <Select value={length} onValueChange={(v: string) => setLength(v as 'short' | 'medium' | 'long')}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>

@@ -24,7 +24,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: test-secret-key-for-testing-only
-      ENCRYPTION_KEY: test-encryption-key-32-bytes-long!!
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
       JWT_SECRET_KEY: test-jwt-secret-key-for-testing-only
       UPLOAD_DIR: /tmp/uploads
       DEBUG: "true"
@@ -206,7 +206,7 @@ jobs:
         continue-on-error: true
         run: |
           cd social-automation/backend
-          pytest tests/unit -v --tb=short
+          pytest tests/unit -v --tb=short -m "not integration"
 
       - name: Run backend integration tests
         continue-on-error: true
