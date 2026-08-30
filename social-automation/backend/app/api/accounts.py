@@ -211,6 +211,8 @@ async def connect_account(
         "twitter": ["tweet.read", "tweet.write", "users.read"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
+        "threads": ["threads_basic", "threads_content_publish"],
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(platform, [])
 
     authorization_url = await client.get_authorization_url(
