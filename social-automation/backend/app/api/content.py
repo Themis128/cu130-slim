@@ -429,14 +429,14 @@ async def upload_content_media(
     file: UploadFile = FastAPIFile(...),
     current_user: User = Depends(get_current_user),
 ):
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = f"{uuid.uuid4()}_{file.filename}"
-    dest = MEDIA_DIR / safe_name
+    safe_name = f"{uuid.uuid4()}_{safe_path_component(file.filename)}"
+    dest = safe_resolve(MEDIA_DIR, safe_name)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
     return {
         "id": safe_name,
-        "filename": file.filename,
+        "filename": safe_name,
         "url": f"/media/files/{safe_name}",
         "size": dest.stat().st_size,
     }
@@ -447,19 +447,12 @@ async def delete_content_media(
     media_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    # Prevent path traversal attacks
-    if ".." in media_id or media_id.startswith("/") or "\\" in media_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
-
     # Only allow a flat, safe filename pattern.
     if not re.fullmatch(r"[a-f0-9]{8}_[A-Za-z0-9_.-]+", media_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
 
-    # Construct target path and ensure it stays within MEDIA_DIR
-    media_root = MEDIA_DIR.resolve()
-    target = (media_root / media_id).resolve()
-    if not target.is_relative_to(media_root):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
+    # Construct target path and ensure it stays within MEDIA_DIR.
+    target = safe_resolve(MEDIA_DIR, media_id)
 
     if target.exists() and target.is_file():
         target.unlink()
