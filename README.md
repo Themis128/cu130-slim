@@ -13,7 +13,7 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 | redis | 6379 | Queue/cache |
 | social-postgres | 5433 | Application database |
 | postgres | 5432 | Metabase database |
-| chroma | 8001 | Vector store for duplicate detection |
+| chroma | 8001 | Vector store for semantic search and duplicate detection |
 | languagetool | 8010 | Self-hosted spell/grammar checker |
 | ollama | 11435 | Local LLM inference |
 | comfyui | 8000 | ComfyUI image generation (requires NVIDIA) |
@@ -62,3 +62,22 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 - LinkedIn posts target the Cloudless Company Page account `4a8d9440-47d2-4bda-bd11-3776fd9022ba` by default.
 - n8n workflow `cloudless-cf-carousel-linkedin` runs every 2 days at 19:00 Europe/Athens.
 - `N8N_API_KEY` must be minted in the n8n UI; there is no automatic `.env` value.
+
+## Media library
+
+- Upload, generate, and manage images in team-scoped collections.
+- Cloudflare R2 is the default storage with local disk as a fallback.
+- Direct browser upload via presigned R2 PUT URL (`POST /api/v1/media/upload/prepare`, client PUT, `POST /api/v1/media/upload/complete`) when `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are configured.
+- AI auto-tagging runs automatically with Cloudflare Workers AI vision (`@cf/moondream/moondream3.1-9B-A2B`) and Ollama `llava` as fallback.
+- Chroma embeddings enable semantic search and similar-asset discovery.
+
+## User guides
+
+Step-by-step guides live in `docs/superpowers/guides/`:
+
+1. [Getting started](docs/superpowers/guides/01-getting-started.md)
+2. [Connecting social accounts](docs/superpowers/guides/02-connecting-accounts.md)
+3. [Media library](docs/superpowers/guides/03-media-library.md)
+4. [Creating a post](docs/superpowers/guides/04-creating-a-post.md)
+5. [LinkedIn carousel](docs/superpowers/guides/05-linkedin-carousel.md)
+6. [Analytics and queue](docs/superpowers/guides/06-analytics-and-queue.md)

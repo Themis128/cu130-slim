@@ -11,12 +11,14 @@
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
 1. `pytest tests/unit -q` inside `social-api` — must pass.
-2. `ruff check` on changed backend files — must be clean.
-3. `docker compose config --quiet` — must be valid.
-4. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
-5. `docker compose exec -T social-worker celery -A app.worker.celery_app inspect ping` after worker restart — must reply.
-6. Frontend: `tsc --noEmit` or `next build` in a Node container with the source mounted — no TS errors.
-7. If n8n workflows changed: import, publish, and trigger a dry run.
+2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
+3. `ruff check` on changed backend files — must be clean.
+4. `docker compose config --quiet` — must be valid.
+5. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
+6. `docker compose exec -T social-worker celery -A app.worker.celery_app inspect ping` after worker restart — must reply.
+7. Validate all Mermaid diagrams in `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (e.g. via mermaid.ink) when they change.
+8. Frontend: `tsc --noEmit` or `next build` in a Node container with the source mounted — no TS errors.
+9. If n8n workflows changed: import, publish, and trigger a dry run.
 
 ## Container restart rules
 
@@ -51,6 +53,7 @@ curl http://localhost:8083/health
 - **Cloudflare-first, free-first** for all inference and object storage; prefer Cloudflare Workers AI and R2. Use Ollama as the last-resort fallback.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password).
+- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `ollama:11435`, `comfyui:8000`, `metabase:3000`). New internal services may use unmapped ports only after confirming no conflicts.
 
 ## Documentation & diagrams
 
