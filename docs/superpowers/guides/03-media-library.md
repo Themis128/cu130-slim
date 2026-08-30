@@ -42,7 +42,22 @@ The media library is a team-scoped digital asset manager backed by Cloudflare R2
 3. Select assets and click **Add to collection**.
 4. *Optional:* mark an asset as **Favourite** (star) or **Archive** it when no longer active.
 
-## 5. Search and filter
+## 5. AI auto-tagging
+
+1. Every image uploaded or generated is automatically queued for AI tagging.
+2. Cloudflare Workers AI (`@cf/moondream/moondream3.1-9B-A2B`) writes an `ai_caption` and `ai_tags`.
+3. If Cloudflare is unavailable, the worker falls back to Ollama `llava`.
+4. The caption and tags are spell-checked before they are saved.
+5. To re-run tagging manually, call `POST /api/v1/media/assets/{id}/tag`.
+
+## 6. Similar assets and Chroma search
+
+1. AI captions and tags are embedded and stored in the team's Chroma collection.
+2. Open an asset and click **Find similar** to see visually related assets.
+3. This uses `GET /api/v1/media/assets/{id}/similar`.
+4. Chroma + Ollama embeddings power semantic search and duplicate discovery.
+
+## 7. Search and filter
 
 1. Use the search bar to find by filename, tag, alt text, or AI caption.
 2. Filter by:
@@ -72,6 +87,8 @@ The media library is a team-scoped digital asset manager backed by Cloudflare R2
 - `POST /api/v1/media/upload/complete` — finalise a direct R2 upload.
 - `GET /api/v1/media/search` — search and filter assets.
 - `PATCH /api/v1/media/assets/{id}` — update asset metadata.
+- `POST /api/v1/media/assets/{id}/tag` — re-run AI auto-tagging.
+- `GET /api/v1/media/assets/{id}/similar` — find similar assets via Chroma.
 - `POST /api/v1/media/collections` — create a collection.
 - `POST /api/v1/media/collections/{id}/assets` — add an asset to a collection.
 - `DELETE /api/v1/media/collections/{id}/assets/{asset_id}` — remove an asset from a collection.

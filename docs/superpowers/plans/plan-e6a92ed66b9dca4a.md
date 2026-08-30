@@ -331,9 +331,9 @@ flowchart TD
 - Cloudflare R2 is the default, free storage target when `R2_BUCKET_NAME` and `R2_PUBLIC_URL` are configured; local disk remains a fallback. Free egress and 10 GB free storage.
 - Direct browser upload via presigned R2 PUT URL (`POST /media/upload/prepare` → client PUT → `POST /media/upload/complete`) is available when `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are set; otherwise the server-side `/upload` endpoint is used.
 - `MediaAsset` tracks `storage_backend`, `public_url`, `ai_tags`, `ai_caption`, `embedding_id`, `is_favorite`, `is_archived`, `usage_count`, and `collection_id`.
-- AI auto-tagging uses free Cloudflare vision models (`@cf/moondream/moondream3.1-9B-A2B` / `@cf/meta/llama-3.2-11b-vision-instruct`) with Ollama vision as last resort.
+- AI auto-tagging uses free Cloudflare vision models (`@cf/moondream/moondream3.1-9B-A2B` / `@cf/meta/llama-3.2-11b-vision-instruct`) with Ollama vision as last resort. Triggered automatically on upload/generation; can be re-run via `POST /media/assets/{id}/tag`.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before it is stored or indexed.
-- Chroma stores a textual description embedding for each asset, enabling keyword + semantic search and duplicate/similar-image discovery.
+- Chroma stores a textual description embedding for each asset, enabling keyword + semantic search and duplicate/similar-image discovery. Similar assets are exposed through `GET /media/assets/{id}/similar`.
 - Cleanup job removes orphan R2 objects and local files older than 30 days.
 
 ### 4.9 Workflow execution & n8n
