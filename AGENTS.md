@@ -48,4 +48,11 @@ curl http://localhost:8083/health
 
 - LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not a personal profile.
 - Carousel generation uses **Cloudflare Workers AI only**.
+- **Cloudflare-first, free-first** for all inference and object storage; prefer Cloudflare Workers AI and R2. Use Ollama as the last-resort fallback.
+- Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password).
+
+## Documentation & diagrams
+
+- If the scope, architecture, or behavior changes, update `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (and its Devin copy at `~/.devin/plans/plan-e6a92ed66b9dca4a.md`) and any affected `AGENTS.md` / `README` notes.
+- Keep the Mermaid diagrams in the roadmap in sync with the actual flows (inference fallback, media lifecycle, publishing, etc.).

@@ -5,17 +5,18 @@ Revises: d9a5a234d4d7
 Create Date: 2026-08-30 22:32:01.262375
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '9c222774bd04'
-down_revision: Union[str, None] = 'd9a5a234d4d7'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'd9a5a234d4d7'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -52,7 +53,12 @@ def upgrade() -> None:
     op.create_index('ix_media_assets_backend', 'media_assets', ['storage_backend'], unique=False)
     op.create_index('ix_media_assets_collection', 'media_assets', ['collection_id'], unique=False)
     op.create_index(op.f('ix_media_assets_embedding_id'), 'media_assets', ['embedding_id'], unique=False)
-    op.create_foreign_key(op.f('fk_media_assets_collection_id_media_collections'), 'media_assets', 'media_collections', ['collection_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(
+        op.f('fk_media_assets_collection_id_media_collections'),
+        'media_assets', 'media_collections',
+        ['collection_id'], ['id'],
+        ondelete='SET NULL',
+    )
     # ### end Alembic commands ###
 
 

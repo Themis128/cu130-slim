@@ -250,26 +250,27 @@ flowchart LR
 - `plain_english.py` runs automatically for every AI-generated caption, article, and comment.
 - `seo.py` runs on demand and optionally on save.
 - `duplicate_detector.py` scores similarity before media reuse.
+- `media_spellcheck.py` spell/grammar-checks every media `alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`, and collection `name` on upload, update, or AI generation.
 
 ### 4.6 LinkedIn reliability
 
 ```mermaid
 flowchart TD
-    A[Composer / n8n / API] --> B[publishing._publish_linkedin]
+    A["Composer / n8n / API"] --> B["publishing._publish_linkedin"]
     B --> C[LinkedInAPIClient]
     C --> D{Account type}
-    D -->|organization| E[urn:li:organization:cloudless]
-    D -->|person| F[urn:li:person:{id}]
+    D -->|organization| E["urn:li:organization:cloudless"]
+    D -->|person| F["urn:li:person:{id}"]
     C --> G{Media count}
-    G -->|>=2| H[images to PDF]
+    G -->|>=2| H["images to PDF"]
     H --> I[create_document_post]
     G -->|1| J[create_multi_image_post]
-    G -->|0| K[create_post text/link]
+    G -->|0| K["create_post text/link"]
     I --> L{LinkedIn 5xx?}
     J --> L
     K --> L
     L -->|yes| M[LinkedInAPIError]
-    M --> N[HTTPException 502/503]
+    M --> N["HTTPException 502/503"]
     L -->|no| O[PublishResult platform_url]
 ```
 
@@ -304,25 +305,28 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Upload / Generate] --> B[downscale_image_bytes]
+    A["Upload / Generate"] --> B["downscale_image_bytes"]
     B --> C{Storage backend}
-    C -->|R2 configured| D[Cloudflare R2 bucket]
-    C -->|fallback| L[local /app/uploads]
-    D --> P[public R2 URL]
-    L --> P2[/api/v1/media/view]
-    A --> M[MediaAsset row]
+    C -->|"R2 configured"| D["Cloudflare R2 bucket"]
+    C -->|fallback| L["local /app/uploads"]
+    D --> P["public R2 URL"]
+    L --> P2["/api/v1/media/view"]
+    A --> SC["media_spellcheck: alt, tags, caption, prompt"]
+    SC --> M["MediaAsset row"]
     M --> T[(Postgres)]
-    M --> AI[AI auto-tag Moondream / Llama 3.2 Vision]
-    AI --> Tags[ai_tags + ai_caption]
-    Tags --> Chroma[Chroma embedding + document]
-    Chroma --> S[semantic search / duplicate detection]
+    M --> AI["AI auto-tag Moondream / Llama 3.2 Vision"]
+    AI --> Tags["ai_tags + ai_caption"]
+    Tags --> SC2["spell-check ai tags / caption"]
+    SC2 --> Chroma["Chroma embedding + document"]
+    Chroma --> S["semantic search / duplicate detection"]
     M --> Col[MediaCollection]
-    M --> U[usage_count + published posts]
+    M --> U["usage_count + published posts"]
 ```
 
-- Cloudflare R2 is the default, free storage target when `R2_BUCKET_NAME` and `R2_PUBLIC_URL` are configured; local disk remains a fallback.
+- Cloudflare R2 is the default, free storage target when `R2_BUCKET_NAME` and `R2_PUBLIC_URL` are configured; local disk remains a fallback. Free egress and 10 GB free storage.
 - `MediaAsset` tracks `storage_backend`, `public_url`, `ai_tags`, `ai_caption`, `embedding_id`, `is_favorite`, `is_archived`, `usage_count`, and `collection_id`.
 - AI auto-tagging uses free Cloudflare vision models (`@cf/moondream/moondream3.1-9B-A2B` / `@cf/meta/llama-3.2-11b-vision-instruct`) with Ollama vision as last resort.
+- Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before it is stored or indexed.
 - Chroma stores a textual description embedding for each asset, enabling keyword + semantic search and duplicate/similar-image discovery.
 - Cleanup job removes orphan R2 objects and local files older than 30 days.
 
@@ -470,11 +474,13 @@ flowchart LR
 flowchart TD
     A[Media Library] --> B[Drag-and-drop / paste upload]
     A --> C[Generate with FLUX schnell]
-    B --> D[Cloudflare R2 / local]
-    C --> D
+    B --> SC[auto spell-check]
+    C --> SC
+    SC --> D[Cloudflare R2 / local]
     D --> E[AI auto-tag + caption]
     E --> F[ai_tags, ai_caption]
-    F --> G[Chroma embedding]
+    F --> SC2[spell-check ai metadata]
+    SC2 --> G[Chroma embedding]
     G --> H[Semantic search]
     A --> I[Collections / folders]
     A --> J[Bulk actions]
@@ -485,6 +491,7 @@ flowchart TD
 ```
 
 - Upload, generate, tag, alt-text, search, and reuse.
+- Auto spell/grammar correction on `alt_text`, `tags`, `ai_caption`, `generation_prompt`, and collection names via LanguageTool.
 - Duplicate/similar-image warning from Chroma.
 - Collections, favorites, archives, and usage counters.
 - Public R2 URL support for Instagram/TikTok/Twitter media posts.

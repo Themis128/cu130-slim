@@ -2,9 +2,8 @@ import io
 import os
 import pathlib
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
-import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from PIL import Image
@@ -18,6 +17,9 @@ from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset
 from app.models.user import Team, TeamMember, User
+from app.services import r2_storage
+from app.services.media_spellcheck import correct_tags, correct_text
+from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
 
 router = APIRouter()
 
@@ -58,18 +60,27 @@ except ImportError:  # pragma: no cover - environment-dependent
 class MediaAssetResponse(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID
+    collection_id: uuid.UUID | None
     filename: str | None
     mime_type: str | None
     size_bytes: int | None
+    storage_backend: str
     storage_path: str
+    public_url: str | None
     width: int | None
     height: int | None
     duration_seconds: int | None
     alt_text: str | None
     tags: list[str]
+    ai_tags: list[str]
+    ai_caption: str | None
     source: str
     generation_prompt: str | None
+    is_favorite: bool
+    is_archived: bool
+    usage_count: int
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -97,10 +108,6 @@ async def upload_media(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    # Determine date-based subfolder
-    now = datetime.now(UTC)
-    date_folder = now.strftime("%Y/%m/%d")
-
     # Validate and sanitize user-supplied filename and extension.
     raw_name = file.filename or "upload"
     raw_ext = pathlib.Path(raw_name).suffix.lower()
@@ -108,47 +115,26 @@ async def upload_media(
     if raw_ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported file extension")
 
-    filename = f"{uuid.uuid4()}{raw_ext}"
-
-    # Resolve and validate that the final path stays under UPLOAD_DIR.
-    storage_path = safe_resolve(UPLOAD_DIR, date_folder, filename)
-    upload_root = pathlib.Path(UPLOAD_DIR).resolve()
-    relative_path = storage_path.relative_to(upload_root).as_posix()
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Read file content
+    # Read file content and downscale images for the library.
     content = await file.read()
-
-    # Cap library storage size (see MEDIA_MAX_EDGE); keep original for video.
+    mime = file.content_type
     width = None
     height = None
-    mime = file.content_type
     if mime and mime.startswith("image/"):
-        from app.services.media_storage import downscale_image_bytes
-
         content, width, height = downscale_image_bytes(content)
 
-    # Write file to disk
-    async with aiofiles.open(storage_path, "wb") as f:
-        await f.write(content)
-
-    asset = MediaAsset(
+    asset = await save_uploaded_media(
+        db,
         team_id=team.id,
         user_id=current_user.id,
-        filename=file.filename,
+        original_filename=file.filename or "upload",
+        content=content,
         mime_type=mime,
-        size_bytes=len(content),
+        alt_text=alt_text,
+        tags=[t.strip() for t in (tags or "").split(",") if t.strip()],
         width=width,
         height=height,
-        storage_path=relative_path,  # Store relative path
-        alt_text=alt_text,
-        tags=tags.split(",") if tags else [],
-        source="upload",
     )
-    db.add(asset)
-    await db.commit()
-    await db.refresh(asset)
-
     return asset
 
 
@@ -268,6 +254,15 @@ async def list_media(
     return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
 
 
+class MediaAssetUpdateRequest(BaseModel):
+    filename: str | None = None
+    alt_text: str | None = None
+    tags: list[str] | None = None
+    collection_id: uuid.UUID | None = None
+    is_favorite: bool | None = None
+    is_archived: bool | None = None
+
+
 @router.get("/assets/{asset_id}", response_model=MediaAssetResponse)
 async def get_media(asset_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -279,6 +274,38 @@ async def get_media(asset_id: uuid.UUID, current_user: User = Depends(get_curren
     return asset
 
 
+@router.patch("/assets/{asset_id}", response_model=MediaAssetResponse)
+async def update_media(
+    asset_id: uuid.UUID,
+    body: MediaAssetUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaAsset).where(MediaAsset.id == asset_id)
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    if body.filename is not None:
+        asset.filename = (await correct_text(body.filename)) or body.filename
+    if body.alt_text is not None:
+        asset.alt_text = await correct_text(body.alt_text)
+    if body.tags is not None:
+        asset.tags = await correct_tags(body.tags)
+    if body.collection_id is not None:
+        asset.collection_id = body.collection_id
+    if body.is_favorite is not None:
+        asset.is_favorite = body.is_favorite
+    if body.is_archived is not None:
+        asset.is_archived = body.is_archived
+
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))
@@ -286,12 +313,15 @@ async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_cur
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Delete file, resolving the stored path safely inside UPLOAD_DIR.
+    # Delete file from local disk or R2.
     try:
-        file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
-        if file_path.is_file():
-            file_path.unlink()
-    except ValueError:
+        if asset.storage_backend == "r2":
+            await r2_storage.delete_object(asset.storage_path)
+        else:
+            file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+            if file_path.is_file():
+                file_path.unlink()
+    except (ValueError, HTTPException):
         pass
 
     await db.delete(asset)
@@ -325,10 +355,13 @@ async def bulk_delete_media(
     deleted = 0
     for asset in assets:
         try:
-            file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
-            if file_path.is_file():
-                file_path.unlink()
-        except ValueError:
+            if asset.storage_backend == "r2":
+                await r2_storage.delete_object(asset.storage_path)
+            else:
+                file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+                if file_path.is_file():
+                    file_path.unlink()
+        except (ValueError, HTTPException):
             pass
         await db.delete(asset)
         deleted += 1
@@ -369,8 +402,6 @@ async def generate_image(
         _call_together_txt2img,
         _call_workers_ai_image,
     )
-    from app.services.media_storage import persist_generated_image
-
     result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -378,7 +409,10 @@ async def generate_image(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
+    # Spell-check the prompt and negative prompt before generation.
+    prompt = await correct_text(body.prompt) or body.prompt
     opts = body.options or MediaGenerateOptions()
+    opts.negative_prompt = await correct_text(opts.negative_prompt) or opts.negative_prompt
     model = opts.model or CF_TXT2IMG_FREE
     if model and not model.startswith("@cf/"):
         model = f"@cf/stabilityai/{model}" if "stable-diffusion" in model else CF_TXT2IMG_FREE
@@ -390,7 +424,7 @@ async def generate_image(
     generated = None
     try:
         generated = await _call_workers_ai_image(
-            prompt=body.prompt,
+            prompt=prompt,
             model=model,
             negative_prompt=opts.negative_prompt or "",
             width=width,
@@ -412,7 +446,7 @@ async def generate_image(
             print("[media/generate] Trying Pixazo FLUX Schnell", flush=True)
             try:
                 generated = await _call_pixazo_txt2img(
-                    prompt=body.prompt, api_key=pixazo_key,
+                    prompt=prompt, api_key=pixazo_key,
                     width=width, height=height,
                 )
             except HTTPException:
@@ -422,7 +456,7 @@ async def generate_image(
             print(f"[media/generate] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
             try:
                 generated = await _call_together_txt2img(
-                    prompt=body.prompt, model=TOGETHER_TXT2IMG_FALLBACK,
+                    prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK,
                     api_key=together_key, width=width, height=height, steps=steps,
                 )
             except HTTPException:
@@ -432,7 +466,7 @@ async def generate_image(
             print(f"[media/generate] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
             try:
                 generated = await _call_hf_txt2img(
-                    prompt=body.prompt, model=HF_TXT2IMG_FALLBACK,
+                    prompt=prompt, model=HF_TXT2IMG_FALLBACK,
                     api_key=hf_key, width=width, height=height, steps=steps,
                 )
             except HTTPException:
@@ -453,7 +487,7 @@ async def generate_image(
         team_id=team.id,
         user_id=current_user.id,
         image_bytes=base64.b64decode(image_b64),
-        prompt=body.prompt,
+        prompt=prompt,
         source="ai-generated",
     )
     return asset
