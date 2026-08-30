@@ -2,6 +2,7 @@
 import json
 import re
 import uuid
+from urllib.parse import quote
 
 import httpx
 from fastapi import HTTPException
@@ -300,6 +301,8 @@ async def transcribe_workers_ai(
             detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
         )
 
+    model = _validate_workers_ai_model(model)
+
     url = (
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/"
         f"{model}"
@@ -374,6 +377,8 @@ async def _call_workers_ai_chat(
             detail="CLOUDFLARE_API_TOKEN is not configured for Cloudflare Workers AI.",
         )
 
+    model = _validate_workers_ai_model(model)
+
     system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
     user_msg = prompt
     if schema:
@@ -441,6 +446,22 @@ _WORKERS_AI_IMAGE_KEYWORDS = (
     "craiy",
 )
 
+# Model identifiers are ``@author/name[/subname]`` (e.g. ``@cf/meta/llama-3.2-3b-instruct``).
+_WORKERS_AI_MODEL_RE = re.compile(r"^@[\w./-]+$")
+
+
+def _validate_workers_ai_model(model: str) -> str:
+    """Validate and normalize a Workers AI model identifier before using it in a URL."""
+    if not isinstance(model, str) or not model:
+        raise HTTPException(status_code=400, detail="Model identifier is required")
+    model = model.strip()
+    if not _WORKERS_AI_MODEL_RE.fullmatch(model):
+        raise HTTPException(status_code=400, detail="Invalid Workers AI model identifier")
+    if any(part in (".", "..") for part in model.split("/")):
+        raise HTTPException(status_code=400, detail="Invalid Workers AI model identifier")
+    # Percent-encode the model to ensure any unexpected characters cannot change the URL structure.
+    return quote(model, safe="@/")
+
 
 def _is_workers_ai_image_model(model: str) -> bool:
     """Heuristic: detect whether a Workers AI model identifier targets image generation."""
@@ -470,6 +491,7 @@ async def _call_workers_ai_image(
     ``steps``). SDXL-family models accept width/height/guidance/num_steps.
     """
     account_id, key = _workers_ai_credentials(api_key)
+    model = _validate_workers_ai_model(model)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     normalized = (model or "").lower()
     is_flux = "flux" in normalized and "deepgram" not in normalized
@@ -561,6 +583,7 @@ async def _call_workers_ai_img2img(
     from PIL import Image
 
     account_id, key = _workers_ai_credentials(api_key)
+    model = _validate_workers_ai_model(model)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
 
     # SD1.5 img2img works best around 512² — downscale for the model, caller can upscale after.
@@ -667,6 +690,7 @@ async def _call_workers_ai_flux2_edit(
     from PIL import Image
 
     account_id, key = _workers_ai_credentials(api_key)
+    model = _validate_workers_ai_model(model)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
 
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -883,6 +907,7 @@ async def submit_workers_ai_batch(
     if not requests:
         raise HTTPException(status_code=400, detail="Batch request must contain at least one item.")
     account_id, key = _workers_ai_credentials(api_key)
+    model = _validate_workers_ai_model(model)
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}?queueRequest=true"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -927,6 +952,7 @@ async def retrieve_workers_ai_batch(
     still processing, ``responses`` is empty/absent — poll again later.
     """
     account_id, key = _workers_ai_credentials(api_key)
+    model = _validate_workers_ai_model(model)
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}?queueRequest=true"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from 'react'
 import { cn, isSafeImageUrl } from '@/lib/utils'
+import { SafeImage } from '@/components/SafeImage'
 import type { SocialAccount } from '@/types'
 
 export type PreviewIdentity = {
@@ -58,7 +59,7 @@ export function ObjectUrlImage({
   const url = useMemo(() => URL.createObjectURL(file), [file])
   useEffect(() => () => URL.revokeObjectURL(url), [url])
   if (!isSafeImageUrl(url)) return null
-  return <img src={url} alt={alt} className={className} />
+  return <SafeImage src={url} alt={alt} className={className} />
 }
 
 export function AccountAvatar({
@@ -71,7 +72,7 @@ export function AccountAvatar({
   fallbackClass?: string
 }) {
   if (isSafeImageUrl(identity.avatarUrl)) {
-    return <img src={identity.avatarUrl!} alt={identity.name} className={cn('object-cover', className)} />
+    return <SafeImage src={identity.avatarUrl} alt={identity.name} className={cn('object-cover', className)} />
   }
   const initials = identity.name
     .split(/\s+/)

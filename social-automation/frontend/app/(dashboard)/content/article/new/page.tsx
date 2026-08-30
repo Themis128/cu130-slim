@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
+import { SafeImage } from '@/components/SafeImage'
 import { isSafeImageUrl } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
@@ -165,7 +166,7 @@ export default function NewArticlePage() {
             </button>
           ) : (
             <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '1200/627' }}>
-              <img src={safeCoverPreview} alt="Cover" className="w-full h-full object-cover" />
+              <SafeImage src={safeCoverPreview} alt="Cover" className="w-full h-full object-cover" />
               {coverUploading && (
                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                   <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -234,7 +235,7 @@ export default function NewArticlePage() {
             <div className="rounded-lg border overflow-hidden">
               {safeCoverPreview && (
                 <div style={{ aspectRatio: '1200/627' }} className="bg-muted overflow-hidden">
-                  <img src={safeCoverPreview} alt="" className="w-full h-full object-cover" />
+                  <SafeImage src={safeCoverPreview} alt="" className="w-full h-full object-cover" />
                 </div>
               )}
               <div className="p-4 space-y-1">

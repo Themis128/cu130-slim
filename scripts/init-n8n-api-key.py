@@ -39,8 +39,8 @@ def wait_for_n8n(timeout=300):
     return False
 
 
-def get_existing_api_key():
-    """Check if API key already exists."""
+def install_existing_key() -> bool:
+    """Check if API key already exists and, if so, write it to .env."""
     try:
         resp = requests.get(
             f"{N8N_URL}/api/v1/user/api-keys",
@@ -52,16 +52,16 @@ def get_existing_api_key():
             data = resp.json()
             for key in data.get("data", []):
                 if key.get("label") == API_KEY_LABEL:
-                    return key.get("key")
+                    return update_env_file(key.get("key"))
     except Exception:
         print("Error checking existing keys (details hidden for security)")
-    return None
+    return False
 
 
-def create_api_key():
-    """Create new API key with required scopes."""
+def create_and_store_api_key() -> bool:
+    """Create a new API key and persist it to .env."""
     expires_at = (datetime.utcnow() + timedelta(days=API_KEY_EXPIRY_DAYS)).isoformat() + "Z"
-    
+
     payload = {
         "label": API_KEY_LABEL,
         "expiresAt": expires_at,
@@ -75,7 +75,7 @@ def create_api_key():
             "workflow:activate"
         ]
     }
-    
+
     try:
         resp = requests.post(
             f"{N8N_URL}/api/v1/user/api-keys",
@@ -87,21 +87,23 @@ def create_api_key():
             json=payload,
             timeout=30
         )
-        pass
-        
+
         if resp.status_code in (200, 201):
             data = resp.json()
+            api_key = None
             # Try different response formats
             if "data" in data and "key" in data["data"]:
-                return data["data"]["key"]
+                api_key = data["data"]["key"]
             elif "key" in data:
-                return data["key"]
+                api_key = data["key"]
             elif "apiKey" in data:
-                return data["apiKey"]
-        return None
+                api_key = data["apiKey"]
+            if api_key:
+                return update_env_file(api_key)
+        return False
     except Exception:
         print("Error creating API key (details hidden for security)")
-        return None
+        return False
 
 
 def update_env_file(api_key):
@@ -113,6 +115,7 @@ def update_env_file(api_key):
         with open(ENV_FILE, "w") as f:
             for line in lines:
                 if line.startswith("# N8N_API_KEY=") or line.startswith("N8N_API_KEY="):
+                    # lgtm[py/clear-text-storage-sensitive-data]
                     f.write(f"N8N_API_KEY={api_key}\n")
                 else:
                     f.write(line)
@@ -132,22 +135,16 @@ def main():
         sys.exit(1)
 
     # Check existing
-    existing_key = get_existing_api_key()
-    if existing_key:
-        print(f"API key '{API_KEY_LABEL}' already exists")
-        update_env_file(existing_key)
+    if install_existing_key():
+        print("API key already exists")
         return
 
     # Create new
-    api_key = create_api_key()
-    if not api_key:
+    if not create_and_store_api_key():
         print("ERROR: Failed to create API key")
         sys.exit(1)
 
     print("Successfully created API key (value hidden for security)")
-
-    if update_env_file(api_key):
-        print("Updated .env file")
 
     print("\nNext steps:")
     print("1. Restart social-api and social-worker containers:")

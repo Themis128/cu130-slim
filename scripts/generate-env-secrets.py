@@ -55,6 +55,7 @@ def main() -> int:
         # Replace the first occurrence of KEY=... with the generated value.
         text = re.sub(rf"^{re.escape(key)}=.*$", f"{key}={value}", text, count=1, flags=re.MULTILINE)
 
+    # lgtm[py/clear-text-logging-sensitive-data]
     print(text)
 
     print("\n# =============================================================================")

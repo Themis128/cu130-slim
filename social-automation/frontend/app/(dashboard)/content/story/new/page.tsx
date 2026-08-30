@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { useAccounts, useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
+import { SafeImage } from '@/components/SafeImage'
+import { SafeVideo } from '@/components/SafeVideo'
 import { isSafeImageUrl, isSafeVideoUrl } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
@@ -202,9 +204,9 @@ export default function NewStoryPage() {
               {/* Story preview — 9:16 aspect ratio */}
               <div className="relative mx-auto rounded-xl overflow-hidden bg-black" style={{ aspectRatio: '9/16', maxHeight: '480px' }}>
                 {isVideo ? (
-                  <video src={safeMediaPreview} className="h-full w-full object-cover" muted loop autoPlay playsInline />
+                  <SafeVideo src={safeMediaPreview} className="h-full w-full object-cover" muted loop autoPlay playsInline />
                 ) : (
-                  <img src={safeMediaPreview} alt="Story preview" className="h-full w-full object-cover" />
+                  <SafeImage src={safeMediaPreview} alt="Story preview" className="h-full w-full object-cover" />
                 )}
                 {uploading && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center">

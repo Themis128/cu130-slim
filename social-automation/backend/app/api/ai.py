@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -1011,13 +1012,18 @@ async def get_image_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    match = re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    safe_job_id = match.group(0)
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{settings.COMFYUI_URL}/history/{job_id}")
+            resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_job_id}")
             if resp.status_code == 200:
                 history = resp.json()
-                if job_id in history:
-                    outputs = history[job_id].get("outputs", {})
+                if safe_job_id in history:
+                    outputs = history[safe_job_id].get("outputs", {})
                     for node_output in outputs.values():
                         images = node_output.get("images", [])
                         if images:
@@ -1036,7 +1042,7 @@ async def get_image_status(
                             if team:
                                 existing = await db.execute(
                                     select(MediaAsset).where(
-                                        MediaAsset.generation_prompt == f"comfyui:{job_id}"
+                                        MediaAsset.generation_prompt == f"comfyui:{safe_job_id}"
                                     )
                                 )
                                 if existing.scalars().first() is None:
