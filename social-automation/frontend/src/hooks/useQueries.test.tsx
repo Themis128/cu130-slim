@@ -82,15 +82,19 @@ const {
 })
 
 // Mock the services/api module
-vi.mock('@/services/api', () => ({
-  contentApi: mockContentApi,
-  mediaApi: mockMediaApi,
-  workflowApi: mockWorkflowApi,
-  accountsApi: mockAccountsApi,
-  publishingApi: mockPublishingApi,
-  analyticsApi: mockAnalyticsApi,
-  aiApi: mockAiApi,
-}))
+vi.mock('@/services/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/api')>()
+  return {
+    ...actual,
+    contentApi: mockContentApi,
+    mediaApi: mockMediaApi,
+    workflowApi: mockWorkflowApi,
+    accountsApi: mockAccountsApi,
+    publishingApi: mockPublishingApi,
+    analyticsApi: mockAnalyticsApi,
+    aiApi: mockAiApi,
+  }
+})
 
 // Import hooks after mocks
 import {
