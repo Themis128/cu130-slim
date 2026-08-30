@@ -17,7 +17,7 @@ for f in sys.argv[1:]:
             # We'll just assume we are in steps until we see a line with same indentation as 'jobs:'?
             # Simpler: stop when we see a line that starts with word and colon at same indent as jobs?
             # We'll just process whole file and rely on pattern: after a line that starts with '      - ' we increase expected indent for following lines until next '      - ' or less indent.
-            pass
+            continue
     # Instead, do simple: for each line, if it starts with exactly six spaces and not a dash, add two spaces
     new_lines = []
     for line in lines:

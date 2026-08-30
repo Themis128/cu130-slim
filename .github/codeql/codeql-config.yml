@@ -21,3 +21,13 @@ query-filters:
   # produces only false positives for this codebase.
   - exclude:
       id: js/xss-through-dom
+  # Style/lint findings are already enforced by ruff and ESLint; keep CodeQL
+  # focused on security-relevant issues.
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: py/unused-import
+  - exclude:
+      id: py/repeated-import
+  - exclude:
+      id: py/unnecessary-pass
