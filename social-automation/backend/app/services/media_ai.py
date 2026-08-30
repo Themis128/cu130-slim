@@ -74,7 +74,7 @@ async def _call_cloudflare_vision(
     back to moondream (task-based vision, 24 neurons) if the primary model fails.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    token = (settings.CLOUDFLARE_AI_TOKEN or "").strip()
+    token = (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
     if not account_id or not token:
         raise RuntimeError("Cloudflare credentials not configured")
 

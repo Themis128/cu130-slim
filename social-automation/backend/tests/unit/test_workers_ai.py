@@ -10,8 +10,10 @@ def cf_settings(monkeypatch):
     """Point the module-level settings at a fake Cloudflare account."""
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account-123")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
-    # Clear the dedicated AI token so CLOUDFLARE_AI_TOKEN falls back to CLOUDFLARE_API_TOKEN
+    # Clear the dedicated AI token so _ai_token() falls back to CLOUDFLARE_API_TOKEN
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    # Also patch _ai_token directly in case settings setattr doesn't stick (Pydantic)
+    monkeypatch.setattr(inference, "_ai_token", lambda: "tok-456")
     yield
 
 
@@ -108,6 +110,7 @@ async def test_transcribe_workers_ai_requires_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    monkeypatch.setattr(inference, "_ai_token", lambda: "tok-456")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference.transcribe_workers_ai(b"audio", "audio/wav")
@@ -119,6 +122,7 @@ async def test_transcribe_workers_ai_requires_account_id(monkeypatch):
 async def test_transcribe_workers_ai_requires_token(monkeypatch, cf_settings):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    monkeypatch.setattr(inference, "_ai_token", lambda: "")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference.transcribe_workers_ai(b"audio", "audio/wav")
@@ -218,6 +222,7 @@ async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    monkeypatch.setattr(inference, "_ai_token", lambda: "tok-456")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference._call_workers_ai_chat("hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456")
@@ -265,6 +270,7 @@ async def test_list_workers_ai_models_requires_credentials(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    monkeypatch.setattr(inference, "_ai_token", lambda: "")
     with pytest.raises(HTTPException) as exc:
         await inference.list_workers_ai_models()
     assert exc.value.status_code == 400
@@ -362,6 +368,7 @@ async def test_call_workers_ai_image_missing_credentials(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
+    monkeypatch.setattr(inference, "_ai_token", lambda: "")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference._call_workers_ai_image(

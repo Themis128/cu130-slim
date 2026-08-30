@@ -29,7 +29,7 @@ def _make_png() -> bytes:
 
 
 async def _call_cf_caption(image_b64: str, settings) -> dict | None:
-    if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip() or not (settings.CLOUDFLARE_AI_TOKEN or "").strip():
+    if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip() or not ((settings.CLOUDFLARE_AI_API_TOKEN or settings.CLOUDFLARE_API_TOKEN or "").strip()):
         return None
     try:
         return await media_ai._call_cloudflare_vision(
@@ -49,7 +49,7 @@ async def main() -> int:
     missing = []
     if not (settings.CLOUDFLARE_ACCOUNT_ID or "").strip():
         missing.append("CLOUDFLARE_ACCOUNT_ID")
-    if not (settings.CLOUDFLARE_AI_TOKEN or "").strip():
+    if not (settings.CLOUDFLARE_AI_API_TOKEN or settings.CLOUDFLARE_API_TOKEN or "").strip():
         missing.append("CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN)")
     if missing:
         print(f"  MISSING: {', '.join(missing)}")

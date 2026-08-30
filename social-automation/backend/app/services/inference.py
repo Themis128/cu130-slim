@@ -31,6 +31,11 @@ from app.services.cf_models import (
 
 settings = get_settings()
 
+
+def _ai_token() -> str:
+    """Return the Workers AI token, preferring CLOUDFLARE_AI_API_TOKEN over CLOUDFLARE_API_TOKEN."""
+    return (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+
 # Pre-configured provider catalog (UI uses this to show provider cards)
 PROVIDER_CATALOG = [
     {
@@ -198,7 +203,7 @@ async def _get_provider_config(
         "openai": settings.OPENAI_API_KEY,
         "nvidia-flux": settings.NVIDIA_API_KEY,
         "nvidia-flux-dev": settings.NVIDIA_API_KEY,
-        "cloudflare": settings.CLOUDFLARE_AI_TOKEN,
+        "cloudflare": _ai_token(),
     }
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
@@ -233,7 +238,7 @@ async def list_workers_ai_models() -> list[dict]:
     embeddings, etc. Uses the paginated ``/ai/models/search`` endpoint.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (settings.CLOUDFLARE_AI_TOKEN or "").strip()
+    api_key = _ai_token()
     if not account_id or not api_key:
         raise HTTPException(
             status_code=400,
@@ -287,7 +292,7 @@ async def transcribe_workers_ai(
     returning ``{"result": {"text": ...}}``.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (api_key or settings.CLOUDFLARE_AI_TOKEN or "").strip()
+    api_key = (api_key or _ai_token() or "").strip()
 
     if not account_id:
         raise HTTPException(
@@ -366,7 +371,7 @@ async def _call_workers_ai_chat(
     and returns ``{"result": {"response": ...}}``.
     """
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    api_key = (api_key or "").strip() or (settings.CLOUDFLARE_AI_TOKEN or "").strip()
+    api_key = (api_key or "").strip() or _ai_token()
 
     if not account_id:
         raise HTTPException(
@@ -879,7 +884,7 @@ async def _call_cf_image_pipeline(
 def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
     """Return ``(account_id, api_key)`` for Workers AI, raising 400 if unset."""
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    key = (api_key or "").strip() or (settings.CLOUDFLARE_AI_TOKEN or "").strip()
+    key = (api_key or "").strip() or _ai_token()
     if not account_id:
         raise HTTPException(
             status_code=400,

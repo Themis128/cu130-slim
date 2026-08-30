@@ -102,6 +102,7 @@ async def test_submit_batch_success(monkeypatch, cf_settings):
 async def test_submit_batch_requires_account_id(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "tok-456")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
 
     with pytest.raises(HTTPException) as exc_info:
         await inference.submit_workers_ai_batch("@cf/baai/bge-m3", [{"query": "hi"}])
@@ -182,6 +183,7 @@ async def test_retrieve_batch_still_processing(monkeypatch, cf_settings):
 async def test_retrieve_batch_missing_credentials(monkeypatch):
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_API_TOKEN", "")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_AI_API_TOKEN", "")
     with pytest.raises(HTTPException) as exc_info:
         await inference.retrieve_workers_ai_batch("@cf/baai/bge-m3", request_id="abc")
     assert exc_info.value.status_code == 400

@@ -81,11 +81,6 @@ class Settings(BaseSettings):
     CLOUDFLARE_AI_API_TOKEN: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
 
-    @property
-    def CLOUDFLARE_AI_TOKEN(self) -> str:
-        """Token used for Workers AI inference; falls back to the general token."""
-        return self.CLOUDFLARE_AI_API_TOKEN or self.CLOUDFLARE_API_TOKEN
-
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"
 
