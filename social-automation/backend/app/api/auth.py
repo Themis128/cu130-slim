@@ -1,4 +1,7 @@
+import base64
+import json
 import uuid
+from datetime import UTC
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -36,7 +39,7 @@ instagram2_client = BaseOAuth2(
     client_id=settings.INSTAGRAM2_CLIENT_ID,
     client_secret=settings.INSTAGRAM2_CLIENT_SECRET,
     authorize_endpoint="https://www.instagram.com/oauth/authorize",
-    token_endpoint="https://api.instagram.com/oauth/access_token",
+    access_token_endpoint="https://api.instagram.com/oauth/access_token",
 )
 
 
@@ -834,7 +837,6 @@ async def instagram2_callback(
         ll_data = ll_resp.json()
         long_lived_token = ll_data.get("access_token", access_token)
         expires_in = ll_data.get("expires_in")
-        token_type = ll_data.get("token_type")
 
         # Get user profile info
         profile_resp = await http.get(
@@ -852,8 +854,8 @@ async def instagram2_callback(
     # Compute expiry
     token_expires_at = None
     if expires_in:
-        from datetime import datetime, timedelta, timezone
-        token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+        from datetime import datetime, timedelta
+        token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
 
     # Upsert
     result = await db.execute(

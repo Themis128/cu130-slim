@@ -285,7 +285,11 @@ async def _publish_twitter(
             if resp.status_code == 402:
                 return PublishResult(
                     success=False,
-                    error="X free tier monthly write quota exhausted (1,500 tweets/month). Quota resets on your billing date. Upgrade to X Basic ($100/month) for 3,000 tweets + media upload.",
+                    error=(
+                        "X free tier monthly write quota exhausted (1,500 tweets/month). "
+                        "Quota resets on your billing date. Upgrade to X Basic ($100/month) "
+                        "for 3,000 tweets + media upload."
+                    ),
                 )
             resp.raise_for_status()
             tid = resp.json().get("data", {}).get("id", "")
@@ -766,7 +770,6 @@ async def _publish_tiktok(
     import asyncio as _asyncio
     import json as _json
 
-    open_id = (account.meta_data or {}).get("open_id", account.account_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json; charset=UTF-8",

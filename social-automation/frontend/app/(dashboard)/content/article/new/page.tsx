@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Image as ImageIcon, Loader2, Save, Send, ArrowLeft, X, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
+import { isSafeImageUrl } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
@@ -39,6 +40,11 @@ export default function NewArticlePage() {
 
   const wordCount = body.trim() ? body.trim().split(/\s+/).length : 0
   const readTime = Math.max(1, Math.ceil(wordCount / 200))
+
+  const safeCoverPreview = useMemo(() => {
+    if (!coverPreview) return null
+    return isSafeImageUrl(coverPreview) ? coverPreview : null
+  }, [coverPreview])
 
   const handleCoverSelect = async (files: FileList) => {
     const file = files[0]
@@ -151,7 +157,7 @@ export default function NewArticlePage() {
         <CardContent>
           <input type="file" accept="image/*" className="hidden" ref={coverInputRef}
             onChange={e => e.target.files && handleCoverSelect(e.target.files)} />
-          {!coverPreview ? (
+          {!safeCoverPreview ? (
             <button onClick={() => coverInputRef.current?.click()}
               className="w-full border-2 border-dashed border-muted rounded-xl flex flex-col items-center justify-center gap-2 py-10 hover:border-primary/50 transition-colors">
               <ImageIcon className="h-8 w-8 text-muted-foreground" />
@@ -159,7 +165,7 @@ export default function NewArticlePage() {
             </button>
           ) : (
             <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '1200/627' }}>
-              <img src={coverPreview} alt="Cover" className="w-full h-full object-cover" />
+              <img src={safeCoverPreview} alt="Cover" className="w-full h-full object-cover" />
               {coverUploading && (
                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                   <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -226,9 +232,9 @@ export default function NewArticlePage() {
           <CardHeader><CardTitle className="text-sm text-muted-foreground">LinkedIn Preview</CardTitle></CardHeader>
           <CardContent>
             <div className="rounded-lg border overflow-hidden">
-              {coverPreview && (
+              {safeCoverPreview && (
                 <div style={{ aspectRatio: '1200/627' }} className="bg-muted overflow-hidden">
-                  <img src={coverPreview} alt="" className="w-full h-full object-cover" />
+                  <img src={safeCoverPreview} alt="" className="w-full h-full object-cover" />
                 </div>
               )}
               <div className="p-4 space-y-1">

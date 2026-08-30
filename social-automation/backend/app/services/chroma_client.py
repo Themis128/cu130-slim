@@ -77,6 +77,27 @@ async def add_content(team_id: str, post_id: str, text: str) -> None:
             pass  # chroma unavailable; don't block the request
 
 
+async def get_content(team_id: str, post_id: str) -> str | None:
+    """Fetch a document by id from the team's ChromaDB collection."""
+    col = _collection_name(team_id)
+    async with httpx.AsyncClient(timeout=_CHROMA_TIMEOUT) as client:
+        try:
+            col_id = await _get_collection_id(client, col)
+            if not col_id:
+                return None
+            resp = await client.post(
+                f"{_collection_base_url()}/{col_id}/get",
+                json={"ids": [post_id], "include": ["documents"]},
+            )
+            if resp.status_code == 200:
+                docs = resp.json().get("documents", [])
+                if docs:
+                    return docs[0]
+        except Exception:
+            pass
+    return None
+
+
 async def query_similar(team_id: str, text: str, n_results: int = 5) -> list[str]:
     """Return up to n_results similar documents from the team's collection."""
     embedding = await _get_embedding(text)

@@ -1,7 +1,8 @@
+import base64
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.content import MediaAsset
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
@@ -31,6 +32,8 @@ from app.services.inference import (
     transcribe_workers_ai,
 )
 from app.services.media_storage import persist_generated_image
+from app.worker.celery_app import celery_app
+from app.worker.tasks.publishing import process_publish_queue, publish_post_now
 
 router = APIRouter()
 settings = get_settings()
@@ -355,23 +358,26 @@ async def auto_configure(
         "auto": "",
     }.get(request.context, "")
 
-    llm_prompt = f"""You are an AI workflow router. Analyse the user's prompt and decide the best task type, Cloudflare Workers AI model, and generation settings.{ctx_hint}
-
-User prompt: "{request.prompt}"
-
-Rules:
-- task_type must be one of: "image", "carousel", "text"
-- For image tasks use model "@cf/black-forest-labs/flux-1-schnell"
-- For text/carousel tasks use model "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-- steps: 4 (fast, abstract/simple), 6 (balanced, most cases), 8 (best, photorealistic/detailed)
-- style: one of photorealistic, professional, cinematic, illustration, abstract, dark
-- platform: one of linkedin, instagram, twitter — infer from context clues (professional→linkedin, visual/lifestyle→instagram, short→twitter); default to linkedin
-- tone: one of professional, casual, inspirational, educational, humorous — infer from prompt; default professional
-- num_slides: 3-8 for carousel, infer from topic complexity; default 5
-- enhanced_prompt: if task_type is image, write an optimised FLUX prompt (under 100 words); else null
-- negative_prompt: if task_type is image, list exclusions; else null
-
-Return JSON with: task_type, model, steps, style, platform, tone, num_slides, enhanced_prompt, negative_prompt"""
+    llm_prompt = (
+        f"You are an AI workflow router. Analyse the user's prompt and decide the best task type, "
+        f"Cloudflare Workers AI model, and generation settings.{ctx_hint}\n\n"
+        f'User prompt: "{request.prompt}"\n\n'
+        "Rules:\n"
+        '- task_type must be one of: "image", "carousel", "text"\n'
+        '- For image tasks use model "@cf/black-forest-labs/flux-1-schnell"\n'
+        '- For text/carousel tasks use model "@cf/meta/llama-3.3-70b-instruct-fp8-fast"\n'
+        "- steps: 4 (fast, abstract/simple), 6 (balanced, most cases), 8 (best, photorealistic/detailed)\n"
+        "- style: one of photorealistic, professional, cinematic, illustration, abstract, dark\n"
+        "- platform: one of linkedin, instagram, twitter — infer from context clues "
+        "(professional→linkedin, visual/lifestyle→instagram, short→twitter); default to linkedin\n"
+        "- tone: one of professional, casual, inspirational, educational, humorous — "
+        "infer from prompt; default professional\n"
+        "- num_slides: 3-8 for carousel, infer from topic complexity; default 5\n"
+        "- enhanced_prompt: if task_type is image, write an optimised FLUX prompt (under 100 words); else null\n"
+        "- negative_prompt: if task_type is image, list exclusions; else null\n\n"
+        "Return JSON with: task_type, model, steps, style, platform, tone, num_slides, "
+        "enhanced_prompt, negative_prompt"
+    )
 
     schema = {
         "type": "object",
@@ -515,11 +521,11 @@ async def generate_image(
         # Cloudflare Workers AI text-to-image (SDXL / FLUX models).
         from app.services.cf_models import CF_TXT2IMG_FREE
         from app.services.inference import (
+            HF_TXT2IMG_FALLBACK,
+            TOGETHER_TXT2IMG_FALLBACK,
+            _call_hf_txt2img,
             _call_pixazo_txt2img,
             _call_together_txt2img,
-            _call_hf_txt2img,
-            TOGETHER_TXT2IMG_FALLBACK,
-            HF_TXT2IMG_FALLBACK,
         )
 
         _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
@@ -533,7 +539,6 @@ async def generate_image(
                 ),
             )
         result = None
-        cf_error = None
         try:
             result = await _call_workers_ai_image(
                 prompt=request.prompt,
@@ -546,7 +551,6 @@ async def generate_image(
                 cfg_scale=request.cfg_scale,
             )
         except HTTPException as exc:
-            cf_error = exc
             print(f"[ai/generate-image] CF failed ({exc.status_code}), trying fallbacks", flush=True)
 
         if result is None:
@@ -904,18 +908,17 @@ async def post_draft(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post a draft to social media platform."""
+    """Post a saved draft to the selected social platform."""
+    from app.models.social_account import SocialAccount
+
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
     team = team_result.scalars().first()
-
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
-    # Get social account
-    from app.models.social_account import SocialAccount
-
+    # Resolve social account
     if request.account_id:
         account_result = await db.execute(
             select(SocialAccount).where(SocialAccount.id == request.account_id)
@@ -928,18 +931,77 @@ async def post_draft(
                 SocialAccount.status == "active",
             ).limit(1)
         )
-
     account = account_result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail=f"No connected {request.platform} account found")
 
-    # TODO: Implement actual posting to social platforms
-    # This would use the n8n workflow or direct API calls
+    # Fetch draft from Chroma
+    raw = await chroma_client.get_content(str(team.id), request.draft_id)
+    if not raw or not raw.startswith("DRAFT:"):
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    try:
+        draft_data = json.loads(raw[6:])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"Draft is corrupted: {exc}")
+
+    # Persist draft image as a media asset (if present)
+    media_ids: list[uuid.UUID] = []
+    image_base64 = draft_data.get("image_base64") or ""
+    if image_base64:
+        try:
+            image_bytes = base64.b64decode(image_base64)
+            asset = await persist_generated_image(
+                db,
+                team_id=team.id,
+                user_id=current_user.id,
+                image_bytes=image_bytes,
+                prompt=draft_data.get("prompt", "post-draft"),
+                source="post-draft",
+            )
+            media_ids.append(asset.id)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Could not process draft image: {exc}")
+
+    caption = request.caption or draft_data.get("caption") or ""
+    hashtags = request.hashtags or draft_data.get("hashtags") or []
+
+    post = Post(
+        team_id=team.id,
+        user_id=current_user.id,
+        status=PostStatus.SCHEDULED,
+        content_text=caption,
+        media_ids=media_ids,
+        hashtags=hashtags,
+        link_url=draft_data.get("link_url"),
+        platform_specific={request.platform: {"caption": caption, "hashtags": hashtags}},
+        scheduled_at=datetime.now(UTC),
+    )
+    db.add(post)
+    await db.flush()
+    db.add(PostTarget(post_id=post.id, social_account_id=account.id, status="pending"))
+    await db.commit()
+    await db.refresh(post)
+
+    # Queue for immediate publishing
+    try:
+        with celery_app.connection_or_acquire() as conn:
+            publish_post_now.apply_async(
+                args=[str(post.id), [str(account.id)]],
+                connection=conn,
+            )
+            process_publish_queue.apply_async(connection=conn, countdown=2)
+    except Exception as exc:
+        return PostDraftResponse(
+            success=False,
+            post_id=str(post.id),
+            message=f"Draft saved but could not be queued: {type(exc).__name__}: {exc}",
+        )
 
     return PostDraftResponse(
         success=True,
-        post_id=str(uuid.uuid4()),
-        message=f"Draft posted to {request.platform} successfully",
+        post_id=str(post.id),
+        message=f"Draft queued for {request.platform}",
     )
 
 
@@ -1688,6 +1750,7 @@ async def generate_carousel_pipeline(
         db=db,
         team_id=team.id,
         force_fix=True,
+        allow_fallback=False,
     )
     print(f"[carousel-pipeline] nlp {nlp_report.to_dict()}", flush=True)
 
@@ -1712,6 +1775,7 @@ async def generate_carousel_pipeline(
             prompt=visual,
             enhance_prompt=enhance,
             txt2img_model=request.txt2img_model,
+            allow_fallback=False,
         )
         asset = await persist_generated_image(
             db,
@@ -1880,7 +1944,7 @@ async def _save_generation_template(
     settings: dict,
     tags: list[str],
     is_public: bool = False,
-) -> PromptTemplate | None:
+) -> PromptTemplate:
     """Upsert a PromptTemplate with the generation settings (idempotent by name+team)."""
     existing = await db.execute(
         select(PromptTemplate).where(
@@ -1907,6 +1971,7 @@ async def _save_generation_template(
         db.add(tmpl)
     await db.commit()
     await db.refresh(tmpl)
+    assert tmpl is not None
     return tmpl
 
 
@@ -1995,7 +2060,7 @@ async def spellcheck(
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"LanguageTool error: {exc.response.status_code}")
-    except httpx.RequestError as exc:
+    except httpx.RequestError:
         raise HTTPException(status_code=503, detail="LanguageTool service unreachable — is it running?")
 
     data = resp.json()

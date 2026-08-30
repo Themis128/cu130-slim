@@ -1,5 +1,6 @@
 import io
 import os
+import pathlib
 import uuid
 from datetime import UTC, datetime
 
@@ -98,17 +99,25 @@ async def upload_media(
     # Determine date-based subfolder
     now = datetime.now(UTC)
     date_folder = now.strftime("%Y/%m/%d")
-    # Ensure the directory exists
-    target_dir = os.path.join(UPLOAD_DIR, date_folder)
-    os.makedirs(target_dir, exist_ok=True)
 
-    # Generate unique filename
-    file_ext = os.path.splitext(file.filename)[1] if file.filename else ""
-    filename = f"{uuid.uuid4()}{file_ext}"
-    # Relative path from UPLOAD_DIR (for storage)
-    relative_path = os.path.join(date_folder, filename)
-    # Absolute disk path
-    storage_path = os.path.join(UPLOAD_DIR, relative_path)
+    # Validate and sanitize user-supplied filename and extension.
+    raw_name = file.filename or "upload"
+    raw_ext = pathlib.Path(raw_name).suffix.lower()
+    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".avif", ".heic"}
+    if raw_ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="Unsupported file extension")
+
+    filename = f"{uuid.uuid4()}{raw_ext}"
+
+    # Resolve paths and ensure they stay under UPLOAD_DIR.
+    upload_root = pathlib.Path(UPLOAD_DIR).resolve()
+    target_dir = (upload_root / date_folder).resolve()
+    if not target_dir.is_relative_to(upload_root):
+        raise HTTPException(status_code=400, detail="Invalid upload path")
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    storage_path = target_dir / filename
+    relative_path = (pathlib.Path(date_folder) / filename).as_posix()
 
     # Read file content
     content = await file.read()
@@ -155,16 +164,17 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
     transparently re-encoded to PNG with Pillow.
     """
-    # Normalise: strip absolute UPLOAD_DIR prefix so both absolute and relative
-    # storage_path values work (old records store abs paths, new ones store relative).
-    real_upload = os.path.realpath(UPLOAD_DIR)
-    if os.path.isabs(path) and os.path.realpath(path).startswith(real_upload + os.sep):
-        path = os.path.relpath(os.path.realpath(path), real_upload)
-    abs_path = os.path.realpath(os.path.join(UPLOAD_DIR, path))
-    if not abs_path.startswith(real_upload + os.sep):
-        raise HTTPException(status_code=400, detail="Invalid media path")
+    # Resolve and validate the requested path inside UPLOAD_DIR.
+    upload_root = pathlib.Path(UPLOAD_DIR).resolve()
+    requested = pathlib.Path(path)
+    if requested.is_absolute():
+        try:
+            requested = requested.relative_to(upload_root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid media path")
 
-    if not os.path.isfile(abs_path):
+    target = (upload_root / requested).resolve()
+    if not target.is_relative_to(upload_root) or not target.is_file():
         raise HTTPException(status_code=404, detail="Media file not found")
 
     ext_mime = {
@@ -183,14 +193,17 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         ".webm": "video/webm",
         ".mov": "video/quicktime",
     }
-    mime = ext_mime.get(os.path.splitext(abs_path)[1].lower(), "application/octet-stream")
+    ext = target.suffix.lower()
+    mime = ext_mime.get(ext, "application/octet-stream")
 
     if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
-        return FileResponse(abs_path, media_type=mime)
+        return FileResponse(str(target), media_type=mime)
 
     # Non-native image format → re-encode to PNG so every browser can show it.
+    # Read the file into a buffer so the image decoder never opens a user-controlled path directly.
     try:
-        img = Image.open(abs_path)
+        buf = target.read_bytes()
+        img = Image.open(io.BytesIO(buf))
         img.load()
     except Exception:
         raise HTTPException(
@@ -350,12 +363,12 @@ async def generate_image(
 
     from app.services.cf_models import CF_TXT2IMG_FREE
     from app.services.inference import (
-        _call_workers_ai_image,
+        HF_TXT2IMG_FALLBACK,
+        TOGETHER_TXT2IMG_FALLBACK,
+        _call_hf_txt2img,
         _call_pixazo_txt2img,
         _call_together_txt2img,
-        _call_hf_txt2img,
-        TOGETHER_TXT2IMG_FALLBACK,
-        HF_TXT2IMG_FALLBACK,
+        _call_workers_ai_image,
     )
     from app.services.media_storage import persist_generated_image
 

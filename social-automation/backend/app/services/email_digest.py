@@ -53,7 +53,7 @@ def _html_escape(text: str) -> str:
     )
 
 
-def digest_email_subject(report: "DigestReport") -> str:
+def digest_email_subject(report: DigestReport) -> str:
     errors = sum(1 for i in report.issues if i.severity == "error")
     warnings = sum(1 for i in report.issues if i.severity == "warning")
     day = report.generated_at.strftime("%Y-%m-%d")
@@ -64,7 +64,7 @@ def digest_email_subject(report: "DigestReport") -> str:
     return f"[SocialAuto] Daily report {day} — OK"
 
 
-def digest_to_plaintext(report: "DigestReport") -> str:
+def digest_to_plaintext(report: DigestReport) -> str:
     md = report.to_slack_markdown()
     return (
         md.replace("*", "")
@@ -74,7 +74,7 @@ def digest_to_plaintext(report: "DigestReport") -> str:
     )
 
 
-def digest_to_html(report: "DigestReport") -> str:
+def digest_to_html(report: DigestReport) -> str:
     o = report.overview
     errors = [i for i in report.issues if i.severity == "error"]
     warnings = [i for i in report.issues if i.severity == "warning"]
@@ -321,7 +321,7 @@ async def send_email(
     )
 
 
-async def email_digest(report: "DigestReport") -> "DigestReport":
+async def email_digest(report: DigestReport) -> DigestReport:
     settings = get_settings()
     if not (settings.DIGEST_EMAIL_TO or "").strip():
         report.email_error = "DIGEST_EMAIL_TO not set"

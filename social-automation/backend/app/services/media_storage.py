@@ -1,6 +1,7 @@
 """Persist generated images to disk + database so they appear in the Media Library."""
 import io
 import os
+import pathlib
 import re
 import uuid
 from datetime import UTC, datetime
@@ -104,19 +105,35 @@ async def persist_generated_image(
 
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")
+
+    # Sanitize user-supplied folder to a safe path component.
+    safe_folder = ""
     if folder:
-        safe_folder = re.sub(r"[^a-zA-Z0-9_-]", "-", folder)[:48]
-        date_folder = f"{date_part}/{safe_folder}"
-    else:
-        date_folder = date_part
-    target_dir = os.path.join(UPLOAD_DIR, date_folder)
-    os.makedirs(target_dir, exist_ok=True)
+        safe_folder = re.sub(r"[^a-zA-Z0-9_-]", "-", str(folder))[:48]
+        safe_folder = safe_folder.strip("/")
+    date_folder = f"{date_part}/{safe_folder}" if safe_folder else date_part
 
-    filename = f"{source}_{uuid.uuid4().hex[:8]}{extension}"
-    abs_path = os.path.join(target_dir, filename)
-    relative_path = os.path.join(date_folder, filename)
+    # Resolve the target directory and ensure it stays under UPLOAD_DIR.
+    upload_root = pathlib.Path(UPLOAD_DIR).resolve()
+    target_dir = (upload_root / date_folder).resolve()
+    if not target_dir.is_relative_to(upload_root):
+        raise ValueError("Invalid folder path")
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-    async with aiofiles.open(abs_path, "wb") as f:
+    # Sanitize source and extension for the filename.
+    safe_source = re.sub(r"[^a-zA-Z0-9_-]", "-", str(source))[:48]
+    safe_ext = re.sub(r"[^a-zA-Z0-9_.-]", "", extension.lower())[:16]
+    if not safe_ext.startswith("."):
+        safe_ext = f".{safe_ext}"
+    filename = f"{safe_source}_{uuid.uuid4().hex[:8]}{safe_ext}"
+    abs_path = target_dir / filename
+    relative_path = (pathlib.Path(date_folder) / filename).as_posix()
+
+    # Defensive: the resolved file must still be inside the upload root.
+    if not abs_path.resolve().is_relative_to(upload_root):
+        raise ValueError("Invalid media path")
+
+    async with aiofiles.open(str(abs_path), "wb") as f:
         await f.write(image_bytes)
 
     if width is None or height is None:

@@ -13,7 +13,6 @@ from app.core.security import decrypt_token
 from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember
 from app.services.cf_models import (
-    CF_IMG2IMG_FREE,
     CF_TEXT_FREE,
     CF_TXT2IMG_FREE,
     GROQ_API_BASE,
@@ -24,7 +23,6 @@ from app.services.cf_models import (
     HF_TXT2IMG_FALLBACK,
     PIXAZO_TXT2IMG_URL,
     TOGETHER_API_BASE,
-    TOGETHER_TEXT_FALLBACK,
     TOGETHER_TXT2IMG_FALLBACK,
 )
 
@@ -549,6 +547,7 @@ async def _call_workers_ai_img2img(
     width: int = 512,
     height: int = 512,
     max_retries: int = 4,
+    allow_fallback: bool = True,
 ) -> dict:
     """Enhance / transform an image via Cloudflare Workers AI img2img.
 
@@ -622,24 +621,25 @@ async def _call_workers_ai_img2img(
                 "model": model,
             }
 
-    # CF img2img exhausted all retries — try HF failover
-    hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-    if hf_key:
-        print(f"[inference] CF img2img quota/retries exhausted — falling back to HF {HF_IMG2IMG_FALLBACK}", flush=True)
-        try:
-            return await _call_hf_img2img(
-                prompt=prompt,
-                image_b64=image_b64,
-                model=HF_IMG2IMG_FALLBACK,
-                api_key=hf_key,
-                negative_prompt=negative_prompt,
-                strength=strength,
-                steps=min(steps, 20),
-                width=width,
-                height=height,
-            )
-        except HTTPException:
-            pass  # HF also failed — fall through to original error
+    # CF img2img exhausted all retries — try HF failover only when allowed
+    if allow_fallback:
+        hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+        if hf_key:
+            print(f"[inference] CF img2img quota/retries exhausted — falling back to HF {HF_IMG2IMG_FALLBACK}", flush=True)
+            try:
+                return await _call_hf_img2img(
+                    prompt=prompt,
+                    image_b64=image_b64,
+                    model=HF_IMG2IMG_FALLBACK,
+                    api_key=hf_key,
+                    negative_prompt=negative_prompt,
+                    strength=strength,
+                    steps=min(steps, 20),
+                    width=width,
+                    height=height,
+                )
+            except HTTPException:
+                pass  # HF also failed — fall through to original error
 
     raise HTTPException(
         status_code=502,
@@ -736,6 +736,7 @@ async def _call_cf_image_pipeline(
     strength: float = 0.45,
     txt2img_steps: int = 4,
     img2img_steps: int = 8,
+    allow_fallback: bool = True,
 ) -> dict:
     """Cloudflare-only pipeline: text-to-image draft, optionally enhanced via img2img.
 
@@ -765,6 +766,8 @@ async def _call_cf_image_pipeline(
     except HTTPException as exc:
         if not _is_cf_quota_error(exc):
             raise
+        if not allow_fallback:
+            raise
         draft = None
         if pixazo_key:
             print("[cf-pipeline] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
@@ -789,6 +792,7 @@ async def _call_cf_image_pipeline(
             )
         if draft is None:
             raise
+    assert draft is not None
     draft_bytes = base64.b64decode(draft["image_base64"])
 
     if img2img_model:
@@ -810,6 +814,7 @@ async def _call_cf_image_pipeline(
                     strength=strength,
                     steps=img2img_steps,
                     max_retries=5,
+                    allow_fallback=allow_fallback,
                 )
         except HTTPException as first_exc:
             print(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}", flush=True)
@@ -819,6 +824,7 @@ async def _call_cf_image_pipeline(
         enhance_model_used = "draft-only"
         enhanced = draft
 
+    assert enhanced is not None
     enhanced_bytes = base64.b64decode(enhanced["image_base64"])
 
     # Normalize to 1024 for slide composition.
@@ -1215,7 +1221,6 @@ async def _call_together_txt2img(
     steps: int = 4,
 ) -> dict:
     """Together AI — text-to-image via their images/generations endpoint."""
-    import base64
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -1259,6 +1264,7 @@ async def call_inference(
     schema: dict | None = None,
     model_override: str | None = None,
     max_tokens: int | None = None,
+    allow_fallback: bool = True,
 ) -> dict:
     """Call the requested inference provider and return parsed JSON or text dict."""
     if provider_name == "ollama":
@@ -1302,6 +1308,8 @@ async def call_inference(
             except HTTPException as exc:
                 if not _is_cf_quota_error(exc):
                     raise
+                if not allow_fallback:
+                    raise
                 # CF txt2img exhausted → Pixazo → Together → HF
                 pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
                 if pixazo_key:
@@ -1334,6 +1342,8 @@ async def call_inference(
             )
         except HTTPException as exc:
             if not _is_cf_quota_error(exc):
+                raise
+            if not allow_fallback:
                 raise
             # CF text exhausted → Groq → HF
             groq_key = (settings.GROQ_API_KEY or "").strip()

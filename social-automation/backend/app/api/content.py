@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -448,9 +449,14 @@ async def delete_content_media(
     if ".." in media_id or media_id.startswith("/") or "\\" in media_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
 
+    # Only allow a flat, safe filename pattern.
+    if not re.fullmatch(r"[a-f0-9]{8}_[A-Za-z0-9_.-]+", media_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
+
     # Construct target path and ensure it stays within MEDIA_DIR
-    target = (MEDIA_DIR / media_id).resolve()
-    if not target.is_relative_to(MEDIA_DIR.resolve()):
+    media_root = MEDIA_DIR.resolve()
+    target = (media_root / media_id).resolve()
+    if not target.is_relative_to(media_root):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media ID")
 
     if target.exists() and target.is_file():

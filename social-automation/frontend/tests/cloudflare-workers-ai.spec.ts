@@ -20,7 +20,7 @@ const CF_CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct'
 const CF_EMBED_MODEL = '@cf/baai/bge-m3'
 
 // A unique test user is registered per worker (Playwright runs workers in parallel).
-const TEST_EMAIL = `cf-e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`
+const TEST_EMAIL = `cf-e2e-${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 8)}@example.com`
 const TEST_PASSWORD = 'CloudflareE2E!1234'
 
 let accessToken = ''

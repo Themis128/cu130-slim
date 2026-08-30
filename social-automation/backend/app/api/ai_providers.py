@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -14,6 +15,7 @@ from app.models.user import Team, TeamMember, User
 from app.services.inference import PROVIDER_CATALOG
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AIProviderUpsert(BaseModel):
@@ -206,6 +208,6 @@ async def test_provider(
         return {"ok": True, "response": text[:200]}
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
-    except Exception as exc:
-        error_msg = str(exc) or type(exc).__name__
-        return {"ok": False, "error": error_msg}
+    except Exception:
+        logger.exception("Provider test failed for %s", name)
+        return {"ok": False, "error": "Provider test failed. Check server logs for details."}

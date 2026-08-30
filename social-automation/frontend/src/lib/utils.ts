@@ -134,6 +134,25 @@ export function truncate(str: string, length: number): string {
   return str.slice(0, length) + '...'
 }
 
+/** Validate that a URL is safe to use as an image or video src attribute. */
+function _isSafeMediaUrl(url: string | null | undefined, protocols: string[]): url is string {
+  if (!url) return false
+  try {
+    const u = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://localhost')
+    return protocols.includes(u.protocol)
+  } catch {
+    return false
+  }
+}
+
+export function isSafeImageUrl(url: string | null | undefined): url is string {
+  return _isSafeMediaUrl(url, ['http:', 'https:', 'data:', 'blob:'])
+}
+
+export function isSafeVideoUrl(url: string | null | undefined): url is string {
+  return _isSafeMediaUrl(url, ['http:', 'https:', 'blob:', 'data:'])
+}
+
 export function generateId(): string {
   return crypto.randomUUID().replace(/-/g, "").substring(0, 13);
 }

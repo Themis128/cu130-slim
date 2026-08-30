@@ -2,6 +2,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
@@ -48,30 +49,46 @@ async def init_db() -> None:
             )
             admin_user = result.scalar_one_or_none()
             if not admin_user:
-                admin_user = User(
-                    id=uuid.uuid4(),
-                    email=settings.SOCIAL_ADMIN_EMAIL,
-                    password_hash=hash_password(settings.SOCIAL_ADMIN_PASSWORD),
-                    name=settings.SOCIAL_ADMIN_NAME or "Admin User",
-                    timezone=settings.APP_TIMEZONE,
-                )
-                session.add(admin_user)
-                await session.flush()
-                print(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
+                try:
+                    admin_user = User(
+                        id=uuid.uuid4(),
+                        email=settings.SOCIAL_ADMIN_EMAIL,
+                        password_hash=hash_password(settings.SOCIAL_ADMIN_PASSWORD),
+                        name=settings.SOCIAL_ADMIN_NAME or "Admin User",
+                        timezone=settings.APP_TIMEZONE,
+                    )
+                    session.add(admin_user)
+                    await session.flush()
+                    print(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
+                except IntegrityError:
+                    await session.rollback()
+                    result = await session.execute(
+                        select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL)
+                    )
+                    admin_user = result.scalar_one_or_none()
+
+            if admin_user is None:
+                # Defensive: should not happen, but don't continue if the user still can't be resolved.
+                await session.rollback()
+                return
 
             membership = await session.execute(
                 select(TeamMember).where(TeamMember.user_id == admin_user.id)
             )
             if not membership.scalar_one_or_none():
-                team = Team(
-                    name=f"{admin_user.name or admin_user.email}'s Team",
-                    owner_id=admin_user.id,
-                )
-                session.add(team)
-                await session.flush()
-                session.add(
-                    TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER)
-                )
-                print(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
-
-            await session.commit()
+                try:
+                    team = Team(
+                        name=f"{admin_user.name or admin_user.email}'s Team",
+                        owner_id=admin_user.id,
+                    )
+                    session.add(team)
+                    await session.flush()
+                    session.add(
+                        TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER)
+                    )
+                    print(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+            else:
+                await session.commit()

@@ -41,6 +41,8 @@ dependencies = [
     "wheel>=0.46.2",
     # Security: pin starlette to fix DoS/SSRF (CVE-2024-xxxx)
     "starlette>=0.52.2",
+    # Used for robust emoji stripping in image rendering
+    "emoji>=2.14.0",
 ]
 
 [project.optional-dependencies]
@@ -85,7 +87,8 @@ disable_error_code = ["name-defined"]
 # Third-party packages without complete typing support:
 # - aiofiles: no inline types / stubs installed
 # - numpy: ships PEP-695 `type` statement stubs incompatible with python_version 3.11 target
-module = ["aiofiles.*", "numpy.*"]
+# - emoji: no type stubs installed
+module = ["aiofiles.*", "numpy.*", "emoji.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -53,7 +53,7 @@ def get_existing_api_key():
             for key in data.get("data", []):
                 if key.get("label") == API_KEY_LABEL:
                     return key.get("key")
-    except Exception as e:
+    except Exception:
         print("Error checking existing keys (details hidden for security)")
     return None
 
@@ -87,8 +87,7 @@ def create_api_key():
             json=payload,
             timeout=30
         )
-        print("Create response received (status hidden for security)")
-        print("Create response details hidden for security")
+        pass
         
         if resp.status_code in (200, 201):
             data = resp.json()
@@ -100,7 +99,7 @@ def create_api_key():
             elif "apiKey" in data:
                 return data["apiKey"]
         return None
-    except Exception as e:
+    except Exception:
         print("Error creating API key (details hidden for security)")
         return None
 
@@ -110,52 +109,50 @@ def update_env_file(api_key):
     try:
         with open(ENV_FILE, "r") as f:
             lines = f.readlines()
-        
+
         with open(ENV_FILE, "w") as f:
             for line in lines:
                 if line.startswith("# N8N_API_KEY=") or line.startswith("N8N_API_KEY="):
                     f.write(f"N8N_API_KEY={api_key}\n")
                 else:
                     f.write(line)
-        print(f"Updated {ENV_FILE}")
+        os.chmod(ENV_FILE, 0o600)
+        print("Updated .env file (value hidden for security)")
         return True
-    except Exception as e:
-        print(f"Error updating .env: {e}")
+    except Exception:
+        print("Error updating .env file (details hidden for security)")
         return False
 
 
 def main():
     print("Initializing n8n API key...")
-    print(f"N8N_URL: {N8N_URL}")
-    print(f"N8N_USER: {N8N_USER}")
-    
+
     if not wait_for_n8n():
         print("ERROR: n8n did not become ready in time")
         sys.exit(1)
-    
+
     # Check existing
     existing_key = get_existing_api_key()
     if existing_key:
-        print(f"API key '{API_KEY_LABEL}' already exists (value hidden for security)")
+        print(f"API key '{API_KEY_LABEL}' already exists")
         update_env_file(existing_key)
-        print("N8N_API_KEY=[HIDDEN]")
         return
-    
+
     # Create new
     api_key = create_api_key()
     if not api_key:
         print("ERROR: Failed to create API key")
         sys.exit(1)
-    
+
     print("Successfully created API key (value hidden for security)")
-    
+
     if update_env_file(api_key):
         print("Updated .env file")
-    
+
     print("\nNext steps:")
     print("1. Restart social-api and social-worker containers:")
     print("   docker-compose restart social-api social-worker")
-    print("2. Or manually add to .env: N8N_API_KEY=[HIDDEN]")
+    print("2. Or manually add N8N_API_KEY to .env and restart.")
 
 
 if __name__ == "__main__":

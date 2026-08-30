@@ -1,5 +1,4 @@
 import asyncio
-import json as _json
 import logging
 import os
 from contextlib import asynccontextmanager

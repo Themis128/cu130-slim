@@ -17,6 +17,7 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { Undo2 } from 'lucide-react'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
+import { ObjectUrlImage } from '@/components/content/previewIdentity'
 import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 
 export default function EditPostPage() {
@@ -282,7 +283,7 @@ export default function EditPostPage() {
               {newMediaFiles.map((file, i) => (
                 <div key={i} className="relative h-20 w-20 rounded-lg overflow-hidden border">
                   {file.type.startsWith('image/') && (
-                    <img src={URL.createObjectURL(file)} alt={file.name} className="h-full w-full object-cover" />
+                    <ObjectUrlImage file={file} alt={file.name} className="h-full w-full object-cover" />
                   )}
                 </div>
               ))}

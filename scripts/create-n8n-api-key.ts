@@ -69,7 +69,7 @@ async function createN8nApiKey() {
     }
     
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error creating n8n API key');
   } finally {
     await browser.close();
   }

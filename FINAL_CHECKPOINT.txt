@@ -1,2 +1,32 @@
-Final verification completed on 2026-08-20. All tasks implemented.
-Stack is ready for use.
+Verified and updated on 2026-08-30.
+
+Completed:
+- Created local .env (gitignored) and docker-compose.override.yml (ComfyUI + n8n disabled-modules + social-frontend overrides).
+- Fixed API_PREFIX in .env.example (/api -> /api/v1).
+- Fixed BaseOAuth2 Instagram2 client initialisation (token_endpoint -> access_token_endpoint) so social-api starts.
+- Made Cloudless carousel pipeline Cloudflare-only by adding allow_fallback parameter and removing Ollama/ComfyUI/Pixazo/Together/HF fallbacks.
+- Implemented /ai/post-draft using Chroma draft lookup, media persistence, and Celery publishing queue.
+- Seeded admin user logic made multi-worker-safe in app/db/session.py (catches IntegrityError).
+- Replaced README placeholder with stack overview.
+- Created Devin skills + tools under .devin/skills/ (social-stack-ops, cloudless-carousel-pipeline, n8n-cloudless) copied from .cursor/skills and updated to reference .devin paths.
+- Added .devin/rules/cloudless-social-stack.md (always-on rule).
+- Installed + configured MCP servers: Playwright (@playwright/mcp) and GitHub (@modelcontextprotocol/server-github) in .devin/mcp_config.json.
+- Updated .gitignore to keep .devin/mcp_config.local.json and config.local.json out of git.
+
+Stack health:
+- docker compose up -d succeeded.
+- All required containers Up (n8n, social-api, social-worker, redis, postgres, social-postgres, chroma, ollama, languagetool, social-frontend).
+- stack-status.sh: n8n 200, social OpenAPI 200, social frontend 200, carousel endpoints present.
+- skill search shows the three .devin skills are loaded.
+- mcp_list_tools works for both playwright and github servers.
+
+Quality checks (inside social-api container):
+- ruff check app: passed.
+- mypy app --ignore-missing-imports: passed.
+- pytest: 69 passed, 8 failed. Failures are in tests/integration/test_auth.py and tests/integration/test_media_persistence.py and are caused by the rate-limiter (5 req/min) blocking repeated test login calls, not by code changes.
+
+Remaining:
+- Add real CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and LinkedIn OAuth credentials in .env.
+- Generate N8N_API_KEY in the n8n UI and update .env; deploy and activate the n8n carousel workflow.
+- Set GITHUB_TOKEN (PAT) as an env var or in .devin/mcp_config.local.json for the GitHub MCP server to make authenticated calls.
+- Re-run integration tests after rate-limiter tuning.

@@ -9,6 +9,7 @@ import {
   ThumbsUp, Globe, ChevronDown, Loader2, Copy, Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { SafeImage } from '@/components/ui/SafeImage'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/Dialog'
@@ -849,8 +850,7 @@ export default function NewPostPage() {
                   ))}
                   {libraryAssets.map((asset) => (
                     <div key={asset.id} className="relative h-16 w-16 rounded-lg overflow-hidden border border-primary/40">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <SafeImage
                         src={mediaUrl(asset.storage_path)}
                         alt={asset.alt_text || asset.filename || ''}
                         className="h-full w-full object-cover"

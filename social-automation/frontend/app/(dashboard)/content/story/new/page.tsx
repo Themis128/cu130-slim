@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2, Save, Send, ArrowLeft, X, Type, Link as LinkIcon, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { useAccounts, useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
+import { isSafeImageUrl, isSafeVideoUrl } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 
@@ -48,6 +49,11 @@ export default function NewStoryPage() {
   const [publishing, setPublishing] = useState(false)
 
   const isVideo = mediaFile?.type.startsWith('video/')
+
+  const safeMediaPreview = useMemo(() => {
+    if (!mediaPreview) return null
+    return isSafeVideoUrl(mediaPreview) || isSafeImageUrl(mediaPreview) ? mediaPreview : null
+  }, [mediaPreview])
 
   const togglePlatform = (p: Platform) => {
     if (!connectedPlatforms.includes(p)) { toast.error(`Connect your ${PLATFORM_NAMES[p]} account first`); return }
@@ -180,7 +186,7 @@ export default function NewStoryPage() {
             onChange={e => e.target.files && handleFileSelect(e.target.files)}
           />
 
-          {!mediaPreview ? (
+          {!safeMediaPreview ? (
             <button
               onClick={() => fileInputRef.current?.click()}
               className="w-full border-2 border-dashed border-muted rounded-xl flex flex-col items-center justify-center gap-3 py-16 hover:border-primary/50 transition-colors"
@@ -196,9 +202,9 @@ export default function NewStoryPage() {
               {/* Story preview — 9:16 aspect ratio */}
               <div className="relative mx-auto rounded-xl overflow-hidden bg-black" style={{ aspectRatio: '9/16', maxHeight: '480px' }}>
                 {isVideo ? (
-                  <video src={mediaPreview} className="h-full w-full object-cover" muted loop autoPlay playsInline />
+                  <video src={safeMediaPreview} className="h-full w-full object-cover" muted loop autoPlay playsInline />
                 ) : (
-                  <img src={mediaPreview} alt="Story preview" className="h-full w-full object-cover" />
+                  <img src={safeMediaPreview} alt="Story preview" className="h-full w-full object-cover" />
                 )}
                 {uploading && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center">

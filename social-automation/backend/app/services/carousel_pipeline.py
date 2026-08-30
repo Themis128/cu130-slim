@@ -19,13 +19,9 @@ from sqlalchemy.orm import selectinload
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.core.config import get_settings as _get_settings
-from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, TOGETHER_TXT2IMG_FALLBACK
+from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.duplicate_detector import is_duplicate
-from app.services.spellcheck import auto_correct, preprocess_for_render
 from app.services.inference import (
-    _call_pixazo_txt2img,
-    _call_together_txt2img,
     _call_workers_ai_image,
     call_inference,
 )
@@ -35,6 +31,7 @@ from app.services.plain_english import (
     build_linkedin_caption,
     run_nlp_check_and_fix,
 )
+from app.services.spellcheck import auto_correct, preprocess_for_render
 
 DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
@@ -456,10 +453,11 @@ async def _cf_generate_background(
     image_prompt: str,
     txt2img_model: str,
 ) -> Image.Image | None:
-    """Generate a unique realistic background via CF → Together AI fallback.
+    """Generate a unique realistic background via Cloudflare Workers AI only.
 
     Adds random photographic style and mood modifiers to ensure every generation
-    looks different, even for similar prompts.
+    looks different, even for similar prompts. If CF is unavailable, returns None
+    and the slide is rendered on the brand canvas.
     """
     style = random.choice(_PHOTO_STYLES)
     mood = random.choice(_MOODS)
@@ -470,52 +468,15 @@ async def _cf_generate_background(
     )
     raw_bytes = None
 
-    # Try CF first
     try:
         t2i_result = await _call_workers_ai_image(
             prompt_t2i,
             model=txt2img_model,
-            width=512,
-            height=512,
-            steps=20,
+            steps=4,
         )
         raw_bytes = base64.b64decode(t2i_result["image_base64"])
     except Exception as e:
         print(f"[carousel] CF txt2img failed (non-fatal): {e}", flush=True)
-
-    # CF failed → Pixazo FLUX Schnell (free, no daily cap)
-    if raw_bytes is None:
-        pixazo_key = (_get_settings().PIXAZO_API_KEY or "").strip()
-        if pixazo_key:
-            try:
-                t2i_result = await _call_pixazo_txt2img(
-                    prompt=prompt_t2i,
-                    api_key=pixazo_key,
-                    width=1024,
-                    height=1024,
-                )
-                raw_bytes = base64.b64decode(t2i_result["image_base64"])
-                print("[carousel] Pixazo FLUX Schnell succeeded", flush=True)
-            except Exception as e:
-                print(f"[carousel] Pixazo txt2img failed (non-fatal): {e}", flush=True)
-
-    # Pixazo failed → Together AI FLUX.1-schnell
-    if raw_bytes is None:
-        together_key = (_get_settings().TOGETHER_API_KEY or "").strip()
-        if together_key:
-            try:
-                t2i_result = await _call_together_txt2img(
-                    prompt=prompt_t2i,
-                    model=TOGETHER_TXT2IMG_FALLBACK,
-                    api_key=together_key,
-                    width=1024,
-                    height=1024,
-                    steps=4,
-                )
-                raw_bytes = base64.b64decode(t2i_result["image_base64"])
-                print("[carousel] Together AI txt2img succeeded", flush=True)
-            except Exception as e:
-                print(f"[carousel] Together txt2img also failed (non-fatal): {e}", flush=True)
 
     if raw_bytes is None:
         return None
@@ -558,9 +519,15 @@ SLIDE RULES:
 IMAGE PROMPT RULES (one per slide — CRITICAL for visual quality):
 - image_prompt: a short (15-25 words) realistic/photographic scene description for the slide background.
 - Style: professional photography, real-world scenes, no abstract patterns, no text/letters/words in image.
-- Each slide MUST have a COMPLETELY DIFFERENT scene, setting, and subject. Vary the environment (indoor/outdoor/aerial/macro), time of day, and visual subject.
-- Be SPECIFIC and CREATIVE — describe exact objects, materials, environments. Generic prompts like "technology background" or "business meeting" are NOT allowed.
-- Good examples: "close-up of fiber optic cables with blue light pulses inside dark server room", "hands assembling a Raspberry Pi IoT sensor on a wooden workbench", "raindrops on a glass window reflecting blurred city traffic at night", "overhead shot of a whiteboard covered in architecture diagrams and sticky notes".
+- Each slide MUST have a COMPLETELY DIFFERENT scene, setting, and subject. Vary the environment
+  (indoor/outdoor/aerial/macro), time of day, and visual subject.
+- Be SPECIFIC and CREATIVE — describe exact objects, materials, environments. Generic prompts like
+  "technology background" or "business meeting" are NOT allowed.
+- Good examples:
+  "close-up of fiber optic cables with blue light pulses inside dark server room",
+  "hands assembling a Raspberry Pi IoT sensor on a wooden workbench",
+  "raindrops on a glass window reflecting blurred city traffic at night",
+  "overhead shot of a whiteboard covered in architecture diagrams and sticky notes".
 - BAD examples (too generic): "technology background", "business concept", "abstract network", "person working".
 - Never reuse scenes between slides. Each must tell a different visual story.
 
@@ -608,6 +575,7 @@ Return JSON only:
         team_id=team_id,
         schema=schema,
         model_override=text_model,
+        allow_fallback=False,
     )
 
 
@@ -629,8 +597,8 @@ async def run_cloudless_carousel_pipeline(
 ) -> dict:
     """Full pipeline: CF copy → NLP → txt2img bg → brand slides → post → publish.
 
-    Text: CF Workers AI → Groq → HF → Ollama (last resort).
-    Images: CF FLUX Schnell → Together AI FLUX → HF → solid color fallback.
+    Text and images use Cloudflare Workers AI only (no Ollama/ComfyUI fallbacks).
+    If CF image generation fails for a slide, the slide is rendered on the brand canvas.
     """
     target_id = uuid.UUID(target_account_id or DEFAULT_ORG_ACCOUNT_ID)
     account = (
@@ -645,54 +613,33 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — CF primary → Groq → HF fallback (inside call_inference) → Ollama last resort
-    _ollama_model = _get_settings().OLLAMA_DEFAULT_MODEL
-    effective_provider = text_provider
-    try:
-        # call_inference() handles CF→Groq→HF internally on quota errors
-        raw = await generate_carousel_copy(
-            topic=topic,
-            num_slides=num_slides,
-            tone=tone,
-            include_cta=include_cta,
-            text_model=text_model,
-            text_provider=effective_provider,
-            db=db,
-            team_id=team.id,
-        )
-    except (HTTPException, Exception) as exc:
-        detail = str(getattr(exc, "detail", exc))
-        if any(k in detail.lower() for k in ("429", "neurons", "quota", "rate limit", "exceeded", "hf", "hugging", "groq", "together", "connect", "timeout", "no address", "unreachable")):
-            # CF+Groq+HF all exhausted — Ollama is the last resort
-            print(f"[carousel] All cloud providers exhausted, falling back to Ollama ({_ollama_model}): {detail[:100]}", flush=True)
-            effective_provider = "ollama"
-            raw = await generate_carousel_copy(
-                topic=topic,
-                num_slides=num_slides,
-                tone=tone,
-                include_cta=include_cta,
-                text_model=_ollama_model,
-                text_provider="ollama",
-                db=db,
-                team_id=team.id,
-            )
-        else:
-            raise
+    # 1) Copy — Cloudflare Workers AI only (no Ollama/ComfyUI fallbacks)
+    effective_provider = "cloudflare"
+    raw = await generate_carousel_copy(
+        topic=topic,
+        num_slides=num_slides,
+        tone=tone,
+        include_cta=include_cta,
+        text_model=text_model,
+        text_provider=effective_provider,
+        db=db,
+        team_id=team.id,
+    )
 
     slides = list(raw.get("slides") or [])[:num_slides]
     caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
     hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
 
     # 2) NLP checker + fixer (runs on both slides and caption)
-    _nlp_model = _ollama_model if effective_provider == "ollama" else text_model
     slides, caption, nlp_report = await run_nlp_check_and_fix(
         slides=slides,
         caption=caption,
         provider_name=effective_provider,
-        model=_nlp_model,
+        model=text_model,
         db=db,
         team_id=team.id,
         force_fix=True,
+        allow_fallback=False,
     )
     slides = _dedupe_slide_copy(slides)
 

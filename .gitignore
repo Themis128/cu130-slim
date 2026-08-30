@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 
+# Devin local config / secrets
+.devin/mcp_config.local.json
+.devin/config.local.json
+
 # Backup / debug artifacts
 *.backup
 *.bak

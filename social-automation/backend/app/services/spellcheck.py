@@ -15,29 +15,33 @@ import logging
 import re
 import unicodedata
 
+import emoji
 import httpx
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Matches emoji and dingbat ranges that PIL's bundled fonts cannot render.
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F600-\U0001F64F"   # emoticons
-    "\U0001F300-\U0001F5FF"   # symbols & pictographs
-    "\U0001F680-\U0001F6FF"   # transport & map
-    "\U0001F700-\U0001F77F"   # alchemical symbols
-    "\U0001F780-\U0001F7FF"   # geometric shapes extended
-    "\U0001F800-\U0001F8FF"   # supplemental arrows
-    "\U0001F900-\U0001F9FF"   # supplemental symbols
-    "\U0001FA00-\U0001FA6F"   # chess symbols
-    "\U0001FA70-\U0001FAFF"   # symbols and pictographs extended
-    "\U00002702-\U000027B0"   # dingbats
-    "\U000024C2-\U0001F251"   # enclosed chars
-    "]+",
-    flags=re.UNICODE,
-)
+
+def _strip_unrenderable_symbols(text: str) -> str:
+    """Remove emoji and other high symbol codepoints that bundled PIL fonts cannot render.
+
+    Uses the ``emoji`` package and the Unicode ``So`` category.  Keeping low
+    codepoints (< U+2600) preserves common symbols such as currency, copyright
+    and mathematical marks while stripping dingbats, arrows, geometric shapes,
+    chess pieces and similar glyphs.
+    """
+
+    def _keep(ch: str) -> bool:
+        if not ch:
+            return False
+        if emoji.is_emoji(ch):
+            return False
+        if unicodedata.category(ch) == "So" and ord(ch) >= 0x2600:
+            return False
+        return True
+
+    return "".join(ch for ch in text if _keep(ch))
 
 
 def _normalize(text: str) -> str:
@@ -58,7 +62,7 @@ def preprocess_for_render(text: str) -> str:
     tofu boxes or crashes. Strip them and collapse any resulting double spaces.
     """
     text = _normalize(text)
-    text = _EMOJI_RE.sub("", text)
+    text = _strip_unrenderable_symbols(text)
     text = re.sub(r" {2,}", " ", text).strip()
     return text
 

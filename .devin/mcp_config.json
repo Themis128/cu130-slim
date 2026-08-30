@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "/home/tbaltzakis/.local/share/pnpm/playwright-mcp",
+      "args": ["--headless"]
+    },
+    "github-local": {
+      "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
