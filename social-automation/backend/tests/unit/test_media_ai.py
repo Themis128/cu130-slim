@@ -75,6 +75,27 @@ async def test_extract_caption_prefers_description():
 
 
 @pytest.mark.asyncio
+async def test_extract_caption_llama4_scout_response():
+    """llama-4-scout returns result.response (chat completion format)."""
+    result = {"result": {"response": "A blue square image", "choices": [{"message": {"content": "A blue square image"}}]}}
+    assert media_ai._extract_caption(result) == "A blue square image"
+
+
+@pytest.mark.asyncio
+async def test_extract_caption_moondream_nested_result():
+    """moondream returns result.result.caption."""
+    result = {"result": {"result": {"caption": "A photo of a cat"}}}
+    assert media_ai._extract_caption(result) == "A photo of a cat"
+
+
+@pytest.mark.asyncio
 async def test_extract_query_text_falls_back():
     assert media_ai._extract_query_text({"description": "x"}) == "x"
     assert media_ai._extract_query_text({"result": {"response": "y"}}) == "y"
+
+
+@pytest.mark.asyncio
+async def test_extract_query_text_moondream_answer():
+    """moondream query returns result.result.answer."""
+    result = {"result": {"result": {"answer": "Yes, there is a person"}}}
+    assert media_ai._extract_query_text(result) == "Yes, there is a person"

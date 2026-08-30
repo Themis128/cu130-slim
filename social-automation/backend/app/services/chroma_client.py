@@ -1,7 +1,13 @@
-"""Thin async client for ChromaDB's HTTP API (v2) and Ollama embeddings."""
+"""Thin async client for ChromaDB's HTTP API (v2).
+
+Embeddings use Cloudflare Workers AI BGE-M3 (multilingual, 0 neurons) as the
+primary provider with Ollama as the last-resort fallback, per the Cloudflare-
+first, Ollama-last-resort product policy.
+"""
 import httpx
 
 from app.core.config import get_settings
+from app.services.cf_models import CF_EMBEDDING_MULTILINGUAL
 
 settings = get_settings()
 
@@ -12,7 +18,43 @@ _CHROMA_TIMEOUT = 10.0
 _CHROMA_API_BASE = "/api/v2/tenants/default_tenant/databases/default_database"
 
 
-async def _get_embedding(text: str) -> list[float]:
+def _cf_ai_token() -> str:
+    """Return the Workers AI token (prefers CLOUDFLARE_AI_API_TOKEN)."""
+    return (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+
+
+async def _cf_embedding(text: str) -> list[float]:
+    """Call Cloudflare Workers AI BGE-M3 for embeddings. Returns [] on failure."""
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    token = _cf_ai_token()
+    if not account_id or not token:
+        return []
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{CF_EMBEDDING_MULTILINGUAL}"
+    async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
+        try:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"text": [text]},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # Workers AI returns {"result": {"data": [[...]], "shape": [1, 1024]}}
+                result = data.get("result") or data
+                if isinstance(result, dict):
+                    embeddings = result.get("data") or result.get("embeddings")
+                    if embeddings and isinstance(embeddings, list):
+                        return embeddings[0] if isinstance(embeddings[0], list) else embeddings
+        except Exception:
+            pass
+    return []
+
+
+async def _ollama_embedding(text: str) -> list[float]:
+    """Call Ollama for embeddings (last-resort fallback). Returns [] on failure."""
     async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
         try:
             resp = await client.post(
@@ -24,6 +66,14 @@ async def _get_embedding(text: str) -> list[float]:
         except Exception:
             pass
     return []
+
+
+async def _get_embedding(text: str) -> list[float]:
+    """Embed text via Cloudflare BGE-M3 first, then Ollama as fallback."""
+    embedding = await _cf_embedding(text)
+    if embedding:
+        return embedding
+    return await _ollama_embedding(text)
 
 
 def _collection_name(team_id: str) -> str:

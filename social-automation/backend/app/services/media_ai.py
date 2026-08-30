@@ -80,8 +80,9 @@ async def _call_cloudflare_vision(
 
     from urllib.parse import quote
 
-    # Strip data URI prefix for llama-4 (it wants raw base64 in a list)
-    raw_b64 = image_b64.split(",", 1)[-1] if image_b64.startswith("data:") else image_b64
+    # llama-4-scout uses OpenAI-compatible content arrays with image_url.
+    # moondream uses the task/image format. Keep the data URI for llama-4.
+    data_uri = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
 
     # --- Primary: llama-4-scout (chat format, 0.6 neurons) ---
     try:
@@ -92,9 +93,14 @@ async def _call_cloudflare_vision(
         else:
             user_msg = prompt
         payload = {
-            "image": [raw_b64],
             "messages": [
-                {"role": "user", "content": user_msg},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_msg},
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ],
+                },
             ],
             "max_tokens": max_tokens,
             "stream": False,

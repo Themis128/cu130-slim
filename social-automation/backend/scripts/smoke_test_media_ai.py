@@ -144,11 +144,13 @@ async def main() -> int:
         print(f"  CREATED_ASSET: {asset.id}")
 
         await media_ai.auto_tag_asset(asset.id)
+        asset_id_copy = asset.id
+        team_id_copy = team.id
 
         # Reload asset to see updated fields (expire cache first since
         # auto_tag_asset committed in a separate session).
         db.expire_all()
-        result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset.id))
+        result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id_copy))
         asset = result.scalar_one()
         print(f"  AI_CAPTION: {asset.ai_caption}")
         print(f"  AI_TAGS: {asset.ai_tags}")
@@ -156,7 +158,7 @@ async def main() -> int:
 
         print("\n=== Chroma similar-assets query ===")
         try:
-            similar = await media_ai.get_similar_assets(team.id, asset.id)
+            similar = await media_ai.get_similar_assets(team_id_copy, asset.id)
             print(f"  SIMILAR: {similar}")
         except Exception as exc:
             print(f"  SIMILAR_QUERY_FAILED: {exc}")
