@@ -44,6 +44,8 @@ interface PlatformSetup {
   scopes: string[]
   envVars: string[]
   steps: Step[]
+  /** Rendered after the numbered steps when the platform's OAuth page is flaky. */
+  troubleshooting?: string
 }
 
 const platforms: PlatformSetup[] = [
@@ -55,7 +57,7 @@ const platforms: PlatformSetup[] = [
     textColor: 'text-blue-600',
     description: 'Professional network for B2B content',
     devPortalUrl: 'https://www.linkedin.com/developers/apps',
-    scopes: ['r_liteprofile', 'r_emailaddress', 'w_member_social'],
+    scopes: ['openid', 'profile', 'email', 'w_member_social', 'w_organization_social', 'r_organization_social'],
     envVars: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
     steps: [
       {
@@ -75,13 +77,14 @@ const platforms: PlatformSetup[] = [
         code: 'http://localhost:8083/api/v1/auth/oauth/linkedin/callback',
       },
       {
-        text: 'Open the "Products" tab and request both "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect".',
-        note: 'Approval is instant for most products.',
+        text: 'Open the "Products" tab and request "Sign In with LinkedIn using OpenID Connect", "Share on LinkedIn", and "Community Management API".',
+        note: 'Community Management API is required to post as a Company Page. Approval is instant for most products.',
       },
       {
         text: 'Save LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in the Env Manager, then restart the API.',
       },
     ],
+    troubleshooting: 'If the LinkedIn sign-in / consent page fails to load (blank page, 404 on icons.svg, or "Cannot read properties of null" in DevTools) after clicking Connect, first retry in a private/incognito window with browser extensions disabled and make sure you are signed into linkedin.com in that window. A 404 on static.licdn.com is usually a transient LinkedIn rollout bug that self-heals within minutes — wait and retry. LinkedIn also blocks headless/automated browsers, so always do the one-time Connect in a normal browser window.',
   },
   {
     id: 'twitter',
@@ -364,6 +367,13 @@ function SetupGuideCard({ platform }: { platform: PlatformSetup }) {
               </li>
             ))}
           </ol>
+
+          {platform.troubleshooting && (
+            <div className="mt-4 flex gap-2 rounded border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800/60 p-3 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <p className="leading-relaxed">{platform.troubleshooting}</p>
+            </div>
+          )}
 
           <div className="mt-5 flex flex-wrap gap-2">
             <Button size="sm" variant="outline" asChild>

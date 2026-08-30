@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import uuid
 from datetime import UTC
 
@@ -30,10 +31,51 @@ from app.models.user import Team, TeamMember, User, UserRole
 settings = get_settings()
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
+
+# Human-readable env var that holds the client id for each OAuth platform.
+# Used only for clear error messages when a platform is not configured.
+# TikTok's identifier is its "client key" (TIKTOK_CLIENT_KEY), which is passed
+# to the client as the client_id positional argument for the authorize URL.
+_OAUTH_CLIENT_ID_ENV_VAR: dict[str, str] = {
+    "linkedin": "LINKEDIN_CLIENT_ID",
+    "facebook": "FACEBOOK_CLIENT_ID",
+    "instagram": "INSTAGRAM_CLIENT_ID",
+    "instagram2": "INSTAGRAM2_CLIENT_ID",
+    "threads": "THREADS_CLIENT_ID",
+    "twitter": "TWITTER_CLIENT_ID",
+    "tiktok": "TIKTOK_CLIENT_KEY",
+}
+
+# LinkedIn OAuth scopes — shared between the authorize request and the callback
+# so the two can never drift. Requested from the consent screen on connect.
+#   - openid / profile / email       : "Sign In with LinkedIn" product — gives us
+#     the v2/userinfo profile + the personal author URN (urn:li:person:{sub}).
+#   - w_member_social                : "Share on LinkedIn" product — post as the
+#     member's personal profile.
+#   - w_organization_social          : "Community Management API" — post as a
+#     Company Page (required by the cloudless.gr carousel pipeline).
+#   - r_organization_social          : "Community Management API" — read company
+#     page data.
+#   - r_organization_admin           : Legacy Organizations API — REQUIRED to
+#     query /rest/organizationAcls so we can discover the Company Pages the
+#     member administers. Do not drop it unless org discovery is intentionally
+#     disabled. Keep the requested list small: a degraded or denied consent
+#     screen from LinkedIn is frequently caused by requesting a scope (or
+#     enabling a Product below) that the app does not actually have approved.
+LINKEDIN_SCOPES: list[str] = [
+    "openid",
+    "profile",
+    "email",
+    "w_member_social",
+    "w_organization_social",
+    "r_organization_social",
+    "r_organization_admin",
+]
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
     client_id=settings.INSTAGRAM2_CLIENT_ID,
@@ -438,12 +480,22 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
+    # Fail fast: with an empty client_id the authorize URL would be built as
+    # "…/authorize?client_id=&…", which the provider rejects (e.g. LinkedIn:
+    # "You need to pass the 'client_id' parameter"). Never emit a broken URL.
+    if not getattr(client, "client_id", None):
+        env_var = _OAUTH_CLIENT_ID_ENV_VAR.get(platform, f"{platform.upper()}_CLIENT_ID")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"OAuth for '{platform}' is not configured: {env_var} is empty, "
+                "so no client_id can be included in the authorization URL. "
+                f"Set {env_var} in .env (or the Env Manager) and restart social-api, then retry."
+            ),
+        )
+
     PLATFORM_SCOPES: dict[str, list[str]] = {
-        "linkedin": [
-            "openid", "profile", "email",
-            "w_member_social", "w_organization_social",
-            "r_organization_social", "r_organization_admin",
-        ],
+        "linkedin": LINKEDIN_SCOPES,
         "facebook": [
             "public_profile", "email",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
@@ -512,29 +564,40 @@ async def oauth_callback(
     async with httpx.AsyncClient() as http:
         if platform == "linkedin":
             resp = await http.get("https://api.linkedin.com/v2/userinfo", headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "LinkedIn profile fetch failed "
+                        f"(HTTP {resp.status_code}): {resp.text[:300]}"
+                    ),
+                )
             user_info = resp.json()
             account_id = user_info["sub"]
             username = user_info.get("email")
             display_name = f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip()
             avatar_url = user_info.get("picture")
-            scopes = [
-                "openid",
-                "profile",
-                "email",
-                "w_member_social",
-                "w_organization_social",
-                "r_organization_social",
-                "r_organization_admin",
-            ]
-            # Discover company pages this member can post as (e.g. cloudless.gr)
-            await _sync_linkedin_organizations(
-                db=db,
-                team_id=team_id,
-                access_token=access_token,
-                refresh_token=token.get("refresh_token"),
-                scopes=scopes,
-                http=http,
-            )
+            scopes = LINKEDIN_SCOPES
+            # Discover company pages this member can post as (e.g. cloudless.gr).
+            # Best-effort: a transient LinkedIn API / ACL failure must not fail the
+            # whole connect after the user already granted consent on the OAuth page
+            # (this is the #1 "connect just worked on LinkedIn but the app errors"
+            # failure mode — re-connecting should still succeed and store the
+            # personal account; /accounts/linkedin/sync-organizations can retry).
+            try:
+                await _sync_linkedin_organizations(
+                    db=db,
+                    team_id=team_id,
+                    access_token=access_token,
+                    refresh_token=token.get("refresh_token"),
+                    scopes=scopes,
+                    http=http,
+                )
+            except Exception:
+                logger.exception(
+                    "LinkedIn organization sync failed after consent; "
+                    "continuing with personal account"
+                )
         elif platform == "twitter":
             resp = await http.get("https://api.twitter.com/2/users/me", headers=headers)
             user_info = resp.json()

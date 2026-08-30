@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import (
+    LINKEDIN_SCOPES,
     facebook_client,
     get_current_user,
     instagram_client,
@@ -156,15 +157,7 @@ async def connect_account_body(
 
     scopes = {
         # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
-        "linkedin": [
-            "openid",
-            "profile",
-            "email",
-            "w_member_social",
-            "w_organization_social",
-            "r_organization_social",
-            "r_organization_admin",
-        ],
+        "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
@@ -211,15 +204,7 @@ async def connect_account(
         raise HTTPException(status_code=400, detail="Unsupported platform")
 
     scopes = {
-        "linkedin": [
-            "openid",
-            "profile",
-            "email",
-            "w_member_social",
-            "w_organization_social",
-            "r_organization_social",
-            "r_organization_admin",
-        ],
+        "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
