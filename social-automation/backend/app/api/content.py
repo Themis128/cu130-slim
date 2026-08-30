@@ -385,6 +385,8 @@ import shutil  # noqa: E402
 from fastapi import File as FastAPIFile  # noqa: E402
 from fastapi import UploadFile  # noqa: E402
 
+from app.core.path_utils import safe_path_component, safe_resolve  # noqa: E402
+
 MEDIA_DIR = pathlib.Path("/app/media")
 
 

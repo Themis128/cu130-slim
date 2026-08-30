@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.core.config import settings
+from app.core.path_utils import safe_path_component, safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset
 from app.models.user import Team, TeamMember, User
@@ -109,15 +110,11 @@ async def upload_media(
 
     filename = f"{uuid.uuid4()}{raw_ext}"
 
-    # Resolve paths and ensure they stay under UPLOAD_DIR.
+    # Resolve and validate that the final path stays under UPLOAD_DIR.
+    storage_path = safe_resolve(UPLOAD_DIR, date_folder, filename)
     upload_root = pathlib.Path(UPLOAD_DIR).resolve()
-    target_dir = (upload_root / date_folder).resolve()
-    if not target_dir.is_relative_to(upload_root):
-        raise HTTPException(status_code=400, detail="Invalid upload path")
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    storage_path = target_dir / filename
-    relative_path = (pathlib.Path(date_folder) / filename).as_posix()
+    relative_path = storage_path.relative_to(upload_root).as_posix()
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Read file content
     content = await file.read()
@@ -165,16 +162,11 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     transparently re-encoded to PNG with Pillow.
     """
     # Resolve and validate the requested path inside UPLOAD_DIR.
-    upload_root = pathlib.Path(UPLOAD_DIR).resolve()
-    requested = pathlib.Path(path)
-    if requested.is_absolute():
-        try:
-            requested = requested.relative_to(upload_root)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid media path")
-
-    target = (upload_root / requested).resolve()
-    if not target.is_relative_to(upload_root) or not target.is_file():
+    try:
+        target = safe_resolve(UPLOAD_DIR, path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid media path")
+    if not target.is_file():
         raise HTTPException(status_code=404, detail="Media file not found")
 
     ext_mime = {
@@ -294,9 +286,13 @@ async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_cur
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Delete file
-    if os.path.exists(asset.storage_path):
-        os.remove(asset.storage_path)
+    # Delete file, resolving the stored path safely inside UPLOAD_DIR.
+    try:
+        file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+        if file_path.is_file():
+            file_path.unlink()
+    except ValueError:
+        pass
 
     await db.delete(asset)
     await db.commit()
@@ -328,9 +324,12 @@ async def bulk_delete_media(
     assets = result.scalars().all()
     deleted = 0
     for asset in assets:
-        abs_path = os.path.join(UPLOAD_DIR, asset.storage_path) if not os.path.isabs(asset.storage_path) else asset.storage_path
-        if os.path.exists(abs_path):
-            os.remove(abs_path)
+        try:
+            file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+            if file_path.is_file():
+                file_path.unlink()
+        except ValueError:
+            pass
         await db.delete(asset)
         deleted += 1
     await db.commit()
