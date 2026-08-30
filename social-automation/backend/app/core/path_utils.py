@@ -25,12 +25,12 @@ def safe_path_component(value: str | None, max_length: int = 128) -> str:
 def safe_resolve(root: str | os.PathLike, *parts: str) -> pathlib.Path:
     """Resolve ``root/parts`` and raise if it escapes ``root``.
 
-    Uses ``os.path.realpath`` for normalization and ``Path.relative_to`` as the
+    Uses ``Path.resolve`` for normalization and ``Path.relative_to`` as the
     guard. CodeQL's path-injection taint tracker recognises the
     ``ValueError``-on-traversal path as a sanitizer.
     """
-    base = pathlib.Path(os.path.realpath(root))
-    target = pathlib.Path(os.path.realpath(pathlib.Path(base, *parts)))
-    # Raises ValueError on traversal, which CodeQL treats as a taint barrier.
-    target.relative_to(base)
-    return target
+    base = pathlib.Path(root).resolve()
+    candidate = pathlib.Path(base, *parts).resolve()
+    # CodeQL CWE-22 barrier: relative_to raises ValueError on traversal.
+    candidate.relative_to(base)
+    return candidate

@@ -2,7 +2,6 @@ import base64
 import json
 import os
 import re
-import urllib.parse
 import uuid
 from datetime import UTC, datetime
 
@@ -1008,11 +1007,14 @@ async def post_draft(
 
 
 def _validate_comfyui_job_id(job_id: str) -> str:
-    """Return a validated ComfyUI job ID."""
-    match = re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id)
-    if not match:
+    """Return a validated ComfyUI job ID.
+
+    The regex matches only safe characters; the original value is returned so
+    CodeQL's taint tracker sees the validated input as a sanitizer.
+    """
+    if not re.fullmatch(r"^[0-9a-fA-F\-]{1,64}$", job_id):
         raise HTTPException(status_code=400, detail="Invalid job ID")
-    return match.group(0)
+    return job_id
 
 
 @router.get("/generate-image/{job_id}")
@@ -1022,13 +1024,10 @@ async def get_image_status(
     db: AsyncSession = Depends(get_db),
 ):
     safe_job_id = _validate_comfyui_job_id(job_id)
-    # URL-encode the path segment so no special characters (including slashes
-    # or query string markers) can alter the request target.
-    safe_path = urllib.parse.quote(safe_job_id, safe="")
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_path}")
+            resp = await client.get(f"{settings.COMFYUI_URL}/history/{safe_job_id}")
             if resp.status_code == 200:
                 history = resp.json()
                 if safe_job_id in history:
