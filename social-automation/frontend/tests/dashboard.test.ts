@@ -1,88 +1,52 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/auth';
 
-test.describe('Dashboard Page', () => {
-  test('should load successfully and show dashboard content', async ({ page }) => {
-    // Mock the API calls for the dashboard
-    await page.route('**/api/overview-metrics', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total_posts: 10,
-          published_posts: 5,
-          scheduled_posts: 3,
-          connected_accounts: 2,
-        }),
-      });
-    });
-
-    await page.route('**/api/top-posts', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            post_id: '1',
-            content: 'This is a test post',
-            platform: 'twitter',
-            likes: 10,
-            comments: 5,
-            shares: 2,
-            published_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          },
-        ]),
-      });
-    });
-
-    await page.route('**/api/scheduled-posts', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            post_id: '2',
-            content: 'Scheduled post',
-            platform: 'facebook',
-            scheduled_for: new Date(Date.now() + 3600000).toISOString(),
-            created_at: new Date().toISOString(),
-          },
-        ]),
-      });
-    });
-
-    // Mock the advisor endpoint (if any)
-    await page.route('**/api/advisor', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    });
-
+test.describe('Dashboard Page — real backend', () => {
+  test('should render dashboard with real metrics for authenticated user', async ({ authenticatedPage: page }) => {
     await page.goto('/dashboard');
     await expect(page).toHaveURL('/dashboard');
 
-    // Check for the welcome header
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
-    await expect(page.getByText(/overview of your social media automation/i)).toBeVisible();
+    // Greeting header (time-based: Good morning/afternoon/evening)
+    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible();
+    await expect(page.getByText(/social media overview for the last 30 days/i)).toBeVisible();
 
-    // Check for the stats cards (we expect 4 cards)
-    await expect(page.getByText(/total posts/i)).toBeVisible();
-    await expect(page.getByText(/published/i)).toBeVisible();
-    await expect(page.getByText(/scheduled/i)).toBeVisible();
-    await expect(page.getByText(/connected accounts/i)).toBeVisible();
+    // Stat cards (Published / Scheduled / Drafts / Failed) — real zeros for a fresh test user
+    await expect(page.getByText('Published')).toBeVisible();
+    await expect(page.getByText('Scheduled')).toBeVisible();
+    await expect(page.getByText('Drafts')).toBeVisible();
+    await expect(page.getByText('Failed')).toBeVisible();
 
-    // Check for the recent activity heading
-    await expect(page.getByRole('heading', { name: /recent activity/i })).toBeVisible();
+    // Week calendar + best-time-to-post cards
+    await expect(page.getByRole('heading', { name: /this week/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /best time to post/i })).toBeVisible();
 
-    // Check for the top posts heading
-    await expect(page.getByRole('heading', { name: /top posts/i })).toBeVisible();
-
-    // Check for the quick actions heading
+    // Top posts + quick actions
+    await expect(page.getByRole('heading', { name: /top performing posts/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /quick actions/i })).toBeVisible();
 
-    // Check for at least one quick action button
-    await expect(page.getByRole('link', { name: /create post/i })).toBeVisible();
+    // Quick action links
+    await expect(page.getByRole('link', { name: /create post/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /open calendar/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /upload media/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /connect accounts/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /view analytics/i })).toBeVisible();
+  });
+
+  test('should show empty state for top posts on a fresh account', async ({ authenticatedPage: page }) => {
+    await page.goto('/dashboard');
+    // Fresh test user has zero published posts
+    await expect(page.getByText(/no published posts yet/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('link', { name: /create a post/i })).toBeVisible();
+  });
+
+  test('should redirect unauthenticated users to /login', async ({ page }) => {
+    // Clear any tokens first
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+    });
+    await page.goto('/dashboard');
+    // Dashboard layout redirects to /login when not authenticated
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
   });
 });

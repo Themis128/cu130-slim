@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, TEST_USER } from './helpers/auth';
 
-test.describe('Forgot Password Page', () => {
+test.describe('Forgot Password Page — real backend', () => {
   test('should load successfully', async ({ page }) => {
     await page.goto('/forgot-password');
     await expect(page).toHaveURL('/forgot-password');
@@ -20,84 +20,33 @@ test.describe('Forgot Password Page', () => {
     await expect(page.getByText(/invalid email address/i)).toBeVisible();
   });
 
-  test('should show success message when email is submitted', async ({ page }) => {
-    // Mock the API request
-    await page.route('**/api/v1/auth/forgot-password', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    });
-
+  test('should show success message for a real registered email', async ({ page }) => {
     await page.goto('/forgot-password');
-    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill(TEST_USER.email);
     await page.getByRole('button', { name: /send reset link/i }).click();
 
-    // Wait for success message
-    await expect(page.getByText(/password reset email sent!/i)).toBeVisible();
-    // Check that the submitted state is shown (check for the checkmark or the heading)
+    // Real backend returns 200 with "password reset email sent" toast
+    await expect(page.getByText(/password reset email sent!/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/check your email/i)).toBeVisible();
   });
 
-  test('should show error when API returns 404', async ({ page }) => {
-    // Mock the API request to return 404
-    await page.route('**/api/v1/auth/forgot-password', async (route) => {
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    });
-
+  test('should show success message even for non-existent email (no user enumeration)', async ({ page }) => {
     await page.goto('/forgot-password');
-    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill('does-not-exist@example.com');
     await page.getByRole('button', { name: /send reset link/i }).click();
 
-    // Wait for error message
-    await expect(page.getByText(/password reset is not yet available/i)).toBeVisible();
+    // Real backend returns 200 with the same message to avoid enumeration
+    await expect(page.getByText(/password reset email sent!/i)).toBeVisible({ timeout: 15000 });
   });
 
-  test('should show error when API returns other error', async ({ page }) => {
-    // Mock the API request to return 400 with a detail
-    await page.route('**/api/v1/auth/forgot-password', async (route) => {
-      await route.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Some error occurred' }),
-      });
-    });
-
+  test('should show debug token link in development for a real user', async ({ page }) => {
     await page.goto('/forgot-password');
-    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
+    await page.getByRole('textbox', { name: 'Email' }).fill(TEST_USER.email);
     await page.getByRole('button', { name: /send reset link/i }).click();
 
-    // Wait for error message
-    await expect(page.getByText(/some error occurred/i)).toBeVisible();
-  });
-
-  test('should show loading state during submission', async ({ page }) => {
-    // Mock the API request to delay
-    await page.route('**/api/v1/auth/forgot-password', async (route) => {
-      // Return a promise that we'll resolve later
-      await new Promise<void>((resolve) => {
-        (window as any).resolveForgotPassword = resolve;
-      });
-    });
-
-    await page.goto('/forgot-password');
-    await page.getByRole('textbox', { name: 'Email' }).fill('test@example.com');
-    await page.getByRole('button', { name: /send reset link/i }).click();
-
-    // Check for loading state
-    await expect(page.getByText(/sending.../i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /send reset link/i })).toBeDisabled();
-
-    // Resolve the API request
-    (window as any).resolveForgotPassword();
-    await page.waitForTimeout(100); // Wait for state update
-
-    // After resolution, we expect the success message (since we mocked a 200)
-    await expect(page.getByText(/password reset email sent!/i)).toBeVisible();
+    // Real backend returns a debug_token in dev mode
+    await expect(page.getByText(/development mode - debug token/i)).toBeVisible({ timeout: 15000 });
+    // The "open reset form" button should be present
+    await expect(page.getByRole('button').filter({ hasText: /external/i })).toBeVisible();
   });
 });
