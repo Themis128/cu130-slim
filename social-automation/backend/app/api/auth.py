@@ -265,7 +265,7 @@ threads_client: BaseOAuth2 = BaseOAuth2(
     authorize_endpoint="https://threads.net/oauth/authorize",
     access_token_endpoint="https://graph.threads.net/oauth/access_token",
     refresh_token_endpoint="https://graph.threads.net/oauth/access_token",
-    base_scopes=["threads_basic", "threads_content_publish"],
+    base_scopes=["threads_basic", "threads_content_publish", "threads_manage_insights"],
     name="threads",
 )
 # Instagram via Facebook Graph API (Basic Display API deprecated Dec 2024)
