@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.worker.tasks.analytics",
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
+        "app.worker.tasks.token_refresh",
     ],
 )
 
@@ -50,6 +51,13 @@ celery_app.conf.update(
             "task": "app.worker.tasks.digest.send_daily_slack_digest",
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0),
             "kwargs": {"days": 1, "post_to_slack": True},
+        },
+        # Auto-refresh expiring OAuth tokens every hour (TikTok expires in 24h,
+        # Twitter in 2h, Meta/Threads in ~60 days). Refreshes tokens expiring
+        # within the next 4 hours so accounts never go offline unexpectedly.
+        "refresh-expiring-tokens": {
+            "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
+            "schedule": crontab(minute=15),  # at :15 past every hour
         },
     },
 )
