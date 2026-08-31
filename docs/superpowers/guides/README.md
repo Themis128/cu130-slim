@@ -10,6 +10,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 4. [Creating a post](04-creating-a-post.md) — composer, previews, scheduling, and publishing.
 5. [LinkedIn carousel](05-linkedin-carousel.md) — generate and publish a Cloudflare-only PDF carousel.
 6. [Analytics and queue](06-analytics-and-queue.md) — review performance and manage scheduled content.
+7. [Cloudflare database failover](07-cf-database-failover.md) — D1/KV/Vectorize primary with local Postgres/Redis/Chroma failover, sync, and replay.
 
 ## Who these guides are for
 

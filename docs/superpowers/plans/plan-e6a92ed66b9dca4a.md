@@ -165,15 +165,20 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 ```mermaid
 flowchart LR
     User[Next.js Dashboard] -->|HTTP /api/v1| FastAPI[FastAPI social-api]
-    FastAPI --> Postgres[(PostgreSQL)]
-    FastAPI --> Redis[(Redis / Celery)]
-    FastAPI --> Chroma[(Chroma)]
+    FastAPI -->|dual-write primary| D1[(Cloudflare D1)]
+    FastAPI -->|failover replica| Postgres[(PostgreSQL)]
+    FastAPI -->|cache primary| KV[(Cloudflare KV)]
+    FastAPI -->|cache failover| Redis[(Redis / Celery)]
+    FastAPI -->|vectors primary| Vec[(Cloudflare Vectorize)]
+    FastAPI -->|vectors failover| Chroma[(Chroma)]
     FastAPI -->|inference| WorkersAI[Cloudflare Workers AI]
     WorkersAI -->|free fallback| Groq[Groq]
     WorkersAI -->|free fallback| Pixazo[Pixazo FLUX]
     WorkersAI -->|free fallback| HF[Hugging Face]
     WorkersAI -->|local fallback| Ollama[Ollama]
     FastAPI --> R2[(Cloudflare R2)]
+    R2 -->|failover| MinIO[(MinIO)]
+    MinIO -->|failover| Disk[Local disk]
     Redis --> Worker[social-worker Celery]
     Worker --> LinkedIn[LinkedIn API]
     Worker --> Twitter[X / Twitter API]
@@ -185,6 +190,24 @@ flowchart LR
     Meta -->|fetch media| R2
     TikTok -->|fetch media| R2
     Instagram -->|fetch media| R2
+```
+
+#### Database failover & dual-write router
+
+```mermaid
+flowchart TD
+    Write[API write request] --> Router{db_router.execute}
+    Router -->|D1 available| D1Write[Write to D1 primary]
+    D1Write -->|replicate| PGWrite[Write to Postgres failover]
+    Router -->|D1 failed / circuit open| PGOnly[Write to Postgres only]
+    PGOnly --> Queue[Queue write for replay]
+    Queue -->|D1 recovers| Replay[Replay queue to D1]
+    Router -->|circuit breaker| CB{3 failures?}
+    CB -->|yes| Open[Open circuit 60s]
+    Open -->|timeout| HalfOpen[Half-open: retry D1]
+    HalfOpen -->|success| Close[Close circuit]
+    HalfOpen -->|fail| Open
+    CB -->|no| D1Write
 ```
 
 #### AI provider fallback chain (free first, Ollama last resort)
@@ -204,6 +227,18 @@ flowchart TD
     H2 -->|fail| O[Ollama llama3.1/mistral]
     O -->|unavailable| E[HTTP 503]
     B -->|log success/failure| K[(AIUsageLog)]
+```
+
+#### Storage fallback chain
+
+```mermaid
+flowchart TD
+    Upload[Media upload] --> R2{Cloudflare R2}
+    R2 -->|success| Done1[Stored in R2]
+    R2 -->|fail / no creds| MinIO{MinIO configured?}
+    MinIO -->|yes| Done2[Stored in MinIO]
+    MinIO -->|no / fail| Disk[Local disk /app/uploads]
+    Disk --> Done3[Stored locally]
 ```
 
 ### 4.1 API contract cleanup
@@ -394,6 +429,67 @@ flowchart TD
 ### 4.12 Auditability
 - Add `app/services/audit.py` and `AuditLog` table.
 - Log all publish, edit, delete, connect, and AI calls.
+
+### 4.13 Cloudflare database failover & bidirectional sync
+
+**Implemented.** Cloudflare D1, KV, and Vectorize serve as the primary databases for social-api, with local PostgreSQL, Redis, and ChromaDB as failover.
+
+#### Components
+
+| File | Purpose |
+|------|---------|
+| `app/services/d1_client.py` | Async D1 REST API client (query, insert, update, delete, count, table listing) |
+| `app/services/kv_client.py` | Async KV client (get, put, delete, list_keys, health) |
+| `app/services/vectorize_client.py` | Async Vectorize client (upsert, query, get, delete, health) |
+| `app/services/db_sync.py` | Bidirectional sync service for all 15 application tables |
+| `app/services/db_router.py` | Dual-write router with circuit breaker and replay queue |
+| `app/api/cf_db.py` | API endpoints for health, sync, replay, and table inspection |
+| `scripts/pg_to_d1.py` | PostgreSQL → D1/SQLite schema converter |
+
+#### Cloudflare resources (free tier)
+
+| Service | Name | ID env var |
+|---------|------|-----------|
+| D1 | social-automation | `D1_SOCIAL_AUTOMATION_ID` |
+| D1 | n8n (backup) | `D1_N8N_ID` |
+| D1 | metabase-analytics (backup) | `D1_METABASE_ID` |
+| KV | social-cache | `KV_CACHE_NAMESPACE` |
+| KV | social-queue | `KV_QUEUE_NAMESPACE` |
+| Vectorize | social-embeddings | `VECTORIZE_INDEX_NAME` |
+
+#### Dual-write router behavior
+
+1. **Write**: D1 (primary) → Postgres (failover replica). If D1 fails, write to Postgres only and queue for replay.
+2. **Read**: D1 (primary) → Postgres (failover on error).
+3. **Circuit breaker**: Opens after 3 consecutive D1 failures. All traffic routes to Postgres for 60 seconds. Half-open state retries D1; success closes the circuit, failure reopens it.
+4. **Replay queue**: Queued writes are replayed to D1 when the circuit closes. `POST /api/v1/cf-db/replay` triggers this manually.
+5. **Bidirectional sync**: `POST /api/v1/cf-db/sync` syncs all 15 tables in both directions (Postgres→D1 then D1→Postgres).
+
+#### Tables synced
+
+`users`, `teams`, `team_members`, `social_accounts`, `posts`, `post_targets`, `media_assets`, `media_collections`, `publish_queue`, `ai_providers`, `ai_usage_logs`, `analytics_events`, `prompt_templates`, `generated_workflows`, `post_analytics_snapshots`.
+
+#### SQL dialect conversion
+
+The router converts SQLite/D1 syntax to PostgreSQL automatically:
+- `INSERT OR REPLACE INTO t (cols) VALUES (?)` → `INSERT INTO t (cols) VALUES (?) ON CONFLICT (id) DO UPDATE SET ...`
+- Boolean params (0/1 → True/False) for columns matching `is_*`, `success`
+- ISO datetime strings → Python datetime objects for asyncpg
+
+#### n8n and Metabase
+
+n8n and Metabase require native PostgreSQL connections and cannot use D1 via REST API as their primary database. They keep PostgreSQL as primary. Their D1 databases (`D1_N8N_ID`, `D1_METABASE_ID`) are created and ready for periodic backup dumps.
+
+#### API endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/cf-db/health` | GET | D1, KV, Vectorize, router health |
+| `/api/v1/cf-db/status` | GET | Router state (circuit, queue, mode) |
+| `/api/v1/cf-db/sync` | POST | Trigger bidirectional sync |
+| `/api/v1/cf-db/replay` | POST | Replay queued writes to D1 |
+| `/api/v1/cf-db/tables` | GET | D1 table list with row counts |
+| `/api/v1/cf-db/sync-tables` | GET | List tables configured for sync |
 
 ---
 
@@ -640,6 +736,8 @@ flowchart TB
 ### 9.3 Environment variables
 - Added to `.env.example`: `GROQ_API_KEY`, `TOGETHER_API_KEY`, `PIXAZO_API_KEY`, `OPENAI_API_KEY`, `HUGGINGFACE_API_KEY` (kept `HF_TOKEN` for ComfyUI/NIM where applicable).
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` documented with free-tier notes.
+- Cloudflare database env vars: `D1_SOCIAL_AUTOMATION_ID`, `D1_N8N_ID`, `D1_METABASE_ID`, `KV_CACHE_NAMESPACE`, `KV_QUEUE_NAMESPACE`, `VECTORIZE_INDEX_NAME`.
+- `CLOUDFLARE_API_TOKEN` must have D1 Edit, Workers KV Storage Edit, Vectorize Edit, and R2 Edit permissions for the database failover system to work.
 
 ---
 
@@ -653,6 +751,10 @@ flowchart TB
 | Frontend image not reflecting source changes | Rebuild `social-frontend` image or run dev container with mounted source. |
 | n8n trigger not registering after workflow update | Always publish + restart n8n; validate with a manual webhook call. |
 | Multi-tenant data leakage | Team-scoped queries in every endpoint; RBAC in Phase 7. |
+| D1 free-tier write limit (100K/day) | Dual-write router queues excess writes to Postgres; replay when quota resets. |
+| D1 outage | Circuit breaker opens after 3 failures, routes to Postgres. Replay queue syncs on recovery. |
+| Bidirectional sync conflicts | Last-write-wins via `INSERT OR REPLACE` / `ON CONFLICT DO UPDATE`. Full sync runs on-demand. |
+| KV free-tier write limit (1K/day) | Redis serves as local failover; KV is primary for cache only. |
 
 ---
 

@@ -10,14 +10,25 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 | social-api | 8083 | FastAPI backend (`/api/v1`) |
 | social-frontend | 8082 | Next.js dashboard |
 | social-worker | - | Celery worker for publishing + digests |
-| redis | 6379 | Queue/cache |
-| social-postgres | 5433 | Application database |
+| redis | 6379 | Queue/cache (local failover for Cloudflare KV) |
+| social-postgres | 5433 | Application database (local failover for Cloudflare D1) |
 | postgres | 5432 | Metabase database |
-| chroma | 8001 | Vector store for semantic search and duplicate detection |
+| chroma | 8001 | Vector store (local failover for Cloudflare Vectorize) |
 | languagetool | 8010 | Self-hosted spell/grammar checker |
 | ollama | 11435 | Local LLM inference |
 | comfyui | 8000 | ComfyUI image generation (requires NVIDIA) |
 | metabase | 3000 | BI dashboards |
+
+### Cloudflare databases (primary, free tier)
+
+| Service | Name | Purpose |
+|---------|------|---------|
+| D1 | social-automation | Primary SQL database for social-api |
+| D1 | n8n | Backup database for n8n |
+| D1 | metabase-analytics | Backup database for Metabase |
+| KV | social-cache | Primary cache layer |
+| KV | social-queue | Queue namespace |
+| Vectorize | social-embeddings | Primary vector database (1024 dims, cosine) |
 
 ## Quick start
 
@@ -67,10 +78,21 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 ## Media library
 
 - Upload, generate, and manage images in team-scoped collections.
-- Cloudflare R2 is the default storage with local disk as a fallback.
+- **Storage fallback chain**: Cloudflare R2 (cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`).
 - Direct browser upload via presigned R2 PUT URL (`POST /api/v1/media/upload/prepare`, client PUT, `POST /api/v1/media/upload/complete`) when `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are configured.
 - AI auto-tagging runs automatically with Cloudflare Workers AI vision (`@cf/moondream/moondream3.1-9B-A2B`) and Ollama `llava` as fallback.
 - Chroma embeddings enable semantic search and similar-asset discovery.
+
+## Database failover & sync
+
+- **Primary databases**: Cloudflare D1 (SQL), KV (cache), Vectorize (vectors).
+- **Local failover**: PostgreSQL, Redis, ChromaDB.
+- **Dual-write router**: writes go to D1 first, then replicate to Postgres. If D1 is unavailable, writes fall back to Postgres and queue for replay when D1 recovers.
+- **Circuit breaker**: after 3 consecutive D1 failures, the router opens the circuit and routes all traffic to Postgres for 60 seconds before retrying D1.
+- **Bidirectional sync**: `POST /api/v1/cf-db/sync` syncs all 15 tables in both directions.
+- **Replay queue**: `POST /api/v1/cf-db/replay` replays queued writes to D1 after recovery.
+- **Health check**: `GET /api/v1/cf-db/health` shows D1, KV, Vectorize, and router status.
+- n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections); their D1 databases serve as periodic backup targets.
 
 ## User guides
 
@@ -82,3 +104,4 @@ Step-by-step guides live in `docs/superpowers/guides/`:
 4. [Creating a post](docs/superpowers/guides/04-creating-a-post.md)
 5. [LinkedIn carousel](docs/superpowers/guides/05-linkedin-carousel.md)
 6. [Analytics and queue](docs/superpowers/guides/06-analytics-and-queue.md)
+7. [Cloudflare database failover](docs/superpowers/guides/07-cf-database-failover.md)
