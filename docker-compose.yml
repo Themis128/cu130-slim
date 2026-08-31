@@ -54,6 +54,21 @@ services:
     volumes:
     - ./n8n-data:/home/node/.n8n
     <<: *public-dns
+    depends_on:
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      n8n-sandbox:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     environment:
     - N8N_INSTANCE_OWNER_MANAGED_BY_ENV=true
     - N8N_INSTANCE_OWNER_EMAIL=tbaltzakis@cloudless.gr
@@ -88,6 +103,21 @@ services:
     - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     - GENERIC_TIMEZONE=Europe/Athens
     - TZ=Europe/Athens
+    # --- Postgres as n8n database backend (shared with stack) ---
+    - DB_TYPE=postgresdb
+    - DB_POSTGRESDB_HOST=social-postgres
+    - DB_POSTGRESDB_PORT=5432
+    - DB_POSTGRESDB_DATABASE=n8n
+    - DB_POSTGRESDB_USER=${SOCIAL_POSTGRES_USER}
+    - DB_POSTGRESDB_PASSWORD=${SOCIAL_POSTGRES_PASSWORD}
+    - DB_POSTGRESDB_SCHEMA=public
+    # --- Redis for queue mode (shared with stack) ---
+    - EXECUTIONS_MODE=queue
+    - QUEUE_BULL_REDIS_HOST=redis
+    - QUEUE_BULL_REDIS_PORT=6379
+    - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+    - QUEUE_BULL_REDIS_DB=2
+    # --- social-api integration ---
     - SOCIAL_API_URL=http://social-api:8000
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
     - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
@@ -104,6 +134,12 @@ services:
     - N8N_SANDBOX_HOST=0.0.0.0
     - N8N_SANDBOX_PORT=8081
     - N8N_SANDBOX_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ 2>/dev/null || exit 0"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
   postgres:
     image: postgres:16-alpine
@@ -388,7 +424,7 @@ services:
       redis:
         condition: service_healthy
       n8n:
-        condition: service_started
+        condition: service_healthy
       comfyui:
         condition: service_healthy
       ollama:
@@ -482,7 +518,7 @@ services:
       redis:
         condition: service_healthy
       n8n:
-        condition: service_started
+        condition: service_healthy
       comfyui:
         condition: service_healthy
       ollama:
