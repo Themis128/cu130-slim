@@ -9,7 +9,56 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
 from httpx_oauth.clients.linkedin import LinkedInOAuth2
-from httpx_oauth.oauth2 import BaseOAuth2
+from httpx_oauth.oauth2 import BaseOAuth2, GetAccessTokenError, OAuth2Token
+
+
+class TikTokOAuth2(BaseOAuth2):
+    """TikTok uses client_key (not client_id) in token and refresh requests."""
+
+    async def get_access_token(
+        self, code: str, redirect_uri: str, code_verifier: str | None = None
+    ) -> OAuth2Token:
+        async with self.get_httpx_client() as client:
+            data: dict = {
+                "client_key": self.client_id,
+                "client_secret": self.client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+            }
+            if code_verifier:
+                data["code_verifier"] = code_verifier
+            request = client.build_request(
+                "POST",
+                self.access_token_endpoint,
+                data=data,
+                headers=self.request_headers,
+            )
+            response = await self.send_request(
+                client, request, auth=None, exc_class=GetAccessTokenError
+            )
+            return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
+
+    async def refresh_token(
+        self, refresh_token: str, refresh_token_endpoint: str | None = None
+    ) -> OAuth2Token:
+        async with self.get_httpx_client() as client:
+            data = {
+                "client_key": self.client_id,
+                "client_secret": self.client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            }
+            request = client.build_request(
+                "POST",
+                refresh_token_endpoint or self.refresh_token_endpoint,
+                data=data,
+                headers=self.request_headers,
+            )
+            response = await self.send_request(
+                client, request, auth=None, exc_class=GetAccessTokenError
+            )
+            return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -229,7 +278,7 @@ instagram_client = BaseOAuth2(
     name="instagram",
 )
 # TikTok OAuth 2.0 — uses client_key (not client_id) and custom token endpoint
-tiktok_client = BaseOAuth2(
+tiktok_client = TikTokOAuth2(
     settings.TIKTOK_CLIENT_KEY,
     settings.TIKTOK_CLIENT_SECRET,
     authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
