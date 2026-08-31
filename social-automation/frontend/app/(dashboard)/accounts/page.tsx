@@ -822,7 +822,7 @@ export default function AccountsPage() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
-                                      handleSetBusinessAccount(account.parent_account_id, account.account_id, platform?.name || account.platform)
+                                      handleSetBusinessAccount(account.parent_account_id!, account.account_id, platform?.name || account.platform)
                                     }
                                     disabled={setBusinessMutation.isPending}
                                   >
