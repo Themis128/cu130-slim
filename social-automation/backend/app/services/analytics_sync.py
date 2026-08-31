@@ -836,37 +836,35 @@ async def sync_threads_account(
 async def _fetch_tiktok_video_stats(
     client: httpx.AsyncClient, token: str, video_id: str,
 ) -> MetricBundle:
-    """Fetch stats for a TikTok video via TikTok Display API."""
-    url = "https://open.tiktokapis.com/v2/research/video/query/"
+    """Fetch stats for a TikTok video via TikTok Display API.
+
+    Uses the /v2/video/list/ endpoint which returns video stats for the
+    authenticated user's own videos. Requires video.list scope.
+    """
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "query": {
-            "and": [
-                {"operation": "EQ", "field_name": "video_id", "field_values": [video_id]},
-            ],
-        },
-        "max_count": 1,
-    }
-    resp = await client.post(url, headers=headers, json=payload)
+    # The Display API video/list endpoint fetches the user's own videos
+    # with stats. We filter by the specific video_id we're interested in.
+    url = "https://open.tiktokapis.com/v2/video/list/"
+    params = {"fields": "id,view_count,like_count,comment_count,share_count,reach_count"}
+    resp = await client.get(url, headers=headers, params=params)
     if resp.status_code != 200:
         return MetricBundle(notes=f"tiktok stats HTTP {resp.status_code}")
     data = resp.json() or {}
     videos = (data.get("data") or {}).get("videos", [])
-    if not videos:
-        return MetricBundle(notes="tiktok_no_video_found")
-    v = videos[0]
-    stats = v.get("stats", {}) or {}
-    return MetricBundle(
-        impressions=int(stats.get("view_count", 0) or 0),
-        likes=int(stats.get("like_count", 0) or 0),
-        comments=int(stats.get("comment_count", 0) or 0),
-        shares=int(stats.get("share_count", 0) or 0),
-        reach=int(stats.get("view_count", 0) or 0),
-        raw=v,
-    )
+    for v in videos:
+        if v.get("id") == video_id:
+            return MetricBundle(
+                impressions=int(v.get("view_count", 0) or 0),
+                likes=int(v.get("like_count", 0) or 0),
+                comments=int(v.get("comment_count", 0) or 0),
+                shares=int(v.get("share_count", 0) or 0),
+                reach=int(v.get("reach_count", 0) or v.get("view_count", 0) or 0),
+                raw=v,
+            )
+    return MetricBundle(notes="tiktok_video_not_found_in_list")
 
 
 async def sync_tiktok_account(

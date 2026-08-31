@@ -334,9 +334,48 @@ async def refresh_account_token(
     if not account.refresh_token_enc:
         raise HTTPException(status_code=400, detail="No refresh token available")
 
-    # TODO: Implement actual token refresh using platform OAuth client
-    # For now, just return success
-    return {"message": "Token refresh initiated"}
+    from app.core.security import decrypt_token, encrypt_token
+
+    refresh_token = decrypt_token(account.refresh_token_enc)
+    platform = account.platform
+
+    # Map platform to its OAuth client
+    client_map = {
+        "linkedin": linkedin_client,
+        "twitter": twitter_client,
+        "facebook": facebook_client,
+        "instagram": instagram_client,
+        "threads": threads_client,
+        "tiktok": tiktok_client,
+    }
+    client = client_map.get(platform)
+    if client is None:
+        raise HTTPException(status_code=400, detail=f"Token refresh not supported for {platform}")
+
+    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI", None)
+    if not redirect_uri:
+        raise HTTPException(status_code=500, detail=f"Redirect URI not configured for {platform}")
+
+    try:
+        token = await client.refresh_token(refresh_token, redirect_uri)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token refresh failed for {platform}: {exc}",
+        ) from exc
+
+    new_access = token.get("access_token", "")
+    new_refresh = token.get("refresh_token")
+    if not new_access:
+        raise HTTPException(status_code=400, detail="No access_token in refresh response")
+
+    account.access_token_enc = encrypt_token(new_access)
+    if new_refresh:
+        account.refresh_token_enc = encrypt_token(new_refresh)
+    account.status = "active"
+    await db.commit()
+
+    return {"message": "Token refreshed", "status": "active"}
 
 
 @router.get("/{account_id}/validate")
@@ -356,7 +395,51 @@ async def validate_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    # TODO: Actually validate token by making API call to platform
-    return {"valid": account.status == "active", "status": account.status}
+    import httpx
+
+    from app.core.security import decrypt_token
+
+    token = decrypt_token(account.access_token_enc)
+    headers = {"Authorization": f"Bearer {token}"}
+    platform = account.platform
+
+    # Platform-specific validation endpoints
+    validation_urls = {
+        "linkedin": ("https://api.linkedin.com/v2/userinfo", "GET", None),
+        "twitter": ("https://api.twitter.com/2/users/me", "GET", None),
+        "facebook": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,name"}),
+        "instagram": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,username"}),
+        "threads": ("https://graph.threads.net/v1.0/me", "GET", {"fields": "id,username"}),
+        "tiktok": ("https://open.tiktokapis.com/v2/user/info/", "GET", {"fields": "open_id,display_name"}),
+    }
+
+    url, method, params = validation_urls.get(platform, (None, None, None))
+    if not url:
+        return {"valid": account.status == "active", "status": account.status, "checked": False}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if method == "GET":
+                resp = await client.get(url, headers=headers, params=params or {})
+            else:
+                resp = await client.post(url, headers=headers)
+
+        if resp.status_code == 200:
+            # Token is valid — update status if it was marked expired
+            if account.status != "active":
+                account.status = "active"
+                await db.commit()
+            return {"valid": True, "status": "active", "checked": True}
+        if resp.status_code in (401, 403):
+            # Token is invalid/expired
+            if account.status == "active":
+                account.status = "expired"
+                await db.commit()
+            return {"valid": False, "status": "expired", "checked": True}
+        # Other errors — don't change status, just report
+        return {"valid": account.status == "active", "status": account.status, "checked": True, "http_status": resp.status_code}
+    except Exception:
+        # Network error — don't change status
+        return {"valid": account.status == "active", "status": account.status, "checked": False}
 
 

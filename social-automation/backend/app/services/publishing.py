@@ -5,6 +5,8 @@ Platform capabilities actually used per connected account:
   Facebook (personal user token)   — pages managed by user: text + photos + multi-photo
   Instagram (Business/Creator)     — single image + carousel (requires public image URLs)
   LinkedIn  (person + org page)    — text / single image / multi-image / PDF carousel
+  Threads                        — text + single image (via Threads Content Publishing API)
+  TikTok                         — video + photo carousel (via inbox upload, PULL_FROM_URL)
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ async def publish_to_platform(
         "linkedin": _publish_linkedin,
         "facebook": _publish_facebook,
         "instagram": _publish_instagram,
+        "threads": _publish_threads,
         "tiktok": _publish_tiktok,
     }
     fn = dispatch.get(account.platform)
@@ -690,3 +693,78 @@ async def _publish_tiktok(
                 return PublishResult(success=False, error=f"TikTok publish failed: {fail_reason}")
 
         return PublishResult(success=False, error=f"TikTok publish timeout (publish_id={publish_id})")
+
+
+# ── Threads ───────────────────────────────────────────────────────────────────
+
+async def _publish_threads(
+    access_token: str,
+    text: str,
+    account: SocialAccount,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish to Threads via the Threads Content Publishing API.
+
+    Supports text-only posts and single-image posts. The Threads API
+    requires a two-step flow: create a media container, then publish it.
+    """
+    import json as _json
+
+    threads_user_id = account.account_id
+    base_url = f"https://graph.threads.net/v1.0/{threads_user_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Build the media container
+        payload: dict = {
+            "media_type": "TEXT",
+            "text": text[:500],
+        }
+
+        # Single image support
+        if media_paths:
+            public_url = _media_public_url(media_paths[0])
+            if public_url:
+                payload["media_type"] = "IMAGE"
+                payload["image_url"] = public_url
+                # Text is optional for image posts but supported
+                if text.strip():
+                    payload["text"] = text[:500]
+
+        # Step 1: Create container
+        resp = await client.post(
+            f"{base_url}/threads",
+            headers=headers,
+            params={"access_token": access_token},
+            content=_json.dumps(payload).encode(),
+        )
+        if resp.status_code == 403:
+            return PublishResult(
+                success=False,
+                error="Threads API access denied. Ensure the app has threads_content_publish permission.",
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        creation_id = data.get("id")
+        if not creation_id:
+            return PublishResult(success=False, error=f"Threads: no creation_id returned: {data}")
+
+        # Step 2: Publish the container
+        publish_resp = await client.post(
+            f"{base_url}/threads_publish",
+            headers=headers,
+            params={"access_token": access_token, "creation_id": creation_id},
+        )
+        publish_resp.raise_for_status()
+        pub_data = publish_resp.json()
+        thread_id = pub_data.get("id", creation_id)
+
+        return PublishResult(
+            success=True,
+            platform_post_id=thread_id,
+            platform_url=f"https://www.threads.net/@{account.username}/post/{thread_id}" if account.username else None,
+        )
