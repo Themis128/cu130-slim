@@ -14,6 +14,7 @@ Reference:
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 import httpx
@@ -22,6 +23,26 @@ from fastapi import HTTPException
 from app.core.config import get_settings
 
 settings = get_settings()
+
+# R2 object keys must be safe path segments — no traversal, no protocol, no control chars.
+_SAFE_KEY_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]{0,1023}$")
+
+
+def _validate_key(key: str) -> str:
+    """Validate an R2 object key to prevent path traversal and SSRF.
+
+    Keys must be relative paths containing only alphanumerics, dots, hyphens,
+    underscores, and forward slashes. No leading slash, no '..', no protocol.
+    """
+    if not key:
+        raise HTTPException(status_code=400, detail="R2 object key is empty")
+    if key.startswith("/"):
+        raise HTTPException(status_code=400, detail="R2 object key must not start with '/'")
+    if ".." in key.split("/"):
+        raise HTTPException(status_code=400, detail="R2 object key contains '..' path traversal")
+    if not _SAFE_KEY_RE.match(key):
+        raise HTTPException(status_code=400, detail="R2 object key contains invalid characters")
+    return key
 
 
 def _r2_object_url(key: str) -> str | None:
@@ -53,6 +74,7 @@ async def upload_object(
 
     Returns ``{"etag", "size", "public_url", "key"}``. Max single upload 300 MB.
     """
+    key = _validate_key(key)
     url = _r2_object_url(key)
     if not url:
         raise HTTPException(status_code=500, detail="R2 is not configured (R2_BUCKET_NAME or CLOUDFLARE_ACCOUNT_ID missing)")
@@ -86,6 +108,7 @@ async def upload_object(
 
 async def get_object(key: str) -> bytes:
     """Download an object from R2."""
+    key = _validate_key(key)
     url = _r2_object_url(key)
     if not url:
         raise HTTPException(status_code=500, detail="R2 is not configured")
@@ -106,6 +129,7 @@ async def get_object(key: str) -> bytes:
 
 async def delete_object(key: str) -> bool:
     """Delete an object from R2. Returns True if deleted or not found."""
+    key = _validate_key(key)
     url = _r2_object_url(key)
     if not url:
         return False
@@ -124,6 +148,7 @@ async def delete_object(key: str) -> bool:
 
 async def object_exists(key: str) -> bool:
     """Check if an object exists in R2."""
+    key = _validate_key(key)
     url = _r2_object_url(key)
     if not url:
         return False

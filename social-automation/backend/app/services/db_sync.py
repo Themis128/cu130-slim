@@ -104,18 +104,6 @@ class SyncService:
 
         return value
 
-
-        # Timestamp conversion (ISO 8601 string → datetime)
-        if isinstance(value, str):
-            import re
-            if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", value):
-                try:
-                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    pass
-
-        return value
-
     async def sync_table_to_d1(
         self,
         table: str,

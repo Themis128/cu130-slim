@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import re
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -26,6 +27,28 @@ LINKEDIN_V2_BASE = "https://api.linkedin.com/v2"
 MAX_COMMENTARY_CHARS = 3000
 
 logger = logging.getLogger(__name__)
+
+# LinkedIn URNs look like: urn:li:ugcPost:123456, urn:li:share:abc, urn:li:organization:789
+_URN_RE = re.compile(r"^urn:li:[a-zA-Z]+:[a-zA-Z0-9_\-.]+$")
+
+
+def _validate_urn(urn: str) -> str:
+    """Validate a LinkedIn URN to prevent SSRF via crafted identifiers."""
+    urn = urn.strip()
+    if not urn:
+        raise ValueError("URN is empty")
+    if not _URN_RE.match(urn):
+        raise ValueError(f"Invalid LinkedIn URN format: {urn[:80]}")
+    return urn
+
+
+def _sanitize_log_text(text: str, max_len: int = 400) -> str:
+    """Sanitize API response text for safe logging — strips newlines/control chars."""
+    # Replace newlines and carriage returns to prevent log injection
+    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
+    # Strip other control characters (except tab)
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
+    return cleaned[:max_len]
 
 
 class LinkedInAPIError(Exception):
@@ -106,7 +129,7 @@ class LinkedInAPIClient:
         if resp.status_code < 400:
             return
         status_code = self._map_status_code(resp.status_code)
-        text = resp.text[:400]
+        text = _sanitize_log_text(resp.text)
         logger.error("LinkedIn API error %s for %s: %s", status_code, url, text)
         raise LinkedInAPIError(status_code, text, url)
 
@@ -117,7 +140,7 @@ class LinkedInAPIClient:
                 "LinkedIn API call to %s failed: HTTP %s: %s",
                 url,
                 resp.status_code,
-                resp.text[:400],
+                _sanitize_log_text(resp.text),
             )
 
     def _post_payload(
@@ -612,6 +635,7 @@ class LinkedInAPIClient:
         permission to comment on the target post.
         """
         post_urn = unquote(post_urn.strip())
+        post_urn = _validate_urn(post_urn)
         encoded = quote(post_urn, safe="")
         url = f"{LINKEDIN_REST_BASE}/socialActions/{encoded}/comments"
 
@@ -662,6 +686,7 @@ class LinkedInAPIClient:
     async def delete_post(self, post_urn: str) -> LinkedInPostResult:
         """Delete a LinkedIn post by URN."""
         post_urn = unquote(post_urn.strip())
+        post_urn = _validate_urn(post_urn)
         encoded = quote(post_urn, safe="")
         url = f"{LINKEDIN_REST_BASE}/posts/{encoded}"
 

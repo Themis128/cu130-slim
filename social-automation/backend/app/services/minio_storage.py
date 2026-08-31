@@ -17,7 +17,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_bucket_ready = False
+_state: dict[str, bool] = {"bucket_ready": False}
 
 
 def _client():
@@ -44,8 +44,7 @@ def _bucket() -> str:
 
 def ensure_bucket() -> bool:
     """Create the MinIO bucket if it does not exist. Returns True if usable."""
-    global _bucket_ready
-    if _bucket_ready:
+    if _state["bucket_ready"]:
         return True
 
     client = _client()
@@ -55,7 +54,7 @@ def ensure_bucket() -> bool:
     bucket = _bucket()
     try:
         client.head_bucket(Bucket=bucket)
-        _bucket_ready = True
+        _state["bucket_ready"] = True
         return True
     except Exception:
         pass
@@ -63,7 +62,7 @@ def ensure_bucket() -> bool:
     try:
         client.create_bucket(Bucket=bucket)
         logger.info("MinIO bucket '%s' created", bucket)
-        _bucket_ready = True
+        _state["bucket_ready"] = True
         return True
     except Exception as exc:
         logger.warning("MinIO bucket creation failed: %s", exc)
