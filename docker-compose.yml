@@ -645,6 +645,8 @@ services:
     image: baltzakist/cloudflared:v0.2
     pull_policy: always
     container_name: social-cloudflared
+    environment:
+    - SOCIAL_TUNNEL_TOKEN=${SOCIAL_TUNNEL_TOKEN:-}
     volumes:
     - tunnel_url:/run/tunnel
     - ./social-automation/cloudflared-entrypoint.sh:/entrypoint.sh:ro
@@ -671,7 +673,7 @@ services:
     - TZ=Europe/Athens
     - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
     - API_INTERNAL_URL=http://social-api:8000
-    - NEXT_PUBLIC_API_URL=http://localhost:8082/api/v1
+    - NEXT_PUBLIC_API_URL=https://social.cloudless.gr/api/v1
     - PORT=8083
     - HOSTNAME=0.0.0.0
     volumes:
