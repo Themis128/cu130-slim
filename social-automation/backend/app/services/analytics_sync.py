@@ -371,7 +371,9 @@ async def _persist_snapshot(
     captured_at: datetime,
     source: str,
     result: SyncResult,
+    platform: str | None = None,
 ) -> None:
+    plat = platform or account.platform
     if metrics.notes and metrics.notes.startswith("linkedin stats HTTP"):
         # Soft skips (stale/missing activity) should not pollute digest warnings.
         if _is_hard_stats_failure(400, metrics.notes):
@@ -386,7 +388,7 @@ async def _persist_snapshot(
         team_id=account.team_id,
         post_id=post_id,
         social_account_id=account.id,
-        platform="linkedin",
+        platform=plat,
         platform_post_id=platform_post_id,
         impressions=metrics.impressions,
         clicks=metrics.clicks,
@@ -407,7 +409,7 @@ async def _persist_snapshot(
         team_id=account.team_id,
         post_id=post_id,
         social_account_id=account.id,
-        platform="linkedin",
+        platform=plat,
         platform_post_id=platform_post_id,
         metrics=metrics,
         captured_at=captured_at,
@@ -513,6 +515,406 @@ async def sync_linkedin_account(
     return result
 
 
+# ── Twitter / X ───────────────────────────────────────────────────────────────
+
+async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id: str) -> MetricBundle:
+    """Fetch public metrics for a single tweet via API v2."""
+    url = f"https://api.twitter.com/2/tweets/{tweet_id}"
+    params = {"tweet.fields": "public_metrics,non_public_metrics"}
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get(url, headers=headers, params=params)
+    if resp.status_code != 200:
+        return MetricBundle(notes=f"twitter stats HTTP {resp.status_code}")
+    data = (resp.json() or {}).get("data", {})
+    pm = data.get("public_metrics", {}) or {}
+    npm = data.get("non_public_metrics", {}) or {}
+    return MetricBundle(
+        impressions=int(pm.get("impression_count", 0) or npm.get("impression_count", 0) or 0),
+        clicks=int(npm.get("url_link_clicks", 0) or pm.get("url_link_clicks", 0) or 0),
+        likes=int(pm.get("like_count", 0) or 0),
+        comments=int(pm.get("reply_count", 0) or 0),
+        shares=int(pm.get("retweet_count", 0) or 0),
+        reach=int(pm.get("impression_count", 0) or 0),
+        raw=data,
+    )
+
+
+async def sync_twitter_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    days: int = 365,
+) -> SyncResult:
+    result = SyncResult()
+    token = decrypt_token(account.access_token_enc)
+    since = datetime.now(UTC) - timedelta(days=days)
+    captured_at = datetime.now(UTC)
+
+    targets_q = (
+        select(PostTarget)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            PostTarget.social_account_id == account.id,
+            PostTarget.status == "published",
+            PostTarget.platform_post_id.isnot(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.team_id == account.team_id,
+        )
+        .options(selectinload(PostTarget.post))
+    )
+    targets = (await db.execute(targets_q)).scalars().all()
+    targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for t in targets:
+            tweet_id = (t.platform_post_id or "").split("/")[-1]
+            if not tweet_id:
+                continue
+            metrics = await _fetch_twitter_metrics(client, token, tweet_id)
+            await _persist_snapshot(
+                db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
+                metrics=metrics, captured_at=captured_at, source="twitter_api",
+                result=result, platform="twitter",
+            )
+
+    if result.synced == 0:
+        result.skipped = len(targets)
+    await db.commit()
+    return result
+
+
+# ── Facebook ──────────────────────────────────────────────────────────────────
+
+async def _fetch_facebook_post_metrics(
+    client: httpx.AsyncClient, page_token: str, post_id: str,
+) -> MetricBundle:
+    """Fetch insights for a Facebook page post via Graph API."""
+    url = f"https://graph.facebook.com/v20.0/{post_id}/insights"
+    params = {
+        "metric": "post_impressions,post_clicks,post_reactions_like_total,post_comments,post_shares",
+        "access_token": page_token,
+    }
+    resp = await client.get(url, params=params)
+    if resp.status_code != 200:
+        return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
+    data = resp.json() or {}
+    raw_metrics = {item["name"]: item for item in data.get("data", [])}
+
+    def _val(name: str, idx: int = 0) -> int:
+        item = raw_metrics.get(name)
+        if not item:
+            return 0
+        values = item.get("values", [])
+        if idx < len(values):
+            return int(values[idx].get("value", 0) or 0)
+        return 0
+
+    return MetricBundle(
+        impressions=_val("post_impressions"),
+        clicks=_val("post_clicks"),
+        likes=_val("post_reactions_like_total"),
+        comments=_val("post_comments"),
+        shares=_val("post_shares"),
+        reach=_val("post_impressions"),
+        raw=data,
+    )
+
+
+async def sync_facebook_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    days: int = 365,
+) -> SyncResult:
+    result = SyncResult()
+    token = decrypt_token(account.access_token_enc)
+    page_id = account.account_id
+    since = datetime.now(UTC) - timedelta(days=days)
+    captured_at = datetime.now(UTC)
+
+    # Get page token
+    page_token = token
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            "https://graph.facebook.com/v20.0/me/accounts",
+            params={"access_token": token},
+        )
+        if resp.status_code == 200:
+            for acct in (resp.json() or {}).get("data", []):
+                if acct.get("id") == page_id:
+                    page_token = acct.get("access_token", token)
+                    break
+
+        targets_q = (
+            select(PostTarget)
+            .join(Post, Post.id == PostTarget.post_id)
+            .where(
+                PostTarget.social_account_id == account.id,
+                PostTarget.status == "published",
+                PostTarget.platform_post_id.isnot(None),
+                Post.status == PostStatus.PUBLISHED,
+                Post.team_id == account.team_id,
+            )
+            .options(selectinload(PostTarget.post))
+        )
+        targets = (await db.execute(targets_q)).scalars().all()
+        targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+
+        for t in targets:
+            fb_post_id = t.platform_post_id or ""
+            if not fb_post_id:
+                continue
+            metrics = await _fetch_facebook_post_metrics(client, page_token, fb_post_id)
+            await _persist_snapshot(
+                db, account=account, post_id=t.post_id, platform_post_id=fb_post_id,
+                metrics=metrics, captured_at=captured_at, source="facebook_api",
+                result=result, platform="facebook",
+            )
+
+    if result.synced == 0:
+        result.skipped = len(targets)
+    await db.commit()
+    return result
+
+
+# ── Instagram ─────────────────────────────────────────────────────────────────
+
+async def _fetch_instagram_media_metrics(
+    client: httpx.AsyncClient, token: str, ig_user_id: str, media_id: str,
+) -> MetricBundle:
+    """Fetch insights for an Instagram media post via Graph API."""
+    url = f"https://graph.facebook.com/v20.0/{media_id}/insights"
+    params = {
+        "metric": "impressions,reach,likes,comments,saves",
+        "access_token": token,
+    }
+    resp = await client.get(url, params=params)
+    if resp.status_code != 200:
+        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}")
+    data = resp.json() or {}
+    raw_metrics = {item["name"]: item for item in data.get("data", [])}
+
+    def _val(name: str) -> int:
+        item = raw_metrics.get(name)
+        if not item:
+            return 0
+        values = item.get("values", [])
+        return int(values[0].get("value", 0) or 0) if values else 0
+
+    return MetricBundle(
+        impressions=_val("impressions"),
+        likes=_val("likes"),
+        comments=_val("comments"),
+        reach=_val("reach"),
+        raw=data,
+    )
+
+
+async def sync_instagram_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    days: int = 365,
+) -> SyncResult:
+    result = SyncResult()
+    token = decrypt_token(account.access_token_enc)
+    ig_user_id = account.account_id
+    since = datetime.now(UTC) - timedelta(days=days)
+    captured_at = datetime.now(UTC)
+
+    targets_q = (
+        select(PostTarget)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            PostTarget.social_account_id == account.id,
+            PostTarget.status == "published",
+            PostTarget.platform_post_id.isnot(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.team_id == account.team_id,
+        )
+        .options(selectinload(PostTarget.post))
+    )
+    targets = (await db.execute(targets_q)).scalars().all()
+    targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for t in targets:
+            media_id = t.platform_post_id or ""
+            if not media_id:
+                continue
+            metrics = await _fetch_instagram_media_metrics(client, token, ig_user_id, media_id)
+            await _persist_snapshot(
+                db, account=account, post_id=t.post_id, platform_post_id=media_id,
+                metrics=metrics, captured_at=captured_at, source="instagram_api",
+                result=result, platform="instagram",
+            )
+
+    if result.synced == 0:
+        result.skipped = len(targets)
+    await db.commit()
+    return result
+
+
+# ── Threads ───────────────────────────────────────────────────────────────────
+
+async def _fetch_threads_media_metrics(
+    client: httpx.AsyncClient, token: str, media_id: str,
+) -> MetricBundle:
+    """Fetch insights for a Threads media post via Threads API."""
+    url = f"https://graph.threads.net/v1.0/{media_id}/insights"
+    params = {"metric": "views,likes,replies,reposts,quotes"}
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get(url, headers=headers, params=params)
+    if resp.status_code != 200:
+        return MetricBundle(notes=f"threads stats HTTP {resp.status_code}")
+    data = resp.json() or {}
+    raw_metrics = {item["name"]: item for item in data.get("data", [])}
+
+    def _val(name: str) -> int:
+        item = raw_metrics.get(name)
+        if not item:
+            return 0
+        values = item.get("values", [])
+        return int(values[0].get("value", 0) or 0) if values else 0
+
+    return MetricBundle(
+        impressions=_val("views"),
+        likes=_val("likes"),
+        comments=_val("replies"),
+        shares=_val("reposts") + _val("quotes"),
+        reach=_val("views"),
+        raw=data,
+    )
+
+
+async def sync_threads_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    days: int = 365,
+) -> SyncResult:
+    result = SyncResult()
+    token = decrypt_token(account.access_token_enc)
+    since = datetime.now(UTC) - timedelta(days=days)
+    captured_at = datetime.now(UTC)
+
+    targets_q = (
+        select(PostTarget)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            PostTarget.social_account_id == account.id,
+            PostTarget.status == "published",
+            PostTarget.platform_post_id.isnot(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.team_id == account.team_id,
+        )
+        .options(selectinload(PostTarget.post))
+    )
+    targets = (await db.execute(targets_q)).scalars().all()
+    targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for t in targets:
+            media_id = t.platform_post_id or ""
+            if not media_id:
+                continue
+            metrics = await _fetch_threads_media_metrics(client, token, media_id)
+            await _persist_snapshot(
+                db, account=account, post_id=t.post_id, platform_post_id=media_id,
+                metrics=metrics, captured_at=captured_at, source="threads_api",
+                result=result, platform="threads",
+            )
+
+    if result.synced == 0:
+        result.skipped = len(targets)
+    await db.commit()
+    return result
+
+
+# ── TikTok ────────────────────────────────────────────────────────────────────
+
+async def _fetch_tiktok_video_stats(
+    client: httpx.AsyncClient, token: str, video_id: str,
+) -> MetricBundle:
+    """Fetch stats for a TikTok video via TikTok Display API."""
+    url = "https://open.tiktokapis.com/v2/research/video/query/"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "query": {
+            "and": [
+                {"operation": "EQ", "field_name": "video_id", "field_values": [video_id]},
+            ],
+        },
+        "max_count": 1,
+    }
+    resp = await client.post(url, headers=headers, json=payload)
+    if resp.status_code != 200:
+        return MetricBundle(notes=f"tiktok stats HTTP {resp.status_code}")
+    data = resp.json() or {}
+    videos = (data.get("data") or {}).get("videos", [])
+    if not videos:
+        return MetricBundle(notes="tiktok_no_video_found")
+    v = videos[0]
+    stats = v.get("stats", {}) or {}
+    return MetricBundle(
+        impressions=int(stats.get("view_count", 0) or 0),
+        likes=int(stats.get("like_count", 0) or 0),
+        comments=int(stats.get("comment_count", 0) or 0),
+        shares=int(stats.get("share_count", 0) or 0),
+        reach=int(stats.get("view_count", 0) or 0),
+        raw=v,
+    )
+
+
+async def sync_tiktok_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    days: int = 365,
+) -> SyncResult:
+    result = SyncResult()
+    token = decrypt_token(account.access_token_enc)
+    since = datetime.now(UTC) - timedelta(days=days)
+    captured_at = datetime.now(UTC)
+
+    targets_q = (
+        select(PostTarget)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            PostTarget.social_account_id == account.id,
+            PostTarget.status == "published",
+            PostTarget.platform_post_id.isnot(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.team_id == account.team_id,
+        )
+        .options(selectinload(PostTarget.post))
+    )
+    targets = (await db.execute(targets_q)).scalars().all()
+    targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for t in targets:
+            video_id = t.platform_post_id or ""
+            if not video_id:
+                continue
+            metrics = await _fetch_tiktok_video_stats(client, token, video_id)
+            await _persist_snapshot(
+                db, account=account, post_id=t.post_id, platform_post_id=video_id,
+                metrics=metrics, captured_at=captured_at, source="tiktok_api",
+                result=result, platform="tiktok",
+            )
+
+    if result.synced == 0:
+        result.skipped = len(targets)
+    await db.commit()
+    return result
+
+
+# ── Dispatch ──────────────────────────────────────────────────────────────────
+
 async def sync_team_analytics(
     db: AsyncSession,
     team_id: uuid.UUID,
@@ -535,13 +937,24 @@ async def sync_team_analytics(
         try:
             if platform == "linkedin":
                 r = await sync_linkedin_account(db, account, days=days)
-                combined.synced += r.synced
-                combined.skipped += r.skipped
-                combined.errors.extend(r.errors)
-                combined.snapshots.extend(r.snapshots)
+            elif platform == "twitter":
+                r = await sync_twitter_account(db, account, days=days)
+            elif platform == "facebook":
+                r = await sync_facebook_account(db, account, days=days)
+            elif platform == "instagram":
+                r = await sync_instagram_account(db, account, days=days)
+            elif platform == "threads":
+                r = await sync_threads_account(db, account, days=days)
+            elif platform == "tiktok":
+                r = await sync_tiktok_account(db, account, days=days)
             else:
                 combined.skipped += 1
-                combined.errors.append(f"{platform}:{account.username}: sync not implemented yet")
+                combined.errors.append(f"{platform}:{account.username}: unsupported platform")
+                continue
+            combined.synced += r.synced
+            combined.skipped += r.skipped
+            combined.errors.extend(r.errors)
+            combined.snapshots.extend(r.snapshots)
         except Exception as exc:  # noqa: BLE001
             combined.errors.append(f"{platform}:{account.username}: {exc}")
     return combined

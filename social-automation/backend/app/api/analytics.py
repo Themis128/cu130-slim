@@ -67,10 +67,7 @@ def _org_urn(account: SocialAccount) -> str:
 
 
 async def _linkedin_follower_count(account: SocialAccount) -> int:
-    """Fetch live follower count for a LinkedIn Company Page account.
-
-    Returns 0 on any error (token expired, missing scope, API unavailable).
-    """
+    """Fetch live follower count for a LinkedIn Company Page account."""
     if account.platform != "linkedin":
         return 0
     try:
@@ -79,6 +76,131 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
         return await client.get_follower_count(_org_urn(account))
     except Exception:
         return 0
+
+
+async def _twitter_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Twitter/X account via API v2."""
+    if account.platform != "twitter":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        headers = {"Authorization": f"Bearer {token}"}
+        # Use the account_id (Twitter user ID) to fetch user info
+        user_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://api.twitter.com/2/users/{user_id}",
+                headers=headers,
+                params={"user.fields": "public_metrics"},
+            )
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data", {})
+                return int((data.get("public_metrics") or {}).get("followers_count", 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _facebook_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Facebook Page via Graph API."""
+    if account.platform != "facebook":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        page_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v20.0/{page_id}",
+                params={"fields": "followers_count,fan_count", "access_token": token},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                return int(data.get("followers_count", 0) or data.get("fan_count", 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _instagram_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for an Instagram Business/Creator account."""
+    if account.platform != "instagram":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        ig_user_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v20.0/{ig_user_id}",
+                params={"fields": "followers_count", "access_token": token},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                return int(data.get("followers_count", 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _threads_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Threads profile."""
+    if account.platform != "threads":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        threads_user_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://graph.threads.net/v1.0/{threads_user_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "followers_count"},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                return int(data.get("followers_count", 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _tiktok_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a TikTok account via Display API."""
+    if account.platform != "tiktok":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "follower_count"},
+            )
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data", {})
+                return int((data.get("user") or {}).get("follower_count", 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _follower_count(account: SocialAccount) -> int:
+    """Dispatch to the correct platform follower count function."""
+    dispatch = {
+        "linkedin": _linkedin_follower_count,
+        "twitter": _twitter_follower_count,
+        "facebook": _facebook_follower_count,
+        "instagram": _instagram_follower_count,
+        "threads": _threads_follower_count,
+        "tiktok": _tiktok_follower_count,
+    }
+    fn = dispatch.get(account.platform)
+    if fn is None:
+        return 0
+    return await fn(account)
 
 
 def _latest_snapshot_ids_subq(team_id, since: datetime | None = None, *, posts_only: bool = False):
@@ -213,7 +335,7 @@ async def get_overview(
     accounts = accounts_result.scalars().all()
     total_followers = 0
     for account in accounts:
-        total_followers += await _linkedin_follower_count(account)
+        total_followers += await _follower_count(account)
 
     # Prefer latest snapshots when present; else event counters (with meta_data.count)
     snap_eng = await db.execute(
@@ -343,7 +465,7 @@ async def get_account_metrics(
     engagement = _engagement_sum(event_counts)
 
     # Fetch live follower count for this account
-    followers = await _linkedin_follower_count(account)
+    followers = await _follower_count(account)
 
     return AccountMetrics(
         account_id=account_id,
@@ -536,7 +658,7 @@ async def get_follower_counts(
     # Fetch live follower counts from LinkedIn for active accounts
     result: list[FollowerPoint] = []
     for account in accounts:
-        followers = await _linkedin_follower_count(account)
+        followers = await _follower_count(account)
         result.append(FollowerPoint(platform=account.platform, followers=followers, change=0))
     return result
 
