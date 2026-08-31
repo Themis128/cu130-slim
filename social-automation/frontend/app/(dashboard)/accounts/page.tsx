@@ -6,6 +6,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
+  Building2, User,
 } from 'lucide-react'
 
 function TikTokIcon({ className }: { className?: string }) {
@@ -620,6 +621,22 @@ export default function AccountsPage() {
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Type</span>
+                            <div className="flex items-center gap-1.5">
+                              {status.account?.is_business && (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {status.account?.account_type === 'organization' ? 'Business' :
+                                   status.account?.account_type === 'page' ? 'Page' :
+                                   status.account?.account_type === 'business' ? 'Business' :
+                                   status.account?.account_type === 'creator' ? 'Creator' : 'Business'}
+                                </Badge>
+                              )}
+                              {!status.account?.is_business && (
+                                <Badge variant="outline" className="text-[10px]">Personal</Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
                             <span className="text-muted-foreground">Status</span>
                             <Badge variant={status.expired ? 'destructive' : status.expiringSoon ? 'outline' : 'success'}>
                               {status.expired ? 'Expired' : status.expiringSoon ? `${status.daysLeft}d left` : 'Active'}
@@ -718,52 +735,116 @@ export default function AccountsPage() {
             })}
           </div>
 
-          {/* Connected accounts detail list */}
+          {/* Connected accounts detail list — separated by business/personal */}
           {connectedAccounts.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Account Details</CardTitle>
-                <CardDescription>All connected accounts and their permissions</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="space-y-3">
-                    {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full" />)}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {connectedAccounts.map((account: SocialAccount) => {
-                      const platform = platforms.find(p => p.id === account.platform)
-                      const Icon = platform?.icon || AlertCircle
-                      const color = platformColors[account.platform] || 'bg-gray-500'
-                      const isExpired = account.token_expires_at && new Date(account.token_expires_at) < new Date()
+            <>
+              {/* Business / Organization accounts */}
+              {connectedAccounts.some((a: SocialAccount) => a.is_business) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Building2 className="h-5 w-5" />
+                      Business & Page Accounts
+                    </CardTitle>
+                    <CardDescription>Organization, Page, and Business accounts used for publishing</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {connectedAccounts.filter((a: SocialAccount) => a.is_business).map((account: SocialAccount) => {
+                          const platform = platforms.find(p => p.id === account.platform)
+                          const Icon = platform?.icon || AlertCircle
+                          const color = platformColors[account.platform] || 'bg-gray-500'
+                          const isExpired = account.token_expires_at && new Date(account.token_expires_at) < new Date()
 
-                      return (
-                        <div key={account.id} className="flex items-center justify-between p-4 rounded-lg border">
-                          <div className="flex items-center gap-4">
-                            <div className={`p-2 rounded-lg ${color}`}>
-                              <Icon className="h-5 w-5 text-white" />
+                          return (
+                            <div key={account.id} className="flex items-center justify-between p-4 rounded-lg border">
+                              <div className="flex items-center gap-4">
+                                <div className={`p-2 rounded-lg ${color}`}>
+                                  <Icon className="h-5 w-5 text-white" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{platform?.name || account.platform}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    @{account.username || account.display_name || 'Unknown'}
+                                    <span className="ml-2 text-xs text-muted-foreground/70">
+                                      ({account.account_type})
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Badge variant={isExpired ? 'destructive' : 'success'}>
+                                  {isExpired ? 'Token Expired' : 'Active'}
+                                </Badge>
+                                <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium">{platform?.name || account.platform}</p>
-                              <p className="text-sm text-muted-foreground">@{account.username || account.display_name || 'Unknown'}</p>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Personal accounts */}
+              {connectedAccounts.some((a: SocialAccount) => !a.is_business) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Personal Accounts
+                    </CardTitle>
+                    <CardDescription>Personal profiles connected for cross-posting</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {connectedAccounts.filter((a: SocialAccount) => !a.is_business).map((account: SocialAccount) => {
+                          const platform = platforms.find(p => p.id === account.platform)
+                          const Icon = platform?.icon || AlertCircle
+                          const color = platformColors[account.platform] || 'bg-gray-500'
+                          const isExpired = account.token_expires_at && new Date(account.token_expires_at) < new Date()
+
+                          return (
+                            <div key={account.id} className="flex items-center justify-between p-4 rounded-lg border">
+                              <div className="flex items-center gap-4">
+                                <div className={`p-2 rounded-lg ${color}`}>
+                                  <Icon className="h-5 w-5 text-white" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{platform?.name || account.platform}</p>
+                                  <p className="text-sm text-muted-foreground">@{account.username || account.display_name || 'Unknown'}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Badge variant={isExpired ? 'destructive' : 'success'}>
+                                  {isExpired ? 'Token Expired' : 'Active'}
+                                </Badge>
+                                <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={isExpired ? 'destructive' : 'success'}>
-                              {isExpired ? 'Token Expired' : 'Active'}
-                            </Badge>
-                            <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
 
           {/* Quick link to setup if no accounts */}

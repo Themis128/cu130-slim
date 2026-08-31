@@ -39,7 +39,9 @@ export interface SocialAccount {
   error_message: string | null
   created_at: string
   updated_at: string
-  account_type?: 'person' | 'organization' | string
+  account_type: 'person' | 'organization' | 'page' | 'business' | 'creator' | 'user' | string
+  is_business: boolean
+  parent_account_id: string | null
   meta_data?: Record<string, unknown>
 }
 

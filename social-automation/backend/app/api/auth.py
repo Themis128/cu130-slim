@@ -169,6 +169,8 @@ async def _sync_linkedin_organizations(
             account.username = username
             account.display_name = display_name
             account.avatar_url = avatar_url
+            account.account_type = "organization"
+            account.is_business = True
             account.meta_data = {**(account.meta_data or {}), **meta}
         else:
             account = SocialAccount(
@@ -182,6 +184,8 @@ async def _sync_linkedin_organizations(
                 refresh_token_enc=encrypt_token(refresh_token) if refresh_token else None,
                 scopes=scopes,
                 status="active",
+                account_type="organization",
+                is_business=True,
                 meta_data=meta,
             )
             db.add(account)
@@ -846,6 +850,32 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     return {"authorization_url": authorization_url}
 
 
+def _platform_account_type(platform: str, account_id: str, token: dict, ctx: dict) -> tuple[str, bool]:
+    """Determine account_type and is_business for a platform after OAuth.
+
+    Returns (account_type, is_business):
+      - LinkedIn person: ("person", False) — organizations handled by _sync_linkedin_organizations
+      - Facebook page: ("page", True) — user timeline posting not supported by Graph API
+      - Instagram business: ("business", True) — only business/creator accounts can publish
+      - Twitter/Threads/TikTok: ("person", False) — no business distinction in posting API
+    """
+    if platform == "linkedin":
+        return ("person", False)
+    if platform == "facebook":
+        # If account_id differs from the FB user id, it's a Page
+        fb_user_id = (ctx.get("fb_info") or {}).get("id")
+        if fb_user_id and account_id != fb_user_id:
+            return ("page", True)
+        return ("user", False)
+    if platform == "instagram":
+        # IG publishing requires a business/creator account
+        return ("business", True)
+    if platform == "tiktok":
+        return ("person", False)
+    # twitter, threads, and any future platform
+    return ("person", False)
+
+
 @router.get("/oauth/{platform}/callback")
 async def oauth_callback(
     platform: str,
@@ -1111,6 +1141,10 @@ async def oauth_callback(
         account.username = username
         account.display_name = display_name
         account.avatar_url = avatar_url
+        # Set account_type and is_business per platform
+        _acct_type, _is_biz = _platform_account_type(platform, account_id, token, locals())
+        account.account_type = _acct_type
+        account.is_business = _is_biz
         if platform == "linkedin":
             account.meta_data = {
                 **(account.meta_data or {}),
@@ -1122,17 +1156,33 @@ async def oauth_callback(
                 **(account.meta_data or {}),
                 "open_id": token.get("open_id", account_id),
             }
+        elif platform == "facebook":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": _acct_type,
+                "page_id": account_id if _is_biz else None,
+            }
+        elif platform == "instagram":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": _acct_type,
+            }
     else:
         _meta: dict = {}
         if platform == "linkedin":
             _meta = {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
         elif platform == "tiktok":
             _meta = {"open_id": token.get("open_id", account_id)}
+        elif platform == "facebook":
+            _meta = {"account_type": "page" if account_id != locals().get("fb_info", {}).get("id") else "user"}
+        elif platform == "instagram":
+            _meta = {"account_type": "business"}
         _expires_in = token.get("expires_in")
         _token_expires_at = None
         if _expires_in:
             from datetime import datetime, timedelta
             _token_expires_at = datetime.now(UTC) + timedelta(seconds=int(_expires_in))
+        _acct_type, _is_biz = _platform_account_type(platform, account_id, token, locals())
         account = SocialAccount(
             team_id=team_id,
             platform=platform,
@@ -1145,6 +1195,8 @@ async def oauth_callback(
             token_expires_at=_token_expires_at,
             scopes=scopes,
             status="active",
+            account_type=_acct_type,
+            is_business=_is_biz,
             meta_data=_meta,
         )
         db.add(account)
@@ -1264,6 +1316,9 @@ async def instagram2_callback(
     )
     account = result.scalar_one_or_none()
 
+    ig_account_type = profile.get("account_type", "BUSINESS")
+    is_biz = ig_account_type.upper() in ("BUSINESS", "CREATOR")
+
     if account:
         account.access_token_enc = encrypt_token(long_lived_token)
         account.token_expires_at = token_expires_at
@@ -1271,9 +1326,11 @@ async def instagram2_callback(
         account.status = "active"
         account.username = username
         account.display_name = display_name
+        account.account_type = ig_account_type.lower()
+        account.is_business = is_biz
         account.meta_data = {
             **(account.meta_data or {}),
-            "account_type": profile.get("account_type", ""),
+            "account_type": ig_account_type,
             "ig_business_id": account_id,
             "login_type": "business_login",
         }
@@ -1288,8 +1345,10 @@ async def instagram2_callback(
             token_expires_at=token_expires_at,
             scopes=scopes,
             status="active",
+            account_type=ig_account_type.lower(),
+            is_business=is_biz,
             meta_data={
-                "account_type": profile.get("account_type", ""),
+                "account_type": ig_account_type,
                 "ig_business_id": account_id,
                 "login_type": "business_login",
             },

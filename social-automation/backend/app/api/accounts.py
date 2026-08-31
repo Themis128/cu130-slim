@@ -73,7 +73,9 @@ class SocialAccountResponse(BaseModel):
     scopes: list[str]
     token_expires_at: str | None
     created_at: str
-    account_type: str = "person"  # person | organization
+    account_type: str = "person"  # person | organization | page | business | creator | user
+    is_business: bool = False
+    parent_account_id: str | None = None
     meta_data: dict = {}
 
     class Config:
@@ -86,6 +88,9 @@ class ConnectResponse(BaseModel):
 
 @router.get("", response_model=list[SocialAccountResponse])
 async def list_accounts(
+    platform: str | None = None,
+    account_type: str | None = None,
+    is_business: bool | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,9 +101,16 @@ async def list_accounts(
     if not team:
         return []
 
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.team_id == team.id)
-    )
+    query = select(SocialAccount).where(SocialAccount.team_id == team.id)
+    if platform:
+        query = query.where(SocialAccount.platform == platform)
+    if account_type:
+        query = query.where(SocialAccount.account_type == account_type)
+    if is_business is not None:
+        query = query.where(SocialAccount.is_business == is_business)
+    query = query.order_by(SocialAccount.platform, SocialAccount.is_business.desc(), SocialAccount.created_at.desc())
+
+    result = await db.execute(query)
     accounts = result.scalars().all()
 
     return [
@@ -113,7 +125,9 @@ async def list_accounts(
             scopes=a.scopes,
             token_expires_at=a.token_expires_at.isoformat() if a.token_expires_at else None,
             created_at=a.created_at.isoformat(),
-            account_type=(a.meta_data or {}).get("account_type", "person"),
+            account_type=a.account_type,
+            is_business=a.is_business,
+            parent_account_id=str(a.parent_account_id) if a.parent_account_id else None,
             meta_data=a.meta_data or {},
         )
         for a in accounts
