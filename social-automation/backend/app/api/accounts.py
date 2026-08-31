@@ -237,10 +237,16 @@ async def connect_account(
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(platform, [])
 
+    # TikTok requires client_key as an extra param in the authorize URL
+    extra_params: dict = {}
+    if platform == "tiktok":
+        extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=str(team_id),
         scope=scopes,
+        extras_params=extra_params if extra_params else None,
     )
 
     return ConnectResponse(authorization_url=authorization_url)
