@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Bell, Shield, Palette, Trash2, Download, Cpu, Sun, Moon, Monitor, Laptop } from 'lucide-react'
+import { User, Bell, Shield, Palette, Trash2, Download, Cpu, Sun, Moon, Monitor, Laptop, Loader2, QrCode } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/Switch'
 import { Badge } from '@/components/ui/Badge'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
+import { authApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 
@@ -53,6 +54,19 @@ export default function SettingsPage() {
   })
   const [isSaving, setIsSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [twoFactorSetup, setTwoFactorSetup] = useState<{ secret: string; qr_uri: string } | null>(null)
+  const [twoFactorCode, setTwoFactorCode] = useState('')
+  const [is2FALoading, setIs2FALoading] = useState(false)
+
+  // Load notification preferences on mount
+  useEffect(() => {
+    authApi.getNotificationPreferences().then(res => {
+      setNotifications(res.data)
+    }).catch(() => {})
+  }, [])
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -90,12 +104,97 @@ export default function SettingsPage() {
   }
 
   const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      toast.error('Enter your password to confirm deletion')
+      return
+    }
+    setIsDeleting(true)
     try {
+      await authApi.deleteAccount(deletePassword)
       toast.success('Account deleted')
       logout()
       router.push('/login')
     } catch {
-      toast.error('Failed to delete account')
+      toast.error('Failed to delete account — check your password')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleExportData = async () => {
+    setIsExporting(true)
+    try {
+      const res = await authApi.exportData()
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `socialauto-export-${format(new Date(), 'yyyy-MM-dd')}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success('Data exported')
+    } catch {
+      toast.error('Failed to export data')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleSaveNotifications = async () => {
+    setIsSaving(true)
+    try {
+      await authApi.updateNotificationPreferences(notifications)
+      toast.success('Notification preferences saved')
+    } catch {
+      toast.error('Failed to save preferences')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSetup2FA = async () => {
+    setIs2FALoading(true)
+    try {
+      const res = await authApi.setup2FA()
+      setTwoFactorSetup(res.data)
+    } catch {
+      toast.error('Failed to start 2FA setup')
+    } finally {
+      setIs2FALoading(false)
+    }
+  }
+
+  const handleVerify2FA = async () => {
+    if (!twoFactorCode) return
+    setIs2FALoading(true)
+    try {
+      await authApi.verify2FA(twoFactorCode)
+      toast.success('Two-factor authentication enabled')
+      setTwoFactorSetup(null)
+      setTwoFactorCode('')
+      // Refresh user data
+      window.location.reload()
+    } catch {
+      toast.error('Invalid code — try again')
+    } finally {
+      setIs2FALoading(false)
+    }
+  }
+
+  const handleDisable2FA = async () => {
+    const password = prompt('Enter your password to disable 2FA')
+    if (!password) return
+    setIs2FALoading(true)
+    try {
+      await authApi.disable2FA(password)
+      toast.success('Two-factor authentication disabled')
+      window.location.reload()
+    } catch {
+      toast.error('Failed to disable 2FA — check your password')
+    } finally {
+      setIs2FALoading(false)
     }
   }
 
@@ -285,19 +384,68 @@ export default function SettingsPage() {
               <CardTitle>Two-Factor Authentication</CardTitle>
               <CardDescription>Add an extra layer of security to your account</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Authenticator App</p>
-                  <p className="text-sm text-muted-foreground">Use Google Authenticator, Authy, or 1Password</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge variant="secondary">Not enabled</Badge>
-                  <Button variant="outline" onClick={() => toast('Two-factor authentication coming soon')}>
-                    Enable 2FA
+            <CardContent className="space-y-4">
+              {twoFactorSetup ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-lg bg-accent/50 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-5 w-5 text-primary" />
+                      <p className="font-medium">Scan this secret in your authenticator app</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Secret key (enter manually if you can&apos;t scan a QR)</Label>
+                      <Input readOnly value={twoFactorSetup.secret} className="font-mono text-sm" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>OTP Auth URI</Label>
+                      <Input readOnly value={twoFactorSetup.qr_uri} className="font-mono text-xs" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Add this to Google Authenticator, Authy, or 1Password, then enter the 6-digit code below.
+                    </p>
+                  </div>
+                  <div className="flex items-end gap-2 max-w-xs">
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="2fa_code">Verification code</Label>
+                      <Input
+                        id="2fa_code"
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value)}
+                        placeholder="123456"
+                        className="font-mono"
+                        maxLength={6}
+                      />
+                    </div>
+                    <Button onClick={handleVerify2FA} disabled={is2FALoading || twoFactorCode.length !== 6}>
+                      {is2FALoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify'}
+                    </Button>
+                  </div>
+                  <Button variant="ghost" onClick={() => { setTwoFactorSetup(null); setTwoFactorCode('') }}>
+                    Cancel
                   </Button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Authenticator App</p>
+                    <p className="text-sm text-muted-foreground">Use Google Authenticator, Authy, or 1Password</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={user?.two_factor_enabled ? 'success' : 'secondary'}>
+                      {user?.two_factor_enabled ? 'Enabled' : 'Not enabled'}
+                    </Badge>
+                    {user?.two_factor_enabled ? (
+                      <Button variant="outline" onClick={handleDisable2FA} disabled={is2FALoading}>
+                        {is2FALoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Disable 2FA'}
+                      </Button>
+                    ) : (
+                      <Button variant="outline" onClick={handleSetup2FA} disabled={is2FALoading}>
+                        {is2FALoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enable 2FA'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -378,7 +526,8 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Button onClick={() => toast.success('Notification preferences saved')}>
+          <Button onClick={handleSaveNotifications} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Save Preferences
           </Button>
         </TabsContent>
@@ -424,9 +573,9 @@ export default function SettingsPage() {
               <CardDescription>Download all your posts, media metadata, and analytics in JSON format</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" onClick={() => toast('Data export coming soon')}>
-                <Download className="mr-2 h-4 w-4" />
-                Request Data Export
+              <Button variant="outline" onClick={handleExportData} disabled={isExporting}>
+                {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                {isExporting ? 'Exporting…' : 'Request Data Export'}
               </Button>
             </CardContent>
           </Card>
@@ -452,12 +601,24 @@ export default function SettingsPage() {
                   placeholder="DELETE"
                   className="max-w-xs font-mono"
                 />
+                <Label htmlFor="delete_password" className="text-sm">
+                  Enter your password
+                </Label>
+                <Input
+                  id="delete_password"
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Your password"
+                  className="max-w-xs"
+                  autoComplete="current-password"
+                />
                 <Button
                   variant="destructive"
-                  disabled={deleteConfirm !== 'DELETE'}
+                  disabled={deleteConfirm !== 'DELETE' || !deletePassword || isDeleting}
                   onClick={handleDeleteAccount}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                   Delete My Account
                 </Button>
               </div>

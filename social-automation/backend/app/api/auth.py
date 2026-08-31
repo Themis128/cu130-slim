@@ -517,7 +517,7 @@ def _verify_totp(secret: str, code: str, window: int = 1) -> bool:
         offset_byte = h[-1] & 0x0F
         truncated = struct.unpack(">I", h[offset_byte:offset_byte + 4])[0] & 0x7FFFFFFF
         expected = str(truncated % 1000000).zfill(6)
-        if hmac.compare_digest(expected, str(code).strip())
+        if hmac.compare_digest(expected, str(code).strip()):
             return True
     return False
 

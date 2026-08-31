@@ -179,6 +179,16 @@ export const authApi = {
     api.get(`/auth/oauth/${platform}/authorize`, { params: { team_id: teamId } }),
   oauthCallback: (platform: string, code: string, state: string) =>
     api.get(`/auth/oauth/${platform}/callback`, { params: { code, state } }),
+  setup2FA: () => api.post<{ secret: string; qr_uri: string }>('/auth/2fa/setup'),
+  verify2FA: (code: string) => api.post('/auth/2fa/verify', { code }),
+  disable2FA: (password: string) => api.delete('/auth/2fa', { data: { current_password: password } }),
+  getNotificationPreferences: () => api.get('/auth/notifications/preferences'),
+  updateNotificationPreferences: (data: {
+    email_new_post: boolean; email_scheduled: boolean; email_analytics: boolean;
+    push_new_post: boolean; push_scheduled: boolean;
+  }) => api.put('/auth/notifications/preferences', data),
+  exportData: () => api.get('/auth/export-data'),
+  deleteAccount: (password: string) => api.delete('/auth/account', { data: { password } }),
 }
 
 // Content endpoints
@@ -317,6 +327,7 @@ export const workflowApi = {
   deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
   undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
+  getExecutions: (id: string, limit = 10) => api.get(`/workflows/${id}/executions`, { params: { limit } }),
 }
 
 // Accounts endpoints

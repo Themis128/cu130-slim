@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Search, Zap, Plus, MoreVertical, Play, Trash2, Edit, Copy, ExternalLink, Sparkles, Brain, Loader2, LayoutTemplate, Library, CheckCircle2, XCircle, Clock, History } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -124,6 +124,31 @@ export default function WorkflowsPage() {
   const [generateModel, setGenerateModel] = useState('llama3')
   const [generateComplexity, setGenerateComplexity] = useState('moderate')
   const [expandedWorkflow, setExpandedWorkflow] = useState<string | null>(null)
+  const [workflowRuns, setWorkflowRuns] = useState<Record<string, Array<{ status: 'success' | 'failed' | 'running'; label: string; time: string }>>>({})
+  const [loadingRuns, setLoadingRuns] = useState<Record<string, boolean>>({})
+
+  const fetchRuns = useCallback(async (workflowId: string) => {
+    setLoadingRuns(prev => ({ ...prev, [workflowId]: true }))
+    try {
+      const res = await workflowApi.getExecutions(workflowId)
+      setWorkflowRuns(prev => ({ ...prev, [workflowId]: res.data || [] }))
+    } catch {
+      setWorkflowRuns(prev => ({ ...prev, [workflowId]: [] }))
+    } finally {
+      setLoadingRuns(prev => ({ ...prev, [workflowId]: false }))
+    }
+  }, [])
+
+  // Fetch runs for deployed workflows on mount
+  useEffect(() => {
+    if (workflows?.data) {
+      workflows.data.forEach((w: GeneratedWorkflow) => {
+        if (w.n8n_workflow_id && !workflowRuns[w.id]) {
+          fetchRuns(w.id)
+        }
+      })
+    }
+  }, [workflows, fetchRuns, workflowRuns])
 
   const { data: templatesData, isLoading: templatesLoading, refetch: refetchTemplates } = useTemplates(categoryFilter)
   const { data: workflowsData, isLoading: workflowsLoading } = useWorkflows()
@@ -248,24 +273,6 @@ export default function WorkflowsPage() {
   const galleryTemplates = galleryCategoryFilter
     ? STARTER_TEMPLATES.filter(t => t.category === galleryCategoryFilter)
     : STARTER_TEMPLATES
-
-  // Simulate last-run entries for deployed workflow cards
-  const mockRunHistory = (workflow: GeneratedWorkflow): Array<{ status: 'success' | 'failed' | 'running'; label: string; time: string }> => {
-    if (workflow.status === 'active' || workflow.status === 'deployed') {
-      return [
-        { status: 'success', label: 'Run succeeded', time: '14m ago' },
-        { status: 'success', label: 'Run succeeded', time: '1h ago' },
-        { status: 'success', label: 'Run succeeded', time: '2h ago' },
-      ]
-    }
-    if (workflow.status === 'archived') {
-      return [
-        { status: 'success', label: 'Run succeeded', time: '2d ago' },
-        { status: 'success', label: 'Run succeeded', time: '3d ago' },
-      ]
-    }
-    return []
-  }
 
   const runStatusIcon = (status: 'success' | 'failed' | 'running') => {
     if (status === 'success') return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
@@ -605,7 +612,8 @@ export default function WorkflowsPage() {
           ) : (
             <div className="space-y-3">
               {workflows.map((workflow: GeneratedWorkflow) => {
-                const runs = mockRunHistory(workflow)
+                const runs = workflowRuns[workflow.id] || []
+                const isLoadingRuns = loadingRuns[workflow.id]
                 const lastRun = runs[0]
                 const isExpanded = expandedWorkflow === workflow.id
                 return (
@@ -649,7 +657,11 @@ export default function WorkflowsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setExpandedWorkflow(isExpanded ? null : workflow.id)}
+                              onClick={() => {
+                                const next = isExpanded ? null : workflow.id
+                                setExpandedWorkflow(next)
+                                if (next) fetchRuns(workflow.id)
+                              }}
                               title="Run history"
                             >
                               <History className="h-4 w-4" />

@@ -4,6 +4,7 @@ export interface User {
   name: string | null
   avatar_url: string | null
   timezone: string
+  two_factor_enabled: boolean
   created_at: string
 }
 

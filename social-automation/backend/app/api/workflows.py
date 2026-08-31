@@ -603,7 +603,45 @@ async def execute_workflow(
             raise HTTPException(status_code=500, detail=f"n8n execute failed: {resp.text}")
 
         execution = resp.json()
-        workflow.workflow_run_id = execution.get("id")
-        await db.commit()
 
     return {"message": "Execution started", "execution_id": execution.get("id")}
+
+
+@router.get("/{workflow_id}/executions")
+async def get_workflow_executions(
+    workflow_id: uuid.UUID,
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch recent n8n execution history for a deployed workflow."""
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+    if not workflow or not workflow.n8n_workflow_id:
+        return []
+
+    async with httpx.AsyncClient() as client:
+        headers = {"X-N8N-API-KEY": settings.N8N_API_KEY}
+        resp = await client.get(
+            f"{settings.N8N_API_URL}/api/v1/executions",
+            headers=headers,
+            params={"workflowId": workflow.n8n_workflow_id, "limit": limit},
+        )
+        if resp.status_code != 200:
+            return []
+
+        data = resp.json()
+        executions = data.get("data", data) if isinstance(data, dict) else data
+
+    runs = []
+    for ex in executions if isinstance(executions, list) else []:
+        status_raw = ex.get("status", "unknown")
+        status = "success" if status_raw == "success" else "failed" if status_raw in ("failed", "error") else "running"
+        finished_at = ex.get("stoppedAt") or ex.get("finishedAt")
+        runs.append({
+            "id": ex.get("id"),
+            "status": status,
+            "label": f"Run {status}",
+            "time": finished_at or ex.get("startedAt", ""),
+        })
+    return runs
