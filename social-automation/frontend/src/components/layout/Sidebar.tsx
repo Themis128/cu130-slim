@@ -19,6 +19,7 @@ import {
   X,
   CalendarDays,
   Linkedin,
+  Palette,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -34,6 +35,7 @@ const navigation = [
   { name: 'Media Library', href: '/media', icon: Image },
   { name: 'Generate Image', href: '/media/generate', icon: Wand2 },
   { name: 'Workflows', href: '/workflows', icon: Zap },
+  { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'Accounts', href: '/accounts', icon: Users },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },

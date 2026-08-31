@@ -9,6 +9,7 @@ import {
   aiApi,
   aiProvidersApi,
   linkedinApi,
+  brandApi,
   getAccessToken,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
@@ -563,5 +564,126 @@ export function useLinkedinOrganizationAnalytics(accountId: string) {
     queryFn: () => linkedinApi.organizationAnalytics(accountId),
     select: (response) => response.data,
     enabled: !!accountId,
+  })
+}
+
+// ── Brand hooks ──────────────────────────────────────────────────────────────
+
+export function useBrand() {
+  return useQuery({
+    queryKey: ['brand'],
+    queryFn: () => brandApi.get(),
+    select: (response) => response.data,
+  })
+}
+
+export function useCreateBrand() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand created')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to create brand')
+    },
+  })
+}
+
+export function useUpdateBrand() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.update,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update brand')
+    },
+  })
+}
+
+export function useUpdateBrandVoice() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.updateVoice,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand voice updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update brand voice')
+    },
+  })
+}
+
+export function useUpdateBrandVisual() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.updateVisual,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand visual updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update brand visual')
+    },
+  })
+}
+
+export function useCompileGuidelines() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.compileGuidelines,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand guidelines compiled')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to compile guidelines')
+    },
+  })
+}
+
+export function useBrandAssets() {
+  return useQuery({
+    queryKey: ['brand-assets'],
+    queryFn: () => brandApi.listAssets(),
+    select: (response) => response.data,
+  })
+}
+
+export function useCreateBrandAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.createAsset,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand-assets'] })
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand asset added')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to add brand asset')
+    },
+  })
+}
+
+export function useDeleteBrandAsset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: brandApi.deleteAsset,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brand-assets'] })
+      queryClient.invalidateQueries({ queryKey: ['brand'] })
+      toast.success('Brand asset removed')
+    },
   })
 }

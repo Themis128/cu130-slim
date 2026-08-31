@@ -549,4 +549,73 @@ export const linkedinApi = {
     api.get('/linkedin/company-page-url', { params: { account_id: accountId } }),
 }
 
+// Brand endpoints
+export const brandApi = {
+  get: () => api.get('/brand'),
+  create: (data: {
+    name: string
+    industry?: string
+    positioning_statement?: string
+    mission?: string
+    values?: string[]
+    target_audience?: Record<string, unknown>
+    competitor_names?: string[]
+    tagline?: string
+    website_url?: string
+  }) => api.post('/brand', data),
+  update: (data: {
+    name?: string
+    industry?: string
+    positioning_statement?: string
+    mission?: string
+    values?: string[]
+    target_audience?: Record<string, unknown>
+    competitor_names?: string[]
+    tagline?: string
+    website_url?: string
+  }) => api.put('/brand', data),
+  delete: () => api.delete('/brand'),
+
+  // Voice
+  getVoice: () => api.get('/brand/voice'),
+  updateVoice: (data: {
+    tone_dimensions?: Record<string, number>
+    messaging_pillars?: Array<{ title: string; description: string }>
+    banned_phrases?: string[]
+    preferred_phrases?: string[]
+    example_content?: string
+    voice_signature?: Record<string, unknown>
+  }) => api.put('/brand/voice', data),
+
+  // Visual
+  getVisual: () => api.get('/brand/visual'),
+  updateVisual: (data: {
+    primary_color?: string
+    accent_color?: string
+    neutral_colors?: string[]
+    font_heading?: string
+    font_body?: string
+    type_scale?: Record<string, number>
+    logo_url?: string
+    logo_variants?: Record<string, string>
+    image_style?: string
+    photography_direction?: string
+  }) => api.put('/brand/visual', data),
+
+  // Guidelines
+  getGuidelines: () => api.get('/brand/guidelines'),
+  compileGuidelines: () => api.post('/brand/guidelines/compile'),
+
+  // Assets
+  listAssets: () => api.get('/brand/assets'),
+  createAsset: (data: {
+    asset_type?: string
+    name: string
+    media_asset_id?: string
+    file_url?: string
+    asset_metadata?: Record<string, unknown>
+  }) => api.post('/brand/assets', data),
+  deleteAsset: (id: string) => api.delete(`/brand/assets/${id}`),
+}
+
 export default api
