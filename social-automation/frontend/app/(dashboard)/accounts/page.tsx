@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts } from '@/hooks/useQueries'
+import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts, useSyncBusinessAccounts, useSetBusinessAccount } from '@/hooks/useQueries'
 import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -404,6 +404,8 @@ export default function AccountsPage() {
   const { data: accounts, isLoading } = useAccounts()
   const connectMutation = useConnectAccount()
   const disconnectMutation = useDisconnectAccount()
+  const syncBusinessMutation = useSyncBusinessAccounts()
+  const setBusinessMutation = useSetBusinessAccount()
 
   const connectedAccounts = accounts || []
   const { data: scheduledPosts = [] } = useScheduledPosts()
@@ -453,6 +455,24 @@ export default function AccountsPage() {
       } catch {
         toast.error('Failed to disconnect')
       }
+    }
+  }
+
+  const handleSyncBusiness = async (accountId: string, platformName: string) => {
+    try {
+      await syncBusinessMutation.mutateAsync(accountId)
+      toast.success(`Synced business accounts for ${platformName}`)
+    } catch {
+      toast.error(`Failed to sync business accounts for ${platformName}`)
+    }
+  }
+
+  const handleSetBusinessAccount = async (parentId: string, businessAccountId: string, platformName: string) => {
+    try {
+      await setBusinessMutation.mutateAsync({ id: parentId, businessAccountId })
+      toast.success(`${platformName} business account set as publisher`)
+    } catch {
+      toast.error(`Failed to set ${platformName} business account`)
     }
   }
 
@@ -644,6 +664,22 @@ export default function AccountsPage() {
                           </div>
                         </div>
                         <div className="mt-4 flex gap-2">
+                          {status.connected && !status.account?.is_business && ['facebook', 'instagram', 'linkedin'].includes(platform.id) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => handleSyncBusiness(status.account!.id, platform.name)}
+                              disabled={syncBusinessMutation.isPending}
+                            >
+                              {syncBusinessMutation.isPending ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Building2 className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Sync Business
+                            </Button>
+                          )}
                           {(status.expired || status.expiringSoon) && (
                             <Button
                               size="sm"
@@ -781,6 +817,23 @@ export default function AccountsPage() {
                                 <Badge variant={isExpired ? 'destructive' : 'success'}>
                                   {isExpired ? 'Token Expired' : 'Active'}
                                 </Badge>
+                                {account.parent_account_id && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleSetBusinessAccount(account.parent_account_id, account.account_id, platform?.name || account.platform)
+                                    }
+                                    disabled={setBusinessMutation.isPending}
+                                  >
+                                    {setBusinessMutation.isPending ? (
+                                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Building2 className="mr-1.5 h-3.5 w-3.5" />
+                                    )}
+                                    Use for Publishing
+                                  </Button>
+                                )}
                                 <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
