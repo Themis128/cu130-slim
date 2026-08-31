@@ -820,6 +820,15 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
                 f"Set {env_var} in .env (or the Env Manager) and restart social-api, then retry."
             ),
         )
+    if platform == "linkedin" and not getattr(client, "client_secret", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "OAuth for 'linkedin' is not configured: LINKEDIN_CLIENT_SECRET is empty. "
+                "Copy the Client Secret from the LinkedIn developer app Auth tab into .env, "
+                "recreate social-api, then reconnect LinkedIn."
+            ),
+        )
 
     PLATFORM_SCOPES: dict[str, list[str]] = {
         "linkedin": LINKEDIN_SCOPES,

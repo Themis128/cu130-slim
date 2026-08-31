@@ -27,6 +27,18 @@ async def test_oauth_authorize_refuses_empty_linkedin_client_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oauth_authorize_refuses_empty_linkedin_client_secret(monkeypatch):
+    monkeypatch.setattr(auth.linkedin_client, "client_id", "client-id")
+    monkeypatch.setattr(auth.linkedin_client, "client_secret", "")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth.oauth_authorize("linkedin", team_id=uuid.uuid4(), current_user=None)
+
+    assert exc_info.value.status_code == 400
+    assert "LINKEDIN_CLIENT_SECRET" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
 async def test_oauth_authorize_refuses_empty_tiktok_client_key(monkeypatch):
     """TikTok uses TIKTOK_CLIENT_KEY as the client_id -> error names that var."""
     monkeypatch.setattr(auth.tiktok_client, "client_id", "")
