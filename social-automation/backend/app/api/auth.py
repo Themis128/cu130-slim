@@ -10,6 +10,30 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
 from httpx_oauth.clients.linkedin import LinkedInOAuth2
 from httpx_oauth.oauth2 import BaseOAuth2, GetAccessTokenError, OAuth2Token
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.limiter import limiter
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    encrypt_token,
+    hash_password,
+    verify_password,
+)
+from app.db.session import get_db
+from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember, User, UserRole
+
+settings = get_settings()
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 
 class TikTokOAuth2(BaseOAuth2):
@@ -59,30 +83,7 @@ class TikTokOAuth2(BaseOAuth2):
                 client, request, auth=None, exc_class=GetAccessTokenError
             )
             return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.limiter import limiter
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    decode_token,
-    encrypt_token,
-    hash_password,
-    verify_password,
-)
-from app.db.session import get_db
-from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User, UserRole
-
-settings = get_settings()
-
-router = APIRouter()
-logger = logging.getLogger(__name__)
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
 
