@@ -156,6 +156,7 @@ Current chain (oldest → newest):
 7. [Cloudflare database failover](07-cf-database-failover.md)
 8. [Brand identity setup](08-brand-identity-setup.md)
 9. [AI media enhancement](09-ai-media-enhancement.md)
+10. [TikTok content posting](10-tiktok-content-posting.md)
 
 ## Current plans
 

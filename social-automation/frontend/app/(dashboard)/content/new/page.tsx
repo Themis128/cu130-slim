@@ -353,6 +353,7 @@ export default function NewPostPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [tiktokPublishMode, setTiktokPublishMode] = useState<'MEDIA_UPLOAD' | 'DIRECT_POST'>('MEDIA_UPLOAD')
+  const [tiktokPrivacyLevel, setTiktokPrivacyLevel] = useState('SELF_ONLY')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
   const [tone, setTone] = useState('professional')
@@ -548,7 +549,7 @@ export default function NewPostPage() {
         media_ids: mediaIds.length ? mediaIds : undefined,
         targets,
         platform_specific: selectedPlatforms.includes('tiktok')
-          ? { tiktok: { publish_mode: tiktokPublishMode } }
+          ? { tiktok: { publish_mode: tiktokPublishMode, privacy_level: tiktokPrivacyLevel } }
           : undefined,
         scheduled_at: action === 'schedule' ? athensDateTimeLocalToIso(scheduleDate) : undefined,
       })
@@ -758,6 +759,19 @@ export default function NewPostPage() {
                   <p className="text-xs text-muted-foreground">
                     Upload draft uses video.upload. Direct publish requires video.publish approval.
                   </p>
+                  {tiktokPublishMode === 'DIRECT_POST' && (
+                    <select
+                      aria-label="TikTok privacy"
+                      value={tiktokPrivacyLevel}
+                      onChange={(event) => setTiktokPrivacyLevel(event.target.value)}
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="SELF_ONLY">Only me</option>
+                      <option value="MUTUAL_FOLLOW_FRIENDS">Friends</option>
+                      <option value="FOLLOWER_OF_CREATOR">Followers</option>
+                      <option value="PUBLIC_TO_EVERYONE">Everyone</option>
+                    </select>
+                  )}
                 </div>
               )}
               {selectedPlatforms.length === 0 && (

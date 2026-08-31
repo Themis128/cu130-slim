@@ -28,9 +28,26 @@ import httpx
 TIKTOK_API_BASE = "https://open.tiktokapis.com"
 TIKTOK_API_VERSION = "v2"
 MAX_TITLE_CHARS = 2200
-MAX_DESC_CHARS = 2200
+MAX_PHOTO_TITLE_CHARS = 90
+MAX_DESC_CHARS = 4000
+MIN_CHUNK_SIZE = 5 * 1024 * 1024
+DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
+MAX_CHUNK_SIZE = 64 * 1024 * 1024
+MAX_CHUNK_COUNT = 1000
 
 logger = logging.getLogger(__name__)
+
+
+def _video_chunk_plan(video_size: int) -> tuple[int, int]:
+    if video_size <= 0:
+        raise ValueError("video_size must be positive")
+    if video_size < MIN_CHUNK_SIZE:
+        return video_size, 1
+    chunk_size = min(DEFAULT_CHUNK_SIZE, video_size)
+    total_chunk_count = max(1, video_size // chunk_size)
+    if total_chunk_count > MAX_CHUNK_COUNT:
+        raise ValueError("video requires more than 1000 chunks")
+    return chunk_size, total_chunk_count
 
 # TikTok publish IDs and open IDs are alphanumeric with hyphens.
 _ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
@@ -172,7 +189,10 @@ class TikTokAPIClient:
         source: str = "PULL_FROM_URL",
         video_url: str = "",
         title: str = "",
-        privacy_level: str = "PUBLIC",
+        privacy_level: str = "SELF_ONLY",
+        video_size: int | None = None,
+        chunk_size: int | None = None,
+        total_chunk_count: int = 1,
     ) -> dict[str, Any]:
         """Initialize a video post and return the publish info.
 
@@ -192,6 +212,25 @@ class TikTokAPIClient:
         source_info: dict[str, Any] = {"source": source}
         if source == "PULL_FROM_URL":
             source_info["video_url"] = video_url
+        else:
+            if not video_size or video_size <= 0:
+                raise ValueError("video_size must be positive when source is FILE_UPLOAD")
+            planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
+            resolved_chunk_size = chunk_size or planned_chunk_size
+            resolved_chunk_count = total_chunk_count if chunk_size else planned_chunk_count
+            if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
+                raise ValueError("chunk_size must be positive and no larger than 64 MB")
+            if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
+                raise ValueError("total_chunk_count must be between 1 and 1000")
+            if resolved_chunk_count != max(1, video_size // resolved_chunk_size):
+                raise ValueError("total_chunk_count does not match video_size and chunk_size")
+            source_info.update(
+                {
+                    "video_size": video_size,
+                    "chunk_size": resolved_chunk_size,
+                    "total_chunk_count": resolved_chunk_count,
+                }
+            )
 
         payload = {
             "post_info": post_info,
@@ -225,16 +264,20 @@ class TikTokAPIClient:
         else:
             if not video_size or video_size <= 0:
                 raise ValueError("video_size must be positive when source is FILE_UPLOAD")
-            resolved_chunk_size = chunk_size or video_size
-            if resolved_chunk_size <= 0 or resolved_chunk_size > video_size:
-                raise ValueError("chunk_size must be positive and no larger than video_size")
-            if total_chunk_count <= 0:
-                raise ValueError("total_chunk_count must be positive")
+            planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
+            resolved_chunk_size = chunk_size or planned_chunk_size
+            resolved_chunk_count = total_chunk_count if chunk_size else planned_chunk_count
+            if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
+                raise ValueError("chunk_size must be positive and no larger than 64 MB")
+            if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
+                raise ValueError("total_chunk_count must be between 1 and 1000")
+            if resolved_chunk_count != max(1, video_size // resolved_chunk_size):
+                raise ValueError("total_chunk_count must equal video_size divided by chunk_size, rounded down")
             source_info.update(
                 {
                     "video_size": video_size,
                     "chunk_size": resolved_chunk_size,
-                    "total_chunk_count": total_chunk_count,
+                    "total_chunk_count": resolved_chunk_count,
                 }
             )
 
@@ -246,7 +289,13 @@ class TikTokAPIClient:
             self._check_tiktok_error(data, url)
             return data
 
-    async def upload_video_file(self, upload_url: str, video_bytes: bytes) -> None:
+    async def upload_video_file(
+        self,
+        upload_url: str,
+        video_bytes: bytes,
+        content_type: str = "video/mp4",
+        chunk_size: int | None = None,
+    ) -> None:
         from urllib.parse import urlparse
 
         parsed = urlparse(upload_url)
@@ -254,21 +303,39 @@ class TikTokAPIClient:
             raise ValueError("upload_url must use the TikTok upload host")
         if not video_bytes:
             raise ValueError("video_bytes cannot be empty")
+        if content_type not in ("video/mp4", "video/quicktime", "video/webm"):
+            raise ValueError("unsupported TikTok video content type")
 
         size = len(video_bytes)
-        headers = {
-            "Content-Range": f"bytes 0-{size - 1}/{size}",
-            "Content-Type": "video/mp4",
-        }
+        resolved_chunk_size, total_chunk_count = _video_chunk_plan(size)
+        if chunk_size is not None:
+            minimum = size if size < MIN_CHUNK_SIZE else MIN_CHUNK_SIZE
+            if chunk_size < minimum or chunk_size > min(size, MAX_CHUNK_SIZE):
+                raise ValueError("chunk_size is outside TikTok's allowed range")
+            resolved_chunk_size = chunk_size
+            total_chunk_count = max(1, size // resolved_chunk_size)
+            if total_chunk_count > MAX_CHUNK_COUNT:
+                raise ValueError("video requires more than 1000 chunks")
+        offset = 0
         async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.put(upload_url, headers=headers, content=video_bytes)
-            self._raise_for_status(resp, upload_url)
+            for index in range(total_chunk_count):
+                is_last = index == total_chunk_count - 1
+                end = size if is_last else offset + resolved_chunk_size
+                chunk = video_bytes[offset:end]
+                headers = {
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {offset}-{end - 1}/{size}",
+                    "Content-Type": content_type,
+                }
+                resp = await client.put(upload_url, headers=headers, content=chunk)
+                self._raise_for_status(resp, upload_url)
+                offset = end
 
     async def init_photo_post(
         self,
         photo_urls: list[str],
         title: str = "",
-        privacy_level: str = "PUBLIC",
+        privacy_level: str = "SELF_ONLY",
     ) -> dict[str, Any]:
         """Initialize a photo post and return the publish info.
 
@@ -281,7 +348,7 @@ class TikTokAPIClient:
             raise ValueError("A photo post cannot have more than 35 photos")
 
         post_info: dict[str, Any] = {
-            "title": title[:MAX_TITLE_CHARS],
+            "title": title[:MAX_PHOTO_TITLE_CHARS],
             "privacy_level": privacy_level,
         }
         source_info: dict[str, Any] = {
@@ -323,7 +390,7 @@ class TikTokAPIClient:
 
         payload = {
             "post_info": {
-                "title": title[:MAX_TITLE_CHARS],
+                "title": title[:MAX_PHOTO_TITLE_CHARS],
                 "description": description[:MAX_DESC_CHARS],
             },
             "source_info": {

@@ -162,3 +162,61 @@ async def test_publish_twitter_quota_exceeded(account, post):
 
     assert result.success is False
     assert "monthly write quota exhausted" in result.error
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
+    client = SimpleNamespace(
+        init_video_upload=AsyncMock(return_value={"data": {"publish_id": "draft-123"}}),
+        init_video_post=AsyncMock(),
+        check_publish_status=AsyncMock(
+            return_value={"data": {"status": "SEND_TO_USER_INBOX"}}
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr(pub, "_media_public_url", lambda _: "https://verified.example/video.mp4")
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator")
+    post = SimpleNamespace(platform_specific={})
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"])
+
+    assert result.success is True
+    assert result.platform_post_id == "draft-123"
+    client.init_video_upload.assert_awaited_once_with(
+        source="PULL_FROM_URL",
+        video_url="https://verified.example/video.mp4",
+    )
+    client.init_video_post.assert_not_awaited()
+    client.check_publish_status.assert_awaited_once_with("draft-123")
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_supports_direct_post(monkeypatch):
+    client = SimpleNamespace(
+        get_creator_info=AsyncMock(
+            return_value={"data": {"privacy_level_options": ["SELF_ONLY"]}}
+        ),
+        init_video_upload=AsyncMock(),
+        init_video_post=AsyncMock(return_value={"data": {"publish_id": "direct-123"}}),
+        check_publish_status=AsyncMock(
+            return_value={
+                "data": {
+                    "status": "PUBLISH_COMPLETE",
+                    "publicaly_available_post_id": ["video-123"],
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr(pub, "_media_public_url", lambda _: "https://verified.example/video.mp4")
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator")
+    post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "DIRECT_POST"}})
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"])
+
+    assert result.success is True
+    assert result.platform_url == "https://www.tiktok.com/@creator/video/video-123"
+    client.init_video_post.assert_awaited_once()
+    client.init_video_upload.assert_not_awaited()

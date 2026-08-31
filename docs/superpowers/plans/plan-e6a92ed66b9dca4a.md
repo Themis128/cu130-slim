@@ -142,6 +142,7 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 | 6.3 | Instagram image/carousel driver | Basic media container flow for stories/feed. |
 | 6.4 | Content adaptation per platform | Auto-trim length, hashtag count, and link behavior by platform. |
 | 6.5 | Cross-platform analytics rollup | “Overview” shows all connected platforms side-by-side. |
+| 6.6 | TikTok Upload Draft and Direct Post modes | Composer defaults to `video.upload` inbox drafts, offers approved `video.publish` direct posting, validates creator privacy options, transfers media in compliant chunks, and polls final status. |
 
 ### Phase 7 — Team, roles, and security hardening (Weeks 10–12)
 **Goal:** prepare for multi-tenant usage and external access.

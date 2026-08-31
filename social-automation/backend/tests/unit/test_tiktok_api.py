@@ -1,8 +1,9 @@
 """Unit tests for the TikTok Content Posting API client."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
-from unittest.mock import patch
 
 from app.services import tiktok_api as api
 
@@ -76,6 +77,11 @@ class _FakeAsyncClient:
 @pytest.fixture
 def client():
     return api.TikTokAPIClient(access_token="tok-123", open_id="open-123")
+
+
+def test_video_chunk_plan():
+    assert api._video_chunk_plan(1024) == (1024, 1)
+    assert api._video_chunk_plan(25_000_000) == (10 * 1024 * 1024, 2)
 
 
 def _patch_client(fake: _FakeAsyncClient):
@@ -177,14 +183,19 @@ async def test_init_video_post_file_upload(client):
         result = await client.init_video_post(
             source="FILE_UPLOAD",
             title="Upload me",
-            privacy_level="PRIVATE",
+            privacy_level="SELF_ONLY",
+            video_size=1024,
         )
 
     assert result["data"]["upload_url"] == "https://up.tiktok/123"
     payload = fake.calls[0]["json"]
-    assert payload["source_info"]["source"] == "FILE_UPLOAD"
-    assert "video_url" not in payload["source_info"]
-    assert payload["post_info"]["privacy_level"] == "PRIVATE"
+    assert payload["source_info"] == {
+        "source": "FILE_UPLOAD",
+        "video_size": 1024,
+        "chunk_size": 1024,
+        "total_chunk_count": 1,
+    }
+    assert payload["post_info"]["privacy_level"] == "SELF_ONLY"
 
 
 @pytest.mark.asyncio
@@ -237,6 +248,7 @@ async def test_upload_video_file_sets_range_headers(client):
         )
 
     assert fake.calls[0]["headers"] == {
+        "Content-Length": "5",
         "Content-Range": "bytes 0-4/5",
         "Content-Type": "video/mp4",
     }
