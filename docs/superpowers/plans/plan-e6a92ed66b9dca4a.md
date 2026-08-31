@@ -31,7 +31,7 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 5. **Safe, reversible deployments** — all schema changes use Alembic; risky releases are feature-flagged in code and configurable in Settings.
 
 ### 1.3 Non-goals for this horizon
-- New native platform OAuth (TikTok, YouTube) unless infrastructure already exists.
+- ~~New native platform OAuth (TikTok, YouTube) unless infrastructure already exists.~~ **TikTok OAuth completed** — custom `TikTokOAuth2` client handles `client_key`, PKCE, and comma-separated scopes. Connected account: `cloudless.gr`.
 - Replacing n8n scheduling with an in-house scheduler.
 - Training custom models.
 
@@ -142,7 +142,7 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 | 6.3 | Instagram image/carousel driver | Basic media container flow for stories/feed. |
 | 6.4 | Content adaptation per platform | Auto-trim length, hashtag count, and link behavior by platform. |
 | 6.5 | Cross-platform analytics rollup | “Overview” shows all connected platforms side-by-side. |
-| 6.6 | TikTok Upload Draft and Direct Post modes | Composer defaults to `video.upload` inbox drafts, offers approved `video.publish` direct posting, validates creator privacy options, transfers media in compliant chunks, and polls final status. |
+| 6.6 | TikTok Upload Draft and Direct Post modes | ✅ OAuth connected — custom `TikTokOAuth2` client handles `client_key`, PKCE, comma-separated scopes. Connected account: `cloudless.gr` (sandbox `cloudless-dev`). Composer defaults to `video.upload` inbox drafts, offers approved `video.publish` direct posting, validates creator privacy options, transfers media in compliant chunks, and polls final status. |
 
 ### Phase 7 — Team, roles, and security hardening (Weeks 10–12)
 **Goal:** prepare for multi-tenant usage and external access.
