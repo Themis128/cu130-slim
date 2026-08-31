@@ -92,6 +92,17 @@ SocialAuto supports six social platforms across OAuth, publishing, analytics, to
 - Threads
 - TikTok
 
+### Auto token refresh
+
+A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It refreshes any active account token expiring within the next 4 hours:
+
+- **TikTok**: 24-hour tokens — refreshed daily (TikTok doesn't return `expires_in` on refresh, so 24h is assumed).
+- **Twitter/X**: 2-hour tokens — refreshed every hour (requires `offline.access` scope for refresh token).
+- **Meta (Facebook/Instagram/Threads)**: ~60-day long-lived tokens — refreshed when within 4 hours of expiry.
+- **LinkedIn**: tokens don't expire (no `expires_in` returned).
+
+If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page. The task is registered in `celery_app.py` beat_schedule as `refresh-expiring-tokens`.
+
 ### TikTok OAuth specifics
 
 TikTok Login Kit has several non-standard OAuth requirements that differ from other platforms:

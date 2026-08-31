@@ -98,19 +98,33 @@ If no Instagram Business Account is found after connecting:
 
 ### Threads OAuth requirements
 
-- **Scopes**: `threads_basic`, `threads_content_publish`, `threads_manage_insights`.
+- **Authorization endpoint**: `https://threads.com/oauth/authorize` (not `threads.net`).
+- **Token endpoint**: `https://graph.threads.net/oauth/access_token`.
+- **Scopes**: `threads_basic` (required), `threads_content_publish`, `threads_manage_insights`, `threads_manage_replies`.
 - **Redirect URI**: `https://social.cloudless.gr/api/v1/auth/oauth/threads/callback` (must be HTTPS, registered in the Meta App Dashboard under Threads > Settings).
 - **App ID**: Threads uses a **separate App ID and App Secret** from the main Meta app. Find them in App Dashboard > Settings > Basic > Threads App ID/Secret.
 - **Token lifecycle**: Short-lived token (~1 hour) exchanged for long-lived (~60 days) via `th_exchange_token`. Refresh via `/refresh_access_token`.
 - **Testers**: In development mode, add Threads testers in App Dashboard > App roles > Roles.
+- **Adding the use case**: In the Meta App Dashboard, go to Use cases > Add use case > "Access the Threads API". This creates the Threads App ID/Secret in Settings > Basic.
 
-## 5. Verify connection health
+## 7. Verify connection health
 
 1. In the **Accounts** list, each card shows:
    - **Status** (connected / expired)
    - **Scopes** granted
    - **Follower count** when available
 2. Click the **Refresh** icon to re-sync an account.
+
+## Auto token refresh
+
+SocialAuto runs a Celery beat task (`refresh_expiring_tokens`) every hour at :15 past the hour that automatically refreshes any OAuth token expiring within the next 4 hours.
+
+- **TikTok**: tokens expire in 24 hours — refreshed daily.
+- **Twitter/X**: tokens expire in 2 hours — refreshed every hour (requires `offline.access` scope).
+- **Meta (Facebook/Instagram/Threads)**: long-lived tokens expire in ~60 days — refreshed when within 4 hours of expiry.
+- **LinkedIn**: tokens don't expire (no `expires_in` returned by LinkedIn OAuth).
+
+If a refresh fails, the account is marked as `expired` and a manual reconnect is needed from the Accounts page.
 
 ## Troubleshooting
 
