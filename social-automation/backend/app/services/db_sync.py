@@ -316,6 +316,49 @@ class SyncService:
             "last_sync": bool(self._last_sync),
         }
 
+    async def sync_tables_to_d1(self, tables: list[str]) -> dict[str, dict[str, int]]:
+        """Sync specific tables from Postgres → D1.
+
+        Called by Celery worker tasks after writing to Postgres, so that
+        D1 (the primary) stays in sync with worker-originated changes.
+
+        Args:
+            tables: List of table names to sync (must be in SYNC_TABLES).
+
+        Returns:
+            Per-table sync stats: {table: {synced, errors, skipped}}.
+        """
+        # Build a lookup for PKs
+        pk_map = {t["table"]: t["pk"] for t in SYNC_TABLES}
+        results: dict[str, dict[str, int]] = {}
+        for table in tables:
+            pk = pk_map.get(table, "id")
+            results[table] = await self.sync_table_to_d1(table, pk)
+        return results
+
 
 # Singleton instance
 sync_service = SyncService()
+
+
+async def sync_after_worker_task(tables: list[str]) -> dict[str, dict[str, int]]:
+    """Fire-and-forget Postgres → D1 sync for Celery worker tasks.
+
+    Called after a worker task writes to Postgres. Pushes the affected
+    tables to D1 so the primary stays consistent. Errors are logged but
+    never raised — the worker's Postgres write already succeeded.
+
+    Args:
+        tables: Tables touched by the worker task (e.g. ["posts", "publish_queue"]).
+
+    Returns:
+        Per-table sync stats.
+    """
+    if not d1_client.enabled:
+        logger.debug("sync_after_worker_task skipped (D1 not enabled)")
+        return {}
+    try:
+        return await sync_service.sync_tables_to_d1(tables)
+    except Exception as exc:
+        logger.warning("sync_after_worker_task failed for %s: %s", tables, exc)
+        return {}

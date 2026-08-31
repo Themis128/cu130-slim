@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
+from app.services.db_sync import sync_after_worker_task
 from app.services.publishing import publish_to_platform
 from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
@@ -241,13 +242,20 @@ async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_publish_queue(self) -> None:
     asyncio.run(_process_publish_queue_async())
+    # Push worker writes (publish_queue, posts, post_targets) to D1 primary
+    asyncio.run(sync_after_worker_task(["publish_queue", "posts", "post_targets"]))
 
 
 @shared_task
 def check_scheduled_posts() -> None:
     asyncio.run(_check_scheduled_posts_async())
+    # Push worker writes (posts, publish_queue) to D1 primary
+    asyncio.run(sync_after_worker_task(["posts", "publish_queue"]))
 
 
 @shared_task
 def publish_post_now(post_id: str, account_ids: list[str]) -> dict:
-    return asyncio.run(_publish_post_now_async(post_id, account_ids))
+    result = asyncio.run(_publish_post_now_async(post_id, account_ids))
+    # Push worker writes (posts, post_targets, publish_queue) to D1 primary
+    asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+    return result

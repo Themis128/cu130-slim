@@ -10,6 +10,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.models.user import Team
 from app.services.analytics_sync import sync_team_analytics
+from app.services.db_sync import sync_after_worker_task
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -30,7 +31,10 @@ async def _worker_db():
 @shared_task
 def sync_all_analytics() -> dict:
     """Fetch platform analytics for every team and store snapshots in Postgres."""
-    return asyncio.run(_sync_all_analytics_async())
+    result = asyncio.run(_sync_all_analytics_async())
+    # Push worker writes (post_analytics_snapshots, analytics_events) to D1 primary
+    asyncio.run(sync_after_worker_task(["post_analytics_snapshots", "analytics_events"]))
+    return result
 
 
 async def _sync_all_analytics_async() -> dict:
@@ -52,7 +56,10 @@ async def _sync_all_analytics_async() -> dict:
 
 @shared_task
 def sync_team_analytics_task(team_id: str, days: int = 365) -> dict:
-    return asyncio.run(_sync_team_async(team_id, days))
+    result = asyncio.run(_sync_team_async(team_id, days))
+    # Push worker writes (post_analytics_snapshots, analytics_events) to D1 primary
+    asyncio.run(sync_after_worker_task(["post_analytics_snapshots", "analytics_events"]))
+    return result
 
 
 async def _sync_team_async(team_id: str, days: int) -> dict:

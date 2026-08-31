@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.models.workflow import GeneratedWorkflow
+from app.services.db_sync import sync_after_worker_task
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -19,7 +20,10 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def execute_workflow(self, workflow_id: str, input_data: dict) -> dict:  # type: ignore[no-untyped-def]
-    return asyncio.run(_execute_workflow_async(workflow_id, input_data))
+    result = asyncio.run(_execute_workflow_async(workflow_id, input_data))
+    # Push worker writes (generated_workflows) to D1 primary
+    asyncio.run(sync_after_worker_task(["generated_workflows"]))
+    return result
 
 
 async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
@@ -53,7 +57,10 @@ async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
 
 @shared_task
 def deploy_workflow(workflow_id: str) -> dict:
-    return asyncio.run(_deploy_workflow_async(workflow_id))
+    result = asyncio.run(_deploy_workflow_async(workflow_id))
+    # Push worker writes (generated_workflows) to D1 primary
+    asyncio.run(sync_after_worker_task(["generated_workflows"]))
+    return result
 
 
 async def _deploy_workflow_async(workflow_id: str) -> dict:
