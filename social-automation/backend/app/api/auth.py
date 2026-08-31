@@ -435,9 +435,7 @@ async def setup_2fa(
 ):
     """Generate a TOTP secret and QR URI for 2FA setup."""
     import base64
-    import hashlib
     import os
-    import time
 
     # Generate a random secret (20 bytes = 160 bits, per RFC 4226)
     secret_bytes = os.urandom(20)
@@ -579,9 +577,9 @@ async def export_user_data(
     db: AsyncSession = Depends(get_db),
 ):
     """Export all user data (posts, media metadata, analytics) as JSON."""
-    from app.models.content import MediaAsset, Post, PostTarget
-    from app.models.social_account import SocialAccount
     from app.models.analytics import PostAnalyticsSnapshot
+    from app.models.content import MediaAsset, Post
+    from app.models.social_account import SocialAccount
 
     result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
