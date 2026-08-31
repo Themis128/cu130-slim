@@ -161,12 +161,81 @@ async def cancel_scheduled(
     await db.commit()
 
 
+@router.get("/queue/{queue_id}", response_model=QueueItemResponse)
+async def get_queue_item(
+    queue_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single queue item by ID."""
+    result = await db.execute(
+        select(PublishQueue)
+        .join(Post)
+        .join(Team)
+        .join(TeamMember)
+        .where(PublishQueue.id == queue_id, TeamMember.user_id == current_user.id)
+        .options(selectinload(PublishQueue.post), selectinload(PublishQueue.social_account))
+    )
+    queue_item = result.scalar_one_or_none()
+    if not queue_item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    return await _queue_to_response(queue_item, db)
+
+
+@router.post("/queue/{queue_id}/retry", response_model=QueueItemResponse)
+async def retry_queue_item(
+    queue_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry a failed or completed queue item (frontend-compatible path)."""
+    return await _retry_queue_item_impl(queue_id, current_user, db)
+
+
+@router.post("/queue/{queue_id}/cancel", response_model=QueueItemResponse)
+async def cancel_queue_item(
+    queue_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a pending queue item (frontend-compatible path)."""
+    result = await db.execute(
+        select(PublishQueue)
+        .join(Post)
+        .join(Team)
+        .join(TeamMember)
+        .where(PublishQueue.id == queue_id, TeamMember.user_id == current_user.id)
+        .options(selectinload(PublishQueue.post), selectinload(PublishQueue.social_account))
+    )
+    queue_item = result.scalar_one_or_none()
+    if not queue_item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    if queue_item.status == QueueStatus.PROCESSING:
+        raise HTTPException(status_code=400, detail="Cannot cancel item currently being processed")
+
+    queue_item.status = QueueStatus.CANCELLED
+    await db.commit()
+    await db.refresh(queue_item)
+    return await _queue_to_response(queue_item, db)
+
+
 @router.post("/retry/{queue_id}", response_model=QueueItemResponse)
 async def retry_failed(
     queue_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Retry a failed or completed queue item (legacy path)."""
+    return await _retry_queue_item_impl(queue_id, current_user, db)
+
+
+async def _retry_queue_item_impl(
+    queue_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> QueueItemResponse:
+    """Shared retry logic used by both /retry/{id} and /queue/{id}/retry."""
     result = await db.execute(
         select(PublishQueue)
         .join(Post)

@@ -293,6 +293,100 @@ async def sync_linkedin_organizations(
     }
 
 
+@router.get("/{account_id}", response_model=SocialAccountResponse)
+async def get_account(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single social account by ID."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    a = result.scalar_one_or_none()
+    if not a:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return SocialAccountResponse(
+        id=a.id,
+        platform=a.platform,
+        account_id=a.account_id,
+        username=a.username,
+        display_name=a.display_name,
+        avatar_url=a.avatar_url,
+        status=a.status,
+        scopes=a.scopes,
+        token_expires_at=a.token_expires_at.isoformat() if a.token_expires_at else None,
+        created_at=a.created_at.isoformat(),
+        account_type=(a.meta_data or {}).get("account_type", "person"),
+        meta_data=a.meta_data or {},
+    )
+
+
+@router.post("/{account_id}/test")
+async def test_account(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Test that an account's token is still valid by calling the platform API."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    import httpx
+
+    from app.core.security import decrypt_token
+
+    token = decrypt_token(account.access_token_enc)
+    headers = {"Authorization": f"Bearer {token}"}
+    platform = account.platform
+
+    validation_urls = {
+        "linkedin": ("https://api.linkedin.com/v2/userinfo", "GET", None),
+        "twitter": ("https://api.twitter.com/2/users/me", "GET", None),
+        "facebook": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,name"}),
+        "instagram": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,username"}),
+        "threads": ("https://graph.threads.net/v1.0/me", "GET", {"fields": "id,username"}),
+        "tiktok": ("https://open.tiktokapis.com/v2/user/info/", "GET", {"fields": "open_id,display_name"}),
+    }
+
+    url, method, params = validation_urls.get(platform, (None, None, None))
+    if not url:
+        return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"No test endpoint for {platform}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if method == "GET":
+                resp = await client.get(url, headers=headers, params=params or {})
+            else:
+                resp = await client.post(url, headers=headers)
+
+        if resp.status_code == 200:
+            if account.status != "active":
+                account.status = "active"
+                await db.commit()
+            return {"valid": True, "status": "active", "tested": True, "message": "Token is valid"}
+        if resp.status_code in (401, 403):
+            if account.status == "active":
+                account.status = "expired"
+                await db.commit()
+            return {"valid": False, "status": "expired", "tested": True, "message": "Token is expired or invalid"}
+        return {"valid": account.status == "active", "status": account.status, "tested": True, "message": f"Platform returned HTTP {resp.status_code}"}
+    except Exception as exc:
+        return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"Network error: {exc}"}
+
+
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_account(
     account_id: uuid.UUID,

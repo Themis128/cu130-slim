@@ -148,6 +148,137 @@ async def create_template(
     return template
 
 
+@router.get("/templates/{template_id}", response_model=PromptTemplateResponse)
+async def get_template(
+    template_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single prompt template by ID."""
+    result = await db.execute(
+        select(PromptTemplate).where(PromptTemplate.id == template_id)
+    )
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
+@router.patch("/templates/{template_id}", response_model=PromptTemplateResponse)
+async def update_template(
+    template_id: uuid.UUID,
+    updates: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a prompt template."""
+    result = await db.execute(
+        select(PromptTemplate).where(PromptTemplate.id == template_id)
+    )
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    allowed_fields = {
+        "name", "description", "prompt_template", "n8n_workflow_json",
+        "category", "tags", "is_public",
+    }
+    for key, value in updates.items():
+        if key in allowed_fields:
+            setattr(template, key, value)
+
+    await db.commit()
+    await db.refresh(template)
+    return template
+
+
+@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a prompt template."""
+    result = await db.execute(
+        select(PromptTemplate).where(PromptTemplate.id == template_id)
+    )
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    await db.delete(template)
+    await db.commit()
+
+
+@router.get("/{workflow_id}", response_model=GeneratedWorkflowResponse)
+async def get_workflow(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single generated workflow by ID."""
+    result = await db.execute(
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a generated workflow."""
+    result = await db.execute(
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    await db.delete(workflow)
+    await db.commit()
+
+
+@router.post("/{workflow_id}/undeploy")
+async def undeploy_workflow(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Undeploy a workflow from n8n (deactivate + remove)."""
+    result = await db.execute(
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow.n8n_workflow_id:
+        raise HTTPException(status_code=400, detail="Workflow is not deployed")
+
+    async with httpx.AsyncClient() as client:
+        headers = {"X-N8N-API-KEY": settings.N8N_API_KEY}
+        # Deactivate first, then delete
+        await client.post(
+            f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}/deactivate",
+            headers=headers,
+        )
+        resp = await client.delete(
+            f"{settings.N8N_API_URL}/api/v1/workflows/{workflow.n8n_workflow_id}",
+            headers=headers,
+        )
+        if resp.status_code not in (200, 204):
+            raise HTTPException(status_code=500, detail=f"n8n undeploy failed: {resp.text}")
+
+    workflow.n8n_workflow_id = None
+    workflow.status = "draft"
+    await db.commit()
+
+    return {"message": "Workflow undeployed", "status": "draft"}
+
+
 @router.post("/generate", response_model=WorkflowGenerateResponse)
 async def generate_workflow(
     request: WorkflowGenerateRequest,

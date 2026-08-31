@@ -15,6 +15,7 @@ class QueueStatus(enum.StrEnum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class PublishQueue(Base):
