@@ -21,6 +21,9 @@ import redis.asyncio as aioredis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+def _has_docker() -> bool:
+    return shutil.which("docker") is not None
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not _has_docker(), reason="docker CLI not available (run on Docker host)"),
