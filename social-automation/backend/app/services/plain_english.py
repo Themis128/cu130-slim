@@ -120,11 +120,11 @@ def any_needs_plain_english(texts: list[str]) -> bool:
 
 
 _ORIGINAL_MARKERS = re.compile(
-    r"(?i)^\s*(?:original(?:\s+text)?|before)\s*[:\-]\s*"
+    r"(?i)^[ \t]*(?:original(?:[ \t]+text)?|before)[ \t]*[:\-][ \t]*"
 )
 _REWRITTEN_MARKERS = re.compile(
-    r"(?i)(?:^|\n)\s*(?:plain\s+english|rewritten?|fixed|after|corrected)"
-    r"(?:\s+version)?\s*[:\-]\s*"
+    r"(?i)(?:^|\n)[ \t]*(?:plain[ \t]+english|rewritten?|fixed|after|corrected)"
+    r"(?:[ \t]+version)?[ \t]*[:\-][ \t]*"
 )
 
 

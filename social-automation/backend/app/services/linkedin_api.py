@@ -130,15 +130,17 @@ class LinkedInAPIClient:
             return
         status_code = self._map_status_code(resp.status_code)
         text = _sanitize_log_text(resp.text)
-        logger.error("LinkedIn API error %s for %s: %s", status_code, url, text)
+        safe_url = _sanitize_log_text(url)
+        logger.error("LinkedIn API error %s for %s: %s", status_code, safe_url, text)
         raise LinkedInAPIError(status_code, text, url)
 
     def _log_api_error(self, url: str, resp: httpx.Response) -> None:
         """Log the response body for a failed LinkedIn API call."""
         if resp.status_code >= 400:
+            safe_url = _sanitize_log_text(url)
             logger.error(
                 "LinkedIn API call to %s failed: HTTP %s: %s",
-                url,
+                safe_url,
                 resp.status_code,
                 _sanitize_log_text(resp.text),
             )
