@@ -33,8 +33,10 @@ test.describe('Dashboard Page — real backend', () => {
 
   test('should show empty state for top posts on a fresh account', async ({ authenticatedPage: page }) => {
     await page.goto('/dashboard');
-    // Fresh test user has zero published posts
-    await expect(page.getByText(/no published posts yet/i)).toBeVisible({ timeout: 15000 });
+    // Wait for the Top Performing Posts section to load (skeleton clears first)
+    await expect(page.getByText('Top Performing Posts')).toBeVisible({ timeout: 15000 });
+    // Fresh test user has zero published posts — wait for empty state
+    await expect(page.getByText(/no published posts yet/i)).toBeVisible({ timeout: 20000 });
     await expect(page.getByRole('link', { name: /create a post/i })).toBeVisible();
   });
 

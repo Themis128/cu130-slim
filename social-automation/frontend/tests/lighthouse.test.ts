@@ -6,34 +6,24 @@ import { chromium } from '@playwright/test';
 /**
  * Lighthouse performance/accessibility/SEO audits for the Cloudless social stack.
  *
- * Uses the Lighthouse Node API directly (not playwright-lighthouse) for maximum
- * control and compatibility. Lighthouse connects to Chromium via CDP on a
- * remote debugging port.
+ * Uses the Lighthouse Node API directly for maximum control and compatibility.
+ * Lighthouse connects to Chromium via CDP on a remote debugging port.
  *
  * Packages (installed in /home/tbaltzakis/.local/lib/lighthouse-tool):
  *   - lighthouse@11.7.1
  *   - playwright-core@1.62.1
- *
- * Categories audited:
- *   - performance
- *   - accessibility
- *   - best-practices
- *   - seo
- *
- * Reports are saved as HTML in test-results/lighthouse/
  */
 
 const LIGHTHOUSE_IMPORT_PATH = '/home/tbaltzakis/.local/lib/lighthouse-tool/node_modules/lighthouse/core/index.js';
 const FRONTEND_URL = process.env.E2E_FRONTEND_URL || 'http://localhost:8082';
 const REPORT_DIR = resolve(process.cwd(), 'test-results/lighthouse');
-const PORT = 9233; // CDP port for Lighthouse — must not conflict with other tests
+const BASE_PORT = 9244;
 
-// Score thresholds (0-1). Lighthouse scores: 0-0.49 red, 0.5-0.89 orange, 0.9-1 green
 const THRESHOLDS = {
-  performance: 0.5,      // Next.js SSR is not instant; 50 is a reasonable floor
-  accessibility: 0.9,    // We control the UI — a11y should be high
-  'best-practices': 0.8, // Allow some flexibility for dev environment
-  seo: 0.8,              // Pages should be SEO-friendly
+  performance: 0.5,
+  accessibility: 0.9,
+  'best-practices': 0.8,
+  seo: 0.8,
 };
 
 interface LighthouseResult {
@@ -44,30 +34,36 @@ interface LighthouseResult {
 }
 
 async function runLighthouseAudit(url: string, pageName: string): Promise<LighthouseResult> {
-  // Dynamically import lighthouse from the external install location
   const lighthouseModule = await import(LIGHTHOUSE_IMPORT_PATH);
   const lighthouse = lighthouseModule.default || lighthouseModule;
 
-  // Launch Chromium with remote debugging enabled
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      `--remote-debugging-port=${PORT}`,
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-    ],
-    executablePath: undefined, // use Playwright's bundled Chromium
-  });
+  let browser;
+  let usedPort = BASE_PORT;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      usedPort = BASE_PORT + attempt;
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          `--remote-debugging-port=${usedPort}`,
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+        ],
+      });
+      break;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
 
   try {
-    // Navigate to the page first so Lighthouse can audit it
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
     await page.close();
 
-    // Run Lighthouse audit
     const result = await lighthouse(url, {
-      port: PORT,
+      port: usedPort,
       output: 'html',
       logLevel: 'error',
       onlyCategories: Object.keys(THRESHOLDS),
@@ -78,7 +74,6 @@ async function runLighthouseAudit(url: string, pageName: string): Promise<Lighth
       throw new Error(`Lighthouse returned no result for ${url}`);
     }
 
-    // Save HTML report
     mkdirSync(REPORT_DIR, { recursive: true });
     const reportPath = resolve(REPORT_DIR, `${pageName}.html`);
     writeFileSync(reportPath, result.report);
@@ -96,7 +91,7 @@ function getScore(result: LighthouseResult, category: string): number {
 }
 
 test.describe('Lighthouse Audits — real frontend', () => {
-  test.describe.configure({ mode: 'serial' })
+  test.describe.configure({ mode: 'serial' });
 
   test('login page — performance, accessibility, SEO', async () => {
     test.setTimeout(120_000);
@@ -105,7 +100,6 @@ test.describe('Lighthouse Audits — real frontend', () => {
     const a11y = getScore(result, 'accessibility');
     const seo = getScore(result, 'seo');
     const bp = getScore(result, 'best-practices');
-
     console.log(`Login page — perf: ${perf}, a11y: ${a11y}, seo: ${seo}, bp: ${bp}`);
     expect(a11y, 'accessibility score').toBeGreaterThanOrEqual(THRESHOLDS.accessibility);
     expect(seo, 'seo score').toBeGreaterThanOrEqual(THRESHOLDS.seo);
@@ -118,7 +112,6 @@ test.describe('Lighthouse Audits — real frontend', () => {
     const a11y = getScore(result, 'accessibility');
     const seo = getScore(result, 'seo');
     const bp = getScore(result, 'best-practices');
-
     console.log(`Register page — perf: ${perf}, a11y: ${a11y}, seo: ${seo}, bp: ${bp}`);
     expect(a11y, 'accessibility score').toBeGreaterThanOrEqual(THRESHOLDS.accessibility);
     expect(seo, 'seo score').toBeGreaterThanOrEqual(THRESHOLDS.seo);
@@ -129,7 +122,6 @@ test.describe('Lighthouse Audits — real frontend', () => {
     const result = await runLighthouseAudit(`${FRONTEND_URL}/forgot-password`, 'forgot-password');
     const a11y = getScore(result, 'accessibility');
     const seo = getScore(result, 'seo');
-
     console.log(`Forgot password — a11y: ${a11y}, seo: ${seo}`);
     expect(a11y, 'accessibility score').toBeGreaterThanOrEqual(THRESHOLDS.accessibility);
   });
@@ -141,9 +133,7 @@ test.describe('Lighthouse Audits — real frontend', () => {
     const a11y = getScore(result, 'accessibility');
     const seo = getScore(result, 'seo');
     const bp = getScore(result, 'best-practices');
-
     console.log(`Home page — perf: ${perf}, a11y: ${a11y}, seo: ${seo}, bp: ${bp}`);
-    // Home page may redirect to /login or /dashboard — be lenient on SEO
     expect(a11y, 'accessibility score').toBeGreaterThanOrEqual(THRESHOLDS.accessibility);
   });
 });

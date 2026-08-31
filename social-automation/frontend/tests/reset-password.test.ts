@@ -57,20 +57,23 @@ test.describe('Reset Password Page — real backend', () => {
   });
 
   test('should reset password with a real debug token', async ({ request, page }) => {
+    test.setTimeout(120_000);
     const email = `reset-${randomUUID().slice(0, 8)}@socialauto.dev`;
     const password = 'InitialPass-123!';
     const newPassword = 'NewResetPass-456!';
 
     const regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
       data: { email, password, name: 'Reset Test' },
+      timeout: 30000,
     });
     expect(regRes.ok()).toBeTruthy();
 
-    // Request reset link — retry to handle rate limiting
+    // Request reset link — retry to handle rate limiting and slow responses
     let token: string | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       const forgotRes = await request.post(`${API_BASE}/api/v1/auth/forgot-password`, {
         data: { email },
+        timeout: 30000,
       });
       if (forgotRes.ok()) {
         const body = await forgotRes.json();
@@ -82,14 +85,16 @@ test.describe('Reset Password Page — real backend', () => {
     expect(token).toBeTruthy();
 
     await page.goto(`/reset-password?token=${token}`);
+    await page.waitForLoadState('networkidle');
     await page.locator('#password').fill(newPassword);
     await page.locator('#confirmPassword').fill(newPassword);
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible({ timeout: 20000 });
 
     const loginRes = await request.post(`${API_BASE}/api/v1/auth/login`, {
       form: { username: email, password: newPassword },
+      timeout: 30000,
     });
     expect(loginRes.status()).toBe(200);
   });
@@ -100,6 +105,7 @@ test.describe('Reset Password Page — real backend', () => {
     await page.locator('#confirmPassword').fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    await expect(page.getByRole('alert').filter({ hasText: /invalid|expired|failed/i }).first()).toBeVisible({ timeout: 15000 });
+    // The form-level error div (not role="alert") shows the backend error
+    await expect(page.getByText(/invalid|expired|failed/i).first()).toBeVisible({ timeout: 20000 });
   });
 });

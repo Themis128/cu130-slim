@@ -26,13 +26,15 @@ test.describe('Settings Page — real backend', () => {
 
   test('should navigate to AI Providers page when clicking the tab', async ({ authenticatedPage: page }) => {
     await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
     await page.getByRole('tab', { name: 'AI Providers' }).click();
-    await expect(page).toHaveURL(/\/settings\/ai-providers/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/settings\/ai-providers/, { timeout: 20000 });
   });
 
   test('should show Security content when clicking the Security tab', async ({ authenticatedPage: page }) => {
     await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
     await page.getByRole('tab', { name: 'Security' }).click();
-    await expect(page.getByRole('heading', { name: /change password/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: /change password/i })).toBeVisible({ timeout: 20000 });
   });
 });

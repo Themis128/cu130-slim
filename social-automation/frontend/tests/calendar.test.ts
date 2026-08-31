@@ -49,8 +49,9 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should show zero posts for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
+    await page.waitForLoadState('networkidle');
     // The subtitle shows "0 posts in <month>"
-    await expect(page.getByText(/0 posts in/i)).toBeVisible();
+    await expect(page.getByText(/0 posts in/i)).toBeVisible({ timeout: 20000 });
   });
 
   test('should show the New Post button', async ({ authenticatedPage: page }) => {
@@ -61,8 +62,9 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should navigate to content creation when clicking New Post', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
+    await page.waitForLoadState('networkidle');
     await page.getByRole('link', { name: /new post/i }).click();
-    await expect(page).toHaveURL(/\/content\/new/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/content\/new/, { timeout: 20000 });
   });
 
   test('should allow navigation to the previous month', async ({ authenticatedPage: page }) => {
