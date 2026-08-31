@@ -1,8 +1,9 @@
 """Unit tests for the Threads REST API client."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
-from unittest.mock import patch
 
 from app.services import threads_api as api
 
