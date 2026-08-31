@@ -2,7 +2,7 @@
   "mcpServers": {
     "playwright": {
       "command": "/home/tbaltzakis/.local/share/pnpm/playwright-mcp",
-      "args": ["--headless"]
+      "args": ["--headless", "--executable-path", "/home/tbaltzakis/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"]
     },
     "github-local": {
       "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
