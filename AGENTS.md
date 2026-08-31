@@ -92,6 +92,17 @@ SocialAuto supports six social platforms across OAuth, publishing, analytics, to
 - Threads
 - TikTok
 
+### TikTok OAuth specifics
+
+TikTok Login Kit has several non-standard OAuth requirements that differ from other platforms:
+
+- **`client_key` parameter**: TikTok requires `client_key` (not `client_id`) in both the authorize URL and the token exchange. The custom `TikTokOAuth2` class in `app/api/auth.py` overrides `get_access_token` and `refresh_token` to send `client_key`. The authorize URL also includes `client_key` via `extras_params`.
+- **PKCE required**: TikTok mandates `code_challenge` + `code_challenge_method=S256` in the authorize URL. SocialAuto generates a PKCE pair for every TikTok request and encodes the `code_verifier` in the base64-JSON state parameter.
+- **Comma-separated scopes**: TikTok requires scopes as a comma-separated string (e.g. `user.info.basic,video.publish,video.upload`), not space-separated like other OAuth providers. SocialAuto passes scopes via `extras_params["scope"]` with `",".join(scopes)` and sets the library `scope` to `None`.
+- **HTTPS-only redirect URIs**: `TIKTOK_REDIRECT_URI` must use `https://`. The production callback `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` is routed through the Cloudflare named tunnel to the local `social-api` container.
+- **Env vars**: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
+- **Connected account**: `cloudless.gr` TikTok account (sandbox: `cloudless-dev`, target user `user3113682023385`).
+
 ## Brand identity system
 
 - One Brand per team, stored in the `brands` table (migration `h4c5d6e7f8a9`).
