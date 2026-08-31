@@ -63,13 +63,16 @@ SocialAuto currently uses the Facebook Login flow.
 
 ### Threads
 ```
-threads_basic, threads_content_publish
+threads_basic, threads_content_publish, threads_manage_insights, threads_manage_replies
 ```
 
 Optional Threads scopes (add if needed):
-- `threads_manage_insights` — for analytics
-- `threads_manage_replies` — for reply management
 - `threads_read_replies` — for reading replies
+- `threads_delete` — for deleting posts
+- `threads_keyword_search` — for keyword search
+- `threads_location_tagging` — for location tags
+- `threads_manage_mentions` — for mention management
+- `threads_profile_discovery` — for profile discovery
 
 ## Setup steps
 
@@ -103,7 +106,7 @@ Optional Threads scopes (add if needed):
 
 1. App Dashboard > App roles > Roles > Add People
 2. Select "Threads Tester" role
-3. The invited user must accept at threads.net/settings/account > Website permissions
+3. The invited user must accept at threads.com/settings/account > Website permissions
 
 ### 5. Update `.env`
 

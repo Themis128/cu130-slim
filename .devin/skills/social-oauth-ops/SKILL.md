@@ -16,6 +16,22 @@ or checking which accounts are connected.
 | Threads | OAuth 2.0 | No | 60 days | Via /refresh_access_token |
 | TikTok | OAuth 2.0 + PKCE | Yes (S256) | 24 hours | Via refresh_token |
 
+## Auto token refresh
+
+A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It automatically refreshes any active account token expiring within the next 4 hours:
+
+- **TikTok**: 24h tokens — refreshed daily (TikTok doesn't return `expires_in` on refresh, so 24h is assumed).
+- **Twitter/X**: 2h tokens — refreshed every hour (requires `offline.access`).
+- **Meta (FB/IG/Threads)**: ~60-day tokens — refreshed when within 4h of expiry.
+- **LinkedIn**: tokens don't expire (no `expires_in`).
+
+If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page.
+
+Trigger manually:
+```bash
+docker compose exec -T social-worker celery -A app.worker.celery_app call app.worker.tasks.token_refresh.refresh_expiring_tokens
+```
+
 ## Common operations
 
 ### Connect an account
