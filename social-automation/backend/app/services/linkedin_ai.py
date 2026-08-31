@@ -265,13 +265,52 @@ async def suggest_best_time_to_post(
     *,
     account_type: str = "organization",
     timezone: str = "Europe/Athens",
+    snapshots: list | None = None,
 ) -> list[dict]:
     """Return LinkedIn best-time-to-post windows.
 
-    In the future this can be personalized by historical engagement; for now it
-    returns the well-known professional-audience windows in the requested
+    When ``snapshots`` (a list of PostAnalyticsSnapshot) is provided with 10+
+    entries, the windows are derived from the account's historical
+    engagement_rate data grouped by day-of-week and hour. Otherwise, falls
+    back to well-known professional-audience windows in the requested
     timezone.
     """
+    if snapshots and len(snapshots) >= 10:
+        from collections import defaultdict
+
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        engagement_by_slot: dict[tuple[int, int], list[float]] = defaultdict(list)
+
+        for snap in snapshots:
+            dt = getattr(snap, "captured_at", None)
+            if dt is None:
+                continue
+            day_idx = dt.weekday()
+            hour = dt.hour
+            rate = getattr(snap, "engagement_rate", 0.0)
+            engagement_by_slot[(day_idx, hour)].append(rate)
+
+        slot_scores = []
+        for slot, rates in engagement_by_slot.items():
+            avg = sum(rates) / len(rates) if rates else 0.0
+            slot_scores.append((slot, avg))
+
+        slot_scores.sort(key=lambda x: x[1], reverse=True)
+
+        windows = []
+        for (day_idx, hour), score in slot_scores[:5]:
+            confidence = "high" if score > 0.02 else "medium"
+            windows.append({
+                "day": day_names[day_idx],
+                "time": f"{hour:02d}:00",
+                "timezone": timezone,
+                "confidence": confidence,
+                "avg_engagement_rate": round(score, 4),
+            })
+        if windows:
+            return windows
+
+    # Fallback: well-known professional-audience windows
     windows = [
         {"day": "Tuesday", "time": "09:00", "timezone": timezone, "confidence": "high"},
         {"day": "Wednesday", "time": "09:00", "timezone": timezone, "confidence": "high"},

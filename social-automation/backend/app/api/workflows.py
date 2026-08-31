@@ -387,6 +387,10 @@ async def generate_workflow(
 
 def _fallback_workflow(prompt: str) -> dict:
     """Generate a basic n8n workflow structure as fallback."""
+    from app.core.config import get_settings
+
+    _settings = get_settings()
+    api_base = (_settings.CORS_ORIGINS[0].rstrip("/") if _settings.CORS_ORIGINS else "http://localhost:8083")
     return {
         "name": f"Generated: {prompt[:50]}",
         "nodes": [
@@ -408,7 +412,7 @@ def _fallback_workflow(prompt: str) -> dict:
                 "position": [450, 300],
                 "parameters": {
                     "method": "POST",
-                    "url": "https://api.example.com/webhook",
+                    "url": f"{api_base}/api/v1/ai/generate-content",
                     "options": {},
                 },
             },

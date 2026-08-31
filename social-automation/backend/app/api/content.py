@@ -78,7 +78,7 @@ class PostListResponse(BaseModel):
 
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(post_data: PostCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Get user's team (first one for now)
+    # Resolve the user's team (single-team model)
     result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )

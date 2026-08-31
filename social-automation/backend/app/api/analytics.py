@@ -679,14 +679,9 @@ async def get_platform_metrics(
         select(SocialAccount).where(SocialAccount.team_id == team.id)
     )
     accounts = accounts_result.scalars().all()
-    platforms_seen = {a.platform for a in accounts} or {
-        "linkedin",
-        "twitter",
-        "instagram",
-        "facebook",
-        "threads",
-        "tiktok",
-    }
+    platforms_seen = {a.platform for a in accounts}
+    if not platforms_seen:
+        return []
 
     # One grouped query for post status counts per platform
     status_rows = await db.execute(
