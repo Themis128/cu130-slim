@@ -301,6 +301,51 @@ class FacebookAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def create_multi_photo_post(
+        self,
+        image_urls: list[str],
+        message: str = "",
+        link: str | None = None,
+    ) -> dict:
+        """Publish a multi-photo (album) post to the Page feed.
+
+        First uploads each photo as unpublished, then creates a feed post
+        with the images attached via ``attached_media``. Returns the Graph
+        API response containing the new post ``id``.
+        """
+        if not image_urls:
+            raise ValueError("At least one image_url is required for a multi-photo post")
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            photo_ids: list[str] = []
+            for image_url in image_urls[:10]:
+                photo_url = self._url(f"{self.page_id}/photos")
+                upload_payload = {"published": "false", "url": image_url}
+                upload_resp = await client.post(photo_url, params=self._params(), data=upload_payload)
+                self._raise_for_status(upload_resp, photo_url)
+                photo_id = (upload_resp.json() or {}).get("id")
+                if photo_id:
+                    photo_ids.append(photo_id)
+
+            if not photo_ids:
+                raise FacebookAPIError(
+                    status_code=400,
+                    response_text="No Facebook photo uploads succeeded",
+                    url=self._url(f"{self.page_id}/photos"),
+                )
+
+            import json as _json
+
+            attached = [{"media_fbid": pid} for pid in photo_ids]
+            feed_url = self._url(f"{self.page_id}/feed")
+            payload: dict[str, Any] = {"message": message, "attached_media": _json.dumps(attached)}
+            if link:
+                payload["link"] = link
+
+            resp = await client.post(feed_url, params=self._params(), data=payload)
+            self._raise_for_status(resp, feed_url)
+            return resp.json()
+
     # ------------------------------------------------------------------
     # Insights / analytics
     # ------------------------------------------------------------------
