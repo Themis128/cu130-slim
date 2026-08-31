@@ -8,6 +8,8 @@ import { test as base, expect, type Page } from '@playwright/test';
  * No API mocking. A real test user is registered (idempotent) and logged in
  * via the actual /api/v1/auth/login endpoint. The resulting tokens are placed
  * in localStorage so dashboard pages render authenticated.
+ *
+ * NOTE: The backend rejects .test TLD emails, so we use .com.
  */
 
 const API_BASE = process.env.E2E_API_URL || 'http://localhost:8083';
@@ -15,10 +17,8 @@ const FRONTEND_BASE = process.env.E2E_FRONTEND_URL || 'http://localhost:8082';
 
 // Stable test user — same email across all workers so register is idempotent
 // and login always works.  The password never changes during the suite.
-// NOTE: the domain must be a real, non-reserved TLD — Pydantic's EmailStr
-// rejects special-use/reserved TLDs like ".test", ".example", ".invalid".
 export const TEST_USER = {
-  email: 'e2e-shared@socialauto.dev',
+  email: 'e2e-shared@social-auto.com',
   password: 'E2E-Shared-Pass-123!',
   name: 'E2E Shared Test User',
 };
@@ -70,7 +70,6 @@ export async function ensureTestUser(): Promise<AuthTokens> {
         return cachedTokens;
       }
       if (res.status === 429) {
-        // Rate limited — wait longer before retrying
         await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
         continue;
       }
@@ -90,7 +89,6 @@ export async function ensureTestUser(): Promise<AuthTokens> {
  * dashboard pages render without going through the login UI every time.
  */
 export async function setAuthCookies(page: Page, tokens: AuthTokens) {
-  // Navigate to the frontend origin first so localStorage is scoped correctly
   await page.goto(FRONTEND_BASE + '/login');
   await page.evaluate(({ access, refresh }) => {
     localStorage.setItem('access_token', access);

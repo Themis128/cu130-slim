@@ -20,3 +20,7 @@ AGENTS.md
 CLAUDE.md
 # TypeScript build info (build artifact)
 *.tsbuildinfo
+
+# Playwright test artifacts
+test-results/
+playwright-report/

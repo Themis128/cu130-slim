@@ -6,6 +6,13 @@ import { randomUUID } from 'crypto';
  *
  * The backend's forgot-password endpoint returns a `debug_token` in dev mode.
  * We use that token to exercise the real reset-password endpoint end-to-end.
+ *
+ * Note: the ResetPasswordForm passes `error` to both Input components, so
+ * error text appears in multiple alert elements. We use .first() to match.
+ *
+ * Note: The Input has minLength={8}, so browser-native validation prevents
+ * submission of passwords shorter than 8 chars. We test the custom validation
+ * by using passwords that pass native validation but fail custom checks.
  */
 
 test.describe('Reset Password Page — real backend', () => {
@@ -27,55 +34,60 @@ test.describe('Reset Password Page — real backend', () => {
   test('should show error for empty fields', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
     await page.getByRole('button', { name: /reset password/i }).click();
-    await expect(page.getByText(/all fields are required/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /all fields are required/i }).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('should show error for passwords not matching', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabel('New Password').fill('password123');
-    await page.getByLabel('Confirm New Password').fill('different');
+    await page.locator('#password').fill('password123');
+    await page.locator('#confirmPassword').fill('different123');
     await page.getByRole('button', { name: /reset password/i }).click();
-    await expect(page.getByText(/passwords do not match/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /passwords do not match/i }).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('should show error for short password', async ({ page }) => {
+  test('should show error for short password via native validation', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByLabel('New Password').fill('123');
-    await page.getByLabel('Confirm New Password').fill('123');
-    await page.getByRole('button', { name: /reset password/i }).click();
-    await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
+    await page.locator('#password').fill('123');
+    await page.locator('#confirmPassword').fill('123');
+    // Browser-native minLength validation prevents form submission
+    // The input becomes invalid — check for the browser's validation UI
+    const passwordInput = page.locator('#password');
+    const isInvalid = await passwordInput.evaluate((el: HTMLInputElement) => !el.checkValidity());
+    expect(isInvalid).toBe(true);
   });
 
   test('should reset password with a real debug token', async ({ request, page }) => {
-    // 1. Register a fresh user so we have a known email
-    //    ".dev" is a real TLD; ".test" is reserved and rejected by EmailStr.
     const email = `reset-${randomUUID().slice(0, 8)}@socialauto.dev`;
     const password = 'InitialPass-123!';
     const newPassword = 'NewResetPass-456!';
 
-    await request.post(`${API_BASE}/api/v1/auth/register`, {
+    const regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
       data: { email, password, name: 'Reset Test' },
     });
+    expect(regRes.ok()).toBeTruthy();
 
-    // 2. Request a reset link — the real backend returns a debug_token in dev
-    const forgotRes = await request.post(`${API_BASE}/api/v1/auth/forgot-password`, {
-      data: { email },
-    });
-    expect(forgotRes.ok()).toBeTruthy();
-    const forgotBody = await forgotRes.json();
-    const token = forgotBody.debug_token;
+    // Request reset link — retry to handle rate limiting
+    let token: string | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const forgotRes = await request.post(`${API_BASE}/api/v1/auth/forgot-password`, {
+        data: { email },
+      });
+      if (forgotRes.ok()) {
+        const body = await forgotRes.json();
+        token = body.debug_token || null;
+        if (token) break;
+      }
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
     expect(token).toBeTruthy();
 
-    // 3. Use the token in the UI to reset the password
     await page.goto(`/reset-password?token=${token}`);
-    await page.getByLabel('New Password').fill(newPassword);
-    await page.getByLabel('Confirm New Password').fill(newPassword);
+    await page.locator('#password').fill(newPassword);
+    await page.locator('#confirmPassword').fill(newPassword);
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    // 4. UI should show the success state
     await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible({ timeout: 15000 });
 
-    // 5. Verify the new password actually works against the real backend
     const loginRes = await request.post(`${API_BASE}/api/v1/auth/login`, {
       form: { username: email, password: newPassword },
     });
@@ -83,13 +95,11 @@ test.describe('Reset Password Page — real backend', () => {
   });
 
   test('should show error for an invalid token', async ({ page }) => {
-    // Use a clearly invalid token
     await page.goto('/reset-password?token=invalid-token-xyz');
-    await page.getByLabel('New Password').fill('newpassword123');
-    await page.getByLabel('Confirm New Password').fill('newpassword123');
+    await page.locator('#password').fill('newpassword123');
+    await page.locator('#confirmPassword').fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    // Real backend returns an error for invalid tokens
-    await expect(page.getByText(/invalid|expired|failed/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('alert').filter({ hasText: /invalid|expired|failed/i }).first()).toBeVisible({ timeout: 15000 });
   });
 });

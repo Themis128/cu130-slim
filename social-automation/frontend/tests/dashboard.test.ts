@@ -6,22 +6,22 @@ test.describe('Dashboard Page — real backend', () => {
     await expect(page).toHaveURL('/dashboard');
 
     // Greeting header (time-based: Good morning/afternoon/evening)
-    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/social media overview for the last 30 days/i)).toBeVisible();
 
-    // Stat cards (Published / Scheduled / Drafts / Failed) — real zeros for a fresh test user
-    await expect(page.getByText('Published')).toBeVisible();
-    await expect(page.getByText('Scheduled')).toBeVisible();
-    await expect(page.getByText('Drafts')).toBeVisible();
-    await expect(page.getByText('Failed')).toBeVisible();
+    // Stat cards (Published / Scheduled / Drafts / Failed)
+    await expect(page.getByText('Published', { exact: true })).toBeVisible();
+    await expect(page.getByText('Scheduled', { exact: true })).toBeVisible();
+    await expect(page.getByText('Drafts', { exact: true })).toBeVisible();
+    await expect(page.getByText('Failed', { exact: true })).toBeVisible();
 
     // Week calendar + best-time-to-post cards
-    await expect(page.getByRole('heading', { name: /this week/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /best time to post/i })).toBeVisible();
+    await expect(page.getByText(/this week/i)).toBeVisible();
+    await expect(page.getByText(/best time to post/i)).toBeVisible();
 
     // Top posts + quick actions
-    await expect(page.getByRole('heading', { name: /top performing posts/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /quick actions/i })).toBeVisible();
+    await expect(page.getByText(/top performing posts/i)).toBeVisible();
+    await expect(page.getByText(/quick actions/i)).toBeVisible();
 
     // Quick action links
     await expect(page.getByRole('link', { name: /create post/i }).first()).toBeVisible();

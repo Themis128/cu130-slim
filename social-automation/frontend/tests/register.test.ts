@@ -2,7 +2,7 @@ import { test, expect } from './helpers/auth';
 import { randomUUID } from 'crypto';
 
 const NEW_USER = {
-  // ".dev" is a real TLD; ".test" is reserved and rejected by EmailStr (422).
+  // ".dev" is a real TLD; ".test" is reserved and rejected by EmailStr.
   email: `e2e-reg-${randomUUID().slice(0, 8)}@socialauto.dev`,
   password: 'E2E-Register-123!',
   name: `E2E Register User`,
@@ -18,45 +18,46 @@ test.describe('Register Page — real backend', () => {
   test('should show error for empty full name', async ({ page }) => {
     await page.goto('/register');
     await page.getByRole('button', { name: /create account/i }).click();
-    await expect(page.getByText(/full name is required/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /full name is required/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('should show error for invalid email', async ({ page }) => {
     await page.goto('/register');
     await page.getByLabel('Full Name').fill('Test User');
     await page.getByLabel('Email').fill('invalid-email');
-    await page.getByLabel('Password').fill('password123');
-    await page.getByLabel('Confirm Password').fill('password123');
+    // Use exact label match for Password (not Confirm Password)
+    await page.locator('#password').fill('password123');
+    await page.locator('#confirmPassword').fill('password123');
     await page.getByRole('button', { name: /create account/i }).click();
-    await expect(page.getByText(/invalid email address/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /invalid email address/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('should show error for short password', async ({ page }) => {
     await page.goto('/register');
     await page.getByLabel('Full Name').fill('Test User');
     await page.getByLabel('Email').fill('test@example.com');
-    await page.getByLabel('Password').fill('123');
-    await page.getByLabel('Confirm Password').fill('123');
+    await page.locator('#password').fill('123');
+    await page.locator('#confirmPassword').fill('123');
     await page.getByRole('button', { name: /create account/i }).click();
-    await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /password must be at least 8 characters/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('should show error for mismatched passwords', async ({ page }) => {
     await page.goto('/register');
     await page.getByLabel('Full Name').fill('Test User');
     await page.getByLabel('Email').fill('test@example.com');
-    await page.getByLabel('Password').fill('password123');
-    await page.getByLabel('Confirm Password').fill('different');
+    await page.locator('#password').fill('password123');
+    await page.locator('#confirmPassword').fill('different');
     await page.getByRole('button', { name: /create account/i }).click();
-    await expect(page.getByText(/passwords do not match/i)).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /passwords do not match/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('should register a new real user and auto-login to dashboard', async ({ page }) => {
     await page.goto('/register');
     await page.getByLabel('Full Name').fill(NEW_USER.name);
     await page.getByLabel('Email').fill(NEW_USER.email);
-    await page.getByLabel('Password').fill(NEW_USER.password);
-    await page.getByLabel('Confirm Password').fill(NEW_USER.password);
+    await page.locator('#password').fill(NEW_USER.password);
+    await page.locator('#confirmPassword').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
     // Real auto-login flow navigates to /dashboard
@@ -69,8 +70,8 @@ test.describe('Register Page — real backend', () => {
     await page.goto('/register');
     await page.getByLabel('Full Name').fill(NEW_USER.name);
     await page.getByLabel('Email').fill(NEW_USER.email);
-    await page.getByLabel('Password').fill(NEW_USER.password);
-    await page.getByLabel('Confirm Password').fill(NEW_USER.password);
+    await page.locator('#password').fill(NEW_USER.password);
+    await page.locator('#confirmPassword').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
     // Real backend returns 409/422 — toast surfaces the detail

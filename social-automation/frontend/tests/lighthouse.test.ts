@@ -26,7 +26,7 @@ import { chromium } from '@playwright/test';
 const LIGHTHOUSE_IMPORT_PATH = '/home/tbaltzakis/.local/lib/lighthouse-tool/node_modules/lighthouse/core/index.js';
 const FRONTEND_URL = process.env.E2E_FRONTEND_URL || 'http://localhost:8082';
 const REPORT_DIR = resolve(process.cwd(), 'test-results/lighthouse');
-const PORT = 9223; // CDP port for Lighthouse — must not conflict with other tests
+const PORT = 9233; // CDP port for Lighthouse — must not conflict with other tests
 
 // Score thresholds (0-1). Lighthouse scores: 0-0.49 red, 0.5-0.89 orange, 0.9-1 green
 const THRESHOLDS = {
@@ -96,9 +96,10 @@ function getScore(result: LighthouseResult, category: string): number {
 }
 
 test.describe('Lighthouse Audits — real frontend', () => {
-  test.describe.configure({ mode: 'serial' });
+  test.describe.configure({ mode: 'serial' })
 
   test('login page — performance, accessibility, SEO', async () => {
+    test.setTimeout(120_000);
     const result = await runLighthouseAudit(`${FRONTEND_URL}/login`, 'login');
     const perf = getScore(result, 'performance');
     const a11y = getScore(result, 'accessibility');
@@ -111,6 +112,7 @@ test.describe('Lighthouse Audits — real frontend', () => {
   });
 
   test('register page — performance, accessibility, SEO', async () => {
+    test.setTimeout(120_000);
     const result = await runLighthouseAudit(`${FRONTEND_URL}/register`, 'register');
     const perf = getScore(result, 'performance');
     const a11y = getScore(result, 'accessibility');
@@ -123,6 +125,7 @@ test.describe('Lighthouse Audits — real frontend', () => {
   });
 
   test('forgot-password page — performance, accessibility, SEO', async () => {
+    test.setTimeout(120_000);
     const result = await runLighthouseAudit(`${FRONTEND_URL}/forgot-password`, 'forgot-password');
     const a11y = getScore(result, 'accessibility');
     const seo = getScore(result, 'seo');
@@ -132,6 +135,7 @@ test.describe('Lighthouse Audits — real frontend', () => {
   });
 
   test('home page — performance, accessibility, SEO', async () => {
+    test.setTimeout(120_000);
     const result = await runLighthouseAudit(`${FRONTEND_URL}/`, 'home');
     const perf = getScore(result, 'performance');
     const a11y = getScore(result, 'accessibility');

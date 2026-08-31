@@ -83,9 +83,10 @@ export default function ForgotPasswordPage() {
                   <p className="text-xs font-medium text-muted-foreground">Development mode - Debug token:</p>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-xs bg-background p-2 rounded border break-all">{debugToken}</code>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
+                      aria-label="Open reset form with debug token"
                       onClick={() => router.push(`/reset-password?token=${debugToken}`)}
                     >
                       <ExternalLink className="h-4 w-4" />
@@ -102,7 +103,7 @@ export default function ForgotPasswordPage() {
               </Button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <div className="relative">

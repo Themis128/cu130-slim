@@ -358,6 +358,7 @@ services:
     environment:
     - TZ=Europe/Athens
     - APP_TIMEZONE=Europe/Athens
+    - APP_ENV=development
     - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     - ENCRYPTION_KEY=${ENCRYPTION_KEY}

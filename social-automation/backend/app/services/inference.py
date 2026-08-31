@@ -922,7 +922,7 @@ async def submit_workers_ai_batch(
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(url, headers=headers, json={"requests": requests})
 
-    if resp.status_code != 200:
+    if resp.status_code not in (200, 202):
         raise HTTPException(
             status_code=502,
             detail=f"Cloudflare Workers AI batch submission error {resp.status_code}: {resp.text[:400]}",

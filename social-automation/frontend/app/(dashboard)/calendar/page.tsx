@@ -248,7 +248,7 @@ export default function CalendarPage() {
           </div>
 
           {/* Nav */}
-          <Button variant="outline" size="icon" onClick={() => setMonth(m => subMonths(m, 1))}>
+          <Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setMonth(m => subMonths(m, 1))}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Button
@@ -258,7 +258,7 @@ export default function CalendarPage() {
           >
             {format(month, 'MMMM yyyy')}
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setMonth(m => addMonths(m, 1))}>
+          <Button variant="outline" size="icon" aria-label="Next month" onClick={() => setMonth(m => addMonths(m, 1))}>
             <ChevronRight className="h-4 w-4" />
           </Button>
 

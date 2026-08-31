@@ -1,8 +1,13 @@
 import ResetPasswordForm from './form';
-import { notFound } from 'next/navigation';
 
-export default function ResetPasswordPage({ searchParams }: { searchParams: { token?: string } }) {
-  const token = searchParams.token ?? '';
+export const dynamic = 'force-dynamic';
+
+export default async function ResetPasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { token } = await searchParams;
   if (!token) {
     // If no token, show invalid link page (could also redirect)
     return (

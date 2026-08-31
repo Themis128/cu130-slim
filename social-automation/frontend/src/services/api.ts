@@ -76,7 +76,9 @@ api.interceptors.response.use(
       const currentRefreshToken = refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null)
 
       if (!currentRefreshToken) {
-        logout()
+        // No refresh token → user was never authenticated (e.g. wrong login
+        // credentials).  Don't hard-redirect; just reject so the caller can
+        // show the appropriate error toast.
         return Promise.reject(error)
       }
 

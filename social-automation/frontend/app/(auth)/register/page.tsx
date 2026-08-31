@@ -67,7 +67,7 @@ export default function RegisterPage() {
           <CardDescription>Start automating your social media today</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="full_name">Full Name</Label>
               <Input

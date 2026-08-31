@@ -70,8 +70,8 @@ test.describe('Calendar Page — real backend', () => {
     const monthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
     const initialMonth = await monthButton.textContent();
 
-    // Click the previous-month chevron (outline icon button before the month label)
-    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-left') }).click();
+    // Click the previous-month button (has aria-label="Previous month")
+    await page.getByRole('button', { name: 'Previous month' }).click();
     await page.waitForTimeout(300);
 
     const newMonth = await monthButton.textContent();
@@ -83,17 +83,17 @@ test.describe('Calendar Page — real backend', () => {
     const monthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
     const initialMonth = await monthButton.textContent();
 
-    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-right') }).click();
+    await page.getByRole('button', { name: 'Next month' }).click();
     await page.waitForTimeout(300);
 
     const newMonth = await monthButton.textContent();
     expect(newMonth).not.toBe(initialMonth);
   });
 
-  test('should return to current month when clicking the month button after navigating away', async ({ authenticatedPage: page }) => {
+  test('should return to current month when clicking the month button', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
     // Navigate away
-    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-right') }).click();
+    await page.getByRole('button', { name: 'Next month' }).click();
     await page.waitForTimeout(300);
 
     // Click the month button to return to today
@@ -104,19 +104,19 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should allow selecting a day and show the day detail panel', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    // Click the first day cell (day 1 of the month)
-    const dayCells = page.locator('.min-h-\\[130px\\]');
-    await dayCells.first().click();
+    // Click the first actual day cell (padding cells lack cursor-pointer)
+    const dayCell = page.locator('.min-h-\\[130px\\].cursor-pointer').first();
+    await dayCell.click();
 
-    // Day detail panel appears with a "Schedule post" button
+    // Day detail panel appears with a "Schedule post" link
     await expect(page.getByRole('link', { name: /schedule post/i })).toBeVisible();
   });
 
   test('should show empty state in day detail for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    const dayCells = page.locator('.min-h-\\[130px\\]');
-    await dayCells.first().click();
-    await expect(page.getByText(/nothing scheduled/i)).toBeVisible();
+    const dayCell = page.locator('.min-h-\\[130px\\].cursor-pointer').first();
+    await dayCell.click();
+    await expect(page.getByText(/nothing scheduled/i).first()).toBeVisible();
   });
 
   test('should show the status legend', async ({ authenticatedPage: page }) => {
@@ -134,7 +134,7 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should show month/week view toggle', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    await expect(page.getByRole('button', { name: /month/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /month/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /week/i })).toBeVisible();
   });
 
@@ -143,6 +143,6 @@ test.describe('Calendar Page — real backend', () => {
     await page.getByRole('button', { name: /week/i }).click();
     await page.waitForTimeout(300);
     // Week view renders a WeekCalendar component inside a bordered container
-    await expect(page.locator('.rounded-xl.border')).toBeVisible();
+    await expect(page.locator('.rounded-xl.border').first()).toBeVisible();
   });
 });
