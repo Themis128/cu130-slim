@@ -262,10 +262,10 @@ facebook_client = FacebookOAuth2(settings.FACEBOOK_CLIENT_ID, settings.FACEBOOK_
 threads_client: BaseOAuth2 = BaseOAuth2(
     settings.THREADS_CLIENT_ID,
     settings.THREADS_CLIENT_SECRET,
-    authorize_endpoint="https://threads.net/oauth/authorize",
+    authorize_endpoint="https://threads.com/oauth/authorize",
     access_token_endpoint="https://graph.threads.net/oauth/access_token",
     refresh_token_endpoint="https://graph.threads.net/oauth/access_token",
-    base_scopes=["threads_basic", "threads_content_publish", "threads_manage_insights"],
+    base_scopes=["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
     name="threads",
 )
 # Instagram via Facebook Graph API (Basic Display API deprecated Dec 2024)
@@ -891,7 +891,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
             "instagram_basic", "instagram_content_publish",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
         ],
-        "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights"],
+        "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "instagram2": ["user_profile", "user_media"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }
