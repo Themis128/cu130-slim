@@ -844,10 +844,13 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }
 
-    # TikTok requires client_key as the client_id param in the authorize URL
+    # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
+    tiktok_scopes: list[str] | None = PLATFORM_SCOPES.get(platform)
     if platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+        extra_params["scope"] = ",".join(PLATFORM_SCOPES.get(platform, []))
+        tiktok_scopes = None  # Don't let the library join with spaces
 
     # TikTok now requires PKCE (code_challenge) in the authorize URL
     code_verifier: str | None = None
@@ -876,7 +879,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=state,
-        scope=PLATFORM_SCOPES.get(platform),
+        scope=tiktok_scopes,
         code_challenge=code_challenge,
         code_challenge_method="S256" if code_challenge else None,
         extras_params=extra_params,

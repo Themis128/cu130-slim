@@ -197,10 +197,12 @@ async def connect_account_body(
 
     state = _encode_state(team_id, code_verifier)
 
-    # TikTok requires client_key as an extra param in the authorize URL
+    # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
     if data.platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+        extra_params["scope"] = ",".join(scopes)
+        scopes = None  # Don't let the library join with spaces
 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
@@ -244,10 +246,13 @@ async def connect_account(
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(platform, [])
 
-    # TikTok requires client_key as an extra param in the authorize URL
+    # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
+    tiktok_scopes: list[str] | None = scopes
     if platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+        extra_params["scope"] = ",".join(scopes)
+        tiktok_scopes = None  # Don't let the library join with spaces
 
     # Twitter and TikTok require PKCE
     code_verifier: str | None = None
@@ -260,7 +265,7 @@ async def connect_account(
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=state,
-        scope=scopes,
+        scope=tiktok_scopes,
         code_challenge=code_challenge,
         code_challenge_method="S256" if code_challenge else None,
         extras_params=extra_params if extra_params else None,
