@@ -1,7 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, chromium, type Browser } from '@playwright/test';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium } from '@playwright/test';
 
 /**
  * Lighthouse performance/accessibility/SEO audits for the Cloudless social stack.
@@ -24,7 +23,7 @@ const THRESHOLDS = {
   accessibility: 0.9,
   'best-practices': 0.8,
   seo: 0.8,
-};
+} as const;
 
 interface LighthouseResult {
   lhr: {
@@ -33,11 +32,16 @@ interface LighthouseResult {
   report: string;
 }
 
+type LighthouseRunner = (
+  url: string,
+  options: Record<string, unknown>,
+) => Promise<LighthouseResult | null>;
+
 async function runLighthouseAudit(url: string, pageName: string): Promise<LighthouseResult> {
   const lighthouseModule = await import(LIGHTHOUSE_IMPORT_PATH);
-  const lighthouse = lighthouseModule.default || lighthouseModule;
+  const lighthouse = (lighthouseModule.default || lighthouseModule) as LighthouseRunner;
 
-  let browser;
+  let browser: Browser | undefined;
   let usedPort = BASE_PORT;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -56,6 +60,8 @@ async function runLighthouseAudit(url: string, pageName: string): Promise<Lighth
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
+
+  if (!browser) throw new Error('Failed to launch browser for Lighthouse audit');
 
   try {
     const page = await browser.newPage();
@@ -78,7 +84,7 @@ async function runLighthouseAudit(url: string, pageName: string): Promise<Lighth
     const reportPath = resolve(REPORT_DIR, `${pageName}.html`);
     writeFileSync(reportPath, result.report);
 
-    return result as unknown as LighthouseResult;
+    return result;
   } finally {
     await browser.close();
   }
