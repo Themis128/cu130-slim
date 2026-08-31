@@ -305,6 +305,7 @@ class SeoResponse(BaseModel):
     score: dict
     keywords: list[dict]
     meta: dict
+    open_graph: dict
     character_count: int
     hashtag_count: int
     link_count: int

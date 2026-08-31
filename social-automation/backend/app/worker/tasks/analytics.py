@@ -73,9 +73,3 @@ async def _sync_team_async(team_id: str, days: int) -> dict:
             "errors": result.errors,
             "snapshots": result.snapshots[:50],
         }
-
-
-@shared_task
-def generate_analytics_report(team_id: str, start_date: str, end_date: str) -> None:
-    """On-demand reports: use GET /analytics/reports/export."""
-    return

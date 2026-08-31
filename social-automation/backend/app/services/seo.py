@@ -278,12 +278,33 @@ async def analyze_seo(
     score = score_content(text, platform)
     meta = await suggest_meta(title, text, platform)
     keywords = extract_keywords(text)
+    og = generate_open_graph(meta.get("title", "") or title or "", text, meta.get("description", ""))
     return {
         "platform": platform,
         "score": score.to_dict(),
         "keywords": keywords,
         "meta": meta,
+        "open_graph": og,
         "character_count": len(text),
         "hashtag_count": _count_hashtags(text),
         "link_count": _count_links(text),
+    }
+
+
+def generate_open_graph(title: str, body: str, description: str = "") -> dict[str, str]:
+    """Generate Open Graph + Twitter Card meta tags from content.
+
+    Returns a dict with og_title, og_description, og_type, twitter_card, and
+    twitter_title/twitter_description. Does not call any AI — pure heuristic
+    from the already-generated meta title/description or content excerpt.
+    """
+    og_title = title.strip() if title.strip() else body[:60].strip()
+    og_desc = description.strip() if description.strip() else body[60:220].strip()
+    return {
+        "og_title": og_title,
+        "og_description": og_desc,
+        "og_type": "article",
+        "twitter_card": "summary_large_image",
+        "twitter_title": og_title,
+        "twitter_description": og_desc,
     }

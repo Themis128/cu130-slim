@@ -15,6 +15,7 @@ import { isSafeImageUrl } from '@/lib/utils'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
+import { SeoPanel } from '@/components/content/SeoPanel'
 
 function cn(...c: (string | undefined | false)[]) { return c.filter(Boolean).join(' ') }
 
@@ -252,6 +253,11 @@ export default function NewArticlePage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* SEO Analysis */}
+      {body.trim().length > 20 && (
+        <SeoPanel content={body} platform="linkedin" />
       )}
 
       {/* Actions */}

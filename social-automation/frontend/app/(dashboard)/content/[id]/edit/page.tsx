@@ -17,6 +17,7 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { Undo2 } from 'lucide-react'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
+import { SeoPanel } from '@/components/content/SeoPanel'
 import { ObjectUrlImage } from '@/components/content/previewIdentity'
 import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 
@@ -369,6 +370,11 @@ export default function EditPostPage() {
           </Card>
         )
       })()}
+
+      {/* SEO Analysis */}
+      {content.trim().length > 20 && (
+        <SeoPanel content={content} platform={selectedPlatforms[0] || 'linkedin'} />
+      )}
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3 justify-end border-t pt-6">

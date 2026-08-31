@@ -23,6 +23,7 @@ import type { SocialAccount, MediaAsset } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
+import { SeoPanel } from '@/components/content/SeoPanel'
 import {
   preferredAccount,
   identityFromAccount,
@@ -1000,6 +1001,14 @@ export default function NewPostPage() {
                 })}
               </CardContent>
             </Card>
+          )}
+
+          {/* SEO Analysis */}
+          {content.trim().length > 20 && (
+            <SeoPanel
+              content={content}
+              platform={selectedPlatforms[0] || 'linkedin'}
+            />
           )}
 
           {/* Actions */}

@@ -39,6 +39,7 @@ class PostUpdate(BaseModel):
     link_preview_override: dict | None = None
     scheduled_at: datetime | None = None
     target_account_ids: list[uuid.UUID] | None
+    metadata: dict | None = None
 
 
 class PostResponse(BaseModel):

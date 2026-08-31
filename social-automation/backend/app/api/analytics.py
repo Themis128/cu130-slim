@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import Integer, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +13,14 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.core.config import settings
+from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.analytics_sync import sync_team_analytics
+from app.services.linkedin_api import LinkedInAPIClient
 from app.worker.tasks.analytics import sync_team_analytics_task
 
 router = APIRouter()
@@ -53,6 +56,29 @@ def _engagement_sum(event_counts: dict[str, int]) -> int:
 
 def _engagement_rate(engagement: int, impressions: int) -> float:
     return engagement / impressions if impressions > 0 else 0.0
+
+
+def _org_urn(account: SocialAccount) -> str:
+    """Build the LinkedIn organization URN for a Company Page account."""
+    meta = account.meta_data or {}
+    if meta.get("author_urn") and str(meta["author_urn"]).startswith("urn:li:organization:"):
+        return str(meta["author_urn"])
+    return f"urn:li:organization:{account.account_id}"
+
+
+async def _linkedin_follower_count(account: SocialAccount) -> int:
+    """Fetch live follower count for a LinkedIn Company Page account.
+
+    Returns 0 on any error (token expired, missing scope, API unavailable).
+    """
+    if account.platform != "linkedin":
+        return 0
+    try:
+        token = decrypt_token(account.access_token_enc)
+        client = LinkedInAPIClient(access_token=token)
+        return await client.get_follower_count(_org_urn(account))
+    except Exception:
+        return 0
 
 
 def _latest_snapshot_ids_subq(team_id, since: datetime | None = None, *, posts_only: bool = False):
@@ -177,6 +203,18 @@ async def get_overview(
         )
     )
 
+    # Fetch live follower counts from LinkedIn for active accounts
+    accounts_result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status == "active",
+        )
+    )
+    accounts = accounts_result.scalars().all()
+    total_followers = 0
+    for account in accounts:
+        total_followers += await _linkedin_follower_count(account)
+
     # Prefer latest snapshots when present; else event counters (with meta_data.count)
     snap_eng = await db.execute(
         select(func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0)).where(
@@ -205,7 +243,7 @@ async def get_overview(
         draft_posts=counts.get(PostStatus.DRAFT, 0),
         failed_posts=counts.get(PostStatus.FAILED, 0),
         connected_accounts=accounts_count.scalar() or 0,
-        total_followers=0,
+        total_followers=total_followers,
         total_engagement=total_engagement,
     )
 
@@ -231,7 +269,7 @@ async def get_post_metrics(
         select(
             AnalyticsEvent.social_account_id,
             AnalyticsEvent.event_type,
-            func.count(AnalyticsEvent.id),
+            func.sum(_event_count_expr()),
         )
         .where(AnalyticsEvent.post_id == post_id)
         .group_by(AnalyticsEvent.social_account_id, AnalyticsEvent.event_type)
@@ -293,22 +331,25 @@ async def get_account_metrics(
     ).scalar() or 0
 
     events = await db.execute(
-        select(AnalyticsEvent.event_type, func.count(AnalyticsEvent.id))
+        select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
         .where(
             AnalyticsEvent.social_account_id == account_id,
             AnalyticsEvent.occurred_at >= since,
         )
         .group_by(AnalyticsEvent.event_type)
     )
-    event_counts = {event_type: count for event_type, count in events.all()}
+    event_counts = {event_type: int(count or 0) for event_type, count in events.all()}
     impressions = event_counts.get("impression", 0)
     engagement = _engagement_sum(event_counts)
+
+    # Fetch live follower count for this account
+    followers = await _linkedin_follower_count(account)
 
     return AccountMetrics(
         account_id=account_id,
         platform=account.platform,
         username=account.username or "",
-        followers=0,
+        followers=followers,
         posts_count=posts_count,
         total_impressions=impressions,
         total_engagement=engagement,
@@ -492,8 +533,12 @@ async def get_follower_counts(
         )
     )
     accounts = accounts_result.scalars().all()
-    # Self-hosted: no live follower sync from platform APIs
-    return [FollowerPoint(platform=a.platform, followers=0, change=0) for a in accounts]
+    # Fetch live follower counts from LinkedIn for active accounts
+    result: list[FollowerPoint] = []
+    for account in accounts:
+        followers = await _linkedin_follower_count(account)
+        result.append(FollowerPoint(platform=account.platform, followers=followers, change=0))
+    return result
 
 
 @router.get("/platforms", response_model=list[PlatformMetrics])
@@ -545,7 +590,7 @@ async def get_platform_metrics(
         select(
             SocialAccount.platform,
             AnalyticsEvent.event_type,
-            func.count(AnalyticsEvent.id),
+            func.sum(_event_count_expr()),
         )
         .join(SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id)
         .where(
@@ -556,7 +601,7 @@ async def get_platform_metrics(
     )
     events_by_platform: dict[str, dict[str, int]] = {}
     for plat, event_type, cnt in event_rows.all():
-        events_by_platform.setdefault(plat, {})[event_type] = cnt
+        events_by_platform.setdefault(plat, {})[event_type] = int(cnt or 0)
 
     metrics: list[PlatformMetrics] = []
     for platform in platforms_seen:
@@ -592,12 +637,12 @@ async def export_report(
     since = datetime.now(UTC) - timedelta(days=days)
 
     impressions_col = func.sum(
-        case((AnalyticsEvent.event_type == "impression", 1), else_=0)
+        case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
     )
-    likes_col = func.sum(case((AnalyticsEvent.event_type == "like", 1), else_=0))
-    comments_col = func.sum(case((AnalyticsEvent.event_type == "comment", 1), else_=0))
-    shares_col = func.sum(case((AnalyticsEvent.event_type == "share", 1), else_=0))
-    clicks_col = func.sum(case((AnalyticsEvent.event_type == "click", 1), else_=0))
+    likes_col = func.sum(case((AnalyticsEvent.event_type == "like", _event_count_expr()), else_=0))
+    comments_col = func.sum(case((AnalyticsEvent.event_type == "comment", _event_count_expr()), else_=0))
+    shares_col = func.sum(case((AnalyticsEvent.event_type == "share", _event_count_expr()), else_=0))
+    clicks_col = func.sum(case((AnalyticsEvent.event_type == "click", _event_count_expr()), else_=0))
 
     result = await db.execute(
         select(
@@ -674,17 +719,21 @@ async def export_report(
             writer = csv.DictWriter(output, fieldnames=rows[0].keys())
             writer.writeheader()
             writer.writerows(rows)
-        return {
-            "content": output.getvalue(),
-            "filename": f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.csv",
-            "media_type": "text/csv",
-        }
+        filename = f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
-    return {
-        "content": rows,
-        "filename": f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.json",
-        "media_type": "application/json",
-    }
+    import json as json_mod
+
+    filename = f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.json"
+    return Response(
+        content=json_mod.dumps(rows, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class SyncAnalyticsRequest(BaseModel):
