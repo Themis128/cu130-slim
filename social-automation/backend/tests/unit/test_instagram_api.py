@@ -187,11 +187,11 @@ async def test_publish_container_success(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "published-media-1"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        result = await client.publish_container("creation-123")
+        result = await client.publish_container("123456")
 
     assert result == "published-media-1"
     assert fake.calls[0]["url"].endswith("/media_publish")
-    assert fake.calls[0]["data"]["creation_id"] == "creation-123"
+    assert fake.calls[0]["data"]["creation_id"] == "123456"
 
 
 @pytest.mark.asyncio
@@ -199,10 +199,10 @@ async def test_check_container_status_success(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"status_code": "FINISHED"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        result = await client.check_container_status("container-123")
+        result = await client.check_container_status("12345")
 
     assert result == "FINISHED"
-    assert fake.calls[0]["url"] == f"{api.INSTAGRAM_API_BASE}/{api.INSTAGRAM_DEFAULT_API_VERSION}/container-123"
+    assert fake.calls[0]["url"] == f"{api.INSTAGRAM_API_BASE}/{api.INSTAGRAM_DEFAULT_API_VERSION}/12345"
     assert fake.calls[0]["params"]["fields"] == "status_code"
 
 
@@ -211,10 +211,10 @@ async def test_get_media_insights_success(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"name": "impressions", "values": []}]}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        result = await client.get_media_insights("media-123")
+        result = await client.get_media_insights("333")
 
     assert "data" in result
-    assert fake.calls[0]["url"].endswith("/media-123/insights")
+    assert fake.calls[0]["url"].endswith("/333/insights")
 
 
 @pytest.mark.asyncio
