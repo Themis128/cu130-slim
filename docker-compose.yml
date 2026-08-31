@@ -388,7 +388,7 @@ services:
     - THREADS_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/threads/callback
     - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
     - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
-    - TIKTOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/tiktok/callback
+    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/tiktok/callback}
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
     - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
     - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
@@ -540,7 +540,7 @@ services:
     - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET:-}
     - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
     - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
-    - TIKTOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/tiktok/callback
+    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/tiktok/callback}
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app

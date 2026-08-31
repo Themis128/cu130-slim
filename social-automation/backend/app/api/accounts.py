@@ -4,6 +4,7 @@ import json
 import secrets
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
@@ -20,7 +21,7 @@ from app.api.auth import (
     twitter_client,
 )
 from app.core.config import get_settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User

@@ -11,9 +11,14 @@ Platform capabilities actually used per connected account:
 
 from __future__ import annotations
 
+import base64
 import dataclasses
+import hashlib
+import hmac
 import io
 import os
+import secrets
+import time
 import urllib.parse
 
 import httpx
