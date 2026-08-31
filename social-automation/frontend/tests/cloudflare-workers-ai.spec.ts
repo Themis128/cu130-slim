@@ -248,7 +248,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await registerAndLogin(request)
   })
 
-  test.use({ baseURL: 'http://localhost:3001' })
+  test.use({ baseURL: process.env.E2E_FRONTEND_URL ?? 'http://localhost:8082' })
 
   test.beforeEach(async ({ page }) => {
     // Inject auth tokens + tour-completed flag before any JS runs so dashboard
