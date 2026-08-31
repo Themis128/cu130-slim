@@ -376,19 +376,19 @@ services:
     - LINKEDIN_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/linkedin/callback
     - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
     - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
-    - TWITTER_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/twitter/callback
+    - TWITTER_REDIRECT_URI=${TWITTER_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback}
     - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
     - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
-    - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/instagram/callback}
+    - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/instagram/callback}
     - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
     - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-    - FACEBOOK_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/facebook/callback
+    - FACEBOOK_REDIRECT_URI=${FACEBOOK_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback}
     - THREADS_CLIENT_ID=${THREADS_CLIENT_ID}
     - THREADS_CLIENT_SECRET=${THREADS_CLIENT_SECRET}
-    - THREADS_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/threads/callback
+    - THREADS_REDIRECT_URI=${THREADS_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/threads/callback}
     - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
     - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
-    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/tiktok/callback}
+    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback}
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
     - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
     - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
@@ -533,14 +533,14 @@ services:
     - MEDIA_PUBLIC_BASE_URL=${MEDIA_PUBLIC_BASE_URL:-}
     - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID:-}
     - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET:-}
-    - TWITTER_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/twitter/callback
+    - TWITTER_REDIRECT_URI=${TWITTER_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback}
     - TWITTER_API_KEY=${TWITTER_API_KEY:-}
     - TWITTER_API_SECRET=${TWITTER_API_SECRET:-}
     - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN:-}
     - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET:-}
     - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
     - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
-    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-http://localhost:8083/api/v1/auth/oauth/tiktok/callback}
+    - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback}
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
