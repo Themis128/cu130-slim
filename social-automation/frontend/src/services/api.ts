@@ -340,6 +340,10 @@ export const accountsApi = {
   refresh: (id: string) => api.post(`/accounts/${id}/refresh`),
   validate: (id: string) => api.get(`/accounts/${id}/validate`),
   test: (id: string) => api.post(`/accounts/${id}/test`),
+  syncBusinessAccounts: (id: string) =>
+    api.post(`/accounts/${id}/sync-business-accounts`),
+  setBusinessAccount: (id: string, businessAccountId: string) =>
+    api.post(`/accounts/${id}/set-business-account`, { business_account_id: businessAccountId }),
 }
 
 // Publishing endpoints

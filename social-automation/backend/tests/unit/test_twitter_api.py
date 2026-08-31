@@ -1,8 +1,9 @@
 """Unit tests for the Twitter/X REST API client."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
-from unittest.mock import patch
 
 from app.services import twitter_api as api
 
@@ -295,3 +296,17 @@ async def test_get_user_tweets_success(client):
 async def test_get_user_tweets_invalid_max_results(client):
     with pytest.raises(ValueError):
         await client.get_user_tweets("12345", max_results=200)
+
+
+@pytest.mark.asyncio
+async def test_create_tweet_with_reply(client):
+    fake = _FakeAsyncClient(_FakeResponse(201, {"data": {"id": "111"}}))
+
+    with patch("app.services.twitter_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        result = await client.create_tweet("Hello", reply_tweet_id="999")
+
+    assert result["data"]["id"] == "111"
+    assert fake.calls[0]["url"] == "https://api.x.com/2/tweets"
+    assert fake.calls[0]["json"]["text"] == "Hello"
+    assert fake.calls[0]["json"]["reply"]["in_reply_to_tweet_id"] == "999"

@@ -1,5 +1,6 @@
 """Unit tests for the Facebook Graph API client."""
 
+import json
 from unittest.mock import patch
 
 import httpx
@@ -54,13 +55,13 @@ class _FakeAsyncClient:
         self.calls.append({"method": "GET", "url": url, "headers": headers, "params": params})
         return self._next_response()
 
-    async def post(self, url, headers=None, params=None, json=None, data=None, content=None):
+    async def post(self, url, headers=None, params=None, _json=None, data=None, content=None):
         self.calls.append({
             "method": "POST",
             "url": url,
             "headers": headers,
             "params": params,
-            "json": json,
+            "json": _json,
             "data": data,
             "content": content,
         })
@@ -353,3 +354,58 @@ async def test_error_handling_5xx(client):
 
     assert exc_info.value.status_code == 502
     assert "Internal server error" in exc_info.value.response_text
+
+
+@pytest.mark.asyncio
+async def test_create_multi_photo_post_success(client):
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"id": "photo-1"}),
+        _FakeResponse(200, {"id": "photo-2"}),
+        _FakeResponse(200, {"id": "post-1"}),
+    ])
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        result = await client.create_multi_photo_post(
+            image_urls=["https://example.com/one.jpg", "https://example.com/two.jpg"],
+            message="Hello multi",
+            link="https://example.com",
+        )
+
+    assert result["id"] == "post-1"
+    assert len(fake.calls) == 3
+    photo_call = fake.calls[0]
+    assert photo_call["method"] == "POST"
+    assert photo_call["url"].endswith("/123456789/photos")
+    assert photo_call["data"]["published"] == "false"
+    assert photo_call["data"]["url"] == "https://example.com/one.jpg"
+    assert photo_call["params"]["access_token"] == "tok-123"
+    feed_call = fake.calls[2]
+    assert feed_call["method"] == "POST"
+    assert feed_call["url"].endswith("/123456789/feed")
+    assert feed_call["data"]["message"] == "Hello multi"
+    assert feed_call["data"]["link"] == "https://example.com"
+    attached = json.loads(feed_call["data"]["attached_media"])
+    assert attached == [{"media_fbid": "photo-1"}, {"media_fbid": "photo-2"}]
+
+
+@pytest.mark.asyncio
+async def test_create_multi_photo_post_empty_image_urls(client):
+    with pytest.raises(ValueError, match="At least one image_url"):
+        await client.create_multi_photo_post(image_urls=[], message="Hello")
+
+
+@pytest.mark.asyncio
+async def test_create_multi_photo_post_all_uploads_fail(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        with pytest.raises(api.FacebookAPIError) as exc_info:
+            await client.create_multi_photo_post(
+                image_urls=["https://example.com/bad.jpg"],
+                message="Hello",
+            )
+
+    assert exc_info.value.status_code == 400
+    assert "No Facebook photo uploads succeeded" in exc_info.value.response_text

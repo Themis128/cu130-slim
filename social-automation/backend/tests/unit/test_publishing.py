@@ -131,3 +131,34 @@ async def test_publish_threads_access_denied(account, post, monkeypatch):
 
     assert result.success is False
     assert "Threads API access denied" in result.error
+
+
+@pytest.mark.asyncio
+async def test_publish_twitter_thread(account, post):
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": {"id": "1111111111"}}),
+        _FakeResponse(200, {"data": {"id": "2222222222"}}),
+    ])
+    text = " ".join(["hello"] * 60)
+    first_tweet = " ".join(["hello"] * 46)
+
+    with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await pub._publish_twitter("tok-123", text, account, post, [])
+
+    assert result.success is True
+    assert result.platform_post_id == "1111111111"
+    assert result.platform_url == "https://twitter.com/testuser/status/1111111111"
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["json"]["text"] == first_tweet
+    assert fake.calls[1]["json"]["reply"]["in_reply_to_tweet_id"] == "1111111111"
+
+
+@pytest.mark.asyncio
+async def test_publish_twitter_quota_exceeded(account, post):
+    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "Quota"}))
+
+    with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
+
+    assert result.success is False
+    assert "monthly write quota exhausted" in result.error
