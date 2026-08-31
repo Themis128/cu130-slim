@@ -656,6 +656,7 @@ services:
     - API_INTERNAL_URL=http://social-api:8000
     - NEXT_PUBLIC_API_URL=http://localhost:8082/api/v1
     - PORT=8083
+    - HOSTNAME=0.0.0.0
     volumes:
     - ./social-automation/frontend:/app
     - /app/node_modules
