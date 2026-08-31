@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "playwright": {
-      "command": "/home/tbaltzakis/.local/share/pnpm/playwright-mcp",
-      "args": ["--headless", "--executable-path", "/home/tbaltzakis/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"]
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "--init", "--network", "host", "-v", "/home/tbaltzakis/cu130-slim:/workspace", "-w", "/workspace", "mcr.microsoft.com/playwright/mcp:v0.0.79", "--headless"]
     },
     "github-local": {
       "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
