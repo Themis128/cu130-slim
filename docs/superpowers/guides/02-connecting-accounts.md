@@ -122,3 +122,8 @@ If no Instagram Business Account is found after connecting:
 - **TikTok `code_challenge` error**: PKCE is required. Ensure the latest backend code is deployed — SocialAuto generates a PKCE pair for every TikTok authorization request.
 - **TikTok `KeyError: access_token`**: the token exchange must use `client_key` (not `client_id`). The custom `TikTokOAuth2` class in `auth.py` handles this — ensure it's used instead of `BaseOAuth2`.
 - **TikTok login rate limit**: if you see "Maximum number of attempts reached", wait 15–30 minutes before retrying.
+- **Facebook/Instagram `redirect_uri` error**: Meta requires HTTPS redirect URIs. Ensure `FACEBOOK_REDIRECT_URI` and `INSTAGRAM_REDIRECT_URI` use `https://social.cloudless.gr/...` and are registered in the Meta App Dashboard.
+- **Instagram "No Business Account found"**: the Instagram account must be Business/Creator and linked to a Facebook Page. See "Fixing the Instagram-Facebook Page connection" above.
+- **Threads `invalid_client_id`**: Threads uses a separate App ID from the main Meta app. Check App Dashboard > Settings > Basic > Threads App ID.
+- **Twitter `redirect_uri` mismatch**: register the exact HTTPS redirect URI in the X Developer Console under your app > Settings > Authentication.
+- **Twitter token expired (2 hours)**: ensure `offline.access` scope is requested so a refresh token is issued. SocialAuto handles this automatically.
