@@ -134,7 +134,7 @@ class VectorizeClient:
             "vector": values,
             "topK": top_k,
             "namespace": namespace,
-            "returnMetadata": return_metadata,
+            "return_metadata": return_metadata,
         }
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, json=body, headers=self._headers())
@@ -164,8 +164,8 @@ class VectorizeClient:
         """Delete vectors by ID."""
         if not self.enabled:
             return False
-        url = f"{self.base_url}/delete"
-        body = {"ids": ids, "namespace": namespace}
+        url = f"{self.base_url}/delete_by_ids"
+        body = {"ids": ids}
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, json=body, headers=self._headers())
         return resp.status_code == 200
