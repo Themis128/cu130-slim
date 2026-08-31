@@ -128,6 +128,13 @@ export default function WorkflowsPage() {
   const [workflowRuns, setWorkflowRuns] = useState<Record<string, Array<{ status: 'success' | 'failed' | 'running'; label: string; time: string }>>>({})
   const [loadingRuns, setLoadingRuns] = useState<Record<string, boolean>>({})
 
+  const { data: templatesData, isLoading: templatesLoading, refetch: refetchTemplates } = useTemplates(categoryFilter)
+  const { data: workflowsData, isLoading: workflowsLoading } = useWorkflows()
+  const generateMutation = useGenerateWorkflow()
+  const deployMutation = useDeployWorkflow()
+
+  const workflows = workflowsData?.data || []
+
   const fetchRuns = useCallback(async (workflowId: string) => {
     setLoadingRuns(prev => ({ ...prev, [workflowId]: true }))
     try {
@@ -142,19 +149,12 @@ export default function WorkflowsPage() {
 
   // Fetch runs for deployed workflows on mount
   useEffect(() => {
-    if (workflows?.data) {
-      workflows.data.forEach((w: GeneratedWorkflow) => {
-        if (w.n8n_workflow_id && !workflowRuns[w.id]) {
-          fetchRuns(w.id)
-        }
-      })
-    }
+    workflows.forEach((w: GeneratedWorkflow) => {
+      if (w.n8n_workflow_id && !workflowRuns[w.id]) {
+        fetchRuns(w.id)
+      }
+    })
   }, [workflows, fetchRuns, workflowRuns])
-
-  const { data: templatesData, isLoading: templatesLoading, refetch: refetchTemplates } = useTemplates(categoryFilter)
-  const { data: workflowsData, isLoading: workflowsLoading } = useWorkflows()
-  const generateMutation = useGenerateWorkflow()
-  const deployMutation = useDeployWorkflow()
 
   const [seeding, setSeeding] = useState(false)
 
@@ -180,7 +180,6 @@ export default function WorkflowsPage() {
   }
 
   const allTemplates = Array.isArray(templatesData) ? templatesData : (templatesData?.items || [])
-  const workflows = Array.isArray(workflowsData) ? workflowsData : (workflowsData?.items || [])
 
   const { deleteWithUndo: deleteTemplateWithUndo, pendingIds: pendingTemplateIds } = useUndoDelete<PromptTemplate>(
     async (item) => {
