@@ -32,6 +32,7 @@ const PLATFORM_COLOR: Record<string, string> = {
   instagram: '#e1306c',
   facebook: '#1877f2',
   threads: '#000',
+  tiktok: '#ff0050',
 }
 
 function sanitizePostContent(text: string | null | undefined): string {
@@ -204,6 +205,7 @@ export default function AnalyticsPage() {
               <SelectItem value="instagram">Instagram</SelectItem>
               <SelectItem value="facebook">Facebook</SelectItem>
               <SelectItem value="threads">Threads</SelectItem>
+              <SelectItem value="tiktok">TikTok</SelectItem>
             </SelectContent>
           </Select>
           <Button

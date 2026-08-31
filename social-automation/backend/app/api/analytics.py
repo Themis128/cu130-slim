@@ -655,7 +655,7 @@ async def get_follower_counts(
         )
     )
     accounts = accounts_result.scalars().all()
-    # Fetch live follower counts from LinkedIn for active accounts
+    # Fetch live follower counts from all platforms
     result: list[FollowerPoint] = []
     for account in accounts:
         followers = await _follower_count(account)
@@ -685,6 +685,7 @@ async def get_platform_metrics(
         "instagram",
         "facebook",
         "threads",
+        "tiktok",
     }
 
     # One grouped query for post status counts per platform

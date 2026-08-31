@@ -224,7 +224,7 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
 
 async def suggest_meta(title: str | None, body: str, platform: str = "linkedin") -> dict[str, str]:
     """Suggest meta title and description for a LinkedIn article or blog post."""
-    if platform in ("twitter", "threads", "instagram"):
+    if platform in ("twitter", "threads", "instagram", "tiktok"):
         return {"title": "", "description": ""}
 
     hints = _PLATFORM_HINTS.get(platform.lower(), _PLATFORM_HINTS["linkedin"])
