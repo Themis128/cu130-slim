@@ -185,7 +185,7 @@ async def test_provider(
 
     # Use a fast non-reasoning model for LLM providers
     FAST_TEST_MODELS: dict[str, str] = {
-        "nvidia": "meta/llama-3.1-8b-instruct",
+        "nvidia": "nvidia/nemotron-3-nano-30b-a3b",
         "groq": "qwen/qwen3.6-27b",
         "cloudflare": "@cf/meta/llama-3.2-3b-instruct",
     }

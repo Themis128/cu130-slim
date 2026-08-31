@@ -51,7 +51,7 @@ PROVIDER_CATALOG = [
         "name": "nvidia",
         "display_name": "NVIDIA Build",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "default_model": "meta/llama-3.1-70b-instruct",
+        "default_model": "nvidia/nemotron-3-nano-30b-a3b",
         "requires_key": True,
         "description": "NVIDIA's cloud inference — free tier 1000 req/month",
         "model_examples": [
@@ -176,6 +176,9 @@ async def _get_provider_config(
         local_nim_url = getattr(settings, 'LOCAL_NIM_URL', 'http://host.docker.internal:8000/v1/infer')
         return local_nim_url, "stable-diffusion-3.5-large", None
 
+    db_base_url: str | None = None
+    db_model: str | None = None
+
     if db and team_id:
         result = await db.execute(
             select(AIProvider).where(
@@ -186,8 +189,14 @@ async def _get_provider_config(
         )
         record = result.scalar_one_or_none()
         if record:
-            api_key = decrypt_token(record.api_key_enc) if record.api_key_enc else None
-            return _resolve_base_url(provider_name, record.base_url), record.default_model, api_key
+            db_key = decrypt_token(record.api_key_enc) if record.api_key_enc else None
+            # If the DB record has a key, use it. Otherwise fall through to the
+            # env-var fallback below so providers enabled via the panel (without
+            # a stored key) still work when the key is in .env.
+            if db_key:
+                return _resolve_base_url(provider_name, record.base_url), record.default_model, db_key
+            db_base_url = record.base_url
+            db_model = record.default_model
 
     # Fallback to catalog defaults with env var API keys
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == provider_name), None)
@@ -208,7 +217,11 @@ async def _get_provider_config(
     api_key = env_key_map.get(provider_name, "")
     api_key = api_key if api_key else None
 
-    return _resolve_base_url(provider_name, str(catalog["base_url"])), str(catalog["default_model"]), api_key
+    # Prefer DB-stored base_url/model (from the enabled provider record) over
+    # catalog defaults, but use the env-var key when the DB has none.
+    base_url = db_base_url if db_base_url else str(catalog["base_url"])
+    model = db_model if db_model else str(catalog["default_model"])
+    return _resolve_base_url(provider_name, base_url), model, api_key
 
 
 def _resolve_base_url(provider_name: str, base_url: str) -> str:
