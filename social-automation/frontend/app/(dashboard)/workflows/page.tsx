@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { useUndoDelete } from '@/hooks/useUndoDelete'
 import type { PromptTemplate, GeneratedWorkflow } from '@/types'
 import toast from 'react-hot-toast'
+import { format } from 'date-fns'
 
 // ── Curated starter templates ─────────────────────────────────────────────────
 
@@ -692,19 +693,32 @@ export default function WorkflowsPage() {
                       </div>
 
                       {/* Run history panel */}
-                      {isExpanded && runs.length > 0 && (
+                      {isExpanded && (
                         <div className="mt-4 border-t pt-3 space-y-2">
                           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                             <History className="h-3.5 w-3.5" />
                             Recent Runs
                           </p>
+                          {isLoadingRuns && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground px-3 py-2">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Loading executions…
+                            </div>
+                          )}
+                          {!isLoadingRuns && runs.length === 0 && (
+                            <div className="text-sm text-muted-foreground px-3 py-2">
+                              No executions yet
+                            </div>
+                          )}
                           {runs.map((run, i) => (
                             <div key={i} className="flex items-center gap-2.5 rounded-md px-3 py-2 bg-muted/40 text-sm">
                               {runStatusIcon(run.status)}
                               <span className={run.status === 'failed' ? 'text-destructive' : 'text-foreground'}>
                                 {run.label}
                               </span>
-                              <span className="ml-auto text-xs text-muted-foreground">{run.time}</span>
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {run.time ? format(new Date(run.time), 'MMM d, HH:mm') : ''}
+                              </span>
                             </div>
                           ))}
                         </div>
