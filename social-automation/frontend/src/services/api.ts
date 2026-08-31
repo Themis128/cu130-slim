@@ -618,4 +618,33 @@ export const brandApi = {
   deleteAsset: (id: string) => api.delete(`/brand/assets/${id}`),
 }
 
+// Media AI enhancement endpoints
+export const mediaEnhanceApi = {
+  getPresets: () => api.get('/media/enhance/presets'),
+  getInfo: (assetId: string) => api.get(`/media/enhance/assets/${assetId}/info`),
+  getQuality: (assetId: string) => api.get(`/media/enhance/assets/${assetId}/quality`),
+  resize: (assetId: string, data: {
+    preset?: string; width?: number; height?: number; fit?: string; format?: string; quality?: number
+  }) => api.post(`/media/enhance/assets/${assetId}/resize`, data, { responseType: 'blob' }),
+  crop: (assetId: string, data: { x: number; y: number; width: number; height: number; format?: string; quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/crop`, data, { responseType: 'blob' }),
+  convert: (assetId: string, data: { format: string; quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/convert`, data, { responseType: 'blob' }),
+  compress: (assetId: string, data: { target_size_kb?: number; format?: string; min_quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/compress`, data, { responseType: 'blob' }),
+  watermark: (assetId: string, data: {
+    text: string; position?: string; opacity?: number; font_size?: number; color?: number[]; format?: string; quality?: number
+  }) => api.post(`/media/enhance/assets/${assetId}/watermark`, data, { responseType: 'blob' }),
+  upscale: (assetId: string, data: { scale: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/upscale`, data, { responseType: 'blob' }),
+  removeBackground: (assetId: string) =>
+    api.post(`/media/enhance/assets/${assetId}/remove-background`, {}, { responseType: 'blob' }),
+  smartCrop: (assetId: string, data: { target_width: number; target_height: number; use_ai?: boolean }) =>
+    api.post(`/media/enhance/assets/${assetId}/smart-crop`, data, { responseType: 'blob' }),
+  generateAltText: (assetId: string) =>
+    api.post<{ alt_text: string }>(`/media/enhance/assets/${assetId}/alt-text`),
+  batch: (data: { asset_ids: string[]; operation: string; params?: Record<string, unknown> }) =>
+    api.post<{ task_id: string; status: string; asset_count: number }>('/media/enhance/batch', data),
+}
+
 export default api
