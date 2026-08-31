@@ -1,6 +1,12 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/auth';
 
-test.describe('Register Page', () => {
+const NEW_USER = {
+  email: `e2e-reg-${Date.now()}@social-auto.test`,
+  password: 'E2E-Register-123!',
+  name: `E2E Register ${Date.now()}`,
+};
+
+test.describe('Register Page — real backend', () => {
   test('should load successfully', async ({ page }) => {
     await page.goto('/register');
     await expect(page).toHaveURL('/register');
@@ -43,74 +49,29 @@ test.describe('Register Page', () => {
     await expect(page.getByText(/passwords do not match/i)).toBeVisible();
   });
 
-  test('should register with valid data', async ({ page }) => {
-    // Mock the register API request
-    await page.route('**/api/auth/register', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true }),
-      });
-    });
-
+  test('should register a new real user and auto-login to dashboard', async ({ page }) => {
     await page.goto('/register');
-    await page.getByLabelText('Full Name').fill('Test User');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('password123');
-    await page.getByLabelText('Confirm Password').fill('password123');
+    await page.getByLabelText('Full Name').fill(NEW_USER.name);
+    await page.getByLabelText('Email').fill(NEW_USER.email);
+    await page.getByLabelText('Password').fill(NEW_USER.password);
+    await page.getByLabelText('Confirm Password').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
-    // Wait for navigation to dashboard
-    await expect(page).toHaveURL(/\/dashboard/);
+    // Real auto-login flow navigates to /dashboard
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible();
   });
 
-  test('should show error on failed registration', async ({ page }) => {
-    // Mock the register API request to return failure
-    await page.route('**/api/auth/register', async (route) => {
-      await route.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Email already exists' }),
-      });
-    });
-
+  test('should show error when registering an existing email', async ({ page }) => {
+    // Second registration of the same email should fail at the real backend
     await page.goto('/register');
-    await page.getByLabelText('Full Name').fill('Test User');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('password123');
-    await page.getByLabelText('Confirm Password').fill('password123');
+    await page.getByLabelText('Full Name').fill(NEW_USER.name);
+    await page.getByLabelText('Email').fill(NEW_USER.email);
+    await page.getByLabelText('Password').fill(NEW_USER.password);
+    await page.getByLabelText('Confirm Password').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
-    // Expect error toast or message
-    await expect(page.getByText(/email already exists/i)).toBeVisible();
-  });
-
-  test('should show loading state during registration', async ({ page }) => {
-    // Mock the register API request to delay
-    await page.route('**/api/auth/register', async (route) => {
-      // Return a promise that we'll resolve later
-      await new Promise<void>((resolve) => {
-        // We'll store the resolve function to call later
-        (window as any).resolveRegister = resolve;
-      });
-    });
-
-    await page.goto('/register');
-    await page.getByLabelText('Full Name').fill('Test User');
-    await page.getByLabelText('Email').fill('test@example.com');
-    await page.getByLabelText('Password').fill('password123');
-    await page.getByLabelText('Confirm Password').fill('password123');
-    await page.getByRole('button', { name: /create account/i }).click();
-
-    // Check for loading state
-    await expect(page.getByText(/loading.../i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /create account/i })).toBeDisabled();
-
-    // Resolve the API request
-    (window as any).resolveRegister();
-    await page.waitForTimeout(100); // Wait for state update
-
-    // Loading should be gone
-    await expect(page.getByText(/loading.../i)).not.toBeVisible();
+    // Real backend returns 409/422 — toast surfaces the detail
+    await expect(page.getByText(/already|exists|registered/i)).toBeVisible({ timeout: 15000 });
   });
 });

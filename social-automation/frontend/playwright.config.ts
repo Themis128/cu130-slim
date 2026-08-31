@@ -36,8 +36,8 @@ export default defineConfig({
   use: {
     /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
     actionTimeout: 10 * 1000,
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:3001',
+    /* Base URL — points at the real social-frontend container (no dev server). */
+    baseURL: process.env.E2E_FRONTEND_URL || 'http://localhost:8082',
     /* Run tests in headless mode */
     headless: true,
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
@@ -87,11 +87,8 @@ export default defineConfig({
   /* Folder for test artifacts such as screenshots, videos, traces, etc. */
   // outputDir: 'test-results/',
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'npm run dev',
-    port: 3001,
-    timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI,
-  },
+  /* No webServer block — tests run against the real social-frontend
+     container on http://localhost:8082. Start the Docker stack first:
+       docker compose up -d social-frontend social-api
+  */
 });
