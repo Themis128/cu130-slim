@@ -1,6 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, API_BASE } from './helpers/auth';
+import { randomUUID } from 'crypto';
 
-test.describe('Reset Password Page', () => {
+/**
+ * Reset Password — real backend flow.
+ *
+ * The backend's forgot-password endpoint returns a `debug_token` in dev mode.
+ * We use that token to exercise the real reset-password endpoint end-to-end.
+ */
+
+test.describe('Reset Password Page — real backend', () => {
   test('should show invalid link message when no token is provided', async ({ page }) => {
     await page.goto('/reset-password');
     await expect(page).toHaveURL('/reset-password');
@@ -10,8 +18,8 @@ test.describe('Reset Password Page', () => {
   });
 
   test('should show reset form when token is provided', async ({ page }) => {
-    await page.goto('/reset-password?token=valid-token');
-    await expect(page).toHaveURL('/reset-password?token=valid-token');
+    await page.goto('/reset-password?token=some-token');
+    await expect(page).toHaveURL(/\/reset-password\?token=some-token/);
     await expect(page.getByRole('heading', { name: /set new password/i })).toBeVisible();
     await expect(page.getByText(/enter your new password below/i)).toBeVisible();
   });
@@ -38,70 +46,49 @@ test.describe('Reset Password Page', () => {
     await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
   });
 
-  test('should show success message when password is reset', async ({ page }) => {
-    // Mock the API request
-    await page.route('**/api/v1/auth/reset-password', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
+  test('should reset password with a real debug token', async ({ request, page }) => {
+    // 1. Register a fresh user so we have a known email
+    const email = `reset-${randomUUID().slice(0, 8)}@social-auto.test`;
+    const password = 'InitialPass-123!';
+    const newPassword = 'NewResetPass-456!';
+
+    await request.post(`${API_BASE}/api/v1/auth/register`, {
+      data: { email, password, name: 'Reset Test' },
     });
 
-    await page.goto('/reset-password?token=valid-token');
-    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
+    // 2. Request a reset link — the real backend returns a debug_token in dev
+    const forgotRes = await request.post(`${API_BASE}/api/v1/auth/forgot-password`, {
+      data: { email },
+    });
+    expect(forgotRes.ok()).toBeTruthy();
+    const forgotBody = await forgotRes.json();
+    const token = forgotBody.debug_token;
+    expect(token).toBeTruthy();
+
+    // 3. Use the token in the UI to reset the password
+    await page.goto(`/reset-password?token=${token}`);
+    await page.getByRole('textbox', { name: 'New Password' }).fill(newPassword);
+    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill(newPassword);
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    // Wait for success message (toast) and then the submitted state
-    // The submitted state shows a card with a checkmark and the heading "Password Reset Complete"
-    await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible();
-    await expect(page.getByText(/your password has been successfully updated/i)).toBeVisible();
-    await expect(page.getByRole('link', { name: /back to sign in/i })).toBeVisible();
+    // 4. UI should show the success state
+    await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible({ timeout: 15000 });
+
+    // 5. Verify the new password actually works against the real backend
+    const loginRes = await request.post(`${API_BASE}/api/v1/auth/login`, {
+      form: { username: email, password: newPassword },
+    });
+    expect(loginRes.status()).toBe(200);
   });
 
-  test('should show error when API returns an error', async ({ page }) => {
-    // Mock the API request to return 400 with a detail
-    await page.route('**/api/v1/auth/reset-password', async (route) => {
-      await route.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Invalid or expired token' }),
-      });
-    });
-
-    await page.goto('/reset-password?token=invalid-token');
+  test('should show error for an invalid token', async ({ request, page }) => {
+    // Use a clearly invalid token
+    await page.goto('/reset-password?token=invalid-token-xyz');
     await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
     await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
-    // Wait for error message
-    await expect(page.getByText(/invalid or expired token/i)).toBeVisible();
-  });
-
-  test('should show loading state during submission', async ({ page }) => {
-    // Mock the API request to delay
-    await page.route('**/api/v1/auth/reset-password', async (route) => {
-      // Return a promise that we'll resolve later
-      await new Promise<void>((resolve) => {
-        (window as any).resolveResetPassword = resolve;
-      });
-    });
-
-    await page.goto('/reset-password?token=valid-token');
-    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
-    await page.getByRole('button', { name: /reset password/i }).click();
-
-    // Check for loading state
-    await expect(page.getByText(/resetting.../i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /reset password/i })).toBeDisabled();
-
-    // Resolve the API request
-    (window as any).resolveResetPassword();
-    await page.waitForTimeout(100); // Wait for state update
-
-    // After resolution, we expect the success message (since we mocked a 200)
-    await expect(page.getByRole('heading', { name: /password reset complete/i })).toBeVisible();
+    // Real backend returns an error for invalid tokens
+    await expect(page.getByText(/invalid|expired|failed/i)).toBeVisible({ timeout: 15000 });
   });
 });

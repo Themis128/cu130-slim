@@ -1,379 +1,148 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/auth';
 
-test.describe('Calendar Page', () => {
-  test.beforeEach(async ({ page }) => {
-    // Mock authentication
-    await page.goto('/dashboard');
-    
-    // Mock scheduled posts API
-    await page.route('**/api/posts/scheduled', async (route) => {
-      const today = new Date();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 'post-1',
-            content_text: 'First scheduled post for today',
-            scheduled_at: today.toISOString(),
-            targets: [
-              {
-                social_account_id: '1',
-                social_account: {
-                  id: '1',
-                  platform: 'linkedin',
-                  username: 'testuser',
-                },
-              },
-            ],
-          },
-          {
-            id: 'post-2',
-            content_text: 'Another post for tomorrow',
-            scheduled_at: tomorrow.toISOString(),
-            targets: [
-              {
-                social_account_id: '2',
-                social_account: {
-                  id: '2',
-                  platform: 'twitter',
-                  username: 'testuser',
-                },
-              },
-            ],
-          },
-        ]),
-      });
-    });
+/**
+ * Calendar Page — real backend.
+ *
+ * A fresh test user has zero scheduled posts, so the calendar renders
+ * with an empty grid. We verify the structural elements that always render
+ * regardless of data: header, month label, weekday headers, grid, legend,
+ * and the New Post button.
+ */
 
-    // Mock schedule post API
-    await page.route('**/api/posts/*/schedule', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    });
-  });
-
-  test('should load calendar page successfully', async ({ page }) => {
+test.describe('Calendar Page — real backend', () => {
+  test('should load and show the current month', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
     await expect(page).toHaveURL('/calendar');
-    
-    // Check for main heading
+
+    // Main heading
     await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
-  });
 
-  test('should display current month in header', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Check for current month display
+    // Current month label (e.g. "August 2026") — rendered as a button
     const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-    await expect(page.getByText(new RegExp(currentMonth, 'i'))).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(currentMonth, 'i') })).toBeVisible();
   });
 
-  test('should display scheduled posts count', async ({ page }) => {
+  test('should display weekday headers', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for posts count in subtitle
-    await expect(page.getByText(/scheduled post/i)).toBeVisible();
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
+      await expect(page.getByText(day).first()).toBeVisible();
+    }
   });
 
-  test('should display day of week headers', async ({ page }) => {
+  test('should display the calendar grid with day cells', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for all weekday headers
-    await expect(page.getByText('Mon')).toBeVisible();
-    await expect(page.getByText('Tue')).toBeVisible();
-    await expect(page.getByText('Wed')).toBeVisible();
-    await expect(page.getByText('Thu')).toBeVisible();
-    await expect(page.getByText('Fri')).toBeVisible();
-    await expect(page.getByText('Sat')).toBeVisible();
-    await expect(page.getByText('Sun')).toBeVisible();
-  });
-
-  test('should display calendar grid with days', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Check for calendar grid
-    const calendarGrid = page.locator('.grid.grid-cols-7');
-    await expect(calendarGrid).toBeVisible();
-    
-    // Check for day cells (should have at least 28 days)
-    const dayCells = page.locator('.min-h-\\[110px\\]');
+    // The grid uses min-h-[130px] cells
+    const dayCells = page.locator('.min-h-\\[130px\\]');
     await expect(dayCells.first()).toBeVisible();
+    // At least 28 day cells in any month
+    const count = await dayCells.count();
+    expect(count).toBeGreaterThanOrEqual(28);
   });
 
-  test('should highlight today', async ({ page }) => {
+  test('should highlight today', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for today's highlight (should have primary background)
     const today = new Date().getDate();
-    const todayCell = page.getByText(today.toString());
-    await expect(todayCell.first()).toBeVisible();
+    // Today's cell has a primary-colored circle around the day number
+    const todayNumber = page.locator('.bg-primary').getByText(today.toString());
+    await expect(todayNumber.first()).toBeVisible();
   });
 
-  test('should display scheduled posts as chips', async ({ page }) => {
+  test('should show zero posts for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for post chips (should show content snippet)
-    await expect(page.getByText(/scheduled post/i)).toBeVisible();
+    // The subtitle shows "0 posts in <month>"
+    await expect(page.getByText(/0 posts in/i)).toBeVisible();
   });
 
-  test('should show platform indicators on post chips', async ({ page }) => {
+  test('should show the New Post button', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for platform color indicators
-    const platformIndicators = page.locator('.rounded-full');
-    await expect(platformIndicators.first()).toBeVisible();
+    const newPostLink = page.getByRole('link', { name: /new post/i });
+    await expect(newPostLink).toBeVisible();
   });
 
-  test('should allow navigation to previous month', async ({ page }) => {
+  test('should navigate to content creation when clicking New Post', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Get current month text
-    const currentMonthText = await page.getByRole('button', { name: /\w+ \d{4}/ }).textContent();
-    
-    // Click previous month button
-    const prevButton = page.getByRole('button').filter({ hasText: '' }).nth(0);
-    await prevButton.click();
-    
-    // Wait for navigation to complete
-    await page.waitForTimeout(500);
-    
-    // Check that month changed (this is a basic check)
-    await expect(page.getByRole('button', { name: /\w+ \d{4}/ })).toBeVisible();
+    await page.getByRole('link', { name: /new post/i }).click();
+    await expect(page).toHaveURL(/\/content\/new/, { timeout: 15000 });
   });
 
-  test('should allow navigation to next month', async ({ page }) => {
+  test('should allow navigation to the previous month', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click next month button
-    const nextButton = page.getByRole('button').filter({ hasText: '' }).nth(1);
-    await nextButton.click();
-    
-    // Wait for navigation to complete
-    await page.waitForTimeout(500);
-    
-    // Check that month changed
-    await expect(page.getByRole('button', { name: /\w+ \d{4}/ })).toBeVisible();
+    const monthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
+    const initialMonth = await monthButton.textContent();
+
+    // Click the previous-month chevron (outline icon button before the month label)
+    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-left') }).click();
+    await page.waitForTimeout(300);
+
+    const newMonth = await monthButton.textContent();
+    expect(newMonth).not.toBe(initialMonth);
   });
 
-  test('should allow returning to current month', async ({ page }) => {
+  test('should allow navigation to the next month', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Navigate away first
-    const nextButton = page.getByRole('button').filter({ hasText: '' }).nth(1);
-    await nextButton.click();
-    await page.waitForTimeout(500);
-    
-    // Click current month button
-    const currentMonthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
-    await currentMonthButton.click();
-    
-    // Should return to current month
+    const monthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
+    const initialMonth = await monthButton.textContent();
+
+    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-right') }).click();
+    await page.waitForTimeout(300);
+
+    const newMonth = await monthButton.textContent();
+    expect(newMonth).not.toBe(initialMonth);
+  });
+
+  test('should return to current month when clicking the month button after navigating away', async ({ authenticatedPage: page }) => {
+    await page.goto('/calendar');
+    // Navigate away
+    await page.getByRole('button').filter({ has: page.locator('.lucide-chevron-right') }).click();
+    await page.waitForTimeout(300);
+
+    // Click the month button to return to today
+    await page.getByRole('button', { name: /\w+ \d{4}/ }).click();
     const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-    await expect(page.getByText(new RegExp(currentMonth, 'i'))).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(currentMonth, 'i') })).toBeVisible();
   });
 
-  test('should show new post button', async ({ page }) => {
+  test('should allow selecting a day and show the day detail panel', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Check for new post button
-    const newPostButton = page.getByRole('link', { name: /New Post/i });
-    await expect(newPostButton).toBeVisible();
+    // Click the first day cell (day 1 of the month)
+    const dayCells = page.locator('.min-h-\\[130px\\]');
+    await dayCells.first().click();
+
+    // Day detail panel appears with a "Schedule post" button
+    await expect(page.getByRole('link', { name: /schedule post/i })).toBeVisible();
   });
 
-  test('should navigate to content creation when clicking new post', async ({ page }) => {
+  test('should show empty state in day detail for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click new post button
-    const newPostButton = page.getByRole('link', { name: /New Post/i });
-    await newPostButton.click();
-    
-    // Should navigate to content creation
-    await expect(page).toHaveURL('/content/new');
+    const dayCells = page.locator('.min-h-\\[130px\\]');
+    await dayCells.first().click();
+    await expect(page.getByText(/nothing scheduled/i)).toBeVisible();
   });
 
-  test('should allow selecting a day', async ({ page }) => {
+  test('should show the status legend', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click on a day cell
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for day detail panel to appear
-    await expect(page.getByRole('heading', { name: /\w+, \w+ \d+/i })).toBeVisible();
+    await expect(page.getByText(/status:/i)).toBeVisible();
+    await expect(page.getByText(/drag a chip to reschedule/i)).toBeVisible();
   });
 
-  test('should show day detail panel when day is selected', async ({ page }) => {
+  test('should show platform filter buttons', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click on a day with posts
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for detail panel
-    await expect(page.getByText(/Schedule for this day/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /all platforms/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /linkedin/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /twitter/i })).toBeVisible();
   });
 
-  test('should show posts in day detail panel', async ({ page }) => {
+  test('should show month/week view toggle', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click on a day with posts
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for post content in detail panel
-    await expect(page.getByText(/scheduled post/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /month/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /week/i })).toBeVisible();
   });
 
-  test('should show platform badges in day detail panel', async ({ page }) => {
+  test('should switch to week view', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    
-    // Click on a day with posts
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for platform badges
-    await expect(page.locator('.badge')).toBeVisible();
-  });
-
-  test('should show schedule button in day detail panel', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Click on a day
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for schedule button
-    await expect(page.getByRole('link', { name: /Schedule for this day/i })).toBeVisible();
-  });
-
-  test('should show empty state when day has no posts', async ({ page }) => {
-    // Mock empty posts for a specific day
-    await page.route('**/api/posts/scheduled', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-    
-    await page.goto('/calendar');
-    
-    // Click on a day
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for empty state message
-    await expect(page.getByText('Nothing scheduled')).toBeVisible();
-  });
-
-  test('should show quick-add button on day hover', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Hover over a day cell
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.hover();
-    
-    // Check for quick-add button (appears on hover)
-    const quickAddButton = dayCell.locator('a').filter({ hasText: '' });
-    await expect(quickAddButton).toBeVisible();
-  });
-
-  test('should show legend with instructions', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Check for legend
-    await expect(page.getByText('Today')).toBeVisible();
-    await expect(page.getByText(/Drag a post chip/i)).toBeVisible();
-  });
-
-  test('should allow dragging posts to reschedule', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Find a post chip
-    const postChip = page.locator('.cursor-grab').first();
-    await expect(postChip).toBeVisible();
-    
-    // Note: Full drag-and-drop testing requires more complex setup
-    // This test verifies the chip is draggable
-    await expect(postChip).toHaveAttribute('draggable', 'true');
-  });
-
-  test('should display multiple platform indicators for multi-platform posts', async ({ page }) => {
-    // Mock a post with multiple platforms
-    await page.route('**/api/posts/scheduled', async (route) => {
-      const today = new Date();
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 'post-1',
-            content_text: 'Multi-platform post',
-            scheduled_at: today.toISOString(),
-            targets: [
-              {
-                social_account_id: '1',
-                social_account: { id: '1', platform: 'linkedin', username: 'testuser' },
-              },
-              {
-                social_account_id: '2',
-                social_account: { id: '2', platform: 'twitter', username: 'testuser' },
-              },
-            ],
-          },
-        ]),
-      });
-    });
-    
-    await page.goto('/calendar');
-    
-    // Check for multiple platform indicators
-    const platformIndicators = page.locator('.rounded-full');
-    await expect(platformIndicators).toHaveCount.gte(1);
-  });
-
-  test('should handle overflow when many posts in one day', async ({ page }) => {
-    // Mock many posts for a single day
-    const today = new Date();
-    const manyPosts = Array.from({ length: 5 }, (_, i) => ({
-      id: `post-${i}`,
-      content_text: `Post number ${i + 1}`,
-      scheduled_at: today.toISOString(),
-      targets: [{
-        social_account_id: '1',
-        social_account: { id: '1', platform: 'linkedin', username: 'testuser' },
-      }],
-    }));
-    
-    await page.route('**/api/posts/scheduled', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(manyPosts),
-      });
-    });
-    
-    await page.goto('/calendar');
-    
-    // Check for "more" indicator
-    await expect(page.getByText(/\+ \d+ more/i)).toBeVisible();
-  });
-
-  test('should show time in day detail panel', async ({ page }) => {
-    await page.goto('/calendar');
-    
-    // Click on a day with posts
-    const dayCell = page.locator('.min-h-\\[110px\\]').first();
-    await dayCell.click();
-    
-    // Check for time indicator
-    await expect(page.locator('.text-muted-foreground').filter({ hasText: /\d+:\d+/ })).toBeVisible();
+    await page.getByRole('button', { name: /week/i }).click();
+    await page.waitForTimeout(300);
+    // Week view renders a WeekCalendar component inside a bordered container
+    await expect(page.locator('.rounded-xl.border')).toBeVisible();
   });
 });
