@@ -357,7 +357,7 @@ async def refresh_account_token(
         raise HTTPException(status_code=500, detail=f"Redirect URI not configured for {platform}")
 
     try:
-        token = await client.refresh_token(refresh_token, redirect_uri)
+        token = await client.refresh_token(refresh_token)
     except Exception as exc:
         raise HTTPException(
             status_code=400,
