@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
+from app.services.facebook_api import FacebookAPIClient
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 
@@ -385,61 +386,60 @@ async def _publish_facebook(
     # Fall back to dynamic lookup for accounts connected before this fix.
     page_token = await _facebook_page_token(access_token, page_id)
 
-    graph_base = "https://graph.facebook.com/v20.0"
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        if media_paths:
-            # Upload each photo as unpublished, then publish as album/multi-photo
-            photo_ids: list[str] = []
-            for path in media_paths[:10]:
-                with open(path, "rb") as fh:
-                    img_bytes = fh.read()
-                r = await client.post(
-                    f"{graph_base}/{page_id}/photos",
-                    data={"access_token": page_token, "published": "false"},
-                    files={"source": ("image.png", img_bytes, "image/png")},
-                )
-                if r.status_code == 200:
-                    pid = r.json().get("id")
-                    if pid:
-                        photo_ids.append(pid)
+    # Text/link posts go through the real FacebookAPIClient.
+    # Photo albums still use Facebook's unpublished upload flow (file bytes).
+    fb_client = FacebookAPIClient(access_token=page_token, page_id=page_id)
 
-            if photo_ids:
-                # Multi-photo post via /feed with attached_media
-                attached = [{"media_fbid": pid} for pid in photo_ids]
-                import json as _json
-                r = await client.post(
-                    f"{graph_base}/{page_id}/feed",
-                    data={
-                        "message": text,
-                        "access_token": page_token,
-                        "attached_media": _json.dumps(attached),
-                    },
-                )
-                r.raise_for_status()
-                fb_post_id = r.json().get("id", "")
-            else:
-                # Photo uploads all failed — fall through to text post
-                fb_post_id = ""
-
-            if fb_post_id:
-                return PublishResult(
-                    success=True,
-                    platform_post_id=fb_post_id,
-                    platform_url=f"https://www.facebook.com/{fb_post_id}",
-                )
-
-        # Text-only (or photo fallback)
-        params: dict = {"message": text, "access_token": page_token}
-        if post.link_url:
-            params["link"] = post.link_url
-        r = await client.post(f"{graph_base}/{page_id}/feed", params=params)
-        r.raise_for_status()
-        fb_post_id = r.json().get("id", "")
+    if not media_paths:
+        result = await fb_client.create_post(message=text, link=post.link_url)
+        fb_post_id = result.get("id", "")
         return PublishResult(
             success=True,
             platform_post_id=fb_post_id,
             platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
         )
+
+    graph_base = "https://graph.facebook.com/v20.0"
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        # Upload each photo as unpublished, then publish as album/multi-photo
+        photo_ids: list[str] = []
+        for path in media_paths[:10]:
+            with open(path, "rb") as fh:
+                img_bytes = fh.read()
+            r = await client.post(
+                f"{graph_base}/{page_id}/photos",
+                data={"access_token": page_token, "published": "false"},
+                files={"source": ("image.png", img_bytes, "image/png")},
+            )
+            if r.status_code == 200:
+                pid = r.json().get("id")
+                if pid:
+                    photo_ids.append(pid)
+
+        if photo_ids:
+            # Multi-photo post via /feed with attached_media
+            attached = [{"media_fbid": pid} for pid in photo_ids]
+            import json as _json
+            r = await client.post(
+                f"{graph_base}/{page_id}/feed",
+                data={
+                    "message": text,
+                    "access_token": page_token,
+                    "attached_media": _json.dumps(attached),
+                },
+            )
+            r.raise_for_status()
+            fb_post_id = r.json().get("id", "")
+        else:
+            # Photo uploads all failed — fall through to text post
+            result = await fb_client.create_post(message=text, link=post.link_url)
+            fb_post_id = result.get("id", "")
+
+    return PublishResult(
+        success=True,
+        platform_post_id=fb_post_id,
+        platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
+    )
 
 
 # ── Instagram ─────────────────────────────────────────────────────────────────
