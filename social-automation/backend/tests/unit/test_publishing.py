@@ -1,7 +1,7 @@
 """Unit tests for the platform publishing pipeline."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
