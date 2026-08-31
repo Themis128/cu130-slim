@@ -12,6 +12,10 @@ Step-by-step guides for everyday SocialAuto workflows.
 6. [Analytics and queue](06-analytics-and-queue.md) — review performance and manage scheduled content.
 7. [Cloudflare database failover](07-cf-database-failover.md) — D1/KV/Vectorize primary with local Postgres/Redis/Chroma failover, sync, and replay.
 
+## Product plans
+
+- [AI Branding expansion plan](../plans/ai-branding-expansion-plan.md) — full roadmap for brand identity, voice, visual, compliance, monitoring, and autonomous content.
+
 ## Who these guides are for
 
 - **Editors** creating and scheduling content.
