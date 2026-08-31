@@ -433,9 +433,39 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest, db: Asy
 
     reset_token = create_reset_token({"sub": str(user.id), "email": user.email})
 
-    # TODO: Send email with reset link
-    # For now, log the token (in production, send via email service)
-    print(f"Password reset token for {user.email}: {reset_token}")
+    # Build the reset link from the configured frontend URL
+    frontend_url = ""
+    cors_origins = settings.CORS_ORIGINS
+    for origin in cors_origins:
+        if "8082" in origin or "3000" in origin or "3001" in origin:
+            frontend_url = origin.rstrip("/")
+            break
+    if not frontend_url and cors_origins:
+        frontend_url = cors_origins[0].rstrip("/")
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
+    # Send password reset email via SMTP (Resend relay)
+    try:
+        from app.services.email_digest import send_email_smtp
+
+        send_email_smtp(
+            subject="Password Reset — SocialAuto",
+            text_body=(
+                f"You requested a password reset.\n\n"
+                f"Click the link below to reset your password:\n{reset_link}\n\n"
+                f"This link expires in 30 minutes.\n"
+                f"If you did not request this, ignore this email."
+            ),
+            html_body=(
+                f"<p>You requested a password reset.</p>"
+                f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
+                f"<p>This link expires in 30 minutes.</p>"
+                f"<p>If you did not request this, ignore this email.</p>"
+            ),
+            to_addrs=[user.email],
+        )
+    except Exception:
+        logger.warning("Failed to send password reset email to %s", user.email)
 
     # In debug mode, return the token for testing
     if settings.DEBUG:
@@ -777,7 +807,12 @@ async def oauth_callback(
         account.access_token_enc = encrypt_token(access_token)
         if "refresh_token" in token:
             account.refresh_token_enc = encrypt_token(token["refresh_token"])
-        account.token_expires_at = None  # TODO: parse expires_in
+        expires_in = token.get("expires_in")
+        if expires_in:
+            from datetime import datetime, timedelta
+            account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+        else:
+            account.token_expires_at = None
         account.scopes = scopes
         account.status = "active"
         account.username = username
@@ -800,6 +835,11 @@ async def oauth_callback(
             _meta = {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
         elif platform == "tiktok":
             _meta = {"open_id": token.get("open_id", account_id)}
+        _expires_in = token.get("expires_in")
+        _token_expires_at = None
+        if _expires_in:
+            from datetime import datetime, timedelta
+            _token_expires_at = datetime.now(UTC) + timedelta(seconds=int(_expires_in))
         account = SocialAccount(
             team_id=team_id,
             platform=platform,
@@ -809,6 +849,7 @@ async def oauth_callback(
             avatar_url=avatar_url,
             access_token_enc=encrypt_token(access_token),
             refresh_token_enc=encrypt_token(token["refresh_token"]) if "refresh_token" in token else None,
+            token_expires_at=_token_expires_at,
             scopes=scopes,
             status="active",
             meta_data=_meta,
