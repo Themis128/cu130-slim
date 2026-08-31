@@ -62,8 +62,9 @@ class SyncService:
         Uses INSERT OR REPLACE for SQLite/D1.
         """
         from sqlalchemy import text
-        from app.core.config import settings
         from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.core.config import settings
 
         stats = {"synced": 0, "errors": 0, "skipped": 0}
 
@@ -136,8 +137,9 @@ class SyncService:
         Reads from D1 and upserts into Postgres using INSERT ... ON CONFLICT.
         """
         from sqlalchemy import text
-        from app.core.config import settings
         from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.core.config import settings
 
         stats = {"synced": 0, "errors": 0, "skipped": 0}
 
