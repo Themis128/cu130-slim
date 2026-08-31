@@ -263,6 +263,30 @@ export function useDisconnectAccount() {
   })
 }
 
+export function useSyncBusinessAccounts() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => accountsApi.syncBusinessAccounts(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      const count = response.data?.synced ?? 0
+      toast.success(`Synced ${count} business account${count === 1 ? '' : 's'}`)
+    },
+  })
+}
+
+export function useSetBusinessAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, businessAccountId }: { id: string; businessAccountId: string }) =>
+      accountsApi.setBusinessAccount(id, businessAccountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Business account selected for publishing')
+    },
+  })
+}
+
 // Publishing hooks
 export function usePublishQueue(params?: { status?: string; page?: number; page_size?: number }) {
   return useQuery({
