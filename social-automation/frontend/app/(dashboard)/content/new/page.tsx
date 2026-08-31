@@ -352,6 +352,7 @@ export default function NewPostPage() {
   const [libraryAssets, setLibraryAssets] = useState<MediaAsset[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
+  const [tiktokPublishMode, setTiktokPublishMode] = useState<'MEDIA_UPLOAD' | 'DIRECT_POST'>('MEDIA_UPLOAD')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
   const [tone, setTone] = useState('professional')
@@ -546,6 +547,9 @@ export default function NewPostPage() {
         content_text: content,
         media_ids: mediaIds.length ? mediaIds : undefined,
         targets,
+        platform_specific: selectedPlatforms.includes('tiktok')
+          ? { tiktok: { publish_mode: tiktokPublishMode } }
+          : undefined,
         scheduled_at: action === 'schedule' ? athensDateTimeLocalToIso(scheduleDate) : undefined,
       })
       if (action === 'publish') {
@@ -739,6 +743,23 @@ export default function NewPostPage() {
                   </div>
                 )
               })}
+              {selectedPlatforms.includes('tiktok') && (
+                <div className="mt-4 space-y-1.5">
+                  <label htmlFor="tiktok-publish-mode" className="text-xs font-medium">TikTok publishing</label>
+                  <select
+                    id="tiktok-publish-mode"
+                    value={tiktokPublishMode}
+                    onChange={(event) => setTiktokPublishMode(event.target.value as 'MEDIA_UPLOAD' | 'DIRECT_POST')}
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="MEDIA_UPLOAD">Upload draft — finish in TikTok inbox</option>
+                    <option value="DIRECT_POST">Direct publish</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Upload draft uses video.upload. Direct publish requires video.publish approval.
+                  </p>
+                </div>
+              )}
               {selectedPlatforms.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Need to connect accounts? <Link href="/accounts" className="text-primary hover:underline">Go to Accounts</Link>

@@ -188,6 +188,68 @@ async def test_init_video_post_file_upload(client):
 
 
 @pytest.mark.asyncio
+async def test_init_video_upload_pull_from_url(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {"publish_id": "upload-123"}}))
+    with _patch_client(fake):
+        result = await client.init_video_upload(
+            source="PULL_FROM_URL",
+            video_url="https://verified.example/video.mp4",
+        )
+
+    assert result["data"]["publish_id"] == "upload-123"
+    assert fake.calls[0]["url"] == (
+        "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/"
+    )
+    assert fake.calls[0]["json"] == {
+        "source_info": {
+            "source": "PULL_FROM_URL",
+            "video_url": "https://verified.example/video.mp4",
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_init_video_upload_file_upload(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {"data": {"publish_id": "upload-456", "upload_url": "https://open-upload.tiktokapis.com/video/"}},
+        )
+    )
+    with _patch_client(fake):
+        await client.init_video_upload(source="FILE_UPLOAD", video_size=1024)
+
+    assert fake.calls[0]["json"]["source_info"] == {
+        "source": "FILE_UPLOAD",
+        "video_size": 1024,
+        "chunk_size": 1024,
+        "total_chunk_count": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_upload_video_file_sets_range_headers(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with _patch_client(fake):
+        await client.upload_video_file(
+            "https://open-upload.tiktokapis.com/video/?upload_id=123",
+            b"video",
+        )
+
+    assert fake.calls[0]["headers"] == {
+        "Content-Range": "bytes 0-4/5",
+        "Content-Type": "video/mp4",
+    }
+    assert fake.calls[0]["content"] == b"video"
+
+
+@pytest.mark.asyncio
+async def test_upload_video_file_rejects_non_tiktok_host(client):
+    with pytest.raises(ValueError, match="TikTok upload host"):
+        await client.upload_video_file("https://example.com/upload", b"video")
+
+
+@pytest.mark.asyncio
 async def test_init_video_post_invalid_source(client):
     with pytest.raises(ValueError, match="source must be 'PULL_FROM_URL' or 'FILE_UPLOAD'"):
         await client.init_video_post(source="BAD_SOURCE")
@@ -215,6 +277,8 @@ async def test_init_photo_post_success(client):
         "https://example.com/1.jpg",
         "https://example.com/2.jpg",
     ]
+    assert payload["post_mode"] == "DIRECT_POST"
+    assert payload["media_type"] == "PHOTO"
 
 
 @pytest.mark.asyncio

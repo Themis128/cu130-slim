@@ -206,6 +206,64 @@ class TikTokAPIClient:
             self._check_tiktok_error(data, url)
             return data
 
+    async def init_video_upload(
+        self,
+        source: str = "PULL_FROM_URL",
+        video_url: str = "",
+        video_size: int | None = None,
+        chunk_size: int | None = None,
+        total_chunk_count: int = 1,
+    ) -> dict[str, Any]:
+        if source not in ("PULL_FROM_URL", "FILE_UPLOAD"):
+            raise ValueError("source must be 'PULL_FROM_URL' or 'FILE_UPLOAD'")
+
+        source_info: dict[str, Any] = {"source": source}
+        if source == "PULL_FROM_URL":
+            if not video_url:
+                raise ValueError("video_url is required when source is PULL_FROM_URL")
+            source_info["video_url"] = video_url
+        else:
+            if not video_size or video_size <= 0:
+                raise ValueError("video_size must be positive when source is FILE_UPLOAD")
+            resolved_chunk_size = chunk_size or video_size
+            if resolved_chunk_size <= 0 or resolved_chunk_size > video_size:
+                raise ValueError("chunk_size must be positive and no larger than video_size")
+            if total_chunk_count <= 0:
+                raise ValueError("total_chunk_count must be positive")
+            source_info.update(
+                {
+                    "video_size": video_size,
+                    "chunk_size": resolved_chunk_size,
+                    "total_chunk_count": total_chunk_count,
+                }
+            )
+
+        url = f"{self._base_url}/post/publish/inbox/video/init/"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json={"source_info": source_info})
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def upload_video_file(self, upload_url: str, video_bytes: bytes) -> None:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(upload_url)
+        if parsed.scheme != "https" or parsed.hostname != "open-upload.tiktokapis.com":
+            raise ValueError("upload_url must use the TikTok upload host")
+        if not video_bytes:
+            raise ValueError("video_bytes cannot be empty")
+
+        size = len(video_bytes)
+        headers = {
+            "Content-Range": f"bytes 0-{size - 1}/{size}",
+            "Content-Type": "video/mp4",
+        }
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.put(upload_url, headers=headers, content=video_bytes)
+            self._raise_for_status(resp, upload_url)
+
     async def init_photo_post(
         self,
         photo_urls: list[str],
@@ -234,6 +292,8 @@ class TikTokAPIClient:
         payload = {
             "post_info": post_info,
             "source_info": source_info,
+            "post_mode": "DIRECT_POST",
+            "media_type": "PHOTO",
         }
 
         url = f"{self._base_url}/post/publish/content/init/"

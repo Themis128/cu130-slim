@@ -580,24 +580,41 @@ async def _publish_tiktok(
     client = TikTokAPIClient(access_token=access_token, open_id=account.account_id)
     is_video = len(public_urls) == 1 and media_paths[0].lower().endswith(".mp4")
 
+    tiktok_options = (post.platform_specific or {}).get("tiktok", {})
+    publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
+    if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
+        return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
+
     # 1) Initialize the post
-    if is_video:
+    if is_video and publish_mode == "MEDIA_UPLOAD":
+        init = await client.init_video_upload(
+            source="PULL_FROM_URL",
+            video_url=public_urls[0],
+        )
+    elif is_video:
         init = await client.init_video_post(
             source="PULL_FROM_URL",
             video_url=public_urls[0],
             title=text[:150],
         )
-    else:
+    elif publish_mode == "MEDIA_UPLOAD":
         init = await client.init_photo_post_media_upload(
             photo_urls=public_urls[:35],
             title=text[:150],
             description=text[:2200],
+        )
+    else:
+        init = await client.init_photo_post(
+            photo_urls=public_urls[:35],
+            title=text[:150],
         )
 
     publish_id = init.get("data", {}).get("publish_id")
     if not publish_id:
         error = init.get("error", {})
         return PublishResult(success=False, error=f"TikTok init failed: {error}")
+    if publish_mode == "MEDIA_UPLOAD":
+        return PublishResult(success=True, platform_post_id=publish_id)
 
     # 2) Poll for publish status (up to 90s)
     for _ in range(18):
