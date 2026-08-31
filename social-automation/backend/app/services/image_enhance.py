@@ -242,6 +242,8 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
     try:
         from rembg import remove as rembg_remove
         result = rembg_remove(image_bytes)
+        if result is None:
+            raise RuntimeError("rembg returned None")
         return result, "image/png"
     except ImportError:
         logger.warning("rembg not installed and Cloudflare unavailable for background removal")

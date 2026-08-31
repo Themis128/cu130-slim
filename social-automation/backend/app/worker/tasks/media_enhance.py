@@ -84,15 +84,22 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
                 if out_bytes:
                     # Store result as a new media asset
                     from app.services.media_storage import persist_generated_image
+                    # Determine extension from mime type
+                    ext_map = {
+                        "image/png": ".png",
+                        "image/jpeg": ".jpg",
+                        "image/webp": ".webp",
+                        "image/avif": ".avif",
+                    }
+                    ext = ext_map.get(mime_type, ".png")
                     await persist_generated_image(
                         db,
                         team_id=asset.team_id,
                         user_id=asset.user_id,
-                        original_filename=f"enhanced_{asset.filename or 'image'}",
-                        content=out_bytes,
-                        mime_type=mime_type,
+                        image_bytes=out_bytes,
+                        prompt=f"batch_{operation}",
                         source="ai-enhanced",
-                        generation_prompt=f"batch_{operation}",
+                        extension=ext,
                     )
 
             except Exception as exc:
