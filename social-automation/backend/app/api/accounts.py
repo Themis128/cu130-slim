@@ -189,10 +189,10 @@ async def connect_account_body(
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(data.platform, [])
 
-    # Twitter OAuth 2.0 requires PKCE
+    # Twitter and TikTok OAuth 2.0 require PKCE
     code_verifier: str | None = None
     code_challenge: str | None = None
-    if data.platform == "twitter":
+    if data.platform in ("twitter", "tiktok"):
         code_verifier, code_challenge = _pkce_pair()
 
     state = _encode_state(team_id, code_verifier)
@@ -249,10 +249,20 @@ async def connect_account(
     if platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
 
+    # Twitter and TikTok require PKCE
+    code_verifier: str | None = None
+    code_challenge: str | None = None
+    if platform in ("twitter", "tiktok"):
+        code_verifier, code_challenge = _pkce_pair()
+
+    state = _encode_state(team_id, code_verifier)
+
     authorization_url = await client.get_authorization_url(
         redirect_uri,
-        state=str(team_id),
+        state=state,
         scope=scopes,
+        code_challenge=code_challenge,
+        code_challenge_method="S256" if code_challenge else None,
         extras_params=extra_params if extra_params else None,
     )
 

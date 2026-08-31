@@ -849,10 +849,36 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     if platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
 
+    # TikTok now requires PKCE (code_challenge) in the authorize URL
+    code_verifier: str | None = None
+    code_challenge: str | None = None
+    if platform == "tiktok":
+        import secrets as _secrets
+        import hashlib as _hashlib
+        import base64 as _b64
+        code_verifier = _secrets.token_urlsafe(64)
+        code_challenge = (
+            _b64.urlsafe_b64encode(_hashlib.sha256(code_verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
+
+    # Encode state with PKCE verifier so the callback can use it for token exchange
+    import base64 as _b64enc
+    import json as _jsonenc
+    if code_verifier:
+        state = _b64enc.urlsafe_b64encode(
+            _jsonenc.dumps({"t": str(team_id), "cv": code_verifier}).encode()
+        ).rstrip(b"=").decode()
+    else:
+        state = str(team_id)
+
     authorization_url = await client.get_authorization_url(
         redirect_uri,
-        state=str(team_id),
+        state=state,
         scope=PLATFORM_SCOPES.get(platform),
+        code_challenge=code_challenge,
+        code_challenge_method="S256" if code_challenge else None,
         extras_params=extra_params,
     )
 
