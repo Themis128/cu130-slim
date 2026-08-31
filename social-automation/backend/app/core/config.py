@@ -81,6 +81,18 @@ class Settings(BaseSettings):
     CLOUDFLARE_AI_API_TOKEN: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
 
+    # Cloudflare D1 (primary SQL databases)
+    D1_SOCIAL_AUTOMATION_ID: str = ""
+    D1_N8N_ID: str = ""
+    D1_METABASE_ID: str = ""
+
+    # Cloudflare KV (cache + queue)
+    KV_CACHE_NAMESPACE: str = ""
+    KV_QUEUE_NAMESPACE: str = ""
+
+    # Cloudflare Vectorize (embeddings)
+    VECTORIZE_INDEX_NAME: str = "social-embeddings"
+
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"
 

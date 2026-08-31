@@ -149,7 +149,6 @@ def convert_table(sql: str, enum_map: dict) -> str:
             values_str = ", ".join(f"'{v}'" for v in values)
             # Replace the type with TEXT
             sql = re.sub(pattern, "TEXT", sql, flags=re.IGNORECASE)
-            # We'll add CHECK constraints after the table
 
     # Handle GENERATED ... AS IDENTITY → AUTOINCREMENT
     sql = re.sub(
@@ -181,12 +180,11 @@ def convert_table(sql: str, enum_map: dict) -> str:
     # Handle character varying(N) → TEXT
     sql = re.sub(r"character varying\(\d+\)", "TEXT", sql, flags=re.IGNORECASE)
     sql = re.sub(r"\bvarchar\(\d+\)", "TEXT", sql, flags=re.IGNORECASE)
+    # Handle leftover "varying" keyword
+    sql = re.sub(r"\bvarying\b", "", sql, flags=re.IGNORECASE)
 
     # Handle text[] → TEXT (store as JSON)
     sql = re.sub(r"\btext\[\]", "TEXT", sql, flags=re.IGNORECASE)
-
-    # Remove NOT NULL on autoincrement columns that are PRIMARY KEY
-    # (SQLite handles this automatically)
 
     # Remove "COLLATE" clauses
     sql = re.sub(r" COLLATE \w+", "", sql, flags=re.IGNORECASE)
@@ -194,8 +192,19 @@ def convert_table(sql: str, enum_map: dict) -> str:
     # Remove "DEFAULT" empty arrays
     sql = re.sub(r"DEFAULT '\{\}'::text\[\]", "DEFAULT '[]'", sql, flags=re.IGNORECASE)
 
+    # Add PRIMARY KEY to "id TEXT NOT NULL" columns
+    # This is the key fix: SQLite needs PRIMARY KEY in the column definition
+    # for INSERT OR REPLACE to work
+    sql = re.sub(
+        r"(\bid\b TEXT NOT NULL)(,)",
+        r"\1 PRIMARY KEY\2",
+        sql,
+    )
+
     # Clean up extra spaces
     sql = re.sub(r"  +", " ", sql)
+    # Clean up double commas from varying removal
+    sql = re.sub(r",\s*,", ",", sql)
 
     return sql
 
