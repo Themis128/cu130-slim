@@ -2,7 +2,8 @@ import { test, expect } from './helpers/auth';
 import { randomUUID } from 'crypto';
 
 const NEW_USER = {
-  email: `e2e-reg-${randomUUID().slice(0, 8)}@social-auto.test`,
+  // ".dev" is a real TLD; ".test" is reserved and rejected by EmailStr (422).
+  email: `e2e-reg-${randomUUID().slice(0, 8)}@socialauto.dev`,
   password: 'E2E-Register-123!',
   name: `E2E Register User`,
 };

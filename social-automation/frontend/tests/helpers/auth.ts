@@ -15,8 +15,10 @@ const FRONTEND_BASE = process.env.E2E_FRONTEND_URL || 'http://localhost:8082';
 
 // Stable test user — same email across all workers so register is idempotent
 // and login always works.  The password never changes during the suite.
+// NOTE: the domain must be a real, non-reserved TLD — Pydantic's EmailStr
+// rejects special-use/reserved TLDs like ".test", ".example", ".invalid".
 export const TEST_USER = {
-  email: 'e2e-shared@social-auto.test',
+  email: 'e2e-shared@socialauto.dev',
   password: 'E2E-Shared-Pass-123!',
   name: 'E2E Shared Test User',
 };

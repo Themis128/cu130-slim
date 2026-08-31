@@ -48,7 +48,8 @@ test.describe('Reset Password Page — real backend', () => {
 
   test('should reset password with a real debug token', async ({ request, page }) => {
     // 1. Register a fresh user so we have a known email
-    const email = `reset-${randomUUID().slice(0, 8)}@social-auto.test`;
+    //    ".dev" is a real TLD; ".test" is reserved and rejected by EmailStr.
+    const email = `reset-${randomUUID().slice(0, 8)}@socialauto.dev`;
     const password = 'InitialPass-123!';
     const newPassword = 'NewResetPass-456!';
 
