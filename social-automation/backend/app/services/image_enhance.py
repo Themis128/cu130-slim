@@ -284,7 +284,13 @@ async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Look at this image. Where is the main subject located? Reply with ONLY two numbers separated by a comma: the approximate X and Y position as percentages (0-100) of the image width and height. For example: 50,50 for center, 25,30 for upper-left area."},
+                    {"type": "text", "text": (
+                        "Look at this image. Where is the main subject located? "
+                        "Reply with ONLY two numbers separated by a comma: the "
+                        "approximate X and Y position as percentages (0-100) of "
+                        "the image width and height. For example: 50,50 for center, "
+                        "25,30 for upper-left area."
+                    )},
                     {"type": "image_url", "image_url": {"url": data_uri}},
                 ],
             },
@@ -417,7 +423,14 @@ async def generate_alt_text(image_bytes: bytes) -> str | None:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Write alt text for this image for accessibility purposes. The alt text should: 1) Be under 125 characters. 2) Describe what the image conveys, not what it looks like. 3) Be concise and meaningful for screen reader users. 4) Not start with 'Image of' or 'Picture of'. Reply with ONLY the alt text, nothing else."},
+                    {"type": "text", "text": (
+                        "Write alt text for this image for accessibility purposes. "
+                        "The alt text should: 1) Be under 125 characters. "
+                        "2) Describe what the image conveys, not what it looks like. "
+                        "3) Be concise and meaningful for screen reader users. "
+                        "4) Not start with 'Image of' or 'Picture of'. "
+                        "Reply with ONLY the alt text, nothing else."
+                    )},
                     {"type": "image_url", "image_url": {"url": data_uri}},
                 ],
             },
@@ -453,7 +466,11 @@ async def generate_alt_text(image_bytes: bytes) -> str | None:
                 ollama_url,
                 json={
                     "model": "llava",
-                    "prompt": "Write alt text for this image for accessibility. Keep it under 125 characters. Do not start with 'Image of'. Reply with ONLY the alt text.",
+                    "prompt": (
+                        "Write alt text for this image for accessibility. "
+                        "Keep it under 125 characters. Do not start with "
+                        "'Image of'. Reply with ONLY the alt text."
+                    ),
                     "images": [image_b64],
                     "stream": False,
                 },

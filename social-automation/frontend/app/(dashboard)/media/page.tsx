@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles,
-  FolderOpen, Loader2, ArrowUpDown, CheckSquare, X, ExternalLink,
+  FolderOpen, Loader2, ArrowUpDown, CheckSquare, X, ExternalLink, Wand2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
@@ -647,6 +647,16 @@ export default function MediaPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <Link href={`/media/enhance/${item.id}`} onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="bg-white/90 h-7 w-7"
+                            title="AI Enhance"
+                          >
+                            <Wand2 className="h-4 w-4 text-primary" />
+                          </Button>
+                        </Link>
                         <Button
                           variant="ghost"
                           size="icon"

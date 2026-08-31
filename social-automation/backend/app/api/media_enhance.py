@@ -5,7 +5,6 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +15,6 @@ from app.models.content import MediaAsset, StorageBackend
 from app.models.user import Team, TeamMember, User
 from app.services import minio_storage, r2_storage
 from app.services.image_enhance import (
-    ImageQualityScore,
     generate_alt_text,
     remove_background,
     score_image_quality,

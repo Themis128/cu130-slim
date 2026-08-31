@@ -263,6 +263,7 @@ export const mediaApi = {
     })
   },
   delete: (id: string) => api.delete(`/media/assets/${id}`),
+  getAsset: (id: string) => api.get(`/media/assets/${id}`),
   generateImage: (prompt: string, options?: {
     width?: number
     height?: number

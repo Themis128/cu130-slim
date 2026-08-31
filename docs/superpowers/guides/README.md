@@ -12,6 +12,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 6. [Analytics and queue](06-analytics-and-queue.md) — review performance and manage scheduled content.
 7. [Cloudflare database failover](07-cf-database-failover.md) — D1/KV/Vectorize primary with local Postgres/Redis/Chroma failover, sync, and replay.
 8. [Brand identity setup](08-brand-identity-setup.md) — create brand DNA, voice, visual identity, and shareable guidelines.
+9. [AI media enhancement](09-ai-media-enhancement.md) — background removal, upscaling, smart crop, quality scoring, platform presets, and batch processing.
 
 ## Product plans
 

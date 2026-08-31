@@ -31,6 +31,7 @@ async def _load_asset_bytes(asset) -> bytes:
 async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None:
     """Execute batch enhancement operation on multiple assets."""
     from sqlalchemy import select
+
     from app.db.session import async_session_maker
     from app.models.content import MediaAsset
 
