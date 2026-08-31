@@ -38,6 +38,7 @@ const PLATFORMS = [
   { id: 'instagram', name: 'Instagram'  },
   { id: 'facebook',  name: 'Facebook'   },
   { id: 'threads',   name: 'Threads'    },
+  { id: 'tiktok',    name: 'TikTok'     },
 ]
 
 function scoreToCell(score: number) {

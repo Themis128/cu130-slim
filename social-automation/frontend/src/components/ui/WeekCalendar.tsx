@@ -13,6 +13,7 @@ const PLATFORM_COLORS: Record<string, string> = {
   instagram: 'bg-pink-500',
   facebook:  'bg-blue-700',
   threads:   'bg-gray-700',
+  tiktok:    'bg-black',
 }
 
 function getPlatforms(post: Post): string[] {
