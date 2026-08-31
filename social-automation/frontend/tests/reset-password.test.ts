@@ -32,16 +32,16 @@ test.describe('Reset Password Page — real backend', () => {
 
   test('should show error for passwords not matching', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByRole('textbox', { name: 'New Password' }).fill('password123');
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('different');
+    await page.getByLabel('New Password').fill('password123');
+    await page.getByLabel('Confirm New Password').fill('different');
     await page.getByRole('button', { name: /reset password/i }).click();
     await expect(page.getByText(/passwords do not match/i)).toBeVisible();
   });
 
   test('should show error for short password', async ({ page }) => {
     await page.goto('/reset-password?token=valid-token');
-    await page.getByRole('textbox', { name: 'New Password' }).fill('123');
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('123');
+    await page.getByLabel('New Password').fill('123');
+    await page.getByLabel('Confirm New Password').fill('123');
     await page.getByRole('button', { name: /reset password/i }).click();
     await expect(page.getByText(/password must be at least 8 characters/i)).toBeVisible();
   });
@@ -67,8 +67,8 @@ test.describe('Reset Password Page — real backend', () => {
 
     // 3. Use the token in the UI to reset the password
     await page.goto(`/reset-password?token=${token}`);
-    await page.getByRole('textbox', { name: 'New Password' }).fill(newPassword);
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill(newPassword);
+    await page.getByLabel('New Password').fill(newPassword);
+    await page.getByLabel('Confirm New Password').fill(newPassword);
     await page.getByRole('button', { name: /reset password/i }).click();
 
     // 4. UI should show the success state
@@ -81,11 +81,11 @@ test.describe('Reset Password Page — real backend', () => {
     expect(loginRes.status()).toBe(200);
   });
 
-  test('should show error for an invalid token', async ({ request, page }) => {
+  test('should show error for an invalid token', async ({ page }) => {
     // Use a clearly invalid token
     await page.goto('/reset-password?token=invalid-token-xyz');
-    await page.getByRole('textbox', { name: 'New Password' }).fill('newpassword123');
-    await page.getByRole('textbox', { name: 'Confirm New Password' }).fill('newpassword123');
+    await page.getByLabel('New Password').fill('newpassword123');
+    await page.getByLabel('Confirm New Password').fill('newpassword123');
     await page.getByRole('button', { name: /reset password/i }).click();
 
     // Real backend returns an error for invalid tokens

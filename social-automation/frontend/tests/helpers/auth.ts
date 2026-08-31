@@ -28,6 +28,7 @@ export interface AuthTokens {
 
 // Module-level cache so ensureTestUser only hits the API once per process.
 let cachedTokens: AuthTokens | null = null;
+let registerAttempted = false;
 
 /**
  * Register the test user (idempotent — 409/422 on duplicate is fine) and
@@ -36,22 +37,23 @@ let cachedTokens: AuthTokens | null = null;
 export async function ensureTestUser(): Promise<AuthTokens> {
   if (cachedTokens) return cachedTokens;
 
-  // Register (ignore "already exists" errors — any non-2xx is fine here
-  // because the user may have been created by a previous run or another worker)
-  try {
-    await fetch(`${API_BASE}/api/v1/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(TEST_USER),
-    });
-  } catch {
-    // Network errors are non-fatal — the user may already exist
+  // Register only once per process — duplicate-email errors are expected
+  if (!registerAttempted) {
+    registerAttempted = true;
+    try {
+      await fetch(`${API_BASE}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(TEST_USER),
+      });
+    } catch {
+      // Network errors are non-fatal — the user may already exist
+    }
   }
 
-  // Login to get real tokens — retry up to 3 times in case of a race
-  // where register hasn't committed yet
+  // Login to get real tokens — retry with backoff to handle rate limits
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
@@ -65,15 +67,19 @@ export async function ensureTestUser(): Promise<AuthTokens> {
         cachedTokens = (await res.json()) as AuthTokens;
         return cachedTokens;
       }
+      if (res.status === 429) {
+        // Rate limited — wait longer before retrying
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
       lastError = new Error(`Login ${res.status}: ${await res.text()}`);
     } catch (e) {
       lastError = e as Error;
     }
-    // Wait before retrying
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `Real login failed for ${TEST_USER.email} after 3 attempts: ${lastError?.message}`
+    `Real login failed for ${TEST_USER.email} after 5 attempts: ${lastError?.message}`
   );
 }
 
