@@ -6,13 +6,13 @@
 
 # Test info
 
-- Name: dashboard.test.ts >> Dashboard Page — real backend >> should render dashboard with real metrics for authenticated user
-- Location: tests/dashboard.test.ts:4:3
+- Name: content-creation.test.ts >> Content Creation Page — real backend >> should display content type buttons
+- Location: tests/content-creation.test.ts:19:3
 
 # Error details
 
 ```
-Error: Real login failed for e2e-40553@social-auto.test: 429 {"error":"Rate limit exceeded: 10 per 1 minute"}
+Error: Real login failed for e2e-39331@social-auto.test: 429 {"error":"Rate limit exceeded: 10 per 1 minute"}
 ```
 
 # Test source
@@ -68,7 +68,7 @@ Error: Real login failed for e2e-40553@social-auto.test: 429 {"error":"Rate limi
   48 | 
   49 |   if (!res.ok) {
 > 50 |     throw new Error(`Real login failed for ${TEST_USER.email}: ${res.status} ${await res.text()}`);
-     |           ^ Error: Real login failed for e2e-40553@social-auto.test: 429 {"error":"Rate limit exceeded: 10 per 1 minute"}
+     |           ^ Error: Real login failed for e2e-39331@social-auto.test: 429 {"error":"Rate limit exceeded: 10 per 1 minute"}
   51 |   }
   52 |   return (await res.json()) as AuthTokens;
   53 | }

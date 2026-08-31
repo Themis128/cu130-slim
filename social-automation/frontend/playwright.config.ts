@@ -1,9 +1,4 @@
 import { defineConfig, devices } from '@playwright/test';
-import { config as loadEnv } from 'dotenv';
-import { resolve } from 'path';
-
-// Load .env.local if present (for E2E_FRONTEND_URL / E2E_API_URL overrides)
-loadEnv({ path: resolve(__dirname, '.env.local') });
 
 // User-space browser libraries (extracted .deb files — no sudo needed).
 // See tests/helpers/playwright-env.sh for setup instructions.

@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: cloudflare-workers-ai.spec.ts >> Cloudflare UI — live stack @e2e >> AI Providers page renders the Cloudflare card from the live catalog
-- Location: tests/cloudflare-workers-ai.spec.ts:270:3
+- Name: cloudflare-workers-ai.spec.ts >> Cloudflare backend contract @e2e >> GET /health reports the service
+- Location: tests/cloudflare-workers-ai.spec.ts:93:3
 
 # Error details
 
