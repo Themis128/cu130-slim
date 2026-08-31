@@ -2,9 +2,9 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -29,6 +29,20 @@ class User(Base):
         String(50),
         default="Europe/Athens",
         server_default="Europe/Athens",
+        nullable=False,
+    )
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    two_factor_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notification_preferences: Mapped[dict] = mapped_column(
+        JSONB,
+        default=lambda: {
+            "email_new_post": True,
+            "email_scheduled": True,
+            "email_analytics": False,
+            "push_new_post": True,
+            "push_scheduled": False,
+        },
+        server_default='{}',
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
