@@ -882,6 +882,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
 
     PLATFORM_SCOPES: dict[str, list[str]] = {
         "linkedin": LINKEDIN_SCOPES,
+        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": [
             "public_profile", "email",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
@@ -890,22 +891,23 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
             "instagram_basic", "instagram_content_publish",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
         ],
+        "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights"],
         "instagram2": ["user_profile", "user_media"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
-    tiktok_scopes: list[str] | None = PLATFORM_SCOPES.get(platform)
+    oauth_scopes: list[str] | None = PLATFORM_SCOPES.get(platform)
     if platform == "tiktok":
         extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
         extra_params["scope"] = ",".join(PLATFORM_SCOPES.get(platform, []))
-        tiktok_scopes = None  # Don't let the library join with spaces
+        oauth_scopes = None  # Don't let the library join with spaces
 
-    # TikTok now requires PKCE (code_challenge) in the authorize URL
+    # Twitter and TikTok both require PKCE (code_challenge) in the authorize URL
     code_verifier: str | None = None
     code_challenge: str | None = None
-    if platform == "tiktok":
+    if platform in ("twitter", "tiktok"):
         import base64 as _b64
         import hashlib as _hashlib
         import secrets as _secrets
@@ -1102,7 +1104,7 @@ async def oauth_callback(
             username = user_info.get("username")
             display_name = user_info.get("name") or username or ""
             avatar_url = user_info.get("threads_profile_picture_url")
-            scopes = ["threads_basic", "threads_content_publish"]
+            scopes = ["threads_basic", "threads_content_publish", "threads_manage_insights"]
         elif platform == "instagram":
             resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,picture"})
             fb_info = resp.json()
