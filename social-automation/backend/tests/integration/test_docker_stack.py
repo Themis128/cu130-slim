@@ -21,6 +21,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+
 def _has_docker() -> bool:
     return shutil.which("docker") is not None
 
