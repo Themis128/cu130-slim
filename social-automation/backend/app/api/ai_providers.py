@@ -187,11 +187,11 @@ async def test_provider(
     FAST_TEST_MODELS: dict[str, str] = {
         "nvidia": "nvidia/nemotron-3-nano-30b-a3b",
         "groq": "qwen/qwen3.6-27b",
-        "gemini": "gemini-3.6-flash",
+        "gemini": "gemini-2.5-flash",
         "openrouter": "openrouter/free",
         "sambanova": "gpt-oss-120b",
         "mistral": "mistral-small-latest",
-        "cohere": "command-a-03-2025",
+        "cohere": "command-r7b-12-2024",
         "cloudflare": "@cf/meta/llama-3.2-3b-instruct",
     }
     if not re.fullmatch(r"^[A-Za-z0-9_-]+$", name):

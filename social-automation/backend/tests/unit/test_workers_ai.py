@@ -592,4 +592,32 @@ async def test_call_workers_ai_image_handles_new_direct_format(monkeypatch, cf_s
     )
 
     assert result["image_base64"] == "base64imagedata=="
+
+
+@pytest.mark.parametrize(
+    ("provider", "setting_name", "expected_url", "expected_model"),
+    [
+        ("gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        ("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openrouter/free"),
+        ("sambanova", "SAMBANOVA_API_KEY", "https://api.sambanova.ai/v1", "gpt-oss-120b"),
+        ("mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1", "mistral-small-latest"),
+        ("cohere", "COHERE_API_KEY", "https://api.cohere.ai/compatibility/v1", "command-r7b-12-2024"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_free_cloud_provider_env_config(
+    monkeypatch, provider, setting_name, expected_url, expected_model
+):
+    monkeypatch.setattr(inference.settings, setting_name, "test-key")
+
+    base_url, model, api_key = await inference._get_provider_config(provider, None, None)
+
+    assert base_url == expected_url
+    assert model == expected_model
+    assert api_key == "test-key"
+
+
+def test_free_cloud_providers_are_in_catalog():
+    names = {provider["name"] for provider in inference.PROVIDER_CATALOG}
+    assert {"gemini", "openrouter", "sambanova", "mistral", "cohere"} <= names
     assert result["format"] == "base64"
