@@ -3,7 +3,7 @@
     "playwright": {
       "command": "docker",
       "args": ["run", "--rm", "-i", "--init", "--network", "host", "-v", "/home/tbaltzakis/cu130-slim:/workspace", "-w", "/workspace", "mcr.microsoft.com/playwright/mcp:v0.0.79", "--headless"],
-      "disabled": true
+      "disabled": false
     },
     "github-local": {
       "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
