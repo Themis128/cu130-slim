@@ -373,7 +373,10 @@ export default function EditPostPage() {
 
       {/* SEO Analysis */}
       {content.trim().length > 20 && (
-        <SeoPanel content={content} platform={selectedPlatforms[0] || 'linkedin'} />
+        <SeoPanel
+          content={content}
+          platform={typedPost.targets?.[0]?.social_account?.platform || 'linkedin'}
+        />
       )}
 
       {/* Actions */}

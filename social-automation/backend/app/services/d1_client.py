@@ -197,7 +197,7 @@ class D1Client:
     @staticmethod
     def _serialize_param(value: Any) -> Any:
         """Serialize a Python value for D1 JSON transport."""
-        if isinstance(value, (dict, list)):
+        if isinstance(value, dict | list):
             return json.dumps(value)
         if isinstance(value, bool):
             return 1 if value else 0

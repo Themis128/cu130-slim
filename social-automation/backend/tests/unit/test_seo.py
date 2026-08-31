@@ -6,7 +6,6 @@ from app.services.seo import (
     score_content,
 )
 
-
 # ── extract_keywords ──────────────────────────────────────────────────────────
 
 def test_extract_keywords_returns_top_words():

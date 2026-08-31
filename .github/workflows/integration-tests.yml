@@ -147,7 +147,7 @@ jobs:
       - name: Dump backend server log on failure
         if: ${{ failure() }}
         run: |
-          if [-f "$RUNNER_TEMP/uvicorn.log"]; then
+          if [ -f "$RUNNER_TEMP/uvicorn.log" ]; then
             cat "$RUNNER_TEMP/uvicorn.log"
           fi
 

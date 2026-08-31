@@ -167,7 +167,7 @@ class SyncService:
                 values = []
                 for col in columns:
                     val = row_dict[col]
-                    if isinstance(val, (dict, list)):
+                    if isinstance(val, dict | list):
                         val = json.dumps(val)
                     elif isinstance(val, bool):
                         val = 1 if val else 0
@@ -176,7 +176,7 @@ class SyncService:
                     elif val is None:
                         val = None
                     else:
-                        val = str(val) if not isinstance(val, (int, float, str)) else val
+                        val = str(val) if not isinstance(val, int | float | str) else val
                     values.append(val)
 
                 try:

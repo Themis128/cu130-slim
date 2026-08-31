@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { Search, Loader2, TrendingUp, Hash, Link as LinkIcon, FileText, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Search, Loader2, TrendingUp, Hash, Link as LinkIcon, FileText, CheckCircle2, AlertTriangle, Globe } from 'lucide-react'
 import { useAnalyzeSeo } from '@/hooks/useQueries'
 import { cn } from '@/lib/utils'
 

@@ -5,12 +5,16 @@ name: Trivy Security Scan
   push:
     branches: [master, main]
     paths:
-      - '**'
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
       - '.github/workflows/trivy-scan.yml'
   pull_request:
     branches: [master, main]
     paths:
-      - '**'
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
       - '.github/workflows/trivy-scan.yml'
   schedule:
     # Run daily at 3 AM UTC to catch new vulnerabilities
