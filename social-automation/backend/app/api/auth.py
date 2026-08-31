@@ -853,9 +853,9 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     code_verifier: str | None = None
     code_challenge: str | None = None
     if platform == "tiktok":
-        import secrets as _secrets
-        import hashlib as _hashlib
         import base64 as _b64
+        import hashlib as _hashlib
+        import secrets as _secrets
         code_verifier = _secrets.token_urlsafe(64)
         code_challenge = (
             _b64.urlsafe_b64encode(_hashlib.sha256(code_verifier.encode()).digest())
