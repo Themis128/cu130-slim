@@ -196,12 +196,19 @@ async def connect_account_body(
         code_verifier, code_challenge = _pkce_pair()
 
     state = _encode_state(team_id, code_verifier)
+
+    # TikTok requires client_key as an extra param in the authorize URL
+    extra_params: dict = {}
+    if data.platform == "tiktok":
+        extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=state,
         scope=scopes,
         code_challenge=code_challenge,
         code_challenge_method="S256" if code_challenge else None,
+        extras_params=extra_params if extra_params else None,
     )
     return ConnectResponse(authorization_url=authorization_url)
 
