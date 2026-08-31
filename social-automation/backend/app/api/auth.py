@@ -255,6 +255,7 @@ class UserResponse(BaseModel):
     name: str | None
     avatar_url: str | None
     timezone: str
+    two_factor_enabled: bool = False
 
     class Config:
         from_attributes = True
