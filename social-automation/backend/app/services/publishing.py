@@ -29,6 +29,7 @@ from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
+from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
 
 _settings = get_settings()
 
@@ -266,27 +267,23 @@ async def _publish_twitter(
     post: Post,
     media_paths: list[str],
 ) -> PublishResult:
-    # Free tier does not support media upload (v1.1 requires Basic+); skip silently.
-    headers_v2 = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
+    """Publish to X/Twitter using TwitterAPIClient.
+
+    Free tier does not support media upload (v1.1 requires Basic+), so
+    media is skipped for the v2 flow. Long text is split into a reply
+    thread.
+    """
+    client = TwitterAPIClient(access_token=access_token)
 
     tweets = _split_thread(text)
     first_id: str | None = None
     last_id: str | None = None
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for i, chunk in enumerate(tweets):
-            payload: dict = {"text": chunk}
-            if last_id:
-                payload["reply"] = {"in_reply_to_tweet_id": last_id}
-            resp = await client.post(
-                "https://api.twitter.com/2/tweets",
-                headers=headers_v2,
-                json=payload,
-            )
-            if resp.status_code == 402:
+    for i, chunk in enumerate(tweets):
+        try:
+            result = await client.create_tweet(text=chunk, reply_tweet_id=last_id)
+        except TwitterAPIError as exc:
+            if exc.status_code == 402:
                 return PublishResult(
                     success=False,
                     error=(
@@ -295,11 +292,11 @@ async def _publish_twitter(
                         "for 3,000 tweets + media upload."
                     ),
                 )
-            resp.raise_for_status()
-            tid = resp.json().get("data", {}).get("id", "")
-            if first_id is None:
-                first_id = tid
-            last_id = tid
+            raise
+        tid = (result.get("data") or {}).get("id", "")
+        if first_id is None:
+            first_id = tid
+        last_id = tid
 
     return PublishResult(
         success=True,

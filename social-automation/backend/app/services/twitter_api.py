@@ -144,12 +144,13 @@ class TwitterAPIClient:
         self,
         text: str,
         media_ids: list[str] | None = None,
+        reply_tweet_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a tweet with optional media attachments.
+        """Create a tweet with optional media attachments and/or reply.
 
         Calls ``POST /2/tweets``. ``media_ids`` should be IDs returned by
-        ``upload_media``. Returns the raw API response containing the tweet
-        ``id`` and ``text``.
+        ``upload_media``. ``reply_tweet_id`` starts a reply thread.
+        Returns the raw API response containing the tweet ``id`` and ``text``.
         """
         if not text or not text.strip():
             raise ValueError("Tweet text is required")
@@ -159,6 +160,8 @@ class TwitterAPIClient:
             if len(media_ids) > 4:
                 raise ValueError("A tweet can attach at most 4 media items")
             payload["media"] = {"media_ids": media_ids}
+        if reply_tweet_id:
+            payload["reply"] = {"in_reply_to_tweet_id": reply_tweet_id}
 
         url = f"{self.api_base}/tweets"
         async with httpx.AsyncClient(timeout=30.0) as client:
