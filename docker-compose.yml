@@ -181,6 +181,12 @@ services:
     dns:
     - 1.1.1.1
     - 8.8.8.8
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
   ollama:
     image: ollama/ollama:0.33.1
@@ -281,6 +287,12 @@ services:
     environment:
     - ENV_MANAGER_USER=${ENV_MANAGER_USER}
     - ENV_MANAGER_PASS=${ENV_MANAGER_PASS}
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
   env-manager-frontend:
     image: baltzakist/env-manager-frontend:v2.00
@@ -291,7 +303,14 @@ services:
     ports:
     - 8080:8080
     depends_on:
-    - env-manager-backend
+      env-manager-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
   social-postgres:
     image: postgres:16-alpine
@@ -612,6 +631,12 @@ services:
     volumes:
     - tunnel_url:/run/tunnel
     - ./social-automation/cloudflared-entrypoint.sh:/entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f cloudflared || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     depends_on:
       social-api:
@@ -638,6 +663,12 @@ services:
     depends_on:
       social-api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 volumes:
   portainer_data: null
