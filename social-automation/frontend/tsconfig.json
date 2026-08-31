@@ -43,7 +43,6 @@
     "**/*.test.tsx",
     "**/*.spec.ts",
     "**/__tests__/**",
-    "tests/**",
-    "playwright.config.ts"
+    "tests/**"
   ]
 }

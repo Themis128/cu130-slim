@@ -46,8 +46,10 @@ export default defineConfig({
     /* Capture screenshot on failure */
     screenshot: 'only-on-failure',
     /* Pass the LD_LIBRARY_PATH to launched browser processes */
-    env: {
-      LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || '',
+    launchOptions: {
+      env: {
+        LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || '',
+      },
     },
   },
 
