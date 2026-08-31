@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 
 import httpx
@@ -20,7 +21,10 @@ import redis.asyncio as aioredis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not _has_docker(), reason="docker CLI not available (run on Docker host)"),
+]
 
 COMPOSE_DIR = os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim")
 API_URL = os.environ.get("API_URL", "http://localhost:8083")
@@ -28,7 +32,13 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
 N8N_URL = os.environ.get("N8N_URL", "http://localhost:5678")
 
 
+def _has_docker() -> bool:
+    return shutil.which("docker") is not None
+
+
 def _docker_compose_ps() -> list[dict]:
+    if not _has_docker():
+        return []
     result = subprocess.run(
         ["docker", "compose", "ps", "--format", "json"],
         capture_output=True,

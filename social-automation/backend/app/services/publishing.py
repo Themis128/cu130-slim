@@ -11,14 +11,9 @@ Platform capabilities actually used per connected account:
 
 from __future__ import annotations
 
-import base64
 import dataclasses
-import hashlib
-import hmac
 import io
 import os
-import secrets
-import time
 import urllib.parse
 
 import httpx
@@ -29,7 +24,12 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
+from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
+from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
+from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
+from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
 
 _settings = get_settings()
 

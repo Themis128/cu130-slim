@@ -20,9 +20,16 @@ from app.api.auth import (
     twitter_client,
 )
 from app.core.config import get_settings
+from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
+from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
+from app.services.linkedin_api import LinkedInAPIError
+from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
+from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
+from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
 
 router = APIRouter()
 settings = get_settings()
@@ -248,10 +255,7 @@ async def sync_linkedin_organizations(
     Requires the token to include ``w_organization_social`` / ``r_organization_social``.
     Reconnect LinkedIn from Accounts if those scopes are missing.
     """
-    import httpx
-
     from app.api.auth import _sync_linkedin_organizations
-    from app.core.security import decrypt_token
 
     team_result = await db.execute(
         select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
@@ -358,45 +362,56 @@ async def test_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    import httpx
-
-    from app.core.security import decrypt_token
 
     token = decrypt_token(account.access_token_enc)
-    headers = {"Authorization": f"Bearer {token}"}
     platform = account.platform
 
-    validation_urls = {
-        "linkedin": ("https://api.linkedin.com/v2/userinfo", "GET", None),
-        "twitter": ("https://api.twitter.com/2/users/me", "GET", None),
-        "facebook": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,name"}),
-        "instagram": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,username"}),
-        "threads": ("https://graph.threads.net/v1.0/me", "GET", {"fields": "id,username"}),
-        "tiktok": ("https://open.tiktokapis.com/v2/user/info/", "GET", {"fields": "open_id,display_name"}),
-    }
-
-    url, method, params = validation_urls.get(platform, (None, None, None))
-    if not url:
-        return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"No test endpoint for {platform}"}
-
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            if method == "GET":
-                resp = await client.get(url, headers=headers, params=params or {})
-            else:
-                resp = await client.post(url, headers=headers)
+        valid = False
+        if platform == "linkedin":
+            from app.services.linkedin_api import LinkedInAPIClient
+            client = LinkedInAPIClient(access_token=token)
+            await client.validate_token()
+            valid = True
+        elif platform == "twitter":
+            client = TwitterAPIClient(access_token=token)
+            await client.validate_token()
+            valid = True
+        elif platform == "facebook":
+            client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+            await client.validate_token()
+            valid = True
+        elif platform == "instagram":
+            client = InstagramAPIClient(access_token=token, ig_user_id=account.account_id)
+            await client.validate_token()
+            valid = True
+        elif platform == "threads":
+            client = ThreadsAPIClient(access_token=token, user_id=account.account_id)
+            await client.validate_token()
+            valid = True
+        elif platform == "tiktok":
+            client = TikTokAPIClient(access_token=token, open_id=account.account_id)
+            await client.validate_token()
+            valid = True
+        else:
+            return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"No test endpoint for {platform}"}
 
-        if resp.status_code == 200:
-            if account.status != "active":
-                account.status = "active"
-                await db.commit()
-            return {"valid": True, "status": "active", "tested": True, "message": "Token is valid"}
-        if resp.status_code in (401, 403):
+        if valid and account.status != "active":
+            account.status = "active"
+            await db.commit()
+        return {"valid": True, "status": "active", "tested": True, "message": "Token is valid"}
+    except (LinkedInAPIError, TwitterAPIError, FacebookAPIError, InstagramAPIError, ThreadsAPIError, TikTokAPIError) as exc:
+        if exc.status_code in (401, 403):
             if account.status == "active":
                 account.status = "expired"
                 await db.commit()
             return {"valid": False, "status": "expired", "tested": True, "message": "Token is expired or invalid"}
-        return {"valid": account.status == "active", "status": account.status, "tested": True, "message": f"Platform returned HTTP {resp.status_code}"}
+        return {
+            "valid": account.status == "active",
+            "status": account.status,
+            "tested": True,
+            "message": f"Platform returned HTTP {exc.status_code}: {exc.response_text[:200]}",
+        }
     except Exception as exc:
         return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"Network error: {exc}"}
 
@@ -442,7 +457,7 @@ async def refresh_account_token(
     if not account.refresh_token_enc:
         raise HTTPException(status_code=400, detail="No refresh token available")
 
-    from app.core.security import decrypt_token, encrypt_token
+    from app.core.security import decrypt_token
 
     refresh_token = decrypt_token(account.refresh_token_enc)
     platform = account.platform
@@ -503,51 +518,278 @@ async def validate_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    import httpx
-
-    from app.core.security import decrypt_token
 
     token = decrypt_token(account.access_token_enc)
-    headers = {"Authorization": f"Bearer {token}"}
     platform = account.platform
 
-    # Platform-specific validation endpoints
-    validation_urls = {
-        "linkedin": ("https://api.linkedin.com/v2/userinfo", "GET", None),
-        "twitter": ("https://api.twitter.com/2/users/me", "GET", None),
-        "facebook": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,name"}),
-        "instagram": (f"https://graph.facebook.com/v20.0/{account.account_id}", "GET", {"fields": "id,username"}),
-        "threads": ("https://graph.threads.net/v1.0/me", "GET", {"fields": "id,username"}),
-        "tiktok": ("https://open.tiktokapis.com/v2/user/info/", "GET", {"fields": "open_id,display_name"}),
-    }
-
-    url, method, params = validation_urls.get(platform, (None, None, None))
-    if not url:
-        return {"valid": account.status == "active", "status": account.status, "checked": False}
-
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            if method == "GET":
-                resp = await client.get(url, headers=headers, params=params or {})
-            else:
-                resp = await client.post(url, headers=headers)
+        if platform == "linkedin":
+            from app.services.linkedin_api import LinkedInAPIClient
+            client = LinkedInAPIClient(access_token=token)
+            await client.validate_token()
+        elif platform == "twitter":
+            client = TwitterAPIClient(access_token=token)
+            await client.validate_token()
+        elif platform == "facebook":
+            client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+            await client.validate_token()
+        elif platform == "instagram":
+            client = InstagramAPIClient(access_token=token, ig_user_id=account.account_id)
+            await client.validate_token()
+        elif platform == "threads":
+            client = ThreadsAPIClient(access_token=token, user_id=account.account_id)
+            await client.validate_token()
+        elif platform == "tiktok":
+            client = TikTokAPIClient(access_token=token, open_id=account.account_id)
+            await client.validate_token()
+        else:
+            return {"valid": account.status == "active", "status": account.status, "checked": False}
 
-        if resp.status_code == 200:
-            # Token is valid — update status if it was marked expired
-            if account.status != "active":
-                account.status = "active"
-                await db.commit()
-            return {"valid": True, "status": "active", "checked": True}
-        if resp.status_code in (401, 403):
-            # Token is invalid/expired
+        if account.status != "active":
+            account.status = "active"
+            await db.commit()
+        return {"valid": True, "status": "active", "checked": True}
+    except (LinkedInAPIError, TwitterAPIError, FacebookAPIError, InstagramAPIError, ThreadsAPIError, TikTokAPIError) as exc:
+        if exc.status_code in (401, 403):
             if account.status == "active":
                 account.status = "expired"
                 await db.commit()
             return {"valid": False, "status": "expired", "checked": True}
-        # Other errors — don't change status, just report
-        return {"valid": account.status == "active", "status": account.status, "checked": True, "http_status": resp.status_code}
+        return {"valid": account.status == "active", "status": account.status, "checked": True, "http_status": exc.status_code}
     except Exception:
-        # Network error — don't change status
         return {"valid": account.status == "active", "status": account.status, "checked": False}
 
+
+# ── Business account discovery ─────────────────────────────────────────────────
+
+class BusinessAccountSyncResponse(BaseModel):
+    platform: str
+    synced: int
+    accounts: list[SocialAccountResponse]
+
+
+@router.post("/{account_id}/sync-business-accounts", response_model=BusinessAccountSyncResponse)
+async def sync_business_accounts(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Discover and store business accounts/pages for the connected platform account."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    from app.core.security import decrypt_token
+
+    token = decrypt_token(account.access_token_enc)
+    synced_accounts: list[SocialAccountResponse] = []
+
+    if account.platform == "facebook":
+        client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+        pages = await client.get_pages()
+
+        for page in pages:
+            page_id = page["id"]
+            page_token = page.get("access_token") or token
+            existing = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == account.team_id,
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_id == page_id,
+                )
+            )
+            existing_account = existing.scalar_one_or_none()
+            meta = {
+                "account_type": "page",
+                "page_token": page_token,
+                "category": page.get("category"),
+                "tasks": page.get("tasks", []),
+            }
+            if existing_account:
+                existing_account.access_token_enc = encrypt_token(page_token)
+                existing_account.status = "active"
+                existing_account.username = page.get("name")
+                existing_account.display_name = page.get("name")
+                existing_account.is_business = True
+                existing_account.account_type = "page"
+                existing_account.parent_account_id = account.id
+                existing_account.meta_data = {**existing_account.meta_data, **meta}
+            else:
+                new_account = SocialAccount(
+                    team_id=account.team_id,
+                    platform="facebook",
+                    account_id=page_id,
+                    username=page.get("name"),
+                    display_name=page.get("name"),
+                    access_token_enc=encrypt_token(page_token),
+                    status="active",
+                    account_type="page",
+                    is_business=True,
+                    parent_account_id=account.id,
+                    meta_data=meta,
+                )
+                db.add(new_account)
+            await db.flush()
+
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == account.team_id,
+                SocialAccount.platform == "facebook",
+                SocialAccount.is_business.is_(True),
+            )
+        )
+        synced_accounts = result.scalars().all()
+
+    elif account.platform == "linkedin":
+        from app.api.auth import _sync_linkedin_organizations
+        from app.services.linkedin_api import LinkedInAPIClient
+
+        li_client = LinkedInAPIClient(access_token=token)
+        synced = await _sync_linkedin_organizations(
+            db=db,
+            team_id=account.team_id,
+            access_token=token,
+            refresh_token=None,
+            scopes=account.scopes,
+            http=li_client._client,
+        )
+        synced_accounts = synced
+
+    elif account.platform == "instagram":
+        client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+        pages = await client.get_pages()
+
+        for page in pages:
+            ig = page.get("instagram_business_account")
+            if not ig:
+                continue
+            ig_user_id = str(ig["id"])
+            page_token = page.get("access_token") or token
+            existing = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == account.team_id,
+                    SocialAccount.platform == "instagram",
+                    SocialAccount.account_id == ig_user_id,
+                )
+            )
+            existing_account = existing.scalar_one_or_none()
+            meta = {
+                "account_type": "business",
+                "ig_business_id": ig_user_id,
+                "username": ig.get("username"),
+                "profile_picture_url": ig.get("profile_picture_url"),
+                "page_id": page["id"],
+            }
+            if existing_account:
+                existing_account.access_token_enc = encrypt_token(page_token)
+                existing_account.status = "active"
+                existing_account.username = ig.get("username")
+                existing_account.display_name = ig.get("name") or ig.get("username")
+                existing_account.is_business = True
+                existing_account.account_type = "business"
+                existing_account.parent_account_id = account.id
+                existing_account.meta_data = {**existing_account.meta_data, **meta}
+            else:
+                new_account = SocialAccount(
+                    team_id=account.team_id,
+                    platform="instagram",
+                    account_id=ig_user_id,
+                    username=ig.get("username"),
+                    display_name=ig.get("name") or ig.get("username"),
+                    access_token_enc=encrypt_token(page_token),
+                    status="active",
+                    account_type="business",
+                    is_business=True,
+                    parent_account_id=account.id,
+                    meta_data=meta,
+                )
+                db.add(new_account)
+            await db.flush()
+
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == account.team_id,
+                SocialAccount.platform == "instagram",
+                SocialAccount.is_business.is_(True),
+            )
+        )
+        synced_accounts = result.scalars().all()
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Business account sync not supported for {account.platform}",
+        )
+
+    await db.commit()
+
+    return BusinessAccountSyncResponse(
+        platform=account.platform,
+        synced=len(synced_accounts),
+        accounts=[
+            SocialAccountResponse(
+                id=a.id,
+                platform=a.platform,
+                account_id=a.account_id,
+                username=a.username,
+                display_name=a.display_name,
+                avatar_url=a.avatar_url,
+                status=a.status,
+                scopes=a.scopes,
+                token_expires_at=a.token_expires_at.isoformat() if a.token_expires_at else None,
+                created_at=a.created_at.isoformat(),
+                account_type=a.account_type,
+                is_business=a.is_business,
+                parent_account_id=str(a.parent_account_id) if a.parent_account_id else None,
+                meta_data=a.meta_data or {},
+            )
+            for a in synced_accounts
+        ],
+    )
+
+
+@router.post("/{account_id}/set-business-account")
+async def set_business_account(
+    account_id: uuid.UUID,
+    business_account_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Select a discovered business account as the active publishing target."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    parent = result.scalar_one_or_none()
+    if not parent:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == parent.team_id,
+            SocialAccount.platform == parent.platform,
+            SocialAccount.account_id == business_account_id,
+            SocialAccount.is_business.is_(True),
+        )
+    )
+    business = result.scalar_one_or_none()
+    if not business:
+        raise HTTPException(status_code=404, detail="Business account not found")
+
+    return {
+        "message": f"Selected {parent.platform} business account {business_account_id} for publishing",
+        "account_id": str(business.id),
+        "platform": business.platform,
+        "business_account_id": business.account_id,
+    }
 
