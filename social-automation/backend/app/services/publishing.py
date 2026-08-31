@@ -25,6 +25,7 @@ from app.core.security import decrypt_token
 from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
 from app.services.facebook_api import FacebookAPIClient
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 
@@ -526,66 +527,35 @@ async def _publish_instagram(
             error="Instagram requires at least one image. Set an image on the post.",
         )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    client = InstagramAPIClient(access_token=access_token, ig_user_id=ig_user_id)
+    try:
         if len(image_urls) == 1:
-            # Single image post
-            cr = await client.post(
-                f"https://graph.facebook.com/v20.0/{ig_user_id}/media",
-                params={
-                    "image_url": image_urls[0],
-                    "caption": caption,
-                    "access_token": access_token,
-                },
+            creation_id = await client.create_image_container(
+                image_url=image_urls[0],
+                caption=caption,
             )
-            cr.raise_for_status()
-            creation_id = cr.json().get("id")
         else:
-            # Carousel (2–10 images)
-            child_ids: list[str] = []
-            for url in image_urls[:10]:
-                cr = await client.post(
-                    f"https://graph.facebook.com/v20.0/{ig_user_id}/media",
-                    params={
-                        "image_url": url,
-                        "is_carousel_item": "true",
-                        "access_token": access_token,
-                    },
-                )
-                if cr.status_code == 200:
-                    cid = cr.json().get("id")
-                    if cid:
-                        child_ids.append(cid)
-
-            if not child_ids:
-                return PublishResult(success=False, error="No Instagram carousel items could be created")
-
-            cr = await client.post(
-                f"https://graph.facebook.com/v20.0/{ig_user_id}/media",
-                params={
-                    "media_type": "CAROUSEL",
-                    "children": ",".join(child_ids),
-                    "caption": caption,
-                    "access_token": access_token,
-                },
+            child_ids = [
+                await client.create_carousel_item(image_url=url)
+                for url in image_urls[:10]
+            ]
+            creation_id = await client.create_carousel_container(
+                children_ids=child_ids,
+                caption=caption,
             )
-            cr.raise_for_status()
-            creation_id = cr.json().get("id")
 
-        if not creation_id:
-            return PublishResult(success=False, error="Instagram media container creation returned no ID")
-
-        # Publish
-        pub = await client.post(
-            f"https://graph.facebook.com/v20.0/{ig_user_id}/media_publish",
-            params={"creation_id": creation_id, "access_token": access_token},
-        )
-        pub.raise_for_status()
-        media_id = pub.json().get("id", "")
+        media_id = await client.publish_container(creation_id)
+    except InstagramAPIError as exc:
         return PublishResult(
-            success=True,
-            platform_post_id=media_id,
-            platform_url=f"https://www.instagram.com/p/{media_id}" if media_id else None,
+            success=False,
+            error=f"Instagram publish failed: {exc.message}",
         )
+
+    return PublishResult(
+        success=True,
+        platform_post_id=media_id,
+        platform_url=f"https://www.instagram.com/p/{media_id}" if media_id else None,
+    )
 
 
 async def _publish_tiktok(
