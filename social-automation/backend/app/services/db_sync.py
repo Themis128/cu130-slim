@@ -23,11 +23,11 @@ from app.services.d1_client import d1_client
 
 logger = logging.getLogger(__name__)
 
-# Tables to sync, with their primary key column
+# Tables to sync, with their primary key column(s)
 SYNC_TABLES: list[dict[str, str]] = [
     {"table": "users", "pk": "id"},
     {"table": "teams", "pk": "id"},
-    {"table": "team_members", "pk": "id"},
+    {"table": "team_members", "pk": "team_id,user_id"},
     {"table": "social_accounts", "pk": "id"},
     {"table": "posts", "pk": "id"},
     {"table": "post_targets", "pk": "id"},
@@ -46,9 +46,75 @@ SYNC_TABLES: list[dict[str, str]] = [
 class SyncService:
     """Bidirectional D1 ↔ PostgreSQL sync service."""
 
+    # Columns that are boolean in Postgres but stored as 0/1 in D1/SQLite
+    _BOOL_COLUMNS = frozenset({
+        "success",
+        "is_active",
+        "is_default",
+        "is_enabled",
+        "is_superuser",
+        "is_published",
+        "is_approved",
+        "is_favorite",
+        "is_archived",
+        "is_processed",
+        "is_verified",
+    })
+
+    # Columns that are PostgreSQL arrays (varchar[]) stored as JSON strings in D1
+    _ARRAY_COLUMNS = frozenset({
+        "tags",
+        "ai_tags",
+        "platforms",
+        "hashtags",
+    })
+
     def __init__(self) -> None:
         self._sync_lock = asyncio.Lock()
         self._last_sync: dict[str, datetime] = {}
+
+    @staticmethod
+    def _d1_to_pg_value(column: str, value: Any) -> Any:
+        """Convert a D1 (SQLite) value to a PostgreSQL-compatible value.
+
+        - Boolean columns: 0/1 int → Python bool
+        - Timestamp strings: ISO 8601 → datetime
+        - JSON strings: kept as-is (asyncpg JSONB encoder expects strings)
+        - Array columns: JSON string → Python list
+        """
+        # Boolean conversion
+        if column in SyncService._BOOL_COLUMNS and isinstance(value, int):
+            return bool(value)
+
+        # Array conversion: D1 stores as JSON string, Postgres expects a list
+        if column in SyncService._ARRAY_COLUMNS and isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        # Timestamp conversion (ISO 8601 string → datetime)
+        if isinstance(value, str):
+            import re
+            if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", value):
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+        return value
+
+
+        # Timestamp conversion (ISO 8601 string → datetime)
+        if isinstance(value, str):
+            import re
+            if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", value):
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+        return value
 
     async def sync_table_to_d1(
         self,
@@ -157,23 +223,35 @@ class SyncService:
             # Get column info from first row
             columns = list(rows[0].keys())
 
+            # Parse PK (may be composite, e.g. "team_id,user_id")
+            pk_cols = [p.strip() for p in pk.split(",")]
+
             # Build Postgres upsert
             col_str = ", ".join(columns)
             placeholders = ", ".join(f":{c}" for c in columns)
-            update_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c != pk)
-            sql = (
-                f"INSERT INTO {table} ({col_str}) "
-                f"VALUES ({placeholders}) "
-                f"ON CONFLICT ({pk}) DO UPDATE SET {update_str}"
-            )
+            pk_conflict = ", ".join(pk_cols)
+            update_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c not in pk_cols)
+            if update_str:
+                sql = (
+                    f"INSERT INTO {table} ({col_str}) "
+                    f"VALUES ({placeholders}) "
+                    f"ON CONFLICT ({pk_conflict}) DO UPDATE SET {update_str}"
+                )
+            else:
+                # All columns are PK columns — use DO NOTHING
+                sql = (
+                    f"INSERT INTO {table} ({col_str}) "
+                    f"VALUES ({placeholders}) "
+                    f"ON CONFLICT ({pk_conflict}) DO NOTHING"
+                )
 
             async with engine.begin() as conn:
                 for row in rows:
-                    # Convert D1 values back to Postgres types
+                    # Convert D1 (SQLite) values back to Postgres-compatible types
                     row_data = {}
                     for col in columns:
                         val = row[col]
-                        row_data[col] = val
+                        row_data[col] = self._d1_to_pg_value(col, val)
                     try:
                         await conn.execute(text(sql), row_data)
                         stats["synced"] += 1
