@@ -285,40 +285,81 @@ async def generate_workflow(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # TODO: Implement actual AI-powered workflow generation using Ollama
-    # For now, return a basic template if available
+    """Generate an n8n workflow from a natural-language prompt using AI.
+
+    Uses Cloudflare Workers AI (or fallback) to generate a structured n8n
+    workflow JSON from the user's prompt. If a template_id is provided, the
+    template's workflow JSON is used as a base and variables are extracted.
+    """
+    import re
+
+    from app.services.inference import call_inference
 
     template = None
     if request.template_id:
         result = await db.execute(select(PromptTemplate).where(PromptTemplate.id == request.template_id))
         template = result.scalar_one_or_none()
 
-    # Placeholder: return a basic n8n workflow structure
-    n8n_workflow = {
-        "name": f"Generated: {request.prompt[:50]}",
-        "nodes": [
-            {
-                "name": "Start",
-                "type": "n8n-nodes-base.start",
-                "typeVersion": 1,
-                "position": [250, 300],
-            }
-        ],
-        "connections": {},
-        "settings": {"executionOrder": "v1"},
-    }
-
-    variables_used = {}
+    variables_used: dict = {}
+    n8n_workflow: dict = {}
 
     if template:
-        # Simple variable substitution
-        import re
+        # Use template as base — extract variables from prompt_template
         vars_found = re.findall(r"{{(\w+)}}", template.prompt_template)
         for var in vars_found:
             variables_used[var] = f"<{var}>"
-
         n8n_workflow = template.n8n_workflow_json.copy()
         n8n_workflow["name"] = f"Generated: {request.prompt[:50]}"
+    else:
+        # Generate workflow JSON using AI
+        result = await db.execute(
+            select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+        )
+        team = result.scalars().first()
+
+        ai_prompt = (
+            "You are an n8n workflow generator. Given a natural-language description, "
+            "generate a valid n8n workflow JSON object.\n\n"
+            "The workflow must include:\n"
+            '- "name": a short workflow name\n'
+            '- "nodes": array of node objects, each with name, type, typeVersion, position, and parameters\n'
+            '- "connections": object mapping node names to their connections\n'
+            '- "settings": {"executionOrder": "v1"}\n\n'
+            "Common n8n node types:\n"
+            '- "n8n-nodes-base.scheduleTrigger" — triggers on a schedule\n'
+            '- "n8n-nodes-base.webhook" — triggers on HTTP request\n'
+            '- "n8n-nodes-base.httpRequest" — makes HTTP API calls\n'
+            '- "n8n-nodes-base.set" — sets variables\n'
+            '- "n8n-nodes-base.if" — conditional branching\n'
+            '- "n8n-nodes-base.start" — manual start\n\n'
+            f"User request: {request.prompt}\n\n"
+            "Return ONLY the JSON workflow object, no explanation."
+        )
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "nodes": {"type": "array", "items": {"type": "object"}},
+                "connections": {"type": "object"},
+                "settings": {"type": "object"},
+            },
+            "required": ["name", "nodes", "connections"],
+        }
+
+        try:
+            ai_result = await call_inference(
+                prompt=ai_prompt,
+                db=db,
+                team_id=team.id if team else None,
+                schema=schema,
+                endpoint="workflows/generate",
+            )
+            n8n_workflow = ai_result if isinstance(ai_result, dict) else {}
+            if "nodes" not in n8n_workflow:
+                n8n_workflow = _fallback_workflow(request.prompt)
+        except Exception:
+            n8n_workflow = _fallback_workflow(request.prompt)
 
     # Save generated workflow
     result = await db.execute(
@@ -342,6 +383,45 @@ async def generate_workflow(
         variables_used=variables_used,
         template_id=request.template_id,
     )
+
+
+def _fallback_workflow(prompt: str) -> dict:
+    """Generate a basic n8n workflow structure as fallback."""
+    return {
+        "name": f"Generated: {prompt[:50]}",
+        "nodes": [
+            {
+                "name": "Schedule Trigger",
+                "type": "n8n-nodes-base.scheduleTrigger",
+                "typeVersion": 1.1,
+                "position": [250, 300],
+                "parameters": {
+                    "rule": {
+                        "interval": [{"field": "hours", "hoursInterval": 1}],
+                    },
+                },
+            },
+            {
+                "name": "HTTP Request",
+                "type": "n8n-nodes-base.httpRequest",
+                "typeVersion": 4.1,
+                "position": [450, 300],
+                "parameters": {
+                    "method": "POST",
+                    "url": "https://api.example.com/webhook",
+                    "options": {},
+                },
+            },
+        ],
+        "connections": {
+            "Schedule Trigger": {
+                "main": [
+                    [{"node": "HTTP Request", "type": "main", "index": 0}],
+                ],
+            },
+        },
+        "settings": {"executionOrder": "v1"},
+    }
 
 
 @router.post("/import-cloudless-carousel")

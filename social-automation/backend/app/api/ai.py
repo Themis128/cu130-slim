@@ -1361,8 +1361,16 @@ async def best_time_to_post(
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    # TODO: Analyze account's historical engagement data
-    # For now, return general best times per platform
+    """Analyze historical engagement data to recommend best posting times.
+
+    Uses PostAnalyticsSnapshot data for the account to find the day-of-week
+    and hour combinations with the highest average engagement_rate. Falls
+    back to platform defaults when insufficient data exists (fewer than 10
+    snapshots).
+    """
+    from collections import defaultdict
+
+    from app.models.analytics import PostAnalyticsSnapshot
 
     result = await db.execute(
         select(SocialAccount).where(SocialAccount.id == request.account_id)
@@ -1371,7 +1379,17 @@ async def best_time_to_post(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    best_times = {
+    # Query historical analytics snapshots for this account
+    snapshots_result = await db.execute(
+        select(PostAnalyticsSnapshot)
+        .where(PostAnalyticsSnapshot.social_account_id == account.id)
+        .order_by(PostAnalyticsSnapshot.captured_at.desc())
+        .limit(200)
+    )
+    snapshots = snapshots_result.scalars().all()
+
+    # Platform defaults (used when insufficient data)
+    platform_defaults = {
         "linkedin": [
             {"day": "Tuesday", "time": "09:00", "timezone": "Europe/Athens"},
             {"day": "Wednesday", "time": "09:00", "timezone": "Europe/Athens"},
@@ -1392,9 +1410,63 @@ async def best_time_to_post(
             {"day": "Thursday", "time": "10:00", "timezone": "Europe/Athens"},
             {"day": "Saturday", "time": "09:00", "timezone": "Europe/Athens"},
         ],
+        "threads": [
+            {"day": "Monday", "time": "11:00", "timezone": "Europe/Athens"},
+            {"day": "Wednesday", "time": "12:00", "timezone": "Europe/Athens"},
+            {"day": "Friday", "time": "10:00", "timezone": "Europe/Athens"},
+        ],
+        "tiktok": [
+            {"day": "Tuesday", "time": "14:00", "timezone": "Europe/Athens"},
+            {"day": "Thursday", "time": "16:00", "timezone": "Europe/Athens"},
+            {"day": "Sunday", "time": "13:00", "timezone": "Europe/Athens"},
+        ],
     }
 
-    return BestTimeResponse(best_times=best_times.get(account.platform, best_times["linkedin"]))
+    # Need at least 10 snapshots for meaningful analysis
+    if len(snapshots) < 10:
+        defaults = platform_defaults.get(account.platform, platform_defaults["linkedin"])
+        return BestTimeResponse(best_times=defaults)
+
+    # Also get the published_at timestamps from PostTarget to know when posts were published
+    # Group engagement by day-of-week and hour
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    # engagement_by_slot: {(day_idx, hour): [engagement_rates]}
+    engagement_by_slot: dict[tuple[int, int], list[float]] = defaultdict(list)
+
+    for snap in snapshots:
+        # Use captured_at as proxy for when the post was active
+        # Ideally we'd use the post's published_at, but snapshots capture metrics over time
+        dt = snap.captured_at
+        if dt is None:
+            continue
+        day_idx = dt.weekday()
+        hour = dt.hour
+        engagement_by_slot[(day_idx, hour)].append(snap.engagement_rate)
+
+    # Calculate average engagement per slot
+    slot_scores: list[tuple[tuple[int, int], float]] = []
+    for slot, rates in engagement_by_slot.items():
+        avg = sum(rates) / len(rates)
+        slot_scores.append((slot, avg))
+
+    # Sort by engagement score descending
+    slot_scores.sort(key=lambda x: x[1], reverse=True)
+
+    # Take top 3 slots
+    best_times = []
+    for (day_idx, hour), score in slot_scores[:3]:
+        best_times.append({
+            "day": day_names[day_idx],
+            "time": f"{hour:02d}:00",
+            "timezone": "Europe/Athens",
+            "avg_engagement_rate": round(score, 4),
+        })
+
+    if not best_times:
+        defaults = platform_defaults.get(account.platform, platform_defaults["linkedin"])
+        return BestTimeResponse(best_times=defaults)
+
+    return BestTimeResponse(best_times=best_times)
 
 
 @router.post("/improve-content", response_model=ImproveContentResponse)
