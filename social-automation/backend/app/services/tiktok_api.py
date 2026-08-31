@@ -28,6 +28,7 @@ import httpx
 TIKTOK_API_BASE = "https://open.tiktokapis.com"
 TIKTOK_API_VERSION = "v2"
 MAX_TITLE_CHARS = 2200
+MAX_DESC_CHARS = 2200
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,45 @@ class TikTokAPIClient:
         payload = {
             "post_info": post_info,
             "source_info": source_info,
+        }
+
+        url = f"{self._base_url}/post/publish/content/init/"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def init_photo_post_media_upload(
+        self,
+        photo_urls: list[str],
+        title: str = "",
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Initialize a photo carousel via inbox PULL_FROM_URL.
+
+        This is the free-tier friendly flow that sends the post to the
+        creator's TikTok inbox for manual review before publishing.
+        ``photo_urls`` must be publicly accessible (max 35).
+        """
+        if not photo_urls:
+            raise ValueError("At least one photo URL is required")
+        if len(photo_urls) > 35:
+            raise ValueError("A photo post cannot have more than 35 photos")
+
+        payload = {
+            "post_info": {
+                "title": title[:MAX_TITLE_CHARS],
+                "description": description[:MAX_DESC_CHARS],
+            },
+            "source_info": {
+                "source": "PULL_FROM_URL",
+                "photo_cover_index": 1,
+                "photo_images": photo_urls,
+            },
+            "post_mode": "MEDIA_UPLOAD",
+            "media_type": "PHOTO",
         }
 
         url = f"{self._base_url}/post/publish/content/init/"

@@ -28,6 +28,7 @@ from app.services.facebook_api import FacebookAPIClient
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
+from app.services.tiktok_api import TikTokAPIClient
 
 _settings = get_settings()
 
@@ -566,99 +567,59 @@ async def _publish_tiktok(
     media_paths: list[str],
 ) -> PublishResult:
     import asyncio as _asyncio
-    import json as _json
+    # Resolve public URLs for media
+    public_urls: list[str] = []
+    for path in media_paths:
+        url = _media_public_url(path)
+        if url:
+            public_urls.append(url)
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json; charset=UTF-8",
-    }
+    if not public_urls:
+        return PublishResult(
+            success=False,
+            error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
+        )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        # 1) Query creator info — required before posting
-        # 2) Resolve public URLs for media
-        public_urls: list[str] = []
-        for path in media_paths:
-            url = _media_public_url(path)
-            if url:
-                public_urls.append(url)
+    client = TikTokAPIClient(access_token=access_token, open_id=account.account_id)
+    is_video = len(public_urls) == 1 and media_paths[0].lower().endswith(".mp4")
 
-        if not public_urls:
+    # 1) Initialize the post
+    if is_video:
+        init = await client.init_video_post(
+            source="PULL_FROM_URL",
+            video_url=public_urls[0],
+            title=text[:150],
+        )
+    else:
+        init = await client.init_photo_post_media_upload(
+            photo_urls=public_urls[:35],
+            title=text[:150],
+            description=text[:2200],
+        )
+
+    publish_id = init.get("data", {}).get("publish_id")
+    if not publish_id:
+        error = init.get("error", {})
+        return PublishResult(success=False, error=f"TikTok init failed: {error}")
+
+    # 2) Poll for publish status (up to 90s)
+    for _ in range(18):
+        await _asyncio.sleep(5)
+        status = await client.check_publish_status(publish_id)
+        status_data = status.get("data", {})
+        status_value = status_data.get("status", "")
+        if status_value == "PUBLISH_COMPLETE":
+            tt_post_id = status_data.get("publicaly_available_post_id", [None])[0]
             return PublishResult(
-                success=False,
-                error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
+                success=True,
+                platform_post_id=publish_id,
+                platform_url=f"https://www.tiktok.com/@{account.username}/video/{tt_post_id}" if tt_post_id else None,
             )
+        if status_value in ("FAILED", "CANCELLED"):
+            fail_reason = status_data.get("fail_reason", "unknown")
+            return PublishResult(success=False, error=f"TikTok publish failed: {fail_reason}")
 
-        is_video = len(public_urls) == 1 and media_paths[0].lower().endswith(".mp4")
-
-        # 3a) Photo / carousel — use MEDIA_UPLOAD so content goes to inbox for user review
-        #     This allows public posting even on unaudited apps (user taps inbox notification)
-        if not is_video:
-            body = {
-                "post_info": {
-                    "title": text[:150],
-                    "description": text[:2200],
-                },
-                "source_info": {
-                    "source": "PULL_FROM_URL",
-                    "photo_cover_index": 1,
-                    "photo_images": public_urls[:35],
-                },
-                "post_mode": "MEDIA_UPLOAD",
-                "media_type": "PHOTO",
-            }
-            resp = await client.post(
-                "https://open.tiktokapis.com/v2/post/publish/content/init/",
-                headers=headers,
-                content=_json.dumps(body).encode(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("error", {}).get("code", "ok") != "ok":
-                return PublishResult(success=False, error=f"TikTok photo upload error: {data['error']}")
-            publish_id = data["data"]["publish_id"]
-
-        # 3b) Video — upload to inbox via PULL_FROM_URL
-        else:
-            body = {
-                "source_info": {
-                    "source": "PULL_FROM_URL",
-                    "video_url": public_urls[0],
-                },
-            }
-            resp = await client.post(
-                "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
-                headers=headers,
-                content=_json.dumps(body).encode(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("error", {}).get("code", "ok") != "ok":
-                return PublishResult(success=False, error=f"TikTok video upload error: {data['error']}")
-            publish_id = data["data"]["publish_id"]
-
-        # 4) Poll for publish status (up to 90s)
-        for _ in range(18):
-            await _asyncio.sleep(5)
-            status_resp = await client.post(
-                "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
-                headers=headers,
-                content=_json.dumps({"publish_id": publish_id}).encode(),
-            )
-            status_resp.raise_for_status()
-            status_data = status_resp.json().get("data", {})
-            status = status_data.get("status", "")
-            if status == "PUBLISH_COMPLETE":
-                tt_post_id = status_data.get("publicaly_available_post_id", [None])[0]
-                return PublishResult(
-                    success=True,
-                    platform_post_id=publish_id,
-                    platform_url=f"https://www.tiktok.com/@{account.username}/video/{tt_post_id}" if tt_post_id else None,
-                )
-            if status in ("FAILED", "CANCELLED"):
-                fail_reason = status_data.get("fail_reason", "unknown")
-                return PublishResult(success=False, error=f"TikTok publish failed: {fail_reason}")
-
-        return PublishResult(success=False, error=f"TikTok publish timeout (publish_id={publish_id})")
+    return PublishResult(success=False, error=f"TikTok publish timeout (publish_id={publish_id})")
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────
