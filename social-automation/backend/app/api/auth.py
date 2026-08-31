@@ -417,6 +417,300 @@ async def change_password(
     return {"message": "Password updated"}
 
 
+# ── 2FA (TOTP) ────────────────────────────────────────────────────────────────
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    qr_uri: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a TOTP secret and QR URI for 2FA setup."""
+    import base64
+    import hashlib
+    import os
+    import time
+
+    # Generate a random secret (20 bytes = 160 bits, per RFC 4226)
+    secret_bytes = os.urandom(20)
+    secret = base64.b32encode(secret_bytes).decode("utf-8").rstrip("=")
+
+    # Store secret temporarily (not yet enabled — user must verify first)
+    current_user.two_factor_secret = secret
+    await db.commit()
+
+    # Build otpauth URI
+    issuer = "SocialAuto"
+    label = f"{issuer}:{current_user.email}"
+    qr_uri = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
+
+    return TwoFactorSetupResponse(secret=secret, qr_uri=qr_uri)
+
+
+@router.post("/2fa/verify")
+async def verify_2fa(
+    data: TwoFactorVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify a TOTP code and enable 2FA."""
+    if not current_user.two_factor_secret:
+        raise HTTPException(status_code=400, detail="2FA setup not initiated")
+
+    if not _verify_totp(current_user.two_factor_secret, data.code):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.two_factor_enabled = True
+    await db.commit()
+
+    return {"message": "Two-factor authentication enabled", "enabled": True}
+
+
+@router.delete("/2fa")
+async def disable_2fa(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disable 2FA (requires password confirmation)."""
+    from app.core.security import verify_password
+
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+
+    current_user.two_factor_enabled = False
+    current_user.two_factor_secret = None
+    await db.commit()
+
+    return {"message": "Two-factor authentication disabled", "enabled": False}
+
+
+def _verify_totp(secret: str, code: str, window: int = 1) -> bool:
+    """Verify a TOTP code against the secret using a ±1 time window."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    # Decode the base32 secret
+    padding = "=" * (8 - len(secret) % 8) if len(secret) % 8 else ""
+    try:
+        key = base64.b32decode(secret + padding)
+    except Exception:
+        return False
+
+    # Check current time and ±window steps
+    now = int(time.time())
+    for offset in range(-window, window + 1):
+        timestep = (now // 30) + offset
+        msg = struct.pack(">Q", timestep)
+        h = hmac.new(key, msg, hashlib.sha1).digest()
+        offset_byte = h[-1] & 0x0F
+        truncated = struct.unpack(">I", h[offset_byte:offset_byte + 4])[0] & 0x7FFFFFFF
+        expected = str(truncated % 1000000).zfill(6)
+        if hmac.compare_digest(expected, str(code).strip())
+            return True
+    return False
+
+
+# ── Notification preferences ──────────────────────────────────────────────────
+
+class NotificationPreferencesRequest(BaseModel):
+    email_new_post: bool = True
+    email_scheduled: bool = True
+    email_analytics: bool = False
+    push_new_post: bool = True
+    push_scheduled: bool = False
+
+
+class NotificationPreferencesResponse(BaseModel):
+    email_new_post: bool
+    email_scheduled: bool
+    email_analytics: bool
+    push_new_post: bool
+    push_scheduled: bool
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def get_notification_preferences(
+    current_user: User = Depends(get_current_user),
+):
+    """Get the user's notification preferences."""
+    prefs = current_user.notification_preferences or {}
+    return NotificationPreferencesResponse(
+        email_new_post=prefs.get("email_new_post", True),
+        email_scheduled=prefs.get("email_scheduled", True),
+        email_analytics=prefs.get("email_analytics", False),
+        push_new_post=prefs.get("push_new_post", True),
+        push_scheduled=prefs.get("push_scheduled", False),
+    )
+
+
+@router.put("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def update_notification_preferences(
+    data: NotificationPreferencesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the user's notification preferences."""
+    current_user.notification_preferences = data.model_dump()
+    await db.commit()
+    await db.refresh(current_user)
+    return NotificationPreferencesResponse(**current_user.notification_preferences)
+
+
+# ── Data export ───────────────────────────────────────────────────────────────
+
+@router.get("/export-data")
+async def export_user_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export all user data (posts, media metadata, analytics) as JSON."""
+    from app.models.content import MediaAsset, Post, PostTarget
+    from app.models.social_account import SocialAccount
+    from app.models.analytics import PostAnalyticsSnapshot
+
+    result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = result.scalars().first()
+    if not team:
+        return {"user": {"email": current_user.email}, "posts": [], "media": [], "accounts": [], "analytics": []}
+
+    # Posts
+    posts_result = await db.execute(
+        select(Post).where(Post.team_id == team.id).order_by(Post.created_at.desc())
+    )
+    posts = posts_result.scalars().all()
+
+    # Media assets
+    media_result = await db.execute(
+        select(MediaAsset).where(MediaAsset.team_id == team.id).order_by(MediaAsset.created_at.desc())
+    )
+    media = media_result.scalars().all()
+
+    # Social accounts
+    accounts_result = await db.execute(
+        select(SocialAccount).where(SocialAccount.team_id == team.id)
+    )
+    accounts = accounts_result.scalars().all()
+
+    # Analytics snapshots
+    analytics_result = await db.execute(
+        select(PostAnalyticsSnapshot).where(PostAnalyticsSnapshot.team_id == team.id).order_by(PostAnalyticsSnapshot.captured_at.desc()).limit(500)
+    )
+    snapshots = analytics_result.scalars().all()
+
+    return {
+        "user": {
+            "email": current_user.email,
+            "name": current_user.name,
+            "timezone": current_user.timezone,
+            "created_at": current_user.created_at.isoformat(),
+        },
+        "posts": [
+            {
+                "id": str(p.id),
+                "content_text": p.content_text,
+                "status": p.status.value if hasattr(p.status, "value") else str(p.status),
+                "created_at": p.created_at.isoformat(),
+                "scheduled_at": p.scheduled_at.isoformat() if p.scheduled_at else None,
+            }
+            for p in posts
+        ],
+        "media": [
+            {
+                "id": str(m.id),
+                "filename": m.filename,
+                "mime_type": m.mime_type,
+                "size_bytes": m.size_bytes,
+                "alt_text": m.alt_text,
+                "tags": m.tags,
+                "ai_tags": m.ai_tags,
+                "ai_caption": m.ai_caption,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in media
+        ],
+        "accounts": [
+            {
+                "platform": a.platform,
+                "username": a.username,
+                "display_name": a.display_name,
+                "status": a.status,
+            }
+            for a in accounts
+        ],
+        "analytics": [
+            {
+                "platform": s.platform,
+                "impressions": s.impressions,
+                "clicks": s.clicks,
+                "likes": s.likes,
+                "comments": s.comments,
+                "shares": s.shares,
+                "engagement": s.engagement,
+                "engagement_rate": s.engagement_rate,
+                "captured_at": s.captured_at.isoformat(),
+            }
+            for s in snapshots
+        ],
+    }
+
+
+# ── Delete account ────────────────────────────────────────────────────────────
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+@router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    data: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the user's account and all associated data."""
+    from app.core.security import verify_password
+
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+
+    # The cascade="all, delete-orphan" on Team relationships will clean up
+    # posts, media, accounts, workflows, etc. when the team is deleted.
+    result = await db.execute(
+        select(Team).where(Team.owner_id == current_user.id)
+    )
+    owned_teams = result.scalars().all()
+
+    for team in owned_teams:
+        await db.delete(team)
+
+    # Remove team memberships
+    result = await db.execute(
+        select(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    memberships = result.scalars().all()
+    for membership in memberships:
+        await db.delete(membership)
+
+    await db.delete(current_user)
+    await db.commit()
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
