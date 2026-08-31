@@ -592,6 +592,7 @@ async def test_call_workers_ai_image_handles_new_direct_format(monkeypatch, cf_s
     )
 
     assert result["image_base64"] == "base64imagedata=="
+    assert result["format"] == "base64"
 
 
 @pytest.mark.parametrize(
@@ -620,4 +621,47 @@ async def test_free_cloud_provider_env_config(
 def test_free_cloud_providers_are_in_catalog():
     names = {provider["name"] for provider in inference.PROVIDER_CATALOG}
     assert {"gemini", "openrouter", "sambanova", "mistral", "cohere"} <= names
-    assert result["format"] == "base64"
+
+
+@pytest.mark.asyncio
+async def test_text_provider_chain_keeps_ollama_last(monkeypatch):
+    monkeypatch.setattr(inference, "_ai_token", lambda: "cf-key")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account")
+    monkeypatch.setattr(inference.settings, "GROQ_API_KEY", "groq-key")
+    monkeypatch.setattr(inference.settings, "GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setattr(inference.settings, "MISTRAL_API_KEY", "mistral-key")
+    monkeypatch.setattr(inference.settings, "COHERE_API_KEY", "cohere-key")
+    monkeypatch.setattr(inference.settings, "OPENROUTER_API_KEY", "openrouter-key")
+    monkeypatch.setattr(inference.settings, "NVIDIA_API_KEY", "nvidia-key")
+
+    chain = await inference._text_provider_chain("cloudflare", None, None)
+
+    assert chain == [
+        "cloudflare",
+        "groq",
+        "gemini",
+        "mistral",
+        "cohere",
+        "openrouter",
+        "nvidia",
+        "ollama",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_text_provider_chain_reorders_explicit_ollama(monkeypatch):
+    monkeypatch.setattr(inference, "_ai_token", lambda: "cf-key")
+    monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account")
+    for setting_name in (
+        "GROQ_API_KEY",
+        "GEMINI_API_KEY",
+        "MISTRAL_API_KEY",
+        "COHERE_API_KEY",
+        "OPENROUTER_API_KEY",
+        "NVIDIA_API_KEY",
+    ):
+        monkeypatch.setattr(inference.settings, setting_name, "")
+
+    chain = await inference._text_provider_chain("ollama", None, None)
+
+    assert chain == ["cloudflare", "ollama"]

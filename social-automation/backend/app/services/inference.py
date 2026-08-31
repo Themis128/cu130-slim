@@ -1466,6 +1466,40 @@ async def _do_call_inference(
     )
 
 
+async def _text_provider_chain(
+    provider_name: str,
+    team_id: uuid.UUID | None,
+    db: AsyncSession | None,
+) -> list[str]:
+    priority = ["cloudflare", "groq", "gemini", "mistral", "cohere", "openrouter", "nvidia"]
+    credentials = {
+        "cloudflare": bool(_ai_token() and settings.CLOUDFLARE_ACCOUNT_ID),
+        "groq": bool(settings.GROQ_API_KEY),
+        "gemini": bool(settings.GEMINI_API_KEY),
+        "mistral": bool(settings.MISTRAL_API_KEY),
+        "cohere": bool(settings.COHERE_API_KEY),
+        "openrouter": bool(settings.OPENROUTER_API_KEY),
+        "nvidia": bool(settings.NVIDIA_API_KEY),
+    }
+    enabled = set(priority)
+    if db and team_id:
+        result = await db.execute(
+            select(AIProvider.name).where(
+                AIProvider.team_id == team_id,
+                AIProvider.is_enabled.is_(True),
+            )
+        )
+        enabled = set(result.scalars().all())
+
+    cloud = [name for name in priority if credentials[name] and name in enabled]
+    if provider_name != "ollama" and provider_name not in cloud:
+        cloud.insert(0, provider_name)
+    elif provider_name in cloud:
+        cloud.remove(provider_name)
+        cloud.insert(0, provider_name)
+    return [*cloud, "ollama"]
+
+
 async def call_inference(
     prompt: str,
     provider_name: str = "cloudflare",
@@ -1499,20 +1533,43 @@ async def call_inference(
         tracked_model = model_override or provider_name
 
     start = time.perf_counter()
+    used_provider = provider_name
+    is_image_request = provider_name in {
+        "nvidia-flux",
+        "nvidia-flux-dev",
+        "local-sd35",
+        "nvidia-flux-pipeline",
+    } or (provider_name == "cloudflare" and _is_workers_ai_image_model(model_override or ""))
+    attempt_providers = [provider_name]
+    if allow_fallback and not is_image_request:
+        attempt_providers = await _text_provider_chain(provider_name, team_id, db)
+
     try:
-        result = await _do_call_inference(
-            prompt,
-            provider_name=provider_name,
-            db=db,
-            team_id=team_id,
-            schema=schema,
-            model_override=model_override,
-            max_tokens=max_tokens,
-            allow_fallback=allow_fallback,
-        )
+        last_error: HTTPException | None = None
+        for candidate in attempt_providers:
+            try:
+                result = await _do_call_inference(
+                    prompt,
+                    provider_name=candidate,
+                    db=db,
+                    team_id=team_id,
+                    schema=schema,
+                    model_override=model_override if candidate == provider_name else None,
+                    max_tokens=max_tokens,
+                    allow_fallback=False,
+                )
+                used_provider = candidate
+                break
+            except HTTPException as exc:
+                last_error = exc
+        else:
+            if last_error:
+                raise last_error
+            raise HTTPException(status_code=502, detail="No inference provider is available")
+
         latency_ms = int((time.perf_counter() - start) * 1000)
         await usage_tracker.track_inference(
-            provider=provider_name,
+            provider=used_provider,
             model=tracked_model,
             prompt=prompt,
             team_id=team_id,
