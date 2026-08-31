@@ -11,6 +11,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 5. [LinkedIn carousel](05-linkedin-carousel.md) — generate and publish a Cloudflare-only PDF carousel.
 6. [Analytics and queue](06-analytics-and-queue.md) — review performance and manage scheduled content.
 7. [Cloudflare database failover](07-cf-database-failover.md) — D1/KV/Vectorize primary with local Postgres/Redis/Chroma failover, sync, and replay.
+8. [Brand identity setup](08-brand-identity-setup.md) — create brand DNA, voice, visual identity, and shareable guidelines.
 
 ## Product plans
 
