@@ -931,7 +931,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
         state=state,
-        scope=tiktok_scopes,
+        scope=oauth_scopes,
         code_challenge=code_challenge,
         code_challenge_method="S256" if code_challenge else None,
         extras_params=extra_params,
