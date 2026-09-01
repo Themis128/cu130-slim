@@ -97,6 +97,49 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 - **Health check**: `GET /api/v1/cf-db/health` shows D1, KV, Vectorize, and router status.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections); their D1 databases serve as periodic backup targets.
 
+## Celery worker architecture
+
+Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app.py` so time-sensitive publishing is never blocked by CPU-heavy media/AI work:
+
+| Queue | Worker container | Concurrency | Tasks |
+|-------|-----------------|-------------|-------|
+| `publishing` | `social-worker-publishing` | 2 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
+| `media` | `social-worker-media` | 2 | `batch_enhance_task`, `auto_tag_asset_task` |
+| `default` + `celery` | `social-worker-default` | 2 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
+
+- `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues.
+- Total: 6 concurrent prefork processes across 3 containers.
+- Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
+- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 3 nodes (publishing, media, default).
+
+## GPU & VRAM optimization
+
+The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Both Ollama and ComfyUI share the GPU:
+
+### Ollama (`ollama` container)
+
+- **Model**: `llama3.1:8b-gpu` (custom Modelfile at `ollama/Modelfile.llama31-gpu`) — forces all 32 layers to GPU (`num_gpu=99`), 2048-token context.
+- **`OLLAMA_FLASH_ATTENTION=1`** — reduces VRAM and RAM for attention layers.
+- **`OLLAMA_KV_CACHE_TYPE=q8_0`** — quantizes KV cache to 8-bit, halves context memory.
+- **`OLLAMA_CONTEXT_LENGTH=2048`** — caps context at 2048 tokens (social copy rarely exceeds 500).
+- **`OLLAMA_GPU_OVERHEAD=2147483648`** (2GB) — reserves VRAM for ComfyUI so Ollama doesn't monopolize the card.
+- **`OLLAMA_MAX_LOADED_MODELS=1`** — only one model resident at a time.
+- **`OLLAMA_NUM_PARALLEL=1`** — no concurrent inference (prevents KV cache multiplication).
+- **`OLLAMA_KEEP_ALIVE=-1`** — model stays in VRAM permanently (no reload latency).
+- Default model in `app/core/config.py` is `llama3.1:8b-gpu`.
+- `ollama ps` should show `100% GPU, 2048 ctx, Forever`.
+
+### ComfyUI (`social-media-comfyui-gpu` container)
+
+- **`--gpu-only`** — forces text encoders, CLIP, and models onto GPU (minimum RAM).
+- **`--force-fp16`** — halves VRAM usage with minimal quality loss.
+- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM Ollama.
+
+### Java heap limits (RAM savings)
+
+- **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m` (was 512m).
+- **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (was default ~1GB). Note: 256m causes OOM; 384m is the minimum.
+
 ## User guides
 
 Step-by-step guides live in `docs/superpowers/guides/`:
