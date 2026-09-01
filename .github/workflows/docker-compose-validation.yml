@@ -51,9 +51,15 @@ jobs:
       - name: Validate pre-built image references
         run: |
           echo "Checking pre-built image references..."
-          # Hub-published images that must stay pinned (not rebuilt in this compose).
+          # All CI-built images use :latest with pull_policy: always.
+          # CI auto-increments version tags (v2.{run_number}) and updates :latest.
           expected_images=(
-            "baltzakist/cu130-slim-comfyui:2.2.0"
+            "baltzakist/cu130-slim-comfyui:latest"
+            "baltzakist/cu130-slim-env-manager-backend:latest"
+            "baltzakist/cu130-slim-env-manager-frontend:latest"
+            "baltzakist/cu130-slim-social-api:latest"
+            "baltzakist/cu130-slim-social-worker:latest"
+            "baltzakist/cu130-slim-social-frontend:latest"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
@@ -73,22 +79,16 @@ jobs:
             fi
           done
 
-          # Hub image may also declare build: so `docker compose build` can refresh it.
-          for service in comfyui; do
+          # All CI-built services must have pull_policy: always.
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker social-frontend celery-beat; do
             if echo "$config_output" | jq -e ".services.\"$service\".image" > /dev/null 2>&1; then
-              echo "✅ $service has a pinned image tag"
-            else
-              echo "❌ Service $service is missing an image tag"
-              exit 1
-            fi
-          done
-
-          # Local-dev social stack is intentionally built from source.
-          for service in social-api social-worker social-frontend; do
-            if echo "$config_output" | jq -e ".services.\"$service\".build" > /dev/null 2>&1; then
-              echo "✅ $service uses local build (expected)"
-            else
-              echo "⚠️  $service has no build section"
+              pull_policy=$(echo "$config_output" | jq -r ".services.\"$service\".pull_policy // \"missing\"")
+              if [[ "$pull_policy" == "always" ]]; then
+                echo "✅ $service has pull_policy: always"
+              else
+                echo "❌ $service has pull_policy: $pull_policy (expected: always)"
+                exit 1
+              fi
             fi
           done
 

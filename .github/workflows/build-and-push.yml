@@ -92,7 +92,7 @@ jobs:
           REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
             | jq -r '.services.comfyui.image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
-            REF="baltzakist/cu130-slim-comfyui:2.2.0"
+            REF="baltzakist/cu130-slim-comfyui:latest"
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
