@@ -1208,6 +1208,34 @@ async def stop_browser_session(
             )
 
 
+@router.post("/browser/extract")
+async def extract_browser_cookies(
+    current_user=Depends(get_current_user),
+):
+    """Manually extract cookies from the running browser session.
+
+    Use this after the user has logged in via noVNC but the automatic
+    URL detection hasn't triggered.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(f"{_BROWSER_BRIDGE_URL}/session/extract")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
 @router.get("/browser/novnc-url")
 async def browser_novnc_url(
     current_user=Depends(get_current_user),
