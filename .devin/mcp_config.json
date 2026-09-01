@@ -7,18 +7,13 @@
         "-v", "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
         "-w", "/workspace",
         "mcr.microsoft.com/playwright/mcp:latest",
-        "--headless",
+        "--config", "/workspace/.playwright-data/pw-mcp-config.json",
         "--user-data-dir", "/home/pwuser/.playwright-data/profile",
-        "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "--viewport-size", "1920x1080",
+        "--init-script", "/workspace/.playwright-data/init-script.js",
+        "--ignore-https-errors",
         "--timeout-action", "15000",
         "--timeout-navigation", "120000",
-        "--timeout-settle", "1500",
-        "--no-sandbox",
-        "--ignore-https-errors",
-        "--block-service-workers",
-        "--grant-permissions", "clipboard-read", "clipboard-write",
-        "--init-script", "/workspace/.playwright-data/init-script.js"
+        "--timeout-settle", "1500"
       ]
     },
     "github-local": {
