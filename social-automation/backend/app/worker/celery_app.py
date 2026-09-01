@@ -33,6 +33,25 @@ celery_app.conf.update(
     task_soft_time_limit=3000,
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=100,
+    # Queue routing: time-sensitive publishing tasks are isolated from
+    # CPU-heavy media/AI tasks so a long-running batch enhance never blocks
+    # a "publish now" or scheduled-post dispatch.
+    task_routes={
+        # ── publishing queue: time-sensitive, user-facing ──────────────────
+        "app.worker.tasks.publishing.process_publish_queue": {"queue": "publishing"},
+        "app.worker.tasks.publishing.check_scheduled_posts": {"queue": "publishing"},
+        "app.worker.tasks.publishing.publish_post_now": {"queue": "publishing"},
+        "app.worker.tasks.token_refresh.refresh_expiring_tokens": {"queue": "publishing"},
+        # ── media queue: CPU-intensive, long-running ───────────────────────
+        "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
+        "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
+        # ── default queue: analytics, workflows, digests, everything else ──
+        "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
+        "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
+        "app.worker.tasks.workflows.execute_workflow": {"queue": "default"},
+        "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
+        "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
+    },
     beat_schedule={
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
