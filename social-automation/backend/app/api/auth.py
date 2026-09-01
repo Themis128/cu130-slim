@@ -889,8 +889,9 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": [
-            "public_profile", "email",
+            "public_profile",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+            "pages_manage_engagement", "pages_manage_metadata",
         ],
         "instagram": [
             "instagram_basic", "instagram_content_publish",
