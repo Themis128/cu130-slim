@@ -214,6 +214,7 @@ export const contentApi = {
     target_account_ids?: string[]
     targets?: Array<{ social_account_id: string }>
     metadata?: Record<string, unknown>
+    music_asset_id?: string
   }) => {
     const { targets, target_account_ids, ...rest } = data
     const accountIds =
@@ -235,6 +236,7 @@ export const contentApi = {
     link_preview_override: Record<string, unknown>
     scheduled_at: string
     status: string
+    music_asset_id: string | null
   }>) => api.patch(`/content/posts/${id}`, data),
   deletePost: (id: string) => api.delete(`/content/posts/${id}`),
   duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),

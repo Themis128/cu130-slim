@@ -6,12 +6,12 @@ import {
   X, Image as ImageIcon, Sparkles, Send, Calendar, Save,
   LayoutTemplate, AlignLeft, List, BarChart2, PlaySquare, BookOpen,
   Heart, MessageCircle, Share2, Bookmark, Repeat2, MoreHorizontal,
-  ThumbsUp, Globe, ChevronDown, Loader2, Copy, Layers, Shield,
+  ThumbsUp, Globe, ChevronDown, Loader2, Copy, Layers, Shield, Music,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { Textarea } from '@/components/ui/Textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/Dialog'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
@@ -19,6 +19,7 @@ import Link from 'next/link'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
 import { contentApi, aiApi, mediaUrl, brandApi } from '@/services/api'
 import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
+import { MusicPickerDialog } from '@/components/ui/MusicPickerDialog'
 import type { SocialAccount, MediaAsset } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
@@ -362,6 +363,9 @@ export default function NewPostPage() {
   const [openVariants, setOpenVariants] = useState<Set<string>>(new Set())
   const [brandCompliance, setBrandCompliance] = useState<{ score: number; issues: Array<{ type: string; message: string; suggestion: string }>; banned_found: string[]; preferred_found: string[]; tone_match: { score: number; issues: string[]; suggestions: string[] } } | null>(null)
   const [complianceLoading, setComplianceLoading] = useState(false)
+  const [musicAssetId, setMusicAssetId] = useState<string | null>(null)
+  const [musicFileName, setMusicFileName] = useState<string>('')
+  const [musicPickerOpen, setMusicPickerOpen] = useState(false)
 
   const connectedAccounts = useMemo(() => {
     const list = (accounts as SocialAccount[] | undefined) || []
@@ -549,6 +553,7 @@ export default function NewPostPage() {
       const post = await createPostMutation.mutateAsync({
         content_text: content,
         media_ids: mediaIds.length ? mediaIds : undefined,
+        music_asset_id: musicAssetId || undefined,
         targets,
         platform_specific: selectedPlatforms.includes('tiktok')
           ? { tiktok: { publish_mode: tiktokPublishMode, privacy_level: tiktokPrivacyLevel } }
@@ -955,6 +960,66 @@ export default function NewPostPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Music / Audio Track */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Music className="h-4 w-4 text-muted-foreground" />
+                Music Track
+              </CardTitle>
+              <CardDescription>
+                Add background music to video posts (TikTok, Instagram Reels). Audio is mixed into the video before publishing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {musicAssetId ? (
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Music className="h-5 w-5 text-primary shrink-0" />
+                    <span className="text-sm truncate">{musicFileName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setMusicAssetId(null); setMusicFileName('') }}
+                    >
+                      <X className="h-4 w-4" /> Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMusicPickerOpen(true)}
+                  >
+                    <Layers className="mr-2 h-3.5 w-3.5" />
+                    Pick from Library
+                  </Button>
+                  <MusicPickerDialog
+                    open={musicPickerOpen}
+                    onOpenChange={setMusicPickerOpen}
+                    onSelect={(asset) => {
+                      setMusicAssetId(String(asset.id))
+                      setMusicFileName(asset.filename || asset.storage_path || 'Audio track')
+                      setMusicPickerOpen(false)
+                    }}
+                    title="Select Music Track"
+                  />
+                </div>
+              )}
+              {!musicAssetId && (
+                <p className="text-xs text-muted-foreground">
+                  Upload audio files (MP3, WAV, AAC, M4A, OGG) to the media library first, then pick from here.
+                </p>
               )}
             </CardContent>
           </Card>

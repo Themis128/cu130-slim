@@ -28,6 +28,7 @@ class PostCreate(BaseModel):
     scheduled_at: datetime | None = None
     target_account_ids: list[uuid.UUID] = []
     metadata: dict = {}
+    music_asset_id: uuid.UUID | None = None
 
 class PostUpdate(BaseModel):
     content_text: str | None = None
@@ -40,6 +41,7 @@ class PostUpdate(BaseModel):
     scheduled_at: datetime | None = None
     target_account_ids: list[uuid.UUID] | None
     metadata: dict | None = None
+    music_asset_id: uuid.UUID | None = None
 
 
 class PostResponse(BaseModel):
@@ -61,6 +63,7 @@ class PostResponse(BaseModel):
     workflow_id: uuid.UUID | None
     workflow_run_id: str | None
     metadata: dict
+    music_asset_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     targets: list[dict] = []
@@ -101,6 +104,7 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
         link_preview_override=post_data.link_preview_override,
         scheduled_at=post_data.scheduled_at,
         meta_data=post_data.metadata,
+        music_asset_id=post_data.music_asset_id,
     )
     db.add(post)
     await db.flush()
@@ -326,6 +330,7 @@ async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_cu
         link_url=post.link_url,
         link_preview_override=post.link_preview_override,
         meta_data={},
+        music_asset_id=post.music_asset_id,
     )
     db.add(new_post)
     await db.flush()
@@ -363,6 +368,7 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         workflow_id=post.workflow_id,
         workflow_run_id=post.workflow_run_id,
         metadata=post.meta_data,
+        music_asset_id=post.music_asset_id,
         created_at=post.created_at,
         updated_at=post.updated_at,
         targets=[

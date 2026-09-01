@@ -63,6 +63,15 @@ async def publish_to_platform(
     text = _build_post_text(post, account.platform)
     media_paths = await _resolve_media_paths(post, db)
 
+    # If the post has a music asset and a single video, mix the audio in
+    music_path = await _resolve_music_path(post, db)
+    if music_path and media_paths and len(media_paths) == 1:
+        vpath = media_paths[0]
+        if vpath.lower().endswith((".mp4", ".mov", ".webm")):
+            mixed = await _mix_audio_into_video(vpath, music_path)
+            if mixed != vpath:
+                media_paths[0] = mixed
+
     dispatch = {
         "twitter": _publish_twitter,
         "linkedin": _publish_linkedin,
@@ -105,6 +114,56 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
         if os.path.exists(path):
             paths.append(path)
     return paths
+
+
+async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
+    """Resolve the file path for the post's music asset, if any."""
+    if not post.music_asset_id:
+        return None
+    result = await db.execute(select(MediaAsset).where(MediaAsset.id == post.music_asset_id))
+    asset = result.scalar_one_or_none()
+    if not asset or not asset.storage_path:
+        return None
+    upload_dir = os.environ.get("UPLOAD_DIR", "/app/uploads")
+    path = asset.storage_path
+    if not os.path.isabs(path):
+        path = os.path.join(upload_dir, path)
+    if os.path.exists(path):
+        return path
+    return None
+
+
+async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
+    """Mix an audio track into a video file using ffmpeg.
+
+    Returns the path to the new video file with the mixed audio.
+    The original video audio is replaced (not merged) with the music track.
+    """
+    import asyncio as _asyncio
+    import tempfile
+    out_path = tempfile.NamedTemporaryFile(suffix="_mixed.mp4", delete=False).name
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",
+        out_path,
+    ]
+    proc = await _asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=_asyncio.subprocess.PIPE,
+        stderr=_asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace")[:500]
+        print(f"[publishing] ffmpeg mix failed: {err}", flush=True)
+        return video_path  # fall back to original
+    return out_path
 
 
 def _build_post_text(post: Post, platform: str) -> str:

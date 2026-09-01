@@ -113,7 +113,7 @@ async def upload_media(
     # Validate and sanitize user-supplied filename and extension.
     raw_name = file.filename or "upload"
     raw_ext = pathlib.Path(raw_name).suffix.lower()
-    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".avif", ".heic"}
+    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".avif", ".heic", ".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
     if raw_ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported file extension")
 
