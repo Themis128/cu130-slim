@@ -9,15 +9,18 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 | n8n | 5678 | Workflow automation (Cloudless carousel, daily Slack digest) |
 | social-api | 8083 | FastAPI backend (`/api/v1`) |
 | social-frontend | 8082 | Next.js dashboard |
-| social-worker | - | Celery worker for publishing + digests |
+| social-worker-publishing | - | Celery worker — `publishing` queue (publish, scheduled posts, token refresh) |
+| social-worker-media | - | Celery worker — `media` queue (batch enhance, auto-tagging) |
+| social-worker-default | - | Celery worker — `default` + `celery` queues (analytics, workflows, digests) |
+| celery-beat | - | Celery beat scheduler (single instance, dispatches to routed queues) |
 | redis | 6379 | Queue/cache (local failover for Cloudflare KV) |
 | social-postgres | 5433 | Application database (local failover for Cloudflare D1) |
 | postgres | 5432 | Metabase database |
 | chroma | 8001 | Vector store (local failover for Cloudflare Vectorize) |
-| languagetool | 8010 | Self-hosted spell/grammar checker |
-| ollama | 11435 | Local LLM inference |
-| comfyui | 8000 | ComfyUI image generation (requires NVIDIA) |
-| metabase | 3000 | BI dashboards |
+| languagetool | 8010 | Self-hosted spell/grammar checker (Java heap capped at 256MB) |
+| ollama | 11435 | Local LLM inference — 100% GPU offload, q8_0 KV cache, 2048 ctx |
+| comfyui | 8000 | ComfyUI image generation (requires NVIDIA, `--gpu-only --force-fp16 --reserve-vram 1`) |
+| metabase | 3000 | BI dashboards (Java heap capped at 384MB) |
 
 ### Cloudflare databases (primary, free tier)
 
