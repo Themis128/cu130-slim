@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.core.config import get_settings
@@ -1271,11 +1272,15 @@ async def generate_content(
 
     # Load brand context for on-brand generation
     brand_context_str = ""
+    brand_dict: dict | None = None
+    voice_dict: dict | None = None
     if team:
         from app.models.brand import Brand
         from app.services.brand_compliance import build_brand_system_prompt
         brand_result = await db.execute(
-            select(Brand).where(Brand.team_id == team.id)
+            select(Brand)
+            .options(selectinload(Brand.voice))
+            .where(Brand.team_id == team.id)
         )
         brand = brand_result.scalars().first()
         if brand:
@@ -1287,7 +1292,6 @@ async def generate_content(
                 "tagline": brand.tagline,
                 "target_audience": brand.target_audience or {},
             }
-            voice_dict = None
             if brand.voice:
                 voice_dict = {
                     "tone_dimensions": brand.voice.tone_dimensions or {},
