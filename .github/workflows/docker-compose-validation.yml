@@ -66,8 +66,8 @@ jobs:
 
           for img in "${expected_images[@]}"; do
             service_name=$(echo "$img" | sed 's|.*/cu130-slim-\(.*\):.*|\1|')
-            if echo "$config_output" | jq -e ".services.\"$service_name\"" > /dev/null 2>&1; then
-              actual_image=$(echo "$config_output" | jq -r ".services.\"$service_name\".image")
+            if echo "$config_output" | jq -e --arg s "$service_name" '.services[$s]' > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r --arg s "$service_name" '.services[$s].image')
               if [[ "$actual_image" == "$img" ]]; then
                 echo "✅ $service_name uses correct image: $actual_image"
               else
@@ -81,8 +81,8 @@ jobs:
 
           # All CI-built services must have pull_policy: always.
           for service in comfyui env-manager-backend env-manager-frontend social-api social-worker social-frontend celery-beat; do
-            if echo "$config_output" | jq -e ".services.\"$service\".image" > /dev/null 2>&1; then
-              pull_policy=$(echo "$config_output" | jq -r ".services.\"$service\".pull_policy // \"missing\"")
+            if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
+              pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
               if [[ "$pull_policy" == "always" ]]; then
                 echo "✅ $service has pull_policy: always"
               else

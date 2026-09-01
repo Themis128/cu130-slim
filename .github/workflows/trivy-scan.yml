@@ -99,7 +99,7 @@ jobs:
         id: image
         run: |
           REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
-            | jq -r ".services.\"${{ matrix.service }}\".image // empty")
+            | jq -r '.services["${{ matrix.service }}"].image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
             REF="cu130-slim-${{ matrix.service }}:latest"
           fi
