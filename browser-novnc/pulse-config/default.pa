@@ -1,0 +1,13 @@
+# PulseAudio default config for browser-novnc container
+# Captures all audio and streams it via TCP for GStreamer encoding
+
+# Load system modules
+load-module module-native-protocol-unix socket=/tmp/pulse-socket
+load-module module-native-protocol-tcp listen=127.0.0.1 port=8001 record=true playback=false
+
+# Create a default sink so apps can play audio
+load-module module-null-sink sink_name=audio_out sink_properties=device.description="Audio_Output"
+set-default-sink audio_out
+
+# Monitor the sink for recording
+load-module module-loopback source=audio_out.monitor sink=audio_out

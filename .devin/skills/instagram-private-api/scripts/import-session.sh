@@ -13,7 +13,7 @@ echo "Importing Instagram session..."
 
 RESP=$(curl -sf -X POST "${SIDECAR_URL}/auth/login/by/sessionid" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data "session_id=${SESSION_ID}&locale=${LOCALE}&timezone=${TIMEZONE}" 2>&1 || true)
+  --data "sessionid=${SESSION_ID}&locale=${LOCALE}&timezone=${TIMEZONE}" 2>&1 || true)
 
 if echo "$RESP" | python3 -c 'import sys; s=sys.stdin.read().strip(); exit(0 if s.startswith("\"") else 1)' 2>/dev/null; then
   NEW_SESSION_ID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin))')

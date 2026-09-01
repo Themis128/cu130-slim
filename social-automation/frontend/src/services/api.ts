@@ -401,6 +401,7 @@ export const browserApi = {
   getStatus: () => api.get('/profile/browser/status'),
   getCookies: () => api.get('/profile/browser/cookies'),
   stopSession: () => api.post('/profile/browser/stop'),
+  extractCookies: () => api.post('/profile/browser/extract'),
   getNovncUrl: () => api.get('/profile/browser/novnc-url'),
   getPlatforms: () => api.get('/profile/browser/platforms'),
   importInstagramSession: () => api.post('/profile/browser/import-instagram-session'),

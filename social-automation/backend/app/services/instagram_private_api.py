@@ -160,7 +160,7 @@ class InstagramPrivateAPIClient:
     ) -> dict[str, Any]:
         """Log in using an existing Instagram sessionid cookie value."""
         data: dict[str, Any] = {
-            "session_id": session_id,
+            "sessionid": session_id,
             "locale": locale,
             "timezone": timezone,
         }

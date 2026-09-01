@@ -1311,7 +1311,7 @@ async def import_instagram_session_from_browser(
         try:
             resp = await client.post(
                 f"{sidecar_url}/auth/login/by/sessionid",
-                data={"session_id": sessionid, "locale": "el_GR", "timezone": "10800"},
+                data={"sessionid": sessionid, "locale": "el_GR", "timezone": "10800"},
             )
             if resp.status_code == 200:
                 sidecar_session = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
