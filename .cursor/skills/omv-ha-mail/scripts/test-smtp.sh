@@ -31,8 +31,8 @@ port = int(sys.argv[2])
 
 try:
     server = smtplib.SMTP(host, port, timeout=10)
-    code, msg = server.ehlo()
-    print(f"  EHLO: OK ({code} {msg.decode()[:80]})")
+    banner = server.ehlo()
+    print(f"  EHLO: OK ({banner.message.decode()[:80]})")
 
     # Check STARTTLS
     if server.has_extn('starttls'):
