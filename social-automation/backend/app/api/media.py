@@ -167,17 +167,31 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         ".mp4": "video/mp4",
         ".webm": "video/webm",
         ".mov": "video/quicktime",
+        ".pdf": "application/pdf",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".aac": "audio/aac",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
     }
 
     # Determine the file extension / mime type from the path (works for all backends).
     ext = pathlib.Path(path).suffix.lower()
     mime = ext_mime.get(ext, "application/octet-stream")
 
+    # Formats that browsers can display/download directly without Pillow conversion.
+    DIRECT_SERVE_TYPES = BROWSER_NATIVE_IMAGE_TYPES | {
+        "video/mp4", "video/webm", "video/quicktime",
+        "application/pdf",
+        "audio/mpeg", "audio/wav", "audio/aac", "audio/mp4", "audio/ogg", "audio/flac",
+    }
+
     # --- Try local disk first ---
     try:
         target = safe_resolve(UPLOAD_DIR, path)
         if target.is_file():
-            if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+            if mime in DIRECT_SERVE_TYPES:
                 return FileResponse(str(target), media_type=mime)
             try:
                 buf = target.read_bytes()
@@ -202,7 +216,7 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         try:
             data = await minio_storage.get_object(path)
             if data:
-                if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+                if mime in DIRECT_SERVE_TYPES:
                     return Response(content=data, media_type=mime)
                 try:
                     img = Image.open(io.BytesIO(data))
@@ -226,7 +240,7 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     try:
         data = await r2_storage.get_object(path)
         if data:
-            if mime.startswith("video/") or mime in BROWSER_NATIVE_IMAGE_TYPES:
+            if mime in DIRECT_SERVE_TYPES:
                 return Response(content=data, media_type=mime)
             try:
                 img = Image.open(io.BytesIO(data))
