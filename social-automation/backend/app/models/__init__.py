@@ -4,6 +4,7 @@ from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines,
 from app.models.content import MediaAsset, MediaCollection, Post, PostTarget, StorageBackend
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
+from app.models.social_secret import SocialSecret
 from app.models.user import Team, TeamMember, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 
@@ -29,4 +30,5 @@ __all__ = [
     "BrandGuidelines",
     "BrandAsset",
     "BrandAssetType",
+    "SocialSecret",
 ]

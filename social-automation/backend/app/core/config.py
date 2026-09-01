@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/linkedin/callback"
+    LINKEDIN_USERNAME: str = ""
+    LINKEDIN_PASSWORD: str = ""
 
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
@@ -137,6 +139,8 @@ class Settings(BaseSettings):
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
     FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/facebook/callback"
+    FACEBOOK_USERNAME: str = ""
+    FACEBOOK_PASSWORD: str = ""
 
     THREADS_CLIENT_ID: str = ""
     THREADS_CLIENT_SECRET: str = ""

@@ -43,6 +43,7 @@ from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
 )
+from app.services.secret_store import secret_store
 from app.services.tiktok_profile import TikTokProfileError, TikTokProfileService
 from app.services.twitter_profile import TwitterProfileError, TwitterProfileService
 
@@ -120,16 +121,24 @@ class ProfileUpdateResponse(BaseModel):
 
 
 class InstagramLoginRequest(BaseModel):
-    """Instagram private API login request."""
-    username: str
-    password: str
+    """Instagram private API login request.
+
+    If username/password are omitted, the SecretStore is consulted
+    (INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD).
+    """
+    username: str | None = None
+    password: str | None = None
     verification_code: str | None = None
 
 
 class BrowserLoginRequest(BaseModel):
-    """Facebook/LinkedIn browser automation login request."""
-    username: str
-    password: str
+    """Facebook/LinkedIn browser automation login request.
+
+    If username/password are omitted, the SecretStore is consulted
+    (FACEBOOK_USERNAME / FACEBOOK_PASSWORD or LINKEDIN_USERNAME / LINKEDIN_PASSWORD).
+    """
+    username: str | None = None
+    password: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -322,11 +331,22 @@ async def platform_login(
     account = await _get_account(account_id, current_user, db)
 
     if account.platform == "instagram":
+        username = req.username or await secret_store.get("INSTAGRAM_USERNAME")
+        password = req.password or await secret_store.get("INSTAGRAM_PASSWORD")
+        if not username or not password:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Instagram username and password are required. "
+                    "Provide them in the request or set INSTAGRAM_USERNAME / "
+                    "INSTAGRAM_PASSWORD in the secret store."
+                ),
+            )
         client = _get_instagram_private_client()
         try:
             result = await client.login(
-                username=req.username,
-                password=req.password,
+                username=username,
+                password=password,
                 verification_code=getattr(req, "verification_code", None),
             )
         except InstagramPrivateAPIError as e:
@@ -349,12 +369,30 @@ async def platform_login(
         )
 
     if account.platform in ("facebook", "linkedin"):
+        if account.platform == "facebook":
+            username = req.username or await secret_store.get("FACEBOOK_USERNAME")
+            password = req.password or await secret_store.get("FACEBOOK_PASSWORD")
+        else:
+            username = req.username or await secret_store.get("LINKEDIN_USERNAME")
+            password = req.password or await secret_store.get("LINKEDIN_PASSWORD")
+
+        if not username or not password:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    f"{account.platform.capitalize()} username and password are required. "
+                    f"Provide them in the request or set "
+                    f"{account.platform.upper()}_USERNAME / "
+                    f"{account.platform.upper()}_PASSWORD in the secret store."
+                ),
+            )
+
         service = BrowserProfileService()
         try:
             if account.platform == "facebook":
-                result = await service.login_facebook(req.username, req.password)
+                result = await service.login_facebook(username, password)
             else:
-                result = await service.login_linkedin(req.username, req.password)
+                result = await service.login_linkedin(username, password)
         except BrowserProfileError as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
 
@@ -787,26 +825,30 @@ async def _upload_linkedin_cover(
 # ── Twitter/X (tweepy v1.1 API) ──────────────────────────────────────────────
 
 
-def _get_twitter_service() -> TwitterProfileService:
-    """Build a TwitterProfileService from settings."""
-    if not settings.TWITTER_API_KEY or not settings.TWITTER_ACCESS_TOKEN:
+async def _get_twitter_service() -> TwitterProfileService:
+    """Build a TwitterProfileService from SecretStore, falling back to settings."""
+    api_key = await secret_store.get("TWITTER_API_KEY") or settings.TWITTER_API_KEY
+    api_secret = await secret_store.get("TWITTER_API_SECRET") or settings.TWITTER_API_SECRET
+    access_token = await secret_store.get("TWITTER_ACCESS_TOKEN") or settings.TWITTER_ACCESS_TOKEN
+    access_token_secret = await secret_store.get("TWITTER_ACCESS_TOKEN_SECRET") or settings.TWITTER_ACCESS_TOKEN_SECRET
+    if not api_key or not access_token:
         raise HTTPException(
             status_code=503,
             detail="Twitter v1.1 API credentials not configured. "
             "Set TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, "
-            "TWITTER_ACCESS_TOKEN_SECRET in .env. "
+            "TWITTER_ACCESS_TOKEN_SECRET in the secret store or .env. "
             "Profile writes require Twitter Basic ($100/mo) or Pro tier.",
         )
     return TwitterProfileService(
-        api_key=settings.TWITTER_API_KEY,
-        api_secret=settings.TWITTER_API_SECRET,
-        access_token=settings.TWITTER_ACCESS_TOKEN,
-        access_token_secret=settings.TWITTER_ACCESS_TOKEN_SECRET,
+        api_key=api_key,
+        api_secret=api_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
     )
 
 
 async def _get_twitter_profile(account: SocialAccount) -> ProfileResponse:
-    service = _get_twitter_service()
+    service = await _get_twitter_service()
     try:
         data = service.get_profile()
     except TwitterProfileError as e:
@@ -831,7 +873,7 @@ async def _update_twitter_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    service = _get_twitter_service()
+    service = await _get_twitter_service()
     updated: list[str] = []
     ignored: list[str] = []
 
@@ -874,7 +916,7 @@ async def _upload_twitter_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    service = _get_twitter_service()
+    service = await _get_twitter_service()
     try:
         service.update_profile_image(image_bytes)
     except TwitterProfileError as e:
@@ -890,7 +932,7 @@ async def _upload_twitter_banner(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    service = _get_twitter_service()
+    service = await _get_twitter_service()
     try:
         service.update_profile_banner(image_bytes)
     except TwitterProfileError as e:
@@ -905,20 +947,21 @@ async def _upload_twitter_banner(
 # ── TikTok (private API via tiktokflow) ──────────────────────────────────────
 
 
-def _get_tiktok_service() -> TikTokProfileService:
-    """Build a TikTokProfileService from settings."""
-    if not settings.TIKTOK_PRIVATE_API_KEY:
+async def _get_tiktok_service() -> TikTokProfileService:
+    """Build a TikTokProfileService from SecretStore, falling back to settings."""
+    api_key = await secret_store.get("TIKTOK_PRIVATE_API_KEY") or settings.TIKTOK_PRIVATE_API_KEY
+    if not api_key:
         raise HTTPException(
             status_code=503,
             detail="TikTok private API key not configured. "
-            "Set TIKTOK_PRIVATE_API_KEY in .env. "
+            "Set TIKTOK_PRIVATE_API_KEY in the secret store or .env. "
             "Get a signing server API key at tiktok-private-api.com.",
         )
-    return TikTokProfileService(api_key=settings.TIKTOK_PRIVATE_API_KEY)
+    return TikTokProfileService(api_key=api_key)
 
 
 async def _get_tiktok_profile(account: SocialAccount) -> ProfileResponse:
-    service = _get_tiktok_service()
+    service = await _get_tiktok_service()
     try:
         data = service.get_profile()
     except TikTokProfileError as e:
@@ -941,7 +984,7 @@ async def _update_tiktok_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    service = _get_tiktok_service()
+    service = await _get_tiktok_service()
     updated: list[str] = []
     ignored: list[str] = []
 
@@ -978,7 +1021,7 @@ async def _upload_tiktok_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    service = _get_tiktok_service()
+    service = await _get_tiktok_service()
     try:
         service.upload_avatar(image_bytes)
     except TikTokProfileError as e:

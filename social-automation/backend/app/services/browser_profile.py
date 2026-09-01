@@ -78,7 +78,14 @@ class BrowserProfileService:
     async def _launch_context(self, storage_state: dict | None = None) -> BrowserSession:
         """Launch a headless Chromium browser with an optional storage state."""
         p = await self._playwright().start()
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
+        )
         context = await browser.new_context(
             storage_state=storage_state,
             viewport={"width": 1280, "height": 720},
@@ -86,6 +93,10 @@ class BrowserProfileService:
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             ),
+        )
+        # Set a webdriver=false property to reduce headless detection.
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         page = await context.new_page()
         return BrowserSession(browser=browser, context=context, page=page)
@@ -106,16 +117,20 @@ class BrowserProfileService:
         session = await self._launch_context()
         try:
             page = session.page
-            await page.goto("https://www.facebook.com/login")
-            await page.fill("#email", username)
-            await page.fill("#pass", password)
-            await page.click("button[name='login']")
+            await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded")
+            # Facebook renders the login form with JS; wait for the email input.
+            await page.wait_for_selector('input[name="email"]', timeout=30000)
+            await page.fill('input[name="email"]', username)
+            await page.fill('input[name="pass"]', password)
+            # Submit by pressing Enter; the submit button is a locale-specific div on Facebook.
+            await page.press('input[name="pass"]', "Enter")
 
             # Wait for either the home page or a challenge/2FA page
             await page.wait_for_load_state("networkidle")
 
             # Check for 2FA / challenge
-            if "checkpoint" in page.url or page.locator("input#approvals_code").count() > 0:
+            approvals_code_count = await page.locator("input#approvals_code").count()
+            if "checkpoint" in page.url or approvals_code_count > 0:
                 return {
                     "success": False,
                     "two_factor_required": True,

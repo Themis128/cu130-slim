@@ -587,6 +587,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      instagram-private-api:
+        condition: service_healthy
     dns:
     - 1.1.1.1
     - 8.8.8.8
@@ -773,6 +775,12 @@ services:
     - TZ=Europe/Athens
     volumes:
     - instagram_sessions:/app/sessions
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     <<: *public-dns
 

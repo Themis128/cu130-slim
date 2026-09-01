@@ -22,7 +22,9 @@ triggers:
 # Social Profile Update
 
 Update business social profiles programmatically across all 6 platforms
-supported by SocialAuto.
+supported by SocialAuto. Credentials are managed through the
+`social-profile-secrets` skill and stored in the Cloudflare-first secret store
+(`/api/v1/secrets`). All logins should be initiated from the SocialAuto app.
 
 ## Platform capability matrix
 
