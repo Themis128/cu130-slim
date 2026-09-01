@@ -36,6 +36,16 @@ Connect one or more social platforms to a team. Each platform needs its own OAut
 
 Create your app at [developer.x.com](https://developer.x.com/en/portal/dashboard), enable OAuth 2.0, set the redirect URI, and copy the **OAuth 2.0 Client ID** and **Client Secret** (not the OAuth 1.0a Consumer Key/Secret) to `.env` as `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET`.
 
+### Twitter/X troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| "Something went wrong / You weren't able to give access to the App" | App permissions set to Read-only while requesting `tweet.write` | Set App permissions to **Read and Write** in User authentication settings |
+| Same error | Type of App set to Native App (public client) while using a Client Secret | Set Type of App to **Web App, Automated App or Bot** (confidential client) |
+| Same error | Using OAuth 1.0a Consumer Key/Secret instead of OAuth 2.0 Client ID/Secret | Use the **OAuth 2.0 Client ID and Client Secret** from Keys and Tokens, not the Consumer Key/Secret |
+| Same error | Client ID and Client Secret swapped | The Client ID is the shorter one (`STV6...`); the Client Secret is longer (`ukipam9fP_...`) |
+| `invalid_client` | Wrong Client ID/Secret in `.env` | Verify values match the X Developer Portal > Keys and Tokens > OAuth 2.0 |
+
 ## 3. TikTok
 
 1. Go to **Accounts > TikTok**.
@@ -59,7 +69,8 @@ The production redirect URI is `https://social.cloudless.gr/api/v1/auth/oauth/ti
 1. Go to **Accounts > Facebook**.
 2. Click **Connect Facebook**.
 3. Log in with a Facebook account that manages the cloudless.gr Page.
-4. After redirect, the first managed Page is stored with its permanent Page token.
+4. After redirect, the **User account** is stored with a long-lived user token, and all managed **Pages** are automatically discovered and stored as business accounts with permanent Page tokens.
+5. Click **Sync Business** on the User account to re-discover Pages at any time.
 
 ### Facebook OAuth requirements
 
@@ -67,6 +78,8 @@ The production redirect URI is `https://social.cloudless.gr/api/v1/auth/oauth/ti
 - **Redirect URI**: `https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback` (must be HTTPS, registered in the Meta App Dashboard under Facebook Login > Settings).
 - **Token lifecycle**: Short-lived user token (~1 hour) is exchanged for a long-lived token (~60 days). Page tokens are permanent.
 - **App**: Uses the shared Meta app (App ID: `1936126137016578`).
+- **Account model**: The main Facebook account is the **User** (with a user token). Each managed Page is stored as a separate business account (with a Page token). The `Sync Business` button calls `/me/accounts` with the user token to discover Pages.
+- **Publishing**: Posts are published through the Page accounts (which have permanent Page tokens), not the User account.
 
 ## 5. Instagram
 

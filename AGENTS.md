@@ -97,11 +97,20 @@ SocialAuto supports six social platforms across OAuth, publishing, analytics, to
 A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It refreshes any active account token expiring within the next 4 hours:
 
 - **TikTok**: 24-hour tokens — refreshed daily (TikTok doesn't return `expires_in` on refresh, so 24h is assumed).
-- **Twitter/X**: 2-hour tokens — refreshed every hour (requires `offline.access` scope for refresh token).
+- **Twitter/X**: 2-hour tokens — refreshed every hour (requires `offline.access` scope for refresh token). Uses `https://x.com/i/oauth2/authorize` and `https://api.x.com/2/oauth2/token` (not `twitter.com`/`api.twitter.com`).
 - **Meta (Facebook/Instagram/Threads)**: ~60-day long-lived tokens — refreshed when within 4 hours of expiry.
 - **LinkedIn**: tokens don't expire (no `expires_in` returned).
 
 If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page. The task is registered in `celery_app.py` beat_schedule as `refresh-expiring-tokens`.
+
+### Facebook account model
+
+Facebook stores two types of accounts:
+
+1. **User account** (type=`user`) — the Facebook user who authorized, with a long-lived user token. This is the main account used by `Sync Business` to call `/me/accounts`.
+2. **Page accounts** (type=`page`, `is_business=True`) — one per managed Page, with permanent Page tokens. Created automatically during OAuth and when Sync Business is clicked.
+
+If `Sync Business` fails with `(#100) Tried accessing nonexisting field (accounts)`, the stored token is a Page token instead of a User token — disconnect and reconnect Facebook.
 
 ### TikTok OAuth specifics
 

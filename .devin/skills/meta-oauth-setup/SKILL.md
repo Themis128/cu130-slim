@@ -139,6 +139,17 @@ curl http://localhost:8083/health
 
 Open http://localhost:8082/accounts and click Connect for each platform.
 
+### Facebook account model
+
+When a user connects Facebook, SocialAuto stores:
+
+1. **User account** (type=`user`, `is_business=False`) — the Facebook user who authorized, with a long-lived user token (~60 days). This is the main account.
+2. **Page accounts** (type=`page`, `is_business=True`) — one per managed Page, each with a permanent Page token. These are created automatically during OAuth and when **Sync Business** is clicked.
+
+The `Sync Business` button on the User account calls `GET /me/accounts` with the user token to discover Pages. If it fails with `(#100) Tried accessing nonexisting field (accounts)`, the stored token is a Page token instead of a User token — disconnect and reconnect Facebook to fix.
+
+Publishing uses the Page accounts (which have permanent Page tokens), not the User account.
+
 ## Token lifecycle
 
 | Platform | Short-lived | Long-lived | Refresh |

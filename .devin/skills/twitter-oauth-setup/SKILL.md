@@ -102,7 +102,7 @@ Open http://localhost:8082/accounts and click **Connect X / Twitter**.
 ### Refresh token flow
 
 ```bash
-POST https://api.twitter.com/2/oauth2/token
+POST https://api.x.com/2/oauth2/token
 Content-Type: application/x-www-form-urlencoded
 
 refresh_token={REFRESH_TOKEN}
@@ -141,19 +141,23 @@ The `code_verifier` is encoded in the OAuth state parameter (base64 JSON) so the
 |-------|-------|-----|
 | `redirect_uri` mismatch | URI not registered in Developer Console | Add the exact HTTPS redirect URI |
 | `invalid_grant` | Code already used or expired | Re-authorize (codes expire in 30s) |
-| `invalid_client` | Wrong Client ID/Secret | Check `.env` values |
+| `invalid_client` | Wrong Client ID/Secret | Check `.env` values — Client ID and Secret may be swapped |
 | `PKCE verification failed` | Code verifier doesn't match challenge | Ensure PKCE pair is generated correctly |
 | 403 Forbidden | App doesn't have access to endpoint | Check app permissions in Developer Console |
 | 429 Too Many Requests | Rate limit hit | Check `x-rate-limit-reset` header |
+| "Something went wrong / You weren't able to give access to the App" | App permissions set to Read-only while requesting `tweet.write` | Set App permissions to **Read and Write** in User authentication settings |
+| Same error (with correct permissions) | Type of App set to Native App (public client) while using a Client Secret | Set Type of App to **Web App, Automated App or Bot** (confidential client) |
+| Same error (with correct permissions/type) | Using OAuth 1.0a Consumer Key/Secret instead of OAuth 2.0 Client ID/Secret | Use the **OAuth 2.0 Client ID and Client Secret** from Keys and Tokens, not the Consumer Key/Secret |
+| Same error (with all settings correct) | Client ID and Client Secret swapped in `.env` | The Client ID is shorter (`STV6...`); the Client Secret is longer (`ukipam9fP_...`) |
 
 ## API endpoints used by SocialAuto
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `https://api.twitter.com/2/users/me` | GET | Get authenticated user's profile |
-| `https://api.twitter.com/2/tweets` | POST | Create a tweet |
-| `https://api.twitter.com/2/tweets/{id}` | DELETE | Delete a tweet |
-| `https://api.twitter.com/2/users/{id}/tweets` | GET | List user's tweets |
+| `https://api.x.com/2/users/me` | GET | Get authenticated user's profile |
+| `https://api.x.com/2/tweets` | POST | Create a tweet |
+| `https://api.x.com/2/tweets/{id}` | DELETE | Delete a tweet |
+| `https://api.x.com/2/users/{id}/tweets` | GET | List user's tweets |
 
 ## Scripts
 

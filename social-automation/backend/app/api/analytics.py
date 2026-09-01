@@ -90,7 +90,7 @@ async def _twitter_follower_count(account: SocialAccount) -> int:
         user_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://api.twitter.com/2/users/{user_id}",
+                f"https://api.x.com/2/users/{user_id}",
                 headers=headers,
                 params={"user.fields": "public_metrics"},
             )

@@ -519,7 +519,7 @@ async def sync_linkedin_account(
 
 async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id: str) -> MetricBundle:
     """Fetch public metrics for a single tweet via API v2."""
-    url = f"https://api.twitter.com/2/tweets/{tweet_id}"
+    url = f"https://api.x.com/2/tweets/{tweet_id}"
     params = {"tweet.fields": "public_metrics,non_public_metrics"}
     headers = {"Authorization": f"Bearer {token}"}
     resp = await client.get(url, headers=headers, params=params)
