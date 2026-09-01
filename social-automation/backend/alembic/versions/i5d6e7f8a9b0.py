@@ -1,18 +1,18 @@
 """Add music_asset_id to posts for music/audio attachment
 
 Revision ID: i5d6e7f8a9b0
-Revises: h4c5d6e7f8a9
+Revises: 5d35f29495b9
 Create Date: 2026-09-01
 """
-from alembic import op
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "i5d6e7f8a9b0"
 down_revision = "5d35f29495b9"
-branch_labels = None
-depends_on = None
 branch_labels = None
 depends_on = None
 
