@@ -6,7 +6,7 @@ import {
   X, Image as ImageIcon, Sparkles, Send, Calendar, Save,
   LayoutTemplate, AlignLeft, List, BarChart2, PlaySquare, BookOpen,
   Heart, MessageCircle, Share2, Bookmark, Repeat2, MoreHorizontal,
-  ThumbsUp, Globe, ChevronDown, Loader2, Copy, Layers,
+  ThumbsUp, Globe, ChevronDown, Loader2, Copy, Layers, Shield,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SafeImage } from '@/components/ui/SafeImage'
@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
-import { contentApi, aiApi, mediaUrl } from '@/services/api'
+import { contentApi, aiApi, mediaUrl, brandApi } from '@/services/api'
 import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
 import type { SocialAccount, MediaAsset } from '@/types'
 import { useAdvisor } from '@/hooks/useAdvisor'
@@ -360,6 +360,8 @@ export default function NewPostPage() {
   const [repurposing, setRepurposing] = useState(false)
   const [variants, setVariants] = useState<Record<string, string>>({})
   const [openVariants, setOpenVariants] = useState<Set<string>>(new Set())
+  const [brandCompliance, setBrandCompliance] = useState<{ score: number; issues: Array<{ type: string; message: string; suggestion: string }>; banned_found: string[]; preferred_found: string[]; tone_match: { score: number; issues: string[]; suggestions: string[] } } | null>(null)
+  const [complianceLoading, setComplianceLoading] = useState(false)
 
   const connectedAccounts = useMemo(() => {
     const list = (accounts as SocialAccount[] | undefined) || []
@@ -582,9 +584,22 @@ export default function NewPostPage() {
       const hashtags: string[] = data.hashtags || []
       setContent(hashtags.length ? `${generated}\n\n${hashtags.map((h: string) => `#${h}`).join(' ')}` : generated)
       setAiUsed(true)
+      if (data.brand_compliance) {
+        setBrandCompliance(data.brand_compliance)
+      }
       toast.success('AI content generated')
     } catch { toast.error('Failed to generate content') }
     finally { setAiGenerating(false) }
+  }
+
+  const handleCheckCompliance = async () => {
+    if (!content.trim() || content.trim().length < 10) { toast.error('Add more content first'); return }
+    setComplianceLoading(true)
+    try {
+      const res = await brandApi.scoreCompliance({ content, platform: selectedPlatforms[0] || 'linkedin' })
+      setBrandCompliance(res.data as typeof brandCompliance)
+    } catch { toast.error('Failed to check brand compliance') }
+    finally { setComplianceLoading(false) }
   }
 
   const handleTranscript = useCallback((text: string) => {
@@ -1044,6 +1059,79 @@ export default function NewPostPage() {
               content={content}
               platform={selectedPlatforms[0] || 'linkedin'}
             />
+          )}
+
+          {/* Brand Compliance */}
+          {content.trim().length > 20 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    Brand Compliance
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCheckCompliance}
+                    disabled={complianceLoading}
+                  >
+                    {complianceLoading ? 'Checking...' : 'Check Compliance'}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {brandCompliance ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`text-2xl font-bold ${brandCompliance.score >= 4 ? 'text-green-600' : brandCompliance.score >= 3 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {brandCompliance.score}/5
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {brandCompliance.score >= 4 ? 'On-brand' : brandCompliance.score >= 3 ? 'Needs improvement' : 'Off-brand'}
+                        {brandCompliance.tone_match && typeof brandCompliance.tone_match.score === 'number' && (
+                          <span className="ml-2">· Tone match: {brandCompliance.tone_match.score}/5</span>
+                        )}
+                      </div>
+                    </div>
+                    {brandCompliance.banned_found && brandCompliance.banned_found.length > 0 && (
+                      <div className="text-sm">
+                        <span className="text-red-600 font-medium">Banned phrases found: </span>
+                        <span className="text-red-700">{brandCompliance.banned_found.join(', ')}</span>
+                      </div>
+                    )}
+                    {brandCompliance.preferred_found && brandCompliance.preferred_found.length > 0 && (
+                      <div className="text-sm">
+                        <span className="text-green-600 font-medium">Preferred phrases used: </span>
+                        <span className="text-green-700">{brandCompliance.preferred_found.join(', ')}</span>
+                      </div>
+                    )}
+                    {brandCompliance.issues && brandCompliance.issues.length > 0 && (
+                      <div className="space-y-1">
+                        {brandCompliance.issues.map((issue, i) => (
+                          <div key={i} className="text-sm rounded-lg border p-2">
+                            <div className="text-foreground">{issue.message}</div>
+                            {issue.suggestion && <div className="text-muted-foreground text-xs mt-1">{issue.suggestion}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {brandCompliance.tone_match && brandCompliance.tone_match.suggestions && brandCompliance.tone_match.suggestions.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium">Suggestions:</div>
+                        {brandCompliance.tone_match.suggestions.map((s, i) => (
+                          <div key={i} className="text-sm text-muted-foreground">{s}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Click &quot;Check Compliance&quot; to score your content against your brand guidelines, or generate content with AI for automatic scoring.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Actions */}
