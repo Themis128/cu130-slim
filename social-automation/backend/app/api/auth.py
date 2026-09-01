@@ -250,9 +250,9 @@ async def _sync_linkedin_organizations(
 twitter_client: BaseOAuth2 = BaseOAuth2(
     settings.TWITTER_CLIENT_ID,
     settings.TWITTER_CLIENT_SECRET,
-    authorize_endpoint="https://twitter.com/i/oauth2/authorize",
-    access_token_endpoint="https://api.twitter.com/2/oauth2/token",
-    refresh_token_endpoint="https://api.twitter.com/2/oauth2/token",
+    authorize_endpoint="https://x.com/i/oauth2/authorize",
+    access_token_endpoint="https://api.x.com/2/oauth2/token",
+    refresh_token_endpoint="https://api.x.com/2/oauth2/token",
     base_scopes=["tweet.read", "tweet.write", "users.read", "offline.access"],
     name="twitter",
     token_endpoint_auth_method="client_secret_basic",
@@ -1042,7 +1042,7 @@ async def oauth_callback(
                     "continuing with personal account"
                 )
         elif platform == "twitter":
-            resp = await http.get("https://api.twitter.com/2/users/me", headers=headers)
+            resp = await http.get("https://api.x.com/2/users/me", headers=headers)
             user_info = resp.json()
             account_id = user_info["data"]["id"]
             username = user_info["data"]["username"]
