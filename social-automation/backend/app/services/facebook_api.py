@@ -535,14 +535,21 @@ class FacebookAPIClient:
     async def get_page_tasks(self) -> list[str]:
         """Get the tasks (roles) the current token's user can perform on the Page.
 
-        ``GET /{page_id}`` with ``fields=tasks``. Returns the list of task strings.
+        ``GET /me/accounts`` with ``fields=tasks`` and filter for this Page ID.
+        Returns the list of task strings.
         """
-        url = self._url(self.page_id)
+        url = self._url("me/accounts")
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(url, params=self._params({"fields": "tasks"}))
+            resp = await client.get(
+                url,
+                params=self._params({"fields": "id,name,tasks"}),
+            )
             self._raise_for_status(resp, url)
             data = resp.json() or {}
-            return data.get("tasks") or []
+            for page in data.get("data") or []:
+                if page.get("id") == self.page_id:
+                    return page.get("tasks") or []
+            return []
 
     # ------------------------------------------------------------------
     # Deletion
