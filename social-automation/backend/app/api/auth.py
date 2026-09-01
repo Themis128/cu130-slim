@@ -1331,7 +1331,7 @@ async def oauth_callback(
                 "account_type": "page",
                 "page_token": page_token,
                 "category": page.get("category"),
-                "tasks": page.get("perms", page.get("tasks", [])),
+                "tasks": page.get("tasks", []),
             }
             if page_account:
                 page_account.access_token_enc = encrypt_token(page_token)

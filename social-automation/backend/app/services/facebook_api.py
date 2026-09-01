@@ -179,7 +179,7 @@ class FacebookAPIClient:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.get(
                 url,
-                params=self._params({"fields": "id,name,access_token,category,perms"}),
+                params=self._params({"fields": "id,name,access_token,category,tasks"}),
             )
             self._raise_for_status(resp, url)
             data = resp.json() or {}
