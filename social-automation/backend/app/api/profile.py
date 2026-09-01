@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -1080,3 +1081,241 @@ async def _upload_tiktok_picture(
         updated_fields=["avatar"],
         message="TikTok profile picture updated",
     )
+
+
+# ── Browser bridge (noVNC visual login) ──────────────────────────────────────
+
+
+def _get_browser_bridge_url() -> str:
+    return settings.INSTAGRAM_PRIVATE_API_URL  # placeholder to satisfy linter
+
+
+_BROWSER_BRIDGE_URL = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+
+
+class BrowserSessionRequest(BaseModel):
+    """Request to start a visual browser login session."""
+    platform: str
+
+
+class BrowserSessionResponse(BaseModel):
+    """Response from starting a browser session."""
+    platform: str
+    status: str
+    message: str
+    novnc_url: str
+
+
+@router.post("/browser/start", response_model=BrowserSessionResponse)
+async def start_browser_session(
+    req: BrowserSessionRequest,
+    current_user=Depends(get_current_user),
+):
+    """Start a visual browser session for a social platform.
+
+    Opens a headed Chromium browser inside the browser-novnc container.
+    The user watches and logs in via the noVNC web interface (embeddable
+    as an iframe in the frontend).  After login, cookies are extracted
+    automatically.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(
+                f"{_BROWSER_BRIDGE_URL}/session/start",
+                json={"platform": req.platform},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return BrowserSessionResponse(
+                platform=data["platform"],
+                status=data["status"],
+                message=data["message"],
+                novnc_url=data.get("novnc_url", ""),
+            )
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.text,
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable. Is browser-novnc running?",
+            )
+
+
+@router.get("/browser/status")
+async def browser_session_status(
+    current_user=Depends(get_current_user),
+):
+    """Check the current browser session status."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.get("/browser/cookies")
+async def browser_session_cookies(
+    current_user=Depends(get_current_user),
+):
+    """Retrieve extracted cookies from the browser session."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/cookies")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.post("/browser/stop")
+async def stop_browser_session(
+    current_user=Depends(get_current_user),
+):
+    """Stop the current browser session."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.post(f"{_BROWSER_BRIDGE_URL}/session/stop")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.get("/browser/novnc-url")
+async def browser_novnc_url(
+    current_user=Depends(get_current_user),
+):
+    """Get the noVNC web URL for embedding in an iframe."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/novnc-url")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.get("/browser/platforms")
+async def browser_platforms(
+    current_user=Depends(get_current_user),
+):
+    """List all supported platforms for visual browser login."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/platforms")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.post("/browser/import-instagram-session")
+async def import_instagram_session_from_browser(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import the Instagram sessionid from the browser bridge into the
+    aiograpi-rest sidecar and save it to the account metadata."""
+    import httpx
+
+    # 1. Get cookies from browser bridge
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/cookies")
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail="No cookies available. Complete the browser login first.",
+            )
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Browser bridge not reachable.")
+
+    cookies = data.get("cookies", {})
+    sessionid = cookies.get("sessionid")
+    if not sessionid:
+        raise HTTPException(
+            status_code=400,
+            detail="No sessionid cookie found. Make sure you logged into Instagram in the browser.",
+        )
+
+    # 2. Import sessionid into aiograpi-rest sidecar
+    sidecar_url = settings.INSTAGRAM_PRIVATE_API_URL or "http://instagram-private-api:8000"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            resp = await client.post(
+                f"{sidecar_url}/auth/login/by/sessionid",
+                data={"session_id": sessionid, "locale": "el_GR", "timezone": "10800"},
+            )
+            if resp.status_code == 200:
+                sidecar_session = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+                if isinstance(sidecar_session, str):
+                    sidecar_session_id = sidecar_session
+                elif isinstance(sidecar_session, dict):
+                    sidecar_session_id = sidecar_session.get("session_id", sessionid)
+                else:
+                    sidecar_session_id = str(sidecar_session)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sidecar rejected sessionid: {resp.text[:200]}",
+                )
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Instagram sidecar not reachable.")
+
+    # 3. Save to database
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalar_one_or_none()
+    if account:
+        meta = dict(account.meta_data or {})
+        meta["private_api_session_id"] = sidecar_session_id
+        # Also save the raw sessionid cookie for reference
+        meta["instagram_sessionid_cookie"] = sessionid
+        account.meta_data = meta
+        await db.commit()
+
+    return {
+        "success": True,
+        "session_id": sidecar_session_id[:20] + "...",
+        "message": "Instagram session imported into sidecar and saved to database.",
+    }

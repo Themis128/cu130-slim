@@ -394,6 +394,18 @@ export const profileApi = {
     api.post(`/profile/${id}/login`, data),
 }
 
+// Browser bridge endpoints (noVNC visual login)
+export const browserApi = {
+  startSession: (platform: string) =>
+    api.post('/profile/browser/start', { platform }),
+  getStatus: () => api.get('/profile/browser/status'),
+  getCookies: () => api.get('/profile/browser/cookies'),
+  stopSession: () => api.post('/profile/browser/stop'),
+  getNovncUrl: () => api.get('/profile/browser/novnc-url'),
+  getPlatforms: () => api.get('/profile/browser/platforms'),
+  importInstagramSession: () => api.post('/profile/browser/import-instagram-session'),
+}
+
 // Secret store endpoints (Cloudflare-first credentials)
 export const secretsApi = {
   list: () => api.get('/secrets'),

@@ -28,72 +28,72 @@ COOKIE_DIR.mkdir(parents=True, exist_ok=True)
 SITES = {
     "instagram": {
         "url": "https://www.instagram.com/accounts/login/",
-        "success_patterns": ["https://www.instagram.com/", "instagram.com/accounts/one_tap"],
+        "success_patterns": ["instagram.com/?", "instagram.com/accounts/one_tap_app_login"],
         "cookies": ["sessionid", "csrftoken", "ds_user_id", "ig_did", "mid", "rur"],
     },
     "facebook": {
         "url": "https://www.facebook.com/login",
-        "success_patterns": ["https://www.facebook.com/", "facebook.com/?"],
+        "success_patterns": ["facebook.com/?sk=", "facebook.com/home", "facebook.com/?ref="],
         "cookies": ["c_user", "xs", "datr", "fr", "sb", "wd"],
     },
     "linkedin": {
         "url": "https://www.linkedin.com/login",
-        "success_patterns": ["https://www.linkedin.com/feed", "linkedin.com/in/"],
+        "success_patterns": ["linkedin.com/feed", "linkedin.com/in/"],
         "cookies": ["li_at", "JSESSIONID", "liap", "bcookie", "bscookie", "lang"],
     },
     "tiktok": {
         "url": "https://www.tiktok.com/login",
-        "success_patterns": ["https://www.tiktok.com/foryou", "tiktok.com/foryou"],
+        "success_patterns": ["tiktok.com/foryou", "tiktok.com/following"],
         "cookies": ["sessionid", "sid_tt", "uid_tt", "ttwid", "msToken", "passport_csrf_token"],
     },
     "twitter": {
         "url": "https://x.com/i/flow/login",
-        "success_patterns": ["https://x.com/home", "x.com/home"],
+        "success_patterns": ["x.com/home", "x.com/compose"],
         "cookies": ["auth_token", "ct0", "twid", "kdt", "guest_id"],
     },
     "threads": {
         "url": "https://www.threads.net/login",
-        "success_patterns": ["https://www.threads.net/", "threads.net/@"],
+        "success_patterns": ["threads.net/@", "threads.net/home"],
         "cookies": ["sessionid", "csrftoken", "ds_user_id", "ig_did"],
     },
     "reddit": {
         "url": "https://www.reddit.com/login",
-        "success_patterns": ["https://www.reddit.com/", "reddit.com/?"],
+        "success_patterns": ["reddit.com/?", "reddit.com/home", "reddit.com/user/"],
         "cookies": ["reddit_session", "token", "loid", "csv"],
     },
     "youtube": {
         "url": "https://accounts.google.com/v3/signin/identifier?continue=https://www.youtube.com",
-        "success_patterns": ["https://www.youtube.com/", "youtube.com/feed"],
+        "success_patterns": ["youtube.com/feed", "youtube.com/channel"],
         "cookies": ["SAPISID", "SSID", "HSID", "APISID", "SID", "LOGIN_INFO", "__Secure-3PSID"],
     },
     "pinterest": {
         "url": "https://www.pinterest.com/login/",
-        "success_patterns": ["https://www.pinterest.com/", "pinterest.com/?"],
+        "success_patterns": ["pinterest.com/?", "pinterest.com/home", "pinterest.com/ideas"],
         "cookies": ["_pinterest_sess", "csrftoken", "pinterest_ct", "auth_expires"],
     },
     "tumblr": {
         "url": "https://www.tumblr.com/login",
-        "success_patterns": ["https://www.tumblr.com/dashboard", "tumblr.com/dashboard"],
+        "success_patterns": ["tumblr.com/dashboard", "tumblr.com/feed"],
         "cookies": ["pfs", "pfp", "user_props", "logging"],
     },
     "medium": {
         "url": "https://medium.com/m/signin",
-        "success_patterns": ["https://medium.com/", "medium.com/me"],
+        "success_patterns": ["medium.com/me", "medium.com/?source"],
         "cookies": ["sid", "uid", "sess", "__cf_bm"],
     },
     "discord": {
         "url": "https://discord.com/login",
-        "success_patterns": ["https://discord.com/channels", "discord.com/channels"],
+        "success_patterns": ["discord.com/channels", "discord.com/app"],
         "cookies": ["token", "discord_showcase", "__cfruid"],
     },
     "telegram": {
         "url": "https://web.telegram.org/a/",
-        "success_patterns": ["https://web.telegram.org/a/", "telegram.org"],
+        "success_patterns": ["web.telegram.org/a/#"],
         "cookies": ["stel_token", "tg_user", "sph_phone", "sph_hash"],
     },
     "whatsapp": {
         "url": "https://web.whatsapp.com/",
-        "success_patterns": ["https://web.whatsapp.com/", "web.whatsapp.com"],
+        "success_patterns": ["web.whatsapp.com/?", "web.whatsapp.com/#"],
         "cookies": ["wa_web_prefs", "wa_csrf_token"],
     },
 }
@@ -212,11 +212,12 @@ async def session_cookies():
 async def stop_session():
     """Stop the current browser session."""
     async with _state["lock"]:
-        if _state["browser"]:
+        if _state["context"]:
             try:
-                await _state["browser"].close()
+                await _state["context"].close()
             except Exception:
                 pass
+            _state["context"] = None
             _state["browser"] = None
         _state["status"] = "idle"
         _state["platform"] = None
@@ -224,21 +225,70 @@ async def stop_session():
         return {"status": "stopped"}
 
 
+@app.post("/session/extract")
+async def extract_cookies_now():
+    """Manually extract cookies from the currently running browser session.
+
+    Use this after the user has logged in via noVNC but the automatic
+    URL detection hasn't triggered.
+    """
+    if not _state["context"]:
+        raise HTTPException(400, "No active browser session")
+    if _state["platform"] not in SITES:
+        raise HTTPException(400, f"Unknown platform: {_state['platform']}")
+
+    site = SITES[_state["platform"]]
+    _state["status"] = "extracting"
+    _state["message"] = "Extracting cookies from running browser..."
+
+    try:
+        cookies = await _state["context"].cookies()
+        all_cookies = {c["name"]: c["value"] for c in cookies}
+
+        # Save all cookies
+        all_file = COOKIE_DIR / f"{_state['platform']}_all_cookies.json"
+        all_file.write_text(json.dumps(all_cookies, indent=2))
+
+        # Extract target cookies
+        found = {}
+        for name in site["cookies"]:
+            if name in all_cookies:
+                found[name] = all_cookies[name]
+                cookie_file = COOKIE_DIR / f"{_state['platform']}_{name}.txt"
+                cookie_file.write_text(all_cookies[name])
+
+        # Save storage state
+        state_file = COOKIE_DIR / f"{_state['platform']}_storage_state.json"
+        await _state["context"].storage_state(path=str(state_file))
+
+        _state["cookies"] = found
+        _state["status"] = "done"
+        _state["message"] = f"Extracted {len(found)}/{len(site['cookies'])} cookies"
+
+        return {
+            "platform": _state["platform"],
+            "status": "done",
+            "cookies": found,
+            "cookies_found": list(found.keys()),
+            "message": _state["message"],
+        }
+    except Exception as e:
+        _state["status"] = "error"
+        _state["message"] = f"Extraction error: {e}"
+        raise HTTPException(500, str(e))
+
+
 async def _run_browser(platform: str):
     """Background task: open browser, wait for login, extract cookies."""
     site = SITES[platform]
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
+            # Use persistent context so cookies survive between sessions
+            user_data_dir = "/app/browser-profile"
+            os.makedirs(user_data_dir, exist_ok=True)
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir,
                 headless=False,
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-gpu",
-                    "--start-maximized",
-                ],
-            )
-            context = await browser.new_context(
                 viewport={
                     "width": int(os.environ.get("SCREEN_WIDTH", 1280)),
                     "height": int(os.environ.get("SCREEN_HEIGHT", 800)),
@@ -248,8 +298,15 @@ async def _run_browser(platform: str):
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/130.0.0.0 Safari/537.36"
                 ),
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-gpu",
+                    "--start-maximized",
+                ],
             )
-            page = await context.new_page()
+            browser = context.browser
+            page = context.pages[0] if context.pages else await context.new_page()
             _state["browser"] = browser
             _state["context"] = context
             _state["page"] = page
@@ -305,18 +362,20 @@ async def _run_browser(platform: str):
                 _state["status"] = "error"
                 _state["message"] = f"Timeout waiting for login. Current URL: {page.url}"
 
-            await browser.close()
+            await context.close()
             _state["browser"] = None
+            _state["context"] = None
 
     except Exception as e:
         _state["status"] = "error"
         _state["message"] = f"Browser error: {e}"
-        if _state.get("browser"):
+        if _state.get("context"):
             try:
-                await _state["browser"].close()
+                await _state["context"].close()
             except Exception:
                 pass
         _state["browser"] = None
+        _state["context"] = None
 
 
 if __name__ == "__main__":
