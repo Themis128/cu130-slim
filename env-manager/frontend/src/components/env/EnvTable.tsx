@@ -33,7 +33,6 @@ export const EnvTable: React.FC<EnvTableProps> = ({
   onVariableChange,
   onMaskToggle,
   showValues,
-  dirty: _dirty,
 }) => {
   const [editingKey, setEditingKey] = React.useState<string | null>(null)
   const [editValue, setEditValue] = React.useState<string>("")

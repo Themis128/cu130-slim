@@ -32,7 +32,7 @@ const Tabs: React.FC<TabsProps> = ({
   </TabsContext.Provider>
 )
 
-interface TabsListProps extends React.HTMLAttributes<HTMLDivElement> {}
+type TabsListProps = React.HTMLAttributes<HTMLDivElement>
 
 const TabsList = React.forwardRef<HTMLDivElement, TabsListProps>(
   ({ className, children, ...props }, ref) => (
