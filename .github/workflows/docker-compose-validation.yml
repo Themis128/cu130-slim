@@ -51,27 +51,30 @@ jobs:
       - name: Validate pre-built image references
         run: |
           echo "Checking pre-built image references..."
-          # All CI-built images use :latest with pull_policy: always.
+          # All CI-built images use baltzakist/cu130-slim-{service}:<tag> with pull_policy: always.
           # CI auto-increments version tags (v2.{run_number}) and updates :latest.
-          expected_images=(
-            "baltzakist/cu130-slim-comfyui:latest"
-            "baltzakist/cu130-slim-env-manager-backend:latest"
-            "baltzakist/cu130-slim-env-manager-frontend:latest"
-            "baltzakist/cu130-slim-social-api:latest"
-            "baltzakist/cu130-slim-social-worker-publishing:latest"
-            "baltzakist/cu130-slim-social-frontend:latest"
+          # Accept either :latest or a versioned :vN.N tag.
+          expected_prefixes=(
+            "baltzakist/cu130-slim-comfyui:"
+            "baltzakist/cu130-slim-env-manager-backend:"
+            "baltzakist/cu130-slim-env-manager-frontend:"
+            "baltzakist/cu130-slim-social-api:"
+            "baltzakist/cu130-slim-social-worker-publishing:"
+            "baltzakist/cu130-slim-social-worker-media:"
+            "baltzakist/cu130-slim-social-worker-default:"
+            "baltzakist/cu130-slim-social-frontend:"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
 
-          for img in "${expected_images[@]}"; do
-            service_name=$(echo "$img" | sed 's|.*/cu130-slim-\(.*\):.*|\1|')
+          for prefix in "${expected_prefixes[@]}"; do
+            service_name=$(echo "$prefix" | sed 's|.*/cu130-slim-\(.*\):.*|\1|')
             if echo "$config_output" | jq -e --arg s "$service_name" '.services[$s]' > /dev/null 2>&1; then
               actual_image=$(echo "$config_output" | jq -r --arg s "$service_name" '.services[$s].image')
-              if [[ "$actual_image" == "$img" ]]; then
+              if [[ "$actual_image" == ${prefix}* ]]; then
                 echo "✅ $service_name uses correct image: $actual_image"
               else
-                echo "❌ $service_name has incorrect image: $actual_image (expected: $img)"
+                echo "❌ $service_name has incorrect image: $actual_image (expected prefix: ${prefix}*)"
                 exit 1
               fi
             else
@@ -80,7 +83,7 @@ jobs:
           done
 
           # All CI-built services must have pull_policy: always.
-          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-frontend celery-beat; do
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-worker-media social-worker-default social-frontend celery-beat; do
             if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
               pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
               if [[ "$pull_policy" == "always" ]]; then
