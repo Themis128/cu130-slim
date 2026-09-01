@@ -183,7 +183,7 @@ async def connect_account_body(
         # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
-        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
@@ -240,7 +240,7 @@ async def connect_account(
     scopes = {
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
-        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],

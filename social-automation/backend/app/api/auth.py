@@ -891,7 +891,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "facebook": [
             "public_profile",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-            "pages_manage_engagement", "pages_manage_metadata",
+            "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
         ],
         "instagram": [
             "instagram_basic", "instagram_content_publish",
@@ -1100,7 +1100,10 @@ async def oauth_callback(
             if isinstance(_raw_scope, str) and _raw_scope:
                 scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
             else:
-                scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement", "pages_manage_metadata"]
+                scopes = [
+                    "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+                    "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+                ]
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
             threads_user_id = token.get("user_id")
