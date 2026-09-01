@@ -390,19 +390,44 @@ async def _publish_linkedin(
     author_urn = _linkedin_author_urn(account, client)
     post_title = (post.content_text or "Carousel")[:80]
 
-    if len(media_paths) >= 2:
-        pdf_bytes = _images_to_pdf(media_paths, title=post_title)
+    # Detect PDF files in the media list — these are pre-built carousels
+    # that should be uploaded as LinkedIn documents, not images.
+    pdf_paths = [p for p in media_paths if p.lower().endswith(".pdf")]
+    image_paths = [p for p in media_paths if not p.lower().endswith(".pdf")]
+
+    if pdf_paths:
+        # Upload the first PDF as a document post (LinkedIn carousel).
+        # If there are multiple PDFs, combine them; if there are also
+        # images, they are ignored (PDF takes precedence as carousel).
+        if len(pdf_paths) == 1:
+            with open(pdf_paths[0], "rb") as fh:
+                pdf_bytes = fh.read()
+        else:
+            # Multiple PDFs — merge them (rare case)
+            pdf_bytes = io.BytesIO()
+            for p in pdf_paths:
+                with open(p, "rb") as fh:
+                    pdf_bytes.write(fh.read())
+            pdf_bytes = pdf_bytes.getvalue()
         result = await client.create_document_post(
             author_urn=author_urn,
             commentary=text,
             pdf_bytes=pdf_bytes,
             title=post_title,
         )
-    elif len(media_paths) == 1:
+    elif len(image_paths) >= 2:
+        pdf_bytes = _images_to_pdf(image_paths, title=post_title)
+        result = await client.create_document_post(
+            author_urn=author_urn,
+            commentary=text,
+            pdf_bytes=pdf_bytes,
+            title=post_title,
+        )
+    elif len(image_paths) == 1:
         result = await client.create_multi_image_post(
             author_urn=author_urn,
             commentary=text,
-            media_paths=media_paths,
+            media_paths=image_paths,
         )
     else:
         override = post.link_preview_override or {}
