@@ -209,7 +209,7 @@ class BrandFullOut(BaseModel):
 
 # ── Brand CRUD ────────────────────────────────────────────────────────────────
 
-@router.get("", response_model=BrandFullOut)
+@router.get("", response_model=BrandFullOut | None)
 async def get_brand(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
