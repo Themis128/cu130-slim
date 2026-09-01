@@ -11,12 +11,12 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 274 tests).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 275 tests).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
 5. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
-6. `docker compose exec -T social-worker celery -A app.worker.celery_app inspect ping` after worker restart — must reply.
+6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 3 nodes (publishing, media, default).
 7. Validate all Mermaid diagrams in `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (e.g. via mermaid.ink) when they change.
 8. Frontend: `tsc --noEmit --incremental false` in `social-automation/frontend` using local `./node_modules/.bin/tsc` — no TS errors. The frontend container only ships the built output, so run tsc on the host.
 9. If n8n workflows changed: import, publish, and trigger a dry run.
@@ -25,7 +25,10 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
-- `social-worker` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), or compose env changes. Copy changed files into both `social-api` and `social-worker` containers.
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The three queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
+- `ollama` — restart after Ollama env var changes or Modelfile updates. Recreate the custom model with `ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu` after Modelfile changes.
+- `comfyui` — restart after CLI args or env changes.
 - `n8n` — restart and re-import workflows after any `n8n-workflows/` or webhook change.
 - `social-frontend` — rebuild image or restart dev container after frontend source change.
 
@@ -41,8 +44,8 @@ docker compose exec -T social-api python -m ruff check <paths>
 # validate compose
 docker compose config --quiet
 
-# restart key containers
-docker compose restart social-api social-worker
+# restart key containers (3 queue-dedicated workers + beat)
+docker compose restart social-api social-worker-publishing social-worker-media social-worker-default celery-beat
 
 # health
 curl http://localhost:8083/health
@@ -64,6 +67,22 @@ cd social-automation/frontend && ./node_modules/.bin/tsc --noEmit --incremental 
 
 # copy a changed backend file into the running container
 docker compose cp social-automation/backend/app/services/foo.py social-api:/app/app/services/foo.py
+
+# check all 3 Celery worker nodes are online
+docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
+
+# check which queues each worker is consuming
+docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues
+
+# check Ollama GPU offload status (should show 100% GPU, 2048 ctx, Forever)
+docker compose exec -T ollama ollama ps
+
+# check GPU VRAM usage
+nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
+
+# recreate the GPU-optimized Ollama model after Modelfile changes
+docker compose cp ollama/Modelfile.llama31-gpu ollama:/tmp/Modelfile.llama31-gpu
+docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu
 ```
 
 ## Product defaults to preserve
@@ -76,6 +95,7 @@ docker compose cp social-automation/backend/app/services/foo.py social-api:/app/
 - **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
 - **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
 - **Inference fallback chain**: Cloudflare Workers AI → Groq/Together/HF free tiers → Ollama (last resort).
+- **Ollama default model**: `llama3.1:8b-gpu` (custom Modelfile with `num_gpu=99`, `num_ctx=2048`). All layers on GPU, q8_0 KV cache, 2048-token context. See GPU & VRAM section below.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password, `GITHUB_TOKEN`).
@@ -217,3 +237,62 @@ Current chain (oldest → newest):
 - `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` — original platform roadmap.
 - `docs/superpowers/plans/ai-branding-expansion-plan.md` — 6-phase AI branding roadmap (Phase 1 complete, Phases 2-6 planned).
 - `docs/superpowers/plans/media-ai-enhancement-plan.md` — media AI enhancement plan (implemented).
+
+## Celery worker architecture
+
+Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app.py` so time-sensitive publishing is never blocked by CPU-heavy media/AI work:
+
+| Queue | Worker container | Concurrency | Tasks |
+|-------|-----------------|-------------|-------|
+| `publishing` | `social-worker-publishing` | 2 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
+| `media` | `social-worker-media` | 2 | `batch_enhance_task`, `auto_tag_asset_task` |
+| `default` + `celery` | `social-worker-default` | 2 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
+
+- `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
+- Total: 6 concurrent prefork processes across 3 containers (was 4 in a single container before).
+- Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
+- The `social-worker-default` container consumes both `default` and `celery` queues — the `celery` queue catches any task that wasn't explicitly routed.
+- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`.
+- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 3 nodes online.
+- Verify queue routing: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues`.
+
+## GPU & VRAM optimization
+
+The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Ollama and ComfyUI share the GPU. The configuration maximizes VRAM usage and minimizes system RAM.
+
+### Ollama (`ollama` container)
+
+- **Model**: `llama3.1:8b-gpu` — custom Modelfile at `ollama/Modelfile.llama31-gpu` with `num_gpu=99` (forces all 32 layers to GPU) and `num_ctx=2048`.
+- **`OLLAMA_FLASH_ATTENTION=1`** — reduces VRAM and RAM for attention layers.
+- **`OLLAMA_KV_CACHE_TYPE=q8_0`** — quantizes KV cache to 8-bit, halves context memory.
+- **`OLLAMA_CONTEXT_LENGTH=2048`** — caps context at 2048 tokens (social copy rarely exceeds 500).
+- **`OLLAMA_GPU_OVERHEAD=2147483648`** (2GB) — reserves VRAM for ComfyUI so Ollama doesn't monopolize the 8GB card.
+- **`OLLAMA_MAX_LOADED_MODELS=1`** — only one model resident at a time.
+- **`OLLAMA_NUM_PARALLEL=1`** — no concurrent inference (prevents KV cache multiplication).
+- **`OLLAMA_KEEP_ALIVE=-1`** — model stays in VRAM permanently (no reload latency, no RAM swap-out).
+- Default model in `app/core/config.py` is `llama3.1:8b-gpu`.
+- `ollama ps` should show `100% GPU, 2048 ctx, Forever`.
+- After Modelfile changes: copy to container and recreate with `ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu`.
+- Known issue: Ollama can freeze when unloading models if ComfyUI holds VRAM. The `OLLAMA_GPU_OVERHEAD` + `--reserve-vram` combination mitigates this by preventing either service from starving the other.
+
+### ComfyUI (`social-media-comfyui-gpu` container)
+
+- **`--gpu-only`** — forces text encoders, CLIP, and models onto GPU (minimum RAM usage).
+- **`--force-fp16`** — halves VRAM usage with minimal quality loss.
+- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM Ollama.
+- Note: `--gpu-only` and `--highvram` are mutually exclusive. `--gpu-only` is the stronger flag (forces everything onto GPU).
+
+### Java heap limits (RAM savings)
+
+- **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m` (was 512m). Saves ~180MB RAM.
+- **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (was default ~1GB). Saves ~600MB RAM. Note: 256m causes OOM; 384m is the minimum for Metabase's Liquibase + Quartz scheduler.
+
+### VRAM budget (8GB RTX 3070 Laptop)
+
+| Component | VRAM | Notes |
+|-----------|------|-------|
+| CUDA/display driver | ~0.5GB | System overhead |
+| Ollama model weights | ~4.9GB | llama3.1:8b Q4, all 32 layers on GPU |
+| Ollama KV cache | ~0.1GB | q8_0 at 2048 ctx |
+| ComfyUI (idle) | ~0.5GB | PyTorch + CUDA context |
+| **Free for ComfyUI models** | **~2GB** | Enough for SD 1.5 at fp16; SDXL needs careful management |
