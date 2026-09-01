@@ -331,15 +331,25 @@ async def platform_login(
     account = await _get_account(account_id, current_user, db)
 
     if account.platform == "instagram":
-        username = req.username or await secret_store.get("INSTAGRAM_USERNAME")
-        password = req.password or await secret_store.get("INSTAGRAM_PASSWORD")
+        username = (
+            req.username
+            or await secret_store.get(f"INSTAGRAM_USERNAME_{account.id}")
+            or await secret_store.get("INSTAGRAM_USERNAME")
+        )
+        password = (
+            req.password
+            or await secret_store.get(f"INSTAGRAM_PASSWORD_{account.id}")
+            or await secret_store.get("INSTAGRAM_PASSWORD")
+        )
         if not username or not password:
             raise HTTPException(
                 status_code=401,
                 detail=(
                     "Instagram username and password are required. "
                     "Provide them in the request or set INSTAGRAM_USERNAME / "
-                    "INSTAGRAM_PASSWORD in the secret store."
+                    "INSTAGRAM_PASSWORD (or per-account "
+                    f"INSTAGRAM_USERNAME_{account.id} / INSTAGRAM_PASSWORD_{account.id}) "
+                    "in the secret store."
                 ),
             )
         client = _get_instagram_private_client()
@@ -370,11 +380,27 @@ async def platform_login(
 
     if account.platform in ("facebook", "linkedin"):
         if account.platform == "facebook":
-            username = req.username or await secret_store.get("FACEBOOK_USERNAME")
-            password = req.password or await secret_store.get("FACEBOOK_PASSWORD")
+            username = (
+                req.username
+                or await secret_store.get(f"FACEBOOK_USERNAME_{account.id}")
+                or await secret_store.get("FACEBOOK_USERNAME")
+            )
+            password = (
+                req.password
+                or await secret_store.get(f"FACEBOOK_PASSWORD_{account.id}")
+                or await secret_store.get("FACEBOOK_PASSWORD")
+            )
         else:
-            username = req.username or await secret_store.get("LINKEDIN_USERNAME")
-            password = req.password or await secret_store.get("LINKEDIN_PASSWORD")
+            username = (
+                req.username
+                or await secret_store.get(f"LINKEDIN_USERNAME_{account.id}")
+                or await secret_store.get("LINKEDIN_USERNAME")
+            )
+            password = (
+                req.password
+                or await secret_store.get(f"LINKEDIN_PASSWORD_{account.id}")
+                or await secret_store.get("LINKEDIN_PASSWORD")
+            )
 
         if not username or not password:
             raise HTTPException(
@@ -383,16 +409,23 @@ async def platform_login(
                     f"{account.platform.capitalize()} username and password are required. "
                     f"Provide them in the request or set "
                     f"{account.platform.upper()}_USERNAME / "
-                    f"{account.platform.upper()}_PASSWORD in the secret store."
+                    f"{account.platform.upper()}_PASSWORD (or per-account "
+                    f"{account.platform.upper()}_USERNAME_{account.id} / "
+                    f"{account.platform.upper()}_PASSWORD_{account.id}) "
+                    f"in the secret store."
                 ),
             )
 
         service = BrowserProfileService()
         try:
             if account.platform == "facebook":
-                result = await service.login_facebook(username, password)
+                result = await service.login_facebook(
+                    username, password, verification_code=getattr(req, "verification_code", None)
+                )
             else:
-                result = await service.login_linkedin(username, password)
+                result = await service.login_linkedin(
+                    username, password, verification_code=getattr(req, "verification_code", None)
+                )
         except BrowserProfileError as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
 

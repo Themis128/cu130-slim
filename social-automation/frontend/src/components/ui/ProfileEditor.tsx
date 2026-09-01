@@ -16,6 +16,7 @@ import {
   useUploadProfileProfilePicture,
   useUploadProfileCoverPhoto,
   useProfileLogin,
+  useSetSecret,
 } from '@/hooks/useQueries'
 
 interface ProfileEditorProps {
@@ -42,6 +43,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
   const pictureMutation = useUploadProfileProfilePicture()
   const coverMutation = useUploadProfileCoverPhoto()
   const loginMutation = useProfileLogin()
+  const setSecretMutation = useSetSecret()
 
   const profile = profileData ?? {}
 
@@ -57,6 +59,8 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
 
   const [loginUsername, setLoginUsername] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
+  const [loginVerificationCode, setLoginVerificationCode] = useState('')
+  const [saveCredentials, setSaveCredentials] = useState(true)
   const [showLogin, setShowLogin] = useState(false)
 
   const profilePicRef = useRef<HTMLInputElement>(null)
@@ -126,16 +130,34 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!loginUsername || !loginPassword) {
-      toast.error('Enter username and password')
-      return
+
+    const platformUpper = platform.toUpperCase()
+    const credentialPrefix = platformUpper === 'INSTAGRAM' ? 'INSTAGRAM' : platformUpper
+
+    if (loginUsername && saveCredentials) {
+      await setSecretMutation.mutateAsync({
+        key: `${credentialPrefix}_USERNAME`,
+        value: loginUsername,
+        description: `${platformUpper} username`,
+      })
     }
-    await loginMutation.mutateAsync({
-      id: accountId,
-      data: { username: loginUsername, password: loginPassword },
-    })
+    if (loginPassword && saveCredentials) {
+      await setSecretMutation.mutateAsync({
+        key: `${credentialPrefix}_PASSWORD`,
+        value: loginPassword,
+        description: `${platformUpper} password`,
+      })
+    }
+
+    const data: { username?: string; password?: string; verification_code?: string } = {}
+    if (loginUsername) data.username = loginUsername
+    if (loginPassword) data.password = loginPassword
+    if (loginVerificationCode) data.verification_code = loginVerificationCode
+
+    await loginMutation.mutateAsync({ id: accountId, data })
     setShowLogin(false)
     setLoginPassword('')
+    setLoginVerificationCode('')
     refetch()
   }
 
@@ -206,12 +228,25 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                 />
+                <Input
+                  placeholder="2FA / verification code (if required)"
+                  value={loginVerificationCode}
+                  onChange={(e) => setLoginVerificationCode(e.target.value)}
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={saveCredentials}
+                    onChange={(e) => setSaveCredentials(e.target.checked)}
+                  />
+                  Save credentials to the Cloudflare secret store
+                </label>
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={loginMutation.isPending}
+                  disabled={loginMutation.isPending || setSecretMutation.isPending}
                 >
-                  {loginMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Log in'}
+                  {(loginMutation.isPending || setSecretMutation.isPending) ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Log in'}
                 </Button>
               </form>
             )}

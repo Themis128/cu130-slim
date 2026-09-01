@@ -112,7 +112,7 @@ class BrowserProfileService:
 
     # ── Facebook ────────────────────────────────────────────────────────────
 
-    async def login_facebook(self, username: str, password: str) -> dict[str, Any]:
+    async def login_facebook(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
         """Log in to Facebook via the web UI and return the storage state."""
         session = await self._launch_context()
         try:
@@ -131,10 +131,21 @@ class BrowserProfileService:
             # Check for 2FA / challenge
             approvals_code_count = await page.locator("input#approvals_code").count()
             if "checkpoint" in page.url or approvals_code_count > 0:
+                if verification_code:
+                    await page.fill("input#approvals_code", verification_code)
+                    await page.press("input#approvals_code", "Enter")
+                    await page.wait_for_load_state("networkidle")
+                    if "facebook.com" in page.url and ("home" in page.url or "/" in page.url):
+                        return {
+                            "success": True,
+                            "two_factor_required": False,
+                            "message": "Facebook login successful",
+                            "storage_state": await self._extract_storage_state(session),
+                        }
                 return {
                     "success": False,
                     "two_factor_required": True,
-                    "message": "Facebook 2FA required. Complete login in a browser, then call the session endpoint.",
+                    "message": "Facebook 2FA required. Provide verification_code and retry.",
                     "url": page.url,
                     "storage_state": await self._extract_storage_state(session),
                 }
@@ -269,7 +280,7 @@ class BrowserProfileService:
 
     # ── LinkedIn ────────────────────────────────────────────────────────────
 
-    async def login_linkedin(self, username: str, password: str) -> dict[str, Any]:
+    async def login_linkedin(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
         """Log in to LinkedIn via the web UI and return the storage state."""
         session = await self._launch_context()
         try:
@@ -283,10 +294,27 @@ class BrowserProfileService:
 
             # Check for 2FA / challenge
             if page.url.startswith("https://www.linkedin.com/checkpoint/"):
+                if verification_code:
+                    # LinkedIn 2FA input name is typically "input[otp" or "#input__phone_verification_pin"
+                    for sel in ("input[name='pin']", "input#input__phone_verification_pin", "input[autocomplete='one-time-code']"):
+                        try:
+                            await page.fill(sel, verification_code)
+                            await page.press(sel, "Enter")
+                            await page.wait_for_load_state("networkidle")
+                            break
+                        except Exception:
+                            pass
+                    if "linkedin.com/feed" in page.url or "linkedin.com/in/" in page.url:
+                        return {
+                            "success": True,
+                            "two_factor_required": False,
+                            "message": "LinkedIn login successful",
+                            "storage_state": await self._extract_storage_state(session),
+                        }
                 return {
                     "success": False,
                     "two_factor_required": True,
-                    "message": "LinkedIn 2FA / verification required. Complete login in a browser, then call the session endpoint.",
+                    "message": "LinkedIn 2FA / verification required. Provide verification_code and retry.",
                     "url": page.url,
                     "storage_state": await self._extract_storage_state(session),
                 }

@@ -5,6 +5,7 @@ import {
   workflowApi,
   accountsApi,
   profileApi,
+  secretsApi,
   publishingApi,
   analyticsApi,
   aiApi,
@@ -351,6 +352,21 @@ export function useUploadCoverPhoto() {
   })
 }
 
+// Secret store hooks
+export function useSetSecret() {
+  return useMutation({
+    mutationFn: ({ key, value, description }: { key: string; value: string; description?: string }) =>
+      secretsApi.set(key, value, description),
+    onSuccess: () => {
+      toast.success('Credential saved')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to save credential')
+    },
+  })
+}
+
 // Unified profile management hooks
 export function useProfile(accountId: string | null) {
   return useQuery({
@@ -417,7 +433,7 @@ export function useUploadProfileCoverPhoto() {
 export function useProfileLogin() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { username: string; password: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { username?: string; password?: string; verification_code?: string } }) =>
       profileApi.login(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['profile', id] })

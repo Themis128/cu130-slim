@@ -390,8 +390,16 @@ export const profileApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  login: (id: string, data: { username: string; password: string }) =>
+  login: (id: string, data: { username?: string; password?: string; verification_code?: string }) =>
     api.post(`/profile/${id}/login`, data),
+}
+
+// Secret store endpoints (Cloudflare-first credentials)
+export const secretsApi = {
+  list: () => api.get('/secrets'),
+  get: (key: string) => api.get(`/secrets/${key}`),
+  set: (key: string, value: string, description?: string) =>
+    api.post(`/secrets/${key}`, { value, description }),
 }
 
 // Publishing endpoints
