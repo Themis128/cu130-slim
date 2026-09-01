@@ -146,6 +146,12 @@ class Settings(BaseSettings):
     TIKTOK_CLIENT_SECRET: str = ""
     TIKTOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/tiktok/callback"
 
+    # TikTok Private API (tiktokflow / tiktok-private-api)
+    # Used for profile writes (nickname, signature/bio, avatar, unique ID)
+    # that the official Display API does not support.  The signing server
+    # handles X-Argus / X-Ladon / X-Gorgon request signing.
+    TIKTOK_PRIVATE_API_KEY: str = ""
+
     # Twitter v1.0a app credentials (for media upload via v1.1 API)
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""

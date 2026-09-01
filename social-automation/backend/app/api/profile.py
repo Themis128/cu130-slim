@@ -42,6 +42,7 @@ from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
 )
+from app.services.tiktok_profile import TikTokProfileError, TikTokProfileService
 from app.services.twitter_profile import TwitterProfileError, TwitterProfileService
 
 logger = logging.getLogger(__name__)
@@ -761,13 +762,38 @@ async def _upload_twitter_banner(
     )
 
 
-# ── TikTok (private API — Phase 3) ───────────────────────────────────────────
+# ── TikTok (private API via tiktokflow) ──────────────────────────────────────
+
+
+def _get_tiktok_service() -> TikTokProfileService:
+    """Build a TikTokProfileService from settings."""
+    if not settings.TIKTOK_PRIVATE_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="TikTok private API key not configured. "
+            "Set TIKTOK_PRIVATE_API_KEY in .env. "
+            "Get a signing server API key at tiktok-private-api.com.",
+        )
+    return TikTokProfileService(api_key=settings.TIKTOK_PRIVATE_API_KEY)
 
 
 async def _get_tiktok_profile(account: SocialAccount) -> ProfileResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="TikTok profile reads require tiktok-private-api integration (Phase 3).",
+    service = _get_tiktok_service()
+    try:
+        data = service.get_profile()
+    except TikTokProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileResponse(
+        platform="tiktok",
+        account_id=account.account_id,
+        username=data.get("username"),
+        full_name=data.get("full_name"),
+        biography=data.get("biography"),
+        profile_pic_url=data.get("profile_pic_url"),
+        followers=data.get("followers"),
+        is_verified=data.get("is_verified"),
+        is_private=data.get("is_private"),
+        raw=data.get("raw", {}),
     )
 
 
@@ -775,9 +801,36 @@ async def _update_tiktok_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="TikTok profile updates require tiktok-private-api integration (Phase 3).",
+    service = _get_tiktok_service()
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    try:
+        if updates.full_name is not None:
+            service.update_nickname(updates.full_name)
+            updated.append("nickname")
+        if updates.about is not None or updates.biography is not None:
+            service.update_signature(updates.about or updates.biography or "")
+            updated.append("signature")
+    except TikTokProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["headline", "website", "location", "phone", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for TikTok",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="TikTok profile updated",
     )
 
 
@@ -785,7 +838,13 @@ async def _upload_tiktok_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="TikTok profile picture upload requires tiktok-private-api integration (Phase 3).",
+    service = _get_tiktok_service()
+    try:
+        service.upload_avatar(image_bytes)
+    except TikTokProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["avatar"],
+        message="TikTok profile picture updated",
     )
