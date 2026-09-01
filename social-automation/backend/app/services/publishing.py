@@ -62,6 +62,7 @@ async def publish_to_platform(
 
     text = _build_post_text(post, account.platform)
     media_paths = await _resolve_media_paths(post, db)
+    storage_paths = await _resolve_media_storage_paths(post, db)
 
     # If the post has a music asset and a single video, mix the audio in
     music_path = await _resolve_music_path(post, db)
@@ -85,7 +86,7 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"Unsupported platform: {account.platform}")
 
     try:
-        return await fn(access_token, text, account, post, media_paths)
+        return await fn(access_token, text, account, post, media_paths, storage_paths)
     except httpx.HTTPStatusError as exc:
         return PublishResult(success=False, error=f"HTTP {exc.response.status_code}: {exc.response.text[:400]}")
     except LinkedInAPIError as exc:
@@ -113,7 +114,46 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
             path = os.path.join(upload_dir, path)
         if os.path.exists(path):
             paths.append(path)
+            continue
+        # File not on local disk — try fetching from R2 or MinIO
+        # and cache to a temp file for the publishing pipeline.
+        backend = (asset.storage_backend or "").lower()
+        data: bytes | None = None
+        try:
+            if backend == "r2":
+                from app.services import r2_storage
+                data = await r2_storage.get_object(asset.storage_path)
+            elif backend == "minio":
+                from app.services import minio_storage
+                data = await minio_storage.get_object(asset.storage_path)
+        except Exception as exc:
+            print(f"[publishing] Failed to fetch {asset.storage_path} from {backend}: {exc}", flush=True)
+        if data:
+            import tempfile
+            ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
+            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir="/tmp")
+            tmp.write(data)
+            tmp.close()
+            paths.append(tmp.name)
     return paths
+
+
+async def _resolve_media_storage_paths(post: Post, db: AsyncSession) -> list[str]:
+    """Return the original storage_paths for the post's media assets.
+
+    Used by platforms that need public URLs (Instagram, Threads, TikTok)
+    rather than local file paths. The storage_path works with
+    _media_public_url() to build a URL the platform can fetch from the
+    /api/v1/media/view endpoint, which transparently serves from R2,
+    MinIO, or local disk.
+    """
+    if not post.media_ids:
+        return []
+    result = await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))
+    assets = result.scalars().all()
+    id_order = {str(mid): i for i, mid in enumerate(post.media_ids)}
+    assets_sorted = sorted(assets, key=lambda a: id_order.get(str(a.id), 999))
+    return [a.storage_path for a in assets_sorted if a.storage_path]
 
 
 async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
@@ -130,6 +170,25 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
         path = os.path.join(upload_dir, path)
     if os.path.exists(path):
         return path
+    # File not on local disk — fetch from R2 or MinIO to a temp file.
+    backend = (asset.storage_backend or "").lower()
+    data: bytes | None = None
+    try:
+        if backend == "r2":
+            from app.services import r2_storage
+            data = await r2_storage.get_object(asset.storage_path)
+        elif backend == "minio":
+            from app.services import minio_storage
+            data = await minio_storage.get_object(asset.storage_path)
+    except Exception as exc:
+        print(f"[publishing] Failed to fetch music {asset.storage_path} from {backend}: {exc}", flush=True)
+    if data:
+        import tempfile
+        ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
+        tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir="/tmp")
+        tmp.write(data)
+        tmp.close()
+        return tmp.name
     return None
 
 
@@ -330,6 +389,7 @@ async def _publish_twitter(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     """Publish to X/Twitter using TwitterAPIClient.
 
@@ -385,6 +445,7 @@ async def _publish_linkedin(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     client = LinkedInAPIClient(access_token=access_token)
     author_urn = _linkedin_author_urn(account, client)
@@ -468,6 +529,7 @@ async def _publish_facebook(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     page_id = account.account_id
     # access_token is stored as the page token from OAuth callback.
@@ -537,10 +599,10 @@ async def _publish_facebook(
 # or any public host) to enable image-based posts.
 
 async def _instagram_public_urls(
-    media_paths: list[str],
+    storage_paths: list[str],
     post: Post,
 ) -> list[str]:
-    """Resolve public URLs for local media paths.
+    """Resolve public URLs for media assets.
 
     Priority:
     1. platform_specific.instagram.image_urls (manual override)
@@ -555,11 +617,8 @@ async def _instagram_public_urls(
         return override
 
     urls: list[str] = []
-    for path in media_paths:
-        # Normalise to storage_path (relative inside upload_dir)
-        upload_dir = os.environ.get("UPLOAD_DIR", "/app/uploads")
-        rel = path.replace(upload_dir, "").lstrip("/") if path.startswith(upload_dir) else path
-        url = _media_public_url(rel)
+    for sp in storage_paths:
+        url = _media_public_url(sp)
         if url:
             urls.append(url)
     return urls
@@ -571,6 +630,7 @@ async def _publish_instagram(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     ig_user_id = account.account_id
 
@@ -594,7 +654,7 @@ async def _publish_instagram(
                     ),
                 )
 
-    image_urls = await _instagram_public_urls(media_paths, post)
+    image_urls = await _instagram_public_urls(storage_paths or [], post)
     caption = text[:2200]
 
     if not image_urls:
@@ -651,12 +711,13 @@ async def _publish_tiktok(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     import asyncio as _asyncio
-    # Resolve public URLs for media
+    # Resolve public URLs for media using storage_paths (works with R2/MinIO)
     public_urls: list[str] = []
-    for path in media_paths:
-        url = _media_public_url(path)
+    for sp in (storage_paths or []):
+        url = _media_public_url(sp)
         if url:
             public_urls.append(url)
 
@@ -746,6 +807,7 @@ async def _publish_threads(
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
+    storage_paths: list[str] | None = None,
 ) -> PublishResult:
     """Publish to Threads using the actual ThreadsAPIClient.
 
@@ -754,8 +816,8 @@ async def _publish_threads(
     """
     client = ThreadsAPIClient(access_token=access_token, user_id=account.account_id)
     image_url: str | None = None
-    if media_paths:
-        image_url = _media_public_url(media_paths[0])
+    if storage_paths:
+        image_url = _media_public_url(storage_paths[0])
 
     try:
         if image_url:
