@@ -285,10 +285,12 @@ class BrowserProfileService:
         session = await self._launch_context()
         try:
             page = session.page
-            await page.goto("https://www.linkedin.com/login")
-            await page.fill("#username", username)
-            await page.fill("#password", password)
-            await page.click("button[type='submit']")
+            await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+            # LinkedIn renders the login form with JS; wait for the username input.
+            await page.wait_for_selector('input[name="session_key"]', timeout=30000)
+            await page.fill('input[name="session_key"]', username)
+            await page.fill('input[name="session_password"]', password)
+            await page.click('button[type="submit"]')
 
             await page.wait_for_load_state("networkidle")
 
