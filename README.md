@@ -101,14 +101,20 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 
 Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app.py` so time-sensitive publishing is never blocked by CPU-heavy media/AI work:
 
-| Queue | Worker container | Concurrency | Tasks |
-|-------|-----------------|-------------|-------|
-| `publishing` | `social-worker-publishing` | 2 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
-| `media` | `social-worker-media` | 2 | `batch_enhance_task`, `auto_tag_asset_task` |
-| `default` + `celery` | `social-worker-default` | 2 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
+| Queue | Worker container | Concurrency | Max tasks/child | Tasks |
+|-------|-----------------|-------------|-----------------|-------|
+| `publishing` | `social-worker-publishing` | 3 | 200 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
+| `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
+| `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues.
-- Total: 6 concurrent prefork processes across 3 containers.
+- Total: 7 concurrent prefork processes across 3 containers.
+- Publishing gets 3 slots (I/O-bound API calls, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
+- Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this 8GB-RAM host.
+- Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
+- `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acknowledged after completion, not on receipt — a worker crash triggers redelivery instead of silent loss.
+- `result_expires=3600`: Redis result backend auto-cleans after 1 hour.
+- Per-task time limits via `task_annotations` in `celery_app.py` — publishing tasks fail fast (10–15 min), media tasks get 30–40 min, analytics/digests get 10–20 min.
 - Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
 - Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 3 nodes (publishing, media, default).
 

@@ -596,10 +596,10 @@ services:
   # ── Celery workers (queue-dedicated) ──────────────────────────────────────
   # Three worker containers, each consuming a dedicated queue so time-sensitive
   # publishing tasks are never blocked by CPU-heavy media/AI work:
-  #   social-worker-publishing — publish, scheduled posts, token refresh (conc=2)
-  #   social-worker-media      — batch enhance, auto-tagging (conc=2)
-  #   social-worker-default    — analytics, workflows, digests, unrouted (conc=2)
-  # Total: 6 concurrent prefork processes across 3 containers.
+  #   social-worker-publishing — conc=3 (I/O-bound API calls, time-sensitive)
+  #   social-worker-media      — conc=2, max-tasks-per-child=50 (CPU-heavy, recycle RAM)
+  #   social-worker-default    — conc=2, max-tasks-per-child=200 (light tasks)
+  # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
     image: baltzakist/cu130-slim-social-worker:v2.417
@@ -614,7 +614,11 @@ services:
     - host.docker.internal:host-gateway
     depends_on: *worker-depends
     <<: *public-dns
-    command: celery -A app.worker.celery_app worker -Q publishing --loglevel=info --concurrency=2 --hostname=publishing@%h
+    # conc=3: publishing is I/O-bound (LinkedIn/Twitter/Meta API calls), low
+    # RAM per process (~120MB).  3 slots ensure "publish now" is never blocked
+    # by a long process_publish_queue run.  max-tasks-per-child=200: light
+    # tasks, recycle infrequently to avoid churn.
+    command: celery -A app.worker.celery_app worker -Q publishing --loglevel=info --concurrency=3 --max-tasks-per-child=200 --hostname=publishing@%h
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d publishing@$$HOSTNAME | grep -q pong || exit 1"]
       interval: 30s
@@ -636,7 +640,10 @@ services:
     - host.docker.internal:host-gateway
     depends_on: *worker-depends
     <<: *public-dns
-    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --hostname=media@%h
+    # conc=2: media tasks are CPU/RAM-heavy (Pillow, AI calls).  max-tasks-per-
+    # child=50: recycle processes more often to release fragmented Pillow/AI
+    # memory on this 8GB-RAM host.
+    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=media@%h
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d media@$$HOSTNAME | grep -q pong || exit 1"]
       interval: 30s
@@ -658,8 +665,10 @@ services:
     - host.docker.internal:host-gateway
     depends_on: *worker-depends
     <<: *public-dns
-    # -Q default,celery catches both routed "default" tasks and any unrouted task.
-    command: celery -A app.worker.celery_app worker -Q default,celery --loglevel=info --concurrency=2 --hostname=default@%h
+    # -Q default,celery catches both routed "default" tasks and any unrouted
+    # task.  conc=2, max-tasks-per-child=200: analytics/workflows/digests are
+    # I/O-bound with short bursts, recycle infrequently.
+    command: celery -A app.worker.celery_app worker -Q default,celery --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=default@%h
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d default@$$HOSTNAME | grep -q pong || exit 1"]
       interval: 30s

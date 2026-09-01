@@ -45,7 +45,7 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 - `call_inference` routes to Cloudflare Workers AI, Groq, Together, Pixazo, HF, Ollama with fallbacks.
 - Carousel pipeline is Cloudflare-only and posts as the configured LinkedIn Company Page.
 - LinkedIn REST client (`app/services/linkedin_api.py`) supports token validation, organization lookup, post/comment/image/document publishing, analytics, and follower counts.
-- Celery workers for publishing, analytics, and digests — 3 queue-dedicated containers (`social-worker-publishing`, `social-worker-media`, `social-worker-default`) with `celery-beat` scheduler.
+- Celery workers for publishing, analytics, and digests — 3 queue-dedicated containers (`social-worker-publishing` conc=3, `social-worker-media` conc=2, `social-worker-default` conc=2) with `celery-beat` scheduler. 7 total prefork processes. `task_acks_late=True` for reliability; per-task time limits via `task_annotations`.
 - n8n workflows: `cloudless-cf-carousel-linkedin` and `socialauto-daily-slack-digest`.
 
 ### 2.2 Frontend

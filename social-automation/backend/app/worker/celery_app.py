@@ -29,10 +29,74 @@ celery_app.conf.update(
     timezone=settings.APP_TIMEZONE,
     enable_utc=True,
     task_track_started=True,
+    # ── Reliability ──────────────────────────────────────────────────────
+    # Ack after completion (not receipt) so a worker crash mid-task
+    # triggers redelivery instead of silent loss.
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    # Auto-clean Redis result backend — prevents unbounded growth.
+    result_expires=3600,
+    # Redis visibility timeout must exceed the longest task time limit.
+    broker_transport_options={"visibility_timeout": 3600},
+    # ── Global limits (overridden per-task via task_annotations) ──────────
     task_time_limit=3600,
     task_soft_time_limit=3000,
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=100,
+    # ── Per-task time limits ─────────────────────────────────────────────
+    # Publishing tasks are I/O-bound API calls — fail fast instead of
+    # hanging for the global 1-hour limit.  Media tasks are CPU-heavy
+    # (Pillow, AI) and get a longer window.  Analytics/digest/workflow
+    # tasks get intermediate limits based on their expected duration.
+    task_annotations={
+        # ── publishing queue: fail fast ──────────────────────────────────
+        "app.worker.tasks.publishing.process_publish_queue": {
+            "soft_time_limit": 600,
+            "time_limit": 900,
+        },
+        "app.worker.tasks.publishing.check_scheduled_posts": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.publishing.publish_post_now": {
+            "soft_time_limit": 300,
+            "time_limit": 600,
+        },
+        "app.worker.tasks.token_refresh.refresh_expiring_tokens": {
+            "soft_time_limit": 300,
+            "time_limit": 600,
+        },
+        # ── media queue: CPU-heavy, allow up to 40 min ───────────────────
+        "app.worker.tasks.media.auto_tag_asset_task": {
+            "soft_time_limit": 120,
+            "time_limit": 300,
+        },
+        "app.worker.tasks.media_enhance.batch_enhance_task": {
+            "soft_time_limit": 1800,
+            "time_limit": 2400,
+        },
+        # ── default queue: intermediate ─────────────────────────────────
+        "app.worker.tasks.analytics.sync_all_analytics": {
+            "soft_time_limit": 900,
+            "time_limit": 1200,
+        },
+        "app.worker.tasks.analytics.sync_team_analytics_task": {
+            "soft_time_limit": 600,
+            "time_limit": 900,
+        },
+        "app.worker.tasks.workflows.execute_workflow": {
+            "soft_time_limit": 360,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.workflows.deploy_workflow": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.digest.send_daily_slack_digest": {
+            "soft_time_limit": 300,
+            "time_limit": 600,
+        },
+    },
     # Queue routing: time-sensitive publishing tasks are isolated from
     # CPU-heavy media/AI tasks so a long-running batch enhance never blocks
     # a "publish now" or scheduled-post dispatch.
