@@ -239,7 +239,7 @@ class SecretStore:
             async with async_session_maker() as session:
                 result = await session.execute(select(SocialSecret.key, SocialSecret.updated_at))
                 for row in result.all():
-                    keys.add(row[0])
+                    keys.add(str(row.key))
         except Exception as exc:
             logger.warning("Postgres list keys failed: %s", exc)
 

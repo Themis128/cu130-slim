@@ -1,6 +1,7 @@
 import os
 import secrets
 from pathlib import Path
+from typing import Any, cast
 
 from dotenv import dotenv_values
 from fastapi import Body, Depends, FastAPI, HTTPException, status
@@ -74,7 +75,7 @@ def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):  
 def load_env() -> dict[str, str]:
     """Load .env file, return dict"""
     if ENV_FILE.exists():
-        return dotenv_values(ENV_FILE)
+        return {k: v for k, v in dotenv_values(ENV_FILE).items() if v is not None}  # type: ignore[return-value]
     return {}
 
 def save_env(env_vars: dict[str, str]):
@@ -109,17 +110,18 @@ class EnvUpdateRequest(BaseModel):
 def get_env(username: str = Depends(verify_credentials)):
     """Get all environment variables with metadata"""
     current = load_env()
-    result = []
+    result: list[EnvVarResponse] = []
     for key, meta in ENV_DEFINITIONS.items():
-        value = current.get(key, meta.get("default", ""))
+        meta = cast(dict[str, Any], meta)
+        value = str(current.get(key, meta.get("default", "")))
         result.append(EnvVarResponse(
             key=key,
             value=value,
-            masked_value=mask_value(value, meta.get("sensitive", False)),
-            category=meta["category"],
-            description=meta["description"],
-            required=meta["required"],
-            sensitive=meta.get("sensitive", False)
+            masked_value=mask_value(value, bool(meta.get("sensitive", False))),
+            category=str(meta["category"]),
+            description=str(meta["description"]),
+            required=bool(meta["required"]),
+            sensitive=bool(meta.get("sensitive", False))
         ))
     return result
 
