@@ -48,6 +48,7 @@ _MIME_BY_EXT = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
     ".gif": "image/gif",
+    ".pdf": "application/pdf",
 }
 
 

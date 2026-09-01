@@ -376,6 +376,10 @@ def compose_branded_slide(
 
     # ── Copy zone ─────────────────────────────────────────────────────────────
     PAD = 80
+    INFOGRAPHIC_TOP = 530  # y where the infographic card begins
+    FOOTER_TOP = 1044      # y where the footer strip begins
+    MAX_TEXT_BOTTOM = INFOGRAPHIC_TOP - 16  # stop text before infographic
+
     if stype == "cover":
         # Pill tagline just below header
         tag = "Clear skies. Zero friction."
@@ -385,11 +389,28 @@ def compose_branded_slide(
 
     y = 196 if stype == "cover" else 152
     if title:
-        title_size = 50 if len(title) > 44 else 62
+        # Auto-shrink title font for long titles to avoid overflow
+        title_len = len(title)
+        if title_len > 60:
+            title_size = 38
+        elif title_len > 44:
+            title_size = 44
+        elif title_len > 30:
+            title_size = 52
+        else:
+            title_size = 62
         y = _draw_wrapped(draw, title, (PAD, y), _font(title_size, "bold"), TEXT, 940)
-        y += 22
-    if body:
-        _draw_wrapped(draw, body, (PAD, y), _font(32, "regular"), SUB, 940)
+        y += 18
+
+    if body and y < MAX_TEXT_BOTTOM:
+        # Auto-shrink body font if remaining space is tight
+        remaining = MAX_TEXT_BOTTOM - y
+        body_font_size = 32 if remaining > 120 else 26 if remaining > 60 else 22
+        # Truncate body to fit available space
+        max_chars = max(60, int(remaining / 1.4 * (940 / 26)))
+        if len(body) > max_chars:
+            body = body[:max_chars].rsplit(" ", 1)[0] + "..."
+        _draw_wrapped(draw, body, (PAD, y), _font(body_font_size, "regular"), SUB, 940)
 
     _draw_infographic(draw, motif=motif_key, highlight=highlight, chart_data=chart_data)
 
