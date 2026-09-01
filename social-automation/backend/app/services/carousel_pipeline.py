@@ -271,10 +271,23 @@ def _draw_infographic(
         for i, (val, label) in enumerate(kpis):
             x = 110 + i * 296
             draw.rounded_rectangle((x, 610, x + 266, 820), radius=20, fill=(20, 28, 44), outline=(40, 55, 75), width=2)
-            vw = int(draw.textlength(val, font=_font(42, "bold")))
-            draw.text((x + (266 - vw) // 2, 652), val, font=_font(42, "bold"), fill=ACCENT)
-            lw = int(draw.textlength(label, font=_font(22)))
-            draw.text((x + (266 - lw) // 2, 710), label, font=_font(22), fill=SUB)
+            # Auto-shrink KPI value font to fit card width (240px usable)
+            val_size = 42
+            val_font = _font(val_size, "bold")
+            vw = int(draw.textlength(val, font=val_font))
+            while vw > 240 and val_size > 18:
+                val_size -= 4
+                val_font = _font(val_size, "bold")
+                vw = int(draw.textlength(val, font=val_font))
+            draw.text((x + (266 - vw) // 2, 652), val, font=val_font, fill=ACCENT)
+            # Auto-shrink label font to fit card width
+            lbl_text = label[:30]
+            lbl_font = _font(22)
+            lw = int(draw.textlength(lbl_text, font=lbl_font))
+            while lw > 240 and len(lbl_text) > 10:
+                lbl_text = lbl_text[:-1]
+                lw = int(draw.textlength(lbl_text, font=lbl_font))
+            draw.text((x + (266 - lw) // 2, 710), lbl_text, font=lbl_font, fill=SUB)
         tip = _ascii_safe(highlight) if highlight else "Real results, real teams."
         tw = int(draw.textlength(tip[:44], font=_font(22, "semibold")))
         draw.text(((1080 - tw) // 2, 848), tip[:44], font=_font(22, "semibold"), fill=TEXT)
@@ -294,25 +307,40 @@ def _draw_infographic(
 
     if motif == "stat":
         big = _ascii_safe(highlight) if highlight else "80%"
-        bw = int(draw.textlength(big, font=_font(110, "bold")))
-        draw.text(((1080 - bw) // 2, 590), big, font=_font(110, "bold"), fill=ACCENT)
+        # Auto-shrink font so the highlight fits within the canvas (max 940px wide)
+        stat_size = 110
+        stat_font = _font(stat_size, "bold")
+        bw = int(draw.textlength(big, font=stat_font))
+        while bw > 940 and stat_size > 28:
+            stat_size -= 6
+            stat_font = _font(stat_size, "bold")
+            bw = int(draw.textlength(big, font=stat_font))
+        # If still too wide, wrap it
+        if bw > 940:
+            stat_y = _draw_wrapped(draw, big, (80, 590), stat_font, ACCENT, 940)
+        else:
+            draw.text(((1080 - bw) // 2, 590), big, font=stat_font, fill=ACCENT)
+            stat_y = 590 + int(stat_size * 1.25)
         label = (chart_data or {}).get("label", "") if chart_data else ""
         if not label:
             label = "key metric"
         label = _ascii_safe(label)
+        # Place label below the stat text, with a minimum gap
+        label_y = max(stat_y + 20, 720)
         lw = int(draw.textlength(label[:50], font=_font(26)))
-        draw.text(((1080 - lw) // 2, 720), label[:50], font=_font(26), fill=SUB)
-        # Gauge bar
+        draw.text(((1080 - lw) // 2, label_y), label[:50], font=_font(26), fill=SUB)
+        # Gauge bar — shift down if label moved
+        gauge_y = max(label_y + 58, 778)
         gauge_x1, gauge_x2 = 160, 920
-        draw.rounded_rectangle((gauge_x1, 778, gauge_x2, 814), radius=18, fill=(30, 38, 54))
+        draw.rounded_rectangle((gauge_x1, gauge_y, gauge_x2, gauge_y + 36), radius=18, fill=(30, 38, 54))
         try:
             frac = min(1.0, float(big.strip("%")) / 100)
         except ValueError:
             frac = 0.5
         filled = int(gauge_x1 + (gauge_x2 - gauge_x1) * frac)
-        draw.rounded_rectangle((gauge_x1, 778, filled, 814), radius=18, fill=ACCENT)
-        draw.text((gauge_x1, 830), "Before cloudless.gr", font=_font(20), fill=(100, 100, 120))
-        draw.text((gauge_x2 - 180, 830), "After", font=_font(20), fill=ACCENT)
+        draw.rounded_rectangle((gauge_x1, gauge_y, filled, gauge_y + 36), radius=18, fill=ACCENT)
+        draw.text((gauge_x1, gauge_y + 52), "Before cloudless.gr", font=_font(20), fill=(100, 100, 120))
+        draw.text((gauge_x2 - 180, gauge_y + 52), "After", font=_font(20), fill=ACCENT)
         return
 
     if motif == "cta":
