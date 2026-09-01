@@ -1094,17 +1094,41 @@ async def oauth_callback(
                 access_token = long_lived_token
             scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]
         elif platform == "threads":
+            # Threads token response includes user_id — use it if /me fails
+            threads_user_id = token.get("user_id")
+            # Exchange short-lived token for long-lived (~60 days)
+            ll_resp = await http.get(
+                "https://graph.threads.net/access_token",
+                params={
+                    "grant_type": "th_exchange_token",
+                    "client_secret": settings.THREADS_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            )
+            ll_data = ll_resp.json()
+            if "access_token" in ll_data:
+                access_token = ll_data["access_token"]
+                headers = {"Authorization": f"Bearer {access_token}"}
             resp = await http.get(
                 "https://graph.threads.net/me",
                 headers=headers,
                 params={"fields": "id,username,name,threads_profile_picture_url"},
             )
             user_info = resp.json()
-            account_id = user_info["id"]
+            if "id" not in user_info:
+                # /me failed — fall back to user_id from token response
+                if threads_user_id:
+                    user_info["id"] = str(threads_user_id)
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Threads /me returned no id: {resp.status_code} {user_info}",
+                    )
+            account_id = str(user_info["id"])
             username = user_info.get("username")
             display_name = user_info.get("name") or username or ""
             avatar_url = user_info.get("threads_profile_picture_url")
-            scopes = ["threads_basic", "threads_content_publish", "threads_manage_insights"]
+            scopes = ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"]
         elif platform == "instagram":
             resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,picture"})
             fb_info = resp.json()
