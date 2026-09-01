@@ -2,14 +2,45 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Palette, Type, Image as ImageIcon, BookOpen, Plus, Sparkles } from 'lucide-react'
+import { Palette, Plus, Sparkles, Loader2, Wand2, Type, Image as ImageIcon, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { useBrand, useCreateBrand } from '@/hooks/useQueries'
 import { Input } from '@/components/ui/Input'
-import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
+import { brandApi } from '@/services/api'
+import toast from 'react-hot-toast'
+
+interface ExtractedBrandKit {
+  name?: string
+  industry?: string
+  tagline?: string
+  website_url?: string
+  positioning_statement?: string
+  mission?: string
+  values?: string[]
+  target_audience?: { demographics?: string; pain_points?: string; goals?: string }
+  competitor_names?: string[]
+  voice?: {
+    tone_dimensions?: Record<string, number>
+    messaging_pillars?: Array<{ pillar: string; description: string }>
+    banned_phrases?: string[]
+    preferred_phrases?: string[]
+    example_content?: string
+    voice_signature?: Record<string, unknown>
+  }
+  visual?: {
+    primary_color?: string
+    accent_color?: string
+    neutral_colors?: string[]
+    font_heading?: string
+    font_body?: string
+    logo_url?: string
+    image_style?: string
+    photography_direction?: string
+  }
+}
 
 export default function BrandPage() {
   const { data: brand, isLoading } = useBrand()
@@ -19,6 +50,11 @@ export default function BrandPage() {
   const [industry, setIndustry] = useState('')
   const [tagline, setTagline] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
+
+  // AI Brand Kit Extractor state
+  const [extractUrl, setExtractUrl] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extractedKit, setExtractedKit] = useState<ExtractedBrandKit | null>(null)
 
   if (isLoading) {
     return (
@@ -30,6 +66,45 @@ export default function BrandPage() {
 
   // No brand yet — show onboarding
   if (!brand) {
+    const handleExtract = async () => {
+      if (!extractUrl.trim()) {
+        toast.error('Enter your website URL')
+        return
+      }
+      setExtracting(true)
+      try {
+        const res = await brandApi.extractFromUrl({ url: extractUrl.trim() })
+        const kit = res.data as ExtractedBrandKit
+        setExtractedKit(kit)
+        // Pre-fill the manual form with extracted data
+        setName(kit.name || '')
+        setIndustry(kit.industry || '')
+        setTagline(kit.tagline || '')
+        setWebsiteUrl(kit.website_url || extractUrl.trim())
+        setShowCreate(true)
+        toast.success('Brand kit extracted! Review and edit the fields below.')
+      } catch {
+        toast.error('Failed to extract brand kit. Try creating manually.')
+      } finally {
+        setExtracting(false)
+      }
+    }
+
+    const handleCreateWithExtracted = () => {
+      if (!extractedKit || !name) return
+      createBrand.mutate({
+        name,
+        industry: industry || undefined,
+        tagline: tagline || undefined,
+        website_url: websiteUrl || undefined,
+        positioning_statement: extractedKit.positioning_statement || undefined,
+        mission: extractedKit.mission || undefined,
+        values: extractedKit.values,
+        target_audience: extractedKit.target_audience,
+        competitor_names: extractedKit.competitor_names,
+      })
+    }
+
     return (
       <div className="max-w-2xl mx-auto py-12">
         <Card>
@@ -47,27 +122,80 @@ export default function BrandPage() {
           <CardContent>
             {!showCreate ? (
               <div className="space-y-4">
-                <Button className="w-full" size="lg" onClick={() => setShowCreate(true)}>
+                {/* AI Brand Kit Extractor */}
+                <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-primary">
+                    <Wand2 className="h-5 w-5" />
+                    <span className="font-medium">AI Brand Kit Extractor</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Enter your website URL and AI will extract your brand identity, voice, and visual style automatically.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={extractUrl}
+                      onChange={(e) => setExtractUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && extractUrl.trim()) {
+                          e.preventDefault()
+                          handleExtract()
+                        }
+                      }}
+                      placeholder="https://cloudless.gr"
+                    />
+                    <Button
+                      onClick={handleExtract}
+                      disabled={extracting || !extractUrl.trim()}
+                    >
+                      {extracting ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Extracting...</>
+                      ) : (
+                        <><Sparkles className="mr-2 h-4 w-4" /> Extract</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="h-px bg-border flex-1" />
+                  <span className="text-xs text-muted-foreground">OR</span>
+                  <div className="h-px bg-border flex-1" />
+                </div>
+
+                <Button className="w-full" size="lg" variant="outline" onClick={() => setShowCreate(true)}>
                   <Plus className="mr-2 h-5 w-5" />
                   Create Brand Manually
                 </Button>
-                <div className="text-center text-sm text-muted-foreground">
-                  or use the AI Brand Kit Extractor (coming in Phase 2)
-                </div>
               </div>
             ) : (
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
-                  createBrand.mutate({
-                    name,
-                    industry: industry || undefined,
-                    tagline: tagline || undefined,
-                    website_url: websiteUrl || undefined,
-                  })
+                  if (extractedKit) {
+                    handleCreateWithExtracted()
+                  } else {
+                    createBrand.mutate({
+                      name,
+                      industry: industry || undefined,
+                      tagline: tagline || undefined,
+                      website_url: websiteUrl || undefined,
+                    })
+                  }
                 }}
                 className="space-y-4"
               >
+                {extractedKit && (
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-sm">
+                    <div className="flex items-center gap-2 text-green-700 mb-1">
+                      <Sparkles className="h-4 w-4" />
+                      <span className="font-medium">Extracted from {extractUrl}</span>
+                    </div>
+                    <p className="text-muted-foreground">
+                      Fields below are pre-filled from your website. Edit anything that needs adjusting.
+                      After creating the brand, visit the Voice and Visual pages to review the extracted details.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="name">Brand Name *</Label>
                   <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Cloudless" />
@@ -82,7 +210,7 @@ export default function BrandPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="website">Website URL</Label>
-                  <Input id="website" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://cloudless.gr" />
+                  <Input id="website" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://..." />
                 </div>
                 <div className="flex gap-2">
                   <Button type="submit" disabled={createBrand.isPending || !name} className="flex-1">
@@ -168,7 +296,7 @@ function CompletenessCard({ label, filled, href }: { label: string; filled: bool
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">{label}</span>
           {filled ? (
-            <span className="text-green-600 text-xs">✓ Complete</span>
+            <span className="text-green-600 text-xs">&#10003; Complete</span>
           ) : (
             <span className="text-muted-foreground text-xs">Pending</span>
           )}

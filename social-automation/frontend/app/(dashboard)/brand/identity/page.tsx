@@ -25,6 +25,11 @@ export default function BrandIdentityPage() {
   const [competitors, setCompetitors] = useState<string[]>([])
   const [newCompetitor, setNewCompetitor] = useState('')
 
+  // Target audience fields
+  const [audienceDemographics, setAudienceDemographics] = useState('')
+  const [audiencePainPoints, setAudiencePainPoints] = useState('')
+  const [audienceGoals, setAudienceGoals] = useState('')
+
   useEffect(() => {
     if (brand) {
       setName(brand.name || '')
@@ -35,6 +40,10 @@ export default function BrandIdentityPage() {
       setWebsiteUrl(brand.website_url || '')
       setValues(brand.values || [])
       setCompetitors(brand.competitor_names || [])
+      const ta = brand.target_audience || {}
+      setAudienceDemographics(ta.demographics || '')
+      setAudiencePainPoints(ta.pain_points || '')
+      setAudienceGoals(ta.goals || '')
     }
   }, [brand])
 
@@ -52,6 +61,11 @@ export default function BrandIdentityPage() {
   }
 
   const handleSave = () => {
+    const target_audience: Record<string, string> = {}
+    if (audienceDemographics.trim()) target_audience.demographics = audienceDemographics.trim()
+    if (audiencePainPoints.trim()) target_audience.pain_points = audiencePainPoints.trim()
+    if (audienceGoals.trim()) target_audience.goals = audienceGoals.trim()
+
     updateBrand.mutate({
       name,
       industry: industry || undefined,
@@ -61,6 +75,7 @@ export default function BrandIdentityPage() {
       website_url: websiteUrl || undefined,
       values,
       competitor_names: competitors,
+      target_audience: Object.keys(target_audience).length > 0 ? target_audience : undefined,
     })
   }
 
@@ -122,6 +137,46 @@ export default function BrandIdentityPage() {
               onChange={(e) => setMission(e.target.value)}
               rows={3}
               placeholder="Our mission is to..."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Target Audience */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Target Audience</CardTitle>
+          <CardDescription>Who you&apos;re creating content for — this guides AI tone and topics</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="audience-demographics">Demographics</Label>
+            <Textarea
+              id="audience-demographics"
+              value={audienceDemographics}
+              onChange={(e) => setAudienceDemographics(e.target.value)}
+              rows={2}
+              placeholder="e.g. Startup founders and CTOs, 2-20 person teams, EU/US, technical background"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="audience-pain">Pain Points</Label>
+            <Textarea
+              id="audience-pain"
+              value={audiencePainPoints}
+              onChange={(e) => setAudiencePainPoints(e.target.value)}
+              rows={2}
+              placeholder="e.g. Paying too much for cloud, locked into vendors, no time for marketing, can't afford enterprise consultants"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="audience-goals">Goals</Label>
+            <Textarea
+              id="audience-goals"
+              value={audienceGoals}
+              onChange={(e) => setAudienceGoals(e.target.value)}
+              rows={2}
+              placeholder="e.g. Cut cloud costs, ship faster, grow organic traffic, avoid lock-in"
             />
           </div>
         </CardContent>

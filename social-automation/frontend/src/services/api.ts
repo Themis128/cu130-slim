@@ -598,7 +598,7 @@ export const brandApi = {
   getVoice: () => api.get('/brand/voice'),
   updateVoice: (data: {
     tone_dimensions?: Record<string, number>
-    messaging_pillars?: Array<{ title: string; description: string }>
+    messaging_pillars?: Array<{ pillar: string; description: string }>
     banned_phrases?: string[]
     preferred_phrases?: string[]
     example_content?: string
@@ -634,6 +634,18 @@ export const brandApi = {
     asset_metadata?: Record<string, unknown>
   }) => api.post('/brand/assets', data),
   deleteAsset: (id: string) => api.delete(`/brand/assets/${id}`),
+
+  // AI Brand Kit Extractor — extract brand identity from a website URL
+  extractFromUrl: (data: { url: string }) =>
+    api.post('/brand/extract', data, { timeout: 60000 }),
+
+  // AI Voice Analyzer — analyze content samples and return voice signature
+  analyzeVoice: (data: { samples: string[] }) =>
+    api.post('/brand/analyze-voice', data, { timeout: 60000 }),
+
+  // Brand compliance score — check content against brand guidelines
+  scoreCompliance: (data: { content: string; platform?: string }) =>
+    api.post('/brand/compliance', data),
 }
 
 // Media AI enhancement endpoints
