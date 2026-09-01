@@ -4,6 +4,7 @@ import {
   mediaApi,
   workflowApi,
   accountsApi,
+  profileApi,
   publishingApi,
   analyticsApi,
   aiApi,
@@ -346,6 +347,85 @@ export function useUploadCoverPhoto() {
     onError: (error: unknown) => {
       const axiosError = error as { response?: { data?: { detail?: string } } }
       toast.error(axiosError.response?.data?.detail || 'Failed to upload cover photo')
+    },
+  })
+}
+
+// Unified profile management hooks
+export function useProfile(accountId: string | null) {
+  return useQuery({
+    queryKey: ['profile', accountId],
+    queryFn: () => profileApi.getProfile(accountId!),
+    select: (response) => response.data,
+    enabled: !!accountId,
+    retry: (failureCount, error: unknown) => {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 401 || status === 403 || status === 400) return false
+      return failureCount < 2
+    },
+  })
+}
+
+export function useUpdateProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { about?: string; headline?: string; biography?: string; full_name?: string; website?: string; location?: string; phone?: string; email?: string; quotes?: string } }) =>
+      profileApi.updateProfile(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['profile', id] })
+      toast.success('Profile updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update profile')
+    },
+  })
+}
+
+export function useUploadProfileProfilePicture() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      profileApi.uploadProfilePicture(id, file),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['profile', id] })
+      toast.success('Profile picture updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to upload profile picture')
+    },
+  })
+}
+
+export function useUploadProfileCoverPhoto() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      profileApi.uploadCoverPhoto(id, file),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['profile', id] })
+      toast.success('Cover photo updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to upload cover photo')
+    },
+  })
+}
+
+export function useProfileLogin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { username: string; password: string } }) =>
+      profileApi.login(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['profile', id] })
+      toast.success('Logged in')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Login failed')
     },
   })
 }

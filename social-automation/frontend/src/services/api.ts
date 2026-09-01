@@ -371,6 +371,29 @@ export const accountsApi = {
     api.post(`/accounts/${id}/page-profile/assign-manage-task`, { business_id: businessId, business_user_id: businessUserId }),
 }
 
+// Unified profile management endpoints
+export const profileApi = {
+  getProfile: (id: string) => api.get(`/profile/${id}`),
+  updateProfile: (id: string, data: { about?: string; headline?: string; biography?: string; full_name?: string; website?: string; location?: string; phone?: string; email?: string; quotes?: string }) =>
+    api.put(`/profile/${id}`, data),
+  uploadProfilePicture: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/profile/${id}/picture`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  uploadCoverPhoto: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/profile/${id}/cover`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  login: (id: string, data: { username: string; password: string }) =>
+    api.post(`/profile/${id}/login`, data),
+}
+
 // Publishing endpoints
 export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
