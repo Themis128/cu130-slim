@@ -10,9 +10,40 @@ import {
   Scaling,
   Download,
   FileWarning,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
+
+// PDF.js is loaded dynamically only when a PDF is opened.
+// We use the CDN build to avoid bundling issues with the worker.
+const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69'
+let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null
+
+async function loadPdfjs() {
+  if (pdfjsPromise) return pdfjsPromise
+  pdfjsPromise = (async () => {
+    // Load the legacy UMD build which works in all browsers
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.getElementById('pdfjs-script')
+      if (existing) { resolve(); return }
+      const script = document.createElement('script')
+      script.id = 'pdfjs-script'
+      script.src = `${PDFJS_CDN}/pdf.min.mjs`
+      script.type = 'module'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Failed to load PDF.js'))
+      document.head.appendChild(script)
+    }) as Promise<typeof import('pdfjs-dist')>
+    // @ts-expect-error - pdfjs is loaded as a global
+    const pdfjs = globalThis.pdfjsLib
+    if (pdfjs) {
+      pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`
+    }
+    return pdfjs
+  })()
+  return pdfjsPromise
+}
 
 export interface ImageViewerItem {
   /** URL that serves the image (any browser-renderable format). */
@@ -57,8 +88,13 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [failed, setFailed] = useState(false)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfPageCount, setPdfPageCount] = useState(0)
+  const [pdfCurrentPage, setPdfCurrentPage] = useState(1)
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
+  const pdfDocRef = useRef<{ destroy: () => Promise<void> } | null>(null)
   const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
   useEffect(() => {
@@ -66,8 +102,64 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
       setScale(1)
       setOffset({ x: 0, y: 0 })
       setFailed(false)
+      setPdfCurrentPage(1)
     }
   }, [open, item?.src])
+
+  // PDF.js rendering: load the PDF and render the current page to a canvas.
+  const renderPdfPage = useCallback(async (doc: any, pageNum: number, renderScale: number) => {
+    const canvas = pdfCanvasRef.current
+    if (!canvas) return
+    const page = await doc.getPage(pageNum)
+    const viewport = page.getViewport({ scale: renderScale })
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    canvas.style.maxWidth = '92vw'
+    canvas.style.maxHeight = '85vh'
+    await page.render({ canvasContext: ctx, viewport }).promise
+  }, [])
+
+  useEffect(() => {
+    if (!open || !item?.src || item.mime_type !== 'application/pdf') return
+    let cancelled = false
+    setPdfLoading(true)
+    setFailed(false)
+    ;(async () => {
+      try {
+        const pdfjs = await loadPdfjs()
+        if (cancelled) return
+        const doc = await pdfjs.getDocument({ url: item.src! }).promise
+        if (cancelled) { doc.destroy(); return }
+        pdfDocRef.current = doc
+        setPdfPageCount(doc.numPages)
+        await renderPdfPage(doc, 1, 1.5)
+        if (!cancelled) setPdfLoading(false)
+      } catch (err) {
+        console.error('PDF.js load error:', err)
+        if (!cancelled) { setFailed(true); setPdfLoading(false) }
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (pdfDocRef.current) { pdfDocRef.current.destroy(); pdfDocRef.current = null }
+    }
+  }, [open, item?.src, item?.mime_type, renderPdfPage])
+
+  // Re-render when page changes
+  useEffect(() => {
+    if (!open || !pdfDocRef.current || item?.mime_type !== 'application/pdf') return
+    setPdfLoading(true)
+    ;(async () => {
+      try {
+        await renderPdfPage(pdfDocRef.current, pdfCurrentPage, 1.5)
+        setPdfLoading(false)
+      } catch {
+        setFailed(true); setPdfLoading(false)
+      }
+    })()
+  }, [pdfCurrentPage, open, item?.mime_type, renderPdfPage])
 
   const zoomBy = useCallback((factor: number) => {
     setScale((s) => clampScale(s * factor))
@@ -275,7 +367,35 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
             ) : isVideo ? (
               <video src={item.src} controls autoPlay className="max-h-[85vh] max-w-[92vw]" />
             ) : isPdf ? (
-              <iframe src={item.src} title={item.alt || item.filename || 'PDF'} className="h-[85vh] w-[92vw] border-0" />
+              <div className="flex flex-col items-center gap-3">
+                {pdfLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-white/70" />
+                  </div>
+                )}
+                <canvas ref={pdfCanvasRef} className="rounded shadow-2xl" />
+                {pdfPageCount > 1 && (
+                  <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white">
+                    <button
+                      type="button"
+                      className="rounded px-2 py-0.5 hover:bg-white/15 disabled:opacity-30"
+                      onClick={() => setPdfCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={pdfCurrentPage <= 1}
+                    >
+                      ‹ Prev
+                    </button>
+                    <span className="tabular-nums">{pdfCurrentPage} / {pdfPageCount}</span>
+                    <button
+                      type="button"
+                      className="rounded px-2 py-0.5 hover:bg-white/15 disabled:opacity-30"
+                      onClick={() => setPdfCurrentPage(p => Math.min(pdfPageCount, p + 1))}
+                      disabled={pdfCurrentPage >= pdfPageCount}
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : isAudio ? (
               <div className="flex flex-col items-center gap-4 p-8">
                 <audio src={item.src} controls autoPlay className="w-full max-w-md" />
