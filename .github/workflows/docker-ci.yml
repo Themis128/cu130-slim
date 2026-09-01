@@ -22,21 +22,27 @@ jobs:
       matrix:
         service:
           - name: comfyui
+            compose_image: cu130-slim-comfyui
             context: .
             dockerfile: Dockerfile
           - name: env-manager-backend
+            compose_image: env-manager-backend
             context: env-manager/backend
             dockerfile: env-manager/backend/Dockerfile
           - name: env-manager-frontend
+            compose_image: env-manager-frontend
             context: env-manager/frontend
             dockerfile: env-manager/frontend/Dockerfile
           - name: social-api
+            compose_image: social-api
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
           - name: social-worker
+            compose_image: social-worker
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile.worker
           - name: social-frontend
+            compose_image: social-frontend
             context: social-automation/frontend
             dockerfile: social-automation/frontend/Dockerfile
 
