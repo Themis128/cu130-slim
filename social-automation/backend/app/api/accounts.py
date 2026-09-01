@@ -886,7 +886,7 @@ async def get_facebook_page_profile(
         tasks = await client.get_page_tasks()
         return {"profile": info, "tasks": tasks}
     except FacebookAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
 
 @router.put("/{account_id}/page-profile")
@@ -912,7 +912,7 @@ async def update_facebook_page_profile(
         )
         return {"success": success}
     except FacebookAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -934,7 +934,7 @@ async def upload_facebook_profile_picture(
         success = await client.upload_profile_picture(image_bytes)
         return {"success": success}
     except FacebookAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
 
 @router.post("/{account_id}/page-profile/cover")
@@ -958,7 +958,7 @@ async def upload_facebook_cover_photo(
         photo_id = await client.upload_cover_photo(image_bytes)
         return {"success": True, "photo_id": photo_id}
     except FacebookAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
 
 class AssignManageTaskRequest(BaseModel):
@@ -990,7 +990,7 @@ async def assign_facebook_manage_task(
             if users:
                 business_user_id = users[0].get("id")
         except FacebookAPIError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message)
+            raise HTTPException(status_code=e.status_code, detail=str(e))
 
     if not business_user_id:
         raise HTTPException(
@@ -1007,5 +1007,5 @@ async def assign_facebook_manage_task(
         )
         return {"success": success, "business_user_id": business_user_id, "tasks": tasks}
     except FacebookAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
