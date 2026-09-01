@@ -594,11 +594,16 @@ async def run_cloudless_carousel_pipeline(
     target_account_id: str | None = None,
     publish: bool = True,
     wait_for_publish: bool = False,
+    custom_slides: list[dict] | None = None,
+    custom_caption: str | None = None,
+    custom_hashtags: list[str] | None = None,
 ) -> dict:
     """Full pipeline: CF copy → NLP → txt2img bg → brand slides → post → publish.
 
     Text and images use Cloudflare Workers AI only (no Ollama/ComfyUI fallbacks).
     If CF image generation fails for a slide, the slide is rendered on the brand canvas.
+    If custom_slides is provided, AI copy generation is skipped and the provided
+    slides are used directly (still goes through NLP fix and brand composition).
     """
     target_id = uuid.UUID(target_account_id or DEFAULT_ORG_ACCOUNT_ID)
     account = (
@@ -613,35 +618,44 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — Cloudflare Workers AI only (no Ollama/ComfyUI fallbacks)
+    # 1) Copy — use custom slides if provided, otherwise Cloudflare Workers AI
     effective_provider = "cloudflare"
-    raw = await generate_carousel_copy(
-        topic=topic,
-        num_slides=num_slides,
-        tone=tone,
-        include_cta=include_cta,
-        text_model=text_model,
-        text_provider=effective_provider,
-        db=db,
-        team_id=team.id,
-    )
+    if custom_slides:
+        slides = list(custom_slides)[:num_slides]
+        caption = custom_caption or "cloudless.gr — Clear skies. Zero friction."
+        hashtags = custom_hashtags or ["cloudless", "serverless", "cloud"]
+        # Minimal NLP report for custom slides
+        from app.services.plain_english import NlpCheckReport
+        nlp_report = NlpCheckReport(needs_fix=False, fixed=False, fields_rewritten=[], issues=[], duplicates={})
+    else:
+        raw = await generate_carousel_copy(
+            topic=topic,
+            num_slides=num_slides,
+            tone=tone,
+            include_cta=include_cta,
+            text_model=text_model,
+            text_provider=effective_provider,
+            db=db,
+            team_id=team.id,
+        )
 
-    slides = list(raw.get("slides") or [])[:num_slides]
-    caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
-    hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
+        slides = list(raw.get("slides") or [])[:num_slides]
+        caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
+        hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
 
-    # 2) NLP checker + fixer (runs on both slides and caption)
-    slides, caption, nlp_report = await run_nlp_check_and_fix(
-        slides=slides,
-        caption=caption,
-        provider_name=effective_provider,
-        model=text_model,
-        db=db,
-        team_id=team.id,
-        force_fix=True,
-        allow_fallback=False,
-    )
-    slides = _dedupe_slide_copy(slides)
+        # 2) NLP checker + fixer (runs on both slides and caption)
+        slides, caption, nlp_report = await run_nlp_check_and_fix(
+            slides=slides,
+            caption=caption,
+            provider_name=effective_provider,
+            model=text_model,
+            db=db,
+            team_id=team.id,
+            force_fix=True,
+            allow_fallback=False,
+        )
+        slides = _dedupe_slide_copy(slides)
+    # Skip dedupe for custom slides — they are intentionally curated
 
     # 3) Per-slide CF txt2img: unique realistic background for each slide
     media_ids: list[uuid.UUID] = []

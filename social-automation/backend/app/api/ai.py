@@ -2066,6 +2066,9 @@ class RunCarouselAndPublishRequest(BaseModel):
     target_account_id: str | None = None
     publish: bool = True
     wait_for_publish: bool = False
+    custom_slides: list[dict] | None = None  # override AI-generated copy with exact slide content
+    custom_caption: str | None = None  # override AI-generated caption
+    custom_hashtags: list[str] | None = None  # override AI-generated hashtags
 
 
 @router.post("/run-carousel-and-publish")
@@ -2101,6 +2104,9 @@ async def run_carousel_and_publish(
         target_account_id=request.target_account_id,
         publish=request.publish,
         wait_for_publish=request.wait_for_publish,
+        custom_slides=request.custom_slides,
+        custom_caption=request.custom_caption,
+        custom_hashtags=request.custom_hashtags,
     )
 
     # Auto-save successful run as a reusable workflow template
