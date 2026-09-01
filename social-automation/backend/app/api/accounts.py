@@ -883,10 +883,16 @@ async def get_facebook_page_profile(
     client = _get_facebook_page_client(account)
     try:
         info = await client.get_page_info()
-        tasks = await client.get_page_tasks()
-        return {"profile": info, "tasks": tasks}
     except FacebookAPIError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
+    # Tasks lookup via /me/accounts requires a user token, not a Page token.
+    # Try it but don't fail the whole request if it errors.
+    tasks: list[str] = []
+    try:
+        tasks = await client.get_page_tasks()
+    except FacebookAPIError:
+        pass
+    return {"profile": info, "tasks": tasks}
 
 
 @router.put("/{account_id}/page-profile")
