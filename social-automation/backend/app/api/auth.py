@@ -1095,7 +1095,12 @@ async def oauth_callback(
             # Stash pages for later storage as business accounts
             fb_pages = pages
             fb_info = {"id": user_info["id"]}
-            scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]
+            # Use the scopes requested (Facebook returns them in the token response as a comma/space-separated string)
+            _raw_scope = token.get("scope", "")
+            if isinstance(_raw_scope, str) and _raw_scope:
+                scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+            else:
+                scopes = list(PLATFORM_SCOPES.get("facebook", ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]))
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
             threads_user_id = token.get("user_id")
