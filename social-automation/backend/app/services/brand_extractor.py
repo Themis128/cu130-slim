@@ -4,8 +4,8 @@ Fetches the website HTML, parses colors/fonts/logo/copy, then uses
 Cloudflare Workers AI to analyze tone and generate a structured brand kit draft.
 """
 
-import re
 import logging
+import re
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -186,7 +186,7 @@ def _extract_colors(soup: BeautifulSoup, html: str) -> list[str]:
         colors.add(f"#{r:02x}{g:02x}{b:02x}")
 
     # CSS custom properties (--primary, --accent, etc.)
-    css_var_pattern = re.compile(r"--(?:primary|accent|brand|color)['"]?\s*:\s*(#[0-9a-fA-F]{6}|rgb\([^)]+\))")
+    css_var_pattern = re.compile(r"""--(?:primary|accent|brand|color)['"]?\s*:\s*(#[0-9a-fA-F]{6}|rgb\([^)]+\))""")
     for match in css_var_pattern.finditer(html):
         val = match.group(1)
         if val.startswith("#"):
@@ -272,7 +272,7 @@ Website content:
 Return a JSON object with these fields:
 {{
   "industry": "the industry/category this brand operates in",
-  "positioning_statement": "A positioning statement in the format: For [audience] who [need], [brand] is [category] that [benefit]. Unlike [alternatives], [brand] [differentiator].",
+  "positioning_statement": "For [audience] who [need], [brand] is [category] that [benefit]. Unlike [alternatives], [brand] [differentiator].",
   "mission": "The brand's mission statement (1-2 sentences)",
   "values": ["3-5 core values this brand stands for"],
   "competitor_names": ["3-5 competitor names if mentioned or implied"],
