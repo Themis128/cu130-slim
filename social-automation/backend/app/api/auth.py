@@ -1075,23 +1075,20 @@ async def oauth_callback(
             # Fetch managed pages — page tokens are permanent and required for posting
             pages_resp = await http.get(
                 "https://graph.facebook.com/me/accounts",
-                params={"fields": "id,name,access_token,picture", "access_token": long_lived_token},
+                params={"fields": "id,name,access_token,picture,category", "access_token": long_lived_token},
             )
             pages = pages_resp.json().get("data", [])
-            if pages:
-                page = pages[0]
-                account_id = page["id"]
-                username = page.get("name")
-                display_name = page.get("name", user_info.get("name", ""))
-                avatar_url = (page.get("picture") or {}).get("data", {}).get("url") or (user_info.get("picture") or {}).get("data", {}).get("url")
-                # Store the page token directly — it never expires and works for posting
-                access_token = page.get("access_token", long_lived_token)
-            else:
-                account_id = user_info["id"]
-                username = user_info.get("email") or user_info.get("name")
-                display_name = user_info.get("name", "")
-                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
-                access_token = long_lived_token
+            # Store the USER account as the main account (with user token)
+            # so sync-business-accounts can call /me/accounts later.
+            # Page accounts are stored as separate business accounts below.
+            account_id = user_info["id"]
+            username = user_info.get("email") or user_info.get("name")
+            display_name = user_info.get("name", "")
+            avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+            access_token = long_lived_token
+            # Stash pages for later storage as business accounts
+            fb_pages = pages
+            fb_info = {"id": user_info["id"]}
             scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
@@ -1316,6 +1313,51 @@ async def oauth_callback(
         db.add(account)
 
     await db.commit()
+
+    # For Facebook, also create/update Page accounts as business accounts
+    if platform == "facebook" and locals().get("fb_pages"):
+        for page in fb_pages:
+            page_id = page["id"]
+            page_token = page.get("access_token", access_token)
+            page_result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == team_id,
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_id == page_id,
+                )
+            )
+            page_account = page_result.scalar_one_or_none()
+            page_meta = {
+                "account_type": "page",
+                "page_token": page_token,
+                "category": page.get("category"),
+                "tasks": page.get("perms", page.get("tasks", [])),
+            }
+            if page_account:
+                page_account.access_token_enc = encrypt_token(page_token)
+                page_account.status = "active"
+                page_account.username = page.get("name")
+                page_account.display_name = page.get("name")
+                page_account.is_business = True
+                page_account.account_type = "page"
+                page_account.parent_account_id = account.id
+                page_account.meta_data = {**(page_account.meta_data or {}), **page_meta}
+            else:
+                page_account = SocialAccount(
+                    team_id=team_id,
+                    platform="facebook",
+                    account_id=page_id,
+                    username=page.get("name"),
+                    display_name=page.get("name"),
+                    access_token_enc=encrypt_token(page_token),
+                    status="active",
+                    account_type="page",
+                    is_business=True,
+                    parent_account_id=account.id,
+                    meta_data=page_meta,
+                )
+                db.add(page_account)
+        await db.commit()
 
     return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
 
