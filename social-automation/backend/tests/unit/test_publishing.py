@@ -110,7 +110,7 @@ async def test_publish_threads_image(account, post, monkeypatch):
     ])
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
-        result = await pub._publish_threads("tok-123", "Hello image!", account, post, ["/tmp/img.png"])
+        result = await pub._publish_threads("tok-123", "Hello image!", account, post, ["/tmp/img.png"], ["fake/img.png"])
 
     assert result.success is True
     assert result.platform_post_id == "78901"
@@ -179,7 +179,7 @@ async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
     account = SimpleNamespace(account_id="open-123", username="creator")
     post = SimpleNamespace(platform_specific={})
 
-    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"])
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
 
     assert result.success is True
     assert result.platform_post_id == "draft-123"
@@ -214,7 +214,7 @@ async def test_publish_tiktok_supports_direct_post(monkeypatch):
     account = SimpleNamespace(account_id="open-123", username="creator")
     post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "DIRECT_POST"}})
 
-    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"])
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
 
     assert result.success is True
     assert result.platform_url == "https://www.tiktok.com/@creator/video/video-123"
