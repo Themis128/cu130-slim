@@ -159,14 +159,26 @@ def _extract_tagline(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _get_attr(tag: object, attr: str) -> str | None:
+    """Safely get a string attribute from a BeautifulSoup tag."""
+    val = tag.get(attr) if hasattr(tag, "get") else None  # type: ignore[union-attr]
+    if val is None:
+        return None
+    if isinstance(val, list):
+        return val[0] if val else None
+    return str(val)
+
+
 def _extract_meta_description(soup: BeautifulSoup) -> str | None:
     """Extract meta description."""
     meta = soup.find("meta", attrs={"name": "description"})
-    if meta and meta.get("content"):
-        return meta["content"].strip()
+    content = _get_attr(meta, "content") if meta else None
+    if content:
+        return content.strip()
     meta = soup.find("meta", attrs={"property": "og:description"})
-    if meta and meta.get("content"):
-        return meta["content"].strip()
+    content = _get_attr(meta, "content") if meta else None
+    if content:
+        return content.strip()
     return None
 
 
@@ -199,8 +211,9 @@ def _extract_colors(soup: BeautifulSoup, html: str) -> list[str]:
 
     # theme-color meta tag
     theme_meta = soup.find("meta", attrs={"name": "theme-color"})
-    if theme_meta and theme_meta.get("content"):
-        colors.add(theme_meta["content"].lower())
+    theme_content = _get_attr(theme_meta, "content") if theme_meta else None
+    if theme_content:
+        colors.add(theme_content.lower())
 
     # Sort by frequency in the HTML (most used = primary)
     color_freq: dict[str, int] = {}
@@ -233,13 +246,15 @@ def _extract_logo(soup: BeautifulSoup, base_url: str) -> str | None:
     # Try header/nav img
     for selector in ["header img", "nav img", ".logo img", ".navbar img", '[class*="logo"] img']:
         img = soup.select_one(selector)
-        if img and img.get("src"):
-            return urljoin(base_url, img["src"])
+        src = _get_attr(img, "src") if img else None
+        if src:
+            return urljoin(base_url, src)
 
     # Try favicon as fallback
     favicon = soup.find("link", attrs={"rel": "icon"}) or soup.find("link", attrs={"rel": "shortcut icon"})
-    if favicon and favicon.get("href"):
-        return urljoin(base_url, favicon["href"])
+    href = _get_attr(favicon, "href") if favicon else None
+    if href:
+        return urljoin(base_url, href)
 
     return None
 
