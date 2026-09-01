@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 154 tests).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 274 tests).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -146,6 +146,26 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - **Frontend**: AI Enhancement Studio at `/media/enhance/[id]` with before/after preview, platform preset selector, quality score display, and all operation buttons. Wand icon on media library cards links to the studio.
 - See `docs/superpowers/plans/media-ai-enhancement-plan.md` for the full plan.
 
+## Music / audio track support
+
+- Posts can have an optional `music_asset_id` field (FK to `media_assets.id`, `ON DELETE SET NULL`).
+- Audio uploads are supported in the media library: `.mp3`, `.wav`, `.m4a`, `.aac`, `.ogg`, `.flac`.
+- The post editor has a **Music Track** card with a `MusicPickerDialog` for selecting one audio asset.
+- During publishing (`app/services/publishing.py`), if a music asset is attached and the post includes a video, ffmpeg mixes the audio into the video before dispatching to social platforms. The original video is not mutated — a temporary mixed file is produced and cleaned up after publishing.
+- The `MusicPickerDialog` component (`frontend/src/components/ui/MusicPickerDialog.tsx`) filters the media library by audio MIME type or audio file extension and returns a single `MediaAsset`.
+- Migration: `i5d6e7f8a9b0` (chained after merge migration `5d35f29495b9`).
+
+## LinkedIn carousel pipeline
+
+- **Cloudflare Workers AI only** for carousel generation (text + image). No Ollama/ComfyUI fallback for this path.
+- The pipeline (`app/services/carousel_pipeline.py`) generates slide copy, runs NLP plain-English check/fix, generates background images via FLUX schnell, composes branded slides (dark navy + teal Cloudless brand), and combines all slides into a **single PDF** — one media library entry.
+- An AI-generated title is produced for each carousel and stored in `MediaAsset.ai_caption`. The target platform and account are stored in `MediaAsset.tags` (e.g. `['carousel', 'linkedin', 'slides:7', 'cloudless.gr']`).
+- The `/api/v1/ai/run-carousel-and-publish` endpoint supports `custom_slides`, `custom_caption`, and `custom_hashtags` in the request body to override AI-generated copy with curated content. When custom slides are provided, AI copy generation and NLP dedup are skipped.
+- The `/api/v1/media/view` endpoint serves PDFs and audio files directly (browsers render them natively). The frontend `ImageViewerDialog` renders PDFs in an `<iframe>` and audio in an `<audio>` player.
+- Media library cards show a file icon for PDFs (with AI title and platform tags) and a music icon for audio files.
+- Post as the **cloudless.gr Company Page** account (`4a8d9440-47d2-4bda-bd11-3776fd9022ba`), not a personal profile.
+- Automate via n8n workflow `cloudless-cf-carousel-linkedin` (schedule or webhook).
+
 ## Alembic migration chain
 
 The migration chain is linear. Always set `down_revision` to the current head before creating a new migration. Run `grep -h "^revision\|^down_revision" alembic/versions/*.py` to verify there is only one head.
@@ -161,7 +181,10 @@ Current chain (oldest → newest):
 8. `9c222774bd04` — media collections and R2 storage
 9. `21e4c2d4daf5` — MinIO storage backend enum
 10. `b2c3d4e5f6a7` — platform event index
-11. `h4c5d6e7f8a9` — brand tables (current head)
+11. `h4c5d6e7f8a9` — brand tables
+12. `e7f8a9b1c2d3` — account type column
+13. `5d35f29495b9` — merge brand + account-type heads
+14. `i5d6e7f8a9b0` — music_asset_id on posts (current head)
 
 ## CodeQL alert history
 
