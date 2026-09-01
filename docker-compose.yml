@@ -9,7 +9,7 @@ x-public-dns: &public-dns
 
 services:
   comfyui:
-    image: baltzakist/cu130-slim-comfyui:latest
+    image: baltzakist/cu130-slim-comfyui:v2.417
     pull_policy: always
     build:
       context: .
@@ -276,7 +276,7 @@ services:
     - portainer_data:/data
     restart: unless-stopped
   env-manager-backend:
-    image: baltzakist/cu130-slim-env-manager-backend:latest
+    image: baltzakist/cu130-slim-env-manager-backend:v2.417
     pull_policy: always
     build:
       context: ./env-manager/backend
@@ -297,7 +297,7 @@ services:
       start_period: 15s
     restart: unless-stopped
   env-manager-frontend:
-    image: baltzakist/cu130-slim-env-manager-frontend:latest
+    image: baltzakist/cu130-slim-env-manager-frontend:v2.417
     pull_policy: always
     build:
       context: ./env-manager/frontend
@@ -351,7 +351,7 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
-    image: baltzakist/cu130-slim-social-api:latest
+    image: baltzakist/cu130-slim-social-api:v2.417
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -479,7 +479,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   social-worker:
-    image: baltzakist/cu130-slim-social-worker:latest
+    image: baltzakist/cu130-slim-social-worker:v2.417
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -579,7 +579,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   celery-beat:
-    image: baltzakist/cu130-slim-social-worker:latest
+    image: baltzakist/cu130-slim-social-worker:v2.417
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -668,7 +668,7 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: baltzakist/cu130-slim-social-frontend:latest
+    image: baltzakist/cu130-slim-social-frontend:v2.417
     pull_policy: always
     build:
       context: ./social-automation/frontend
