@@ -563,6 +563,8 @@ services:
     - INSTAGRAM_PRIVATE_API_URL=http://instagram-private-api:8000
     - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME:-}
     - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD:-}
+    # Browser + noVNC bridge (visual social logins)
+    - BROWSER_BRIDGE_URL=http://browser-novnc:9223
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -785,11 +787,46 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── Browser + noVNC container (visual browser for social logins) ─────────
+  # Provides a headed Chromium browser accessible via web browser (noVNC)
+  # and an HTTP bridge API for the SocialAuto backend to start sessions,
+  # check status, and extract cookies after visual login.
+  # Supported platforms: instagram, facebook, linkedin, tiktok, twitter,
+  #   threads, reddit, youtube, pinterest, tumblr, medium, discord,
+  #   telegram, whatsapp
+  browser-novnc:
+    build:
+      context: ./browser-novnc
+      dockerfile: Dockerfile
+    container_name: browser-novnc
+    ports:
+    - 6080:6080    # noVNC web interface (for iframe embedding)
+    - 5900:5900    # VNC (desktop client)
+    - 9223:9223    # Bridge API (for social-api)
+    environment:
+    - SCREEN_WIDTH=1280
+    - SCREEN_HEIGHT=800
+    - SCREEN_DEPTH=24
+    - VNC_PORT=5900
+    - NOVNC_PORT=6080
+    - BRIDGE_PORT=9223
+    - TZ=Europe/Athens
+    volumes:
+    - browser_cookies:/app/cookies
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9223/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
 volumes:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
   redis_data: null
   tunnel_url: null
+  browser_cookies: null
   minio_data: null
   instagram_sessions: null

@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Playwright + Chromium (Python) ──
-RUN pip install --no-cache-dir playwright httpx && \
+# ── Playwright + Chromium (Python) + FastAPI bridge ──
+RUN pip install --no-cache-dir playwright httpx fastapi uvicorn && \
     playwright install chromium && \
     playwright install-deps chromium
 
