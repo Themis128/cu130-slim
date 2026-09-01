@@ -95,7 +95,8 @@ export interface MediaAsset {
   duration_seconds: number | null
   alt_text: string | null
   tags: string[]
-  source: 'upload' | 'comfyui' | 'url' | 'ai-generated'
+  ai_caption: string | null
+  source: 'upload' | 'comfyui' | 'url' | 'ai-generated' | 'ai-logo' | 'ai-favicon' | 'n8n-cf-pipe'
   generation_prompt: string | null
   comfyui_workflow_json: Record<string, unknown> | null
   created_at: string
