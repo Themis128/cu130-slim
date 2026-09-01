@@ -26,12 +26,15 @@ Connect one or more social platforms to a team. Each platform needs its own OAut
 ### Twitter/X OAuth requirements
 
 - **OAuth 2.0 with PKCE** — SocialAuto generates a PKCE pair (`code_challenge` + `S256`) for every Twitter authorization request.
+- **Authorization endpoint**: `https://x.com/i/oauth2/authorize` (not `twitter.com`).
+- **Token endpoint**: `https://api.x.com/2/oauth2/token`.
 - **Scopes**: `tweet.read`, `tweet.write`, `users.read`, `offline.access` (for refresh token).
 - **Redirect URI**: `https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback` (must be HTTPS, registered in the X Developer Console).
 - **Client type**: Web App (confidential client) — uses `client_secret_basic` auth.
+- **App permissions**: Read and Write (NOT Read-only — `tweet.write` scope will be rejected).
 - **Token lifetime**: Access token expires in 2 hours; refresh token persists until revoked (requires `offline.access`).
 
-Create your app at [console.x.com](https://console.x.com), enable OAuth 2.0, set the redirect URI, and copy the Client ID and Client Secret to `.env`.
+Create your app at [developer.x.com](https://developer.x.com/en/portal/dashboard), enable OAuth 2.0, set the redirect URI, and copy the **OAuth 2.0 Client ID** and **Client Secret** (not the OAuth 1.0a Consumer Key/Secret) to `.env` as `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET`.
 
 ## 3. TikTok
 

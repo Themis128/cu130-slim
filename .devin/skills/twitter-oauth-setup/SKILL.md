@@ -10,9 +10,9 @@ Twitter/X uses **OAuth 2.0 Authorization Code Flow with PKCE** (Proof Key for Co
 
 | Component | Value |
 |-----------|-------|
-| Authorize URL | `https://twitter.com/i/oauth2/authorize` |
-| Token URL | `https://api.twitter.com/2/oauth2/token` |
-| User info URL | `https://api.twitter.com/2/users/me` |
+| Authorize URL | `https://x.com/i/oauth2/authorize` |
+| Token URL | `https://api.x.com/2/oauth2/token` |
+| User info URL | `https://api.x.com/2/users/me` |
 | Auth method | `client_secret_basic` (confidential client) |
 | PKCE | Required (`S256`) |
 
@@ -52,14 +52,16 @@ Optional scopes (add if needed):
 
 ### 3. Configure OAuth 2.0
 
-1. In the Developer Console, go to your app > Settings > Authentication
-2. Enable OAuth 2.0
-3. Select **Web App** (confidential client) to get a Client Secret
-4. Set the redirect URI:
+1. In the Developer Console, go to your app > Settings > User authentication settings > Set up
+2. Enable **OAuth 2.0**
+3. Set **App permissions** to **Read and Write** (NOT Read-only — `tweet.write` scope will be rejected with "Something went wrong")
+4. Select **Type of App** = **Web App, Automated App or Bot** (confidential client) to get a Client Secret
+5. Set the redirect URI:
    ```
    https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback
    ```
-5. Save settings
+6. Set the Website URL to `https://cloudless.gr`
+7. Save settings
 
 ### 4. Save credentials
 
@@ -126,9 +128,11 @@ The `code_verifier` is encoded in the OAuth state parameter (base64 JSON) so the
 
 | Setting | Value |
 |---------|-------|
-| App type | Web App (confidential client) |
+| App type | Web App, Automated App or Bot (confidential client) |
+| App permissions | Read and Write (NOT Read-only) |
 | OAuth 2.0 | Enabled |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback` |
+| Website URL | `https://cloudless.gr` |
 | Scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` |
 
 ## Troubleshooting
