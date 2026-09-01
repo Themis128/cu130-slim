@@ -348,6 +348,27 @@ export const accountsApi = {
     api.post(`/accounts/${id}/sync-business-accounts`),
   setBusinessAccount: (id: string, businessAccountId: string) =>
     api.post(`/accounts/${id}/set-business-account`, { business_account_id: businessAccountId }),
+  // Facebook Page profile management
+  getPageProfile: (id: string) =>
+    api.get(`/accounts/${id}/page-profile`),
+  updatePageProfile: (id: string, data: { about?: string; description?: string; website?: string; phone?: string }) =>
+    api.put(`/accounts/${id}/page-profile`, data),
+  uploadProfilePicture: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/accounts/${id}/page-profile/picture`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  uploadCoverPhoto: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/accounts/${id}/page-profile/cover`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  assignManageTask: (id: string, businessId: string, businessUserId?: string) =>
+    api.post(`/accounts/${id}/page-profile/assign-manage-task`, { business_id: businessId, business_user_id: businessUserId }),
 }
 
 // Publishing endpoints

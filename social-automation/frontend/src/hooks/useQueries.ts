@@ -287,6 +287,85 @@ export function useSetBusinessAccount() {
   })
 }
 
+// Facebook Page profile management hooks
+export function usePageProfile(accountId: string | null) {
+  return useQuery({
+    queryKey: ['page-profile', accountId],
+    queryFn: () => accountsApi.getPageProfile(accountId!),
+    select: (response) => response.data,
+    enabled: !!accountId,
+    retry: (failureCount, error: unknown) => {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 401 || status === 403 || status === 400) return false
+      return failureCount < 2
+    },
+  })
+}
+
+export function useUpdatePageProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { about?: string; description?: string; website?: string; phone?: string } }) =>
+      accountsApi.updatePageProfile(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['page-profile', id] })
+      toast.success('Page profile updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to update page profile')
+    },
+  })
+}
+
+export function useUploadProfilePicture() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      accountsApi.uploadProfilePicture(id, file),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['page-profile', id] })
+      toast.success('Profile picture updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to upload profile picture')
+    },
+  })
+}
+
+export function useUploadCoverPhoto() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      accountsApi.uploadCoverPhoto(id, file),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['page-profile', id] })
+      toast.success('Cover photo updated')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to upload cover photo')
+    },
+  })
+}
+
+export function useAssignManageTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, businessId, businessUserId }: { id: string; businessId: string; businessUserId?: string }) =>
+      accountsApi.assignManageTask(id, businessId, businessUserId),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['page-profile', id] })
+      toast.success('MANAGE task assigned — you can now edit About & Description')
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { detail?: string } } }
+      toast.error(axiosError.response?.data?.detail || 'Failed to assign MANAGE task')
+    },
+  })
+}
+
 // Publishing hooks
 export function usePublishQueue(params?: { status?: string; page?: number; page_size?: number }) {
   return useQuery({
