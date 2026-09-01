@@ -1,7 +1,9 @@
 # llama3.1:8b with all layers forced onto GPU for minimum RAM usage.
 # num_gpu=99 forces all model layers into VRAM (llama3.1:8b has 32 layers).
+# num_ctx=2048 — social media copy rarely exceeds 500 tokens; 2048 is plenty
+#   and halves KV cache VRAM vs 4096 (~250MB saved).
 # Combined with OLLAMA_FLASH_ATTENTION=1 and OLLAMA_KV_CACHE_TYPE=q8_0,
 # this keeps the entire model + KV cache in VRAM and minimizes system RAM.
 FROM llama3.1:8b
 PARAMETER num_gpu 99
-PARAMETER num_ctx 4096
+PARAMETER num_ctx 2048

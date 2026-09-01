@@ -118,7 +118,8 @@ services:
     # ── GPU-first: keep everything in VRAM, use fp16 to fit in 8GB ───────
     # --gpu-only: force text encoders/CLIP/models onto GPU (minimum RAM)
     # --force-fp16: halves VRAM usage with minimal quality loss
-    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --gpu-only --force-fp16
+    # --reserve-vram 1: keep 1GB VRAM free for Ollama so ComfyUI doesn't OOM it
+    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --gpu-only --force-fp16 --reserve-vram 1
     - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
     - FAL_KEY=${FAL_KEY}
     - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
@@ -301,6 +302,13 @@ services:
     - OLLAMA_KEEP_ALIVE=-1
     # Quantize KV cache to 8-bit — halves the memory used by the context window.
     - OLLAMA_KV_CACHE_TYPE=q8_0
+    # Cap context at 2048 tokens — social media copy rarely exceeds 500 tokens.
+    # Halves KV cache VRAM vs the 4096 default (~250MB saved).
+    - OLLAMA_CONTEXT_LENGTH=2048
+    # Reserve 2GB VRAM for ComfyUI so Ollama doesn't monopolize the 8GB card.
+    # Ollama will only use ~5GB (4.9GB weights + ~100MB KV at 2048 ctx),
+    # leaving ~3GB for ComfyUI models and CUDA overhead.
+    - OLLAMA_GPU_OVERHEAD=2147483648
     runtime: nvidia
     dns:
     - 1.1.1.1
@@ -366,8 +374,9 @@ services:
     ports:
     - 8010:8010
     environment:
-    - Java_Xms=256m
-    - Java_Xmx=512m
+    # Limit Java heap — spell/grammar check doesn't need 512MB.
+    - Java_Xms=128m
+    - Java_Xmx=256m
     restart: unless-stopped
 
   portainer:
