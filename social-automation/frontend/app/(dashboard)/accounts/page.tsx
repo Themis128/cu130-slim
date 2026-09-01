@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { PageProfileEditor } from '@/components/ui/PageProfileEditor'
+import { ProfileEditor } from '@/components/ui/ProfileEditor'
 import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts, useSyncBusinessAccounts, useSetBusinessAccount } from '@/hooks/useQueries'
 import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
@@ -403,6 +404,7 @@ export default function AccountsPage() {
   const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'connections' | 'setup'>('connections')
   const [expandedPageProfile, setExpandedPageProfile] = useState<string | null>(null)
+  const [selectedProfileAccount, setSelectedProfileAccount] = useState<SocialAccount | null>(null)
   const { data: accounts, isLoading } = useAccounts()
   const connectMutation = useConnectAccount()
   const disconnectMutation = useDisconnectAccount()
@@ -708,6 +710,17 @@ export default function AccountsPage() {
                           </Button>
                         </div>
 
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => setSelectedProfileAccount(status.account!)}
+                          >
+                            <User className="mr-1.5 h-3.5 w-3.5" />
+                            Edit Profile
+                          </Button>
+                        </div>
+
                         {/* Queue peek — upcoming scheduled posts for this platform */}
                         {(() => {
                           const upcoming = upcomingForPlatform(platform.id)
@@ -909,6 +922,14 @@ export default function AccountsPage() {
                                 <Badge variant={isExpired ? 'destructive' : 'success'}>
                                   {isExpired ? 'Token Expired' : 'Active'}
                                 </Badge>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setSelectedProfileAccount(account)}
+                                >
+                                  <User className="mr-1.5 h-3.5 w-3.5" />
+                                  Edit Profile
+                                </Button>
                                 <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
@@ -997,6 +1018,18 @@ export default function AccountsPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Profile editor overlay */}
+      {selectedProfileAccount && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="mt-8 w-full max-w-2xl">
+            <ProfileEditor
+              account={selectedProfileAccount}
+              onClose={() => setSelectedProfileAccount(null)}
+            />
+          </div>
         </div>
       )}
     </div>
