@@ -135,9 +135,9 @@ async def health():
 
 @app.get("/novnc-url")
 async def novnc_url():
-    """Return the noVNC web URL for embedding in an iframe."""
+    """Return the noVNC web URL (with audio support) for embedding in an iframe."""
     port = os.environ.get("NOVNC_PORT", "6080")
-    return {"url": f"http://localhost:{port}/vnc.html", "vnc_port": port}
+    return {"url": f"http://localhost:{port}/vnc-audio.html", "vnc_port": port}
 
 
 @app.get("/platforms")
