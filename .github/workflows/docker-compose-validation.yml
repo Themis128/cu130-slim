@@ -59,9 +59,7 @@ jobs:
             "baltzakist/cu130-slim-env-manager-backend:"
             "baltzakist/cu130-slim-env-manager-frontend:"
             "baltzakist/cu130-slim-social-api:"
-            "baltzakist/cu130-slim-social-worker-publishing:"
-            "baltzakist/cu130-slim-social-worker-media:"
-            "baltzakist/cu130-slim-social-worker-default:"
+            "baltzakist/cu130-slim-social-worker:"
             "baltzakist/cu130-slim-social-frontend:"
           )
 
@@ -79,6 +77,21 @@ jobs:
               fi
             else
               echo "⚠️  Service $service_name not found in docker-compose.yml"
+            fi
+          done
+
+          # Worker services share a single image but have different service names.
+          for worker_service in social-worker-publishing social-worker-media social-worker-default; do
+            if echo "$config_output" | jq -e --arg s "$worker_service" '.services[$s]' > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r --arg s "$worker_service" '.services[$s].image')
+              if [[ "$actual_image" == baltzakist/cu130-slim-social-worker:* ]]; then
+                echo "✅ $worker_service uses correct image: $actual_image"
+              else
+                echo "❌ $worker_service has incorrect image: $actual_image (expected prefix: baltzakist/cu130-slim-social-worker:*)"
+                exit 1
+              fi
+            else
+              echo "⚠️  Service $worker_service not found in docker-compose.yml"
             fi
           done
 
