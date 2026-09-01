@@ -1,6 +1,23 @@
 from fastapi import APIRouter
 
-from app.api import accounts, ai, ai_providers, analytics, auth, brand, cf_db, content, linkedin, media, media_enhance, ops, profile, publishing, secrets, workflows
+from app.api import (
+    accounts,
+    ai,
+    ai_providers,
+    analytics,
+    auth,
+    brand,
+    cf_db,
+    content,
+    linkedin,
+    media,
+    media_enhance,
+    ops,
+    profile,
+    publishing,
+    secrets,
+    workflows,
+)
 
 api_router = APIRouter()
 
