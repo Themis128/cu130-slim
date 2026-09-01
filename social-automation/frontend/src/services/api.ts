@@ -646,6 +646,14 @@ export const brandApi = {
   // Brand compliance score — check content against brand guidelines
   scoreCompliance: (data: { content: string; platform?: string }) =>
     api.post('/brand/compliance', data),
+
+  // AI Logo Generator — generate a brand logo from brand context
+  generateLogo: (data: { description?: string; style?: string; color_scheme?: string }) =>
+    api.post('/brand/generate-logo', data, { timeout: 90000 }),
+
+  // AI Favicon Generator — generate a favicon from the brand logo
+  generateFavicon: () =>
+    api.post('/brand/generate-favicon', {}, { timeout: 90000 }),
 }
 
 // Media AI enhancement endpoints

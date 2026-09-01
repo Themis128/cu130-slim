@@ -603,3 +603,215 @@ async def score_compliance(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compliance scoring failed: {e}") from e
+
+
+# ── AI Logo Generator ─────────────────────────────────────────────────────────
+
+
+class GenerateLogoRequest(BaseModel):
+    description: str = ""
+    style: str = "modern minimalist"  # modern minimalist | geometric | abstract | lettermark | wordmark | emblem
+    color_scheme: str = ""  # optional: "dark navy and teal" — defaults to brand colors
+
+
+class GenerateLogoResponse(BaseModel):
+    logo_url: str
+    asset_id: str
+    prompt: str
+
+
+@router.post("/generate-logo", response_model=GenerateLogoResponse)
+async def generate_brand_logo(
+    data: GenerateLogoRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a brand logo using Cloudflare Workers AI text-to-image.
+
+    Uses the brand's name, industry, colors, and image style to build an
+    optimised prompt. The generated logo is saved to the media library
+    and the brand's logo_url is updated automatically.
+    """
+    import base64
+
+    from app.services.cf_models import CF_TXT2IMG_FREE
+    from app.services.inference import _call_workers_ai_image, _get_provider_config, _is_workers_ai_image_model
+    from app.services.media_storage import persist_generated_image
+
+    brand = await _get_brand(current_user, db)
+
+    # Build the logo generation prompt from brand context
+    brand_name = brand.name
+    industry = brand.industry or "technology"
+    visual = brand.visual
+
+    if data.color_scheme:
+        colors_desc = data.color_scheme
+    elif visual and visual.primary_color:
+        colors_desc = f"primary {visual.primary_color}"
+        if visual.accent_color:
+            colors_desc += f" with {visual.accent_color} accent"
+    else:
+        colors_desc = "professional brand colors"
+
+    style_hint = data.style or "modern minimalist"
+    user_desc = data.description.strip()
+
+    prompt = (
+        f"Professional logo design for {brand_name}, a {industry} company. "
+        f"Style: {style_hint}. Colors: {colors_desc}. "
+        f"Clean, scalable, suitable for web and print. "
+        f"Simple, memorable, modern. "
+    )
+    if user_desc:
+        prompt += f"Specific direction: {user_desc}. "
+    prompt += "No text overlay, no watermark. High quality vector-style logo on transparent or solid background."
+
+    # Generate the image via Cloudflare Workers AI
+    team = await _get_team(current_user, db)
+    team_id = team.id
+
+    _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
+    model = model or CF_TXT2IMG_FREE
+    if not _is_workers_ai_image_model(model):
+        model = CF_TXT2IMG_FREE
+
+    try:
+        result = await _call_workers_ai_image(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            width=1024,
+            height=1024,
+            steps=6,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Logo generation failed: {exc}") from exc
+
+    image_base64 = result["image_base64"]
+    image_bytes = base64.b64decode(image_base64)
+
+    # Save to media library
+    asset = await persist_generated_image(
+        db,
+        team_id=team_id,
+        user_id=current_user.id,
+        image_bytes=image_bytes,
+        prompt=prompt,
+        source="ai-logo",
+    )
+
+    # Build the logo URL from the media asset
+    logo_url = f"/api/v1/media/view/{asset.id}"
+
+    # Update the brand's visual logo_url
+    if brand.visual:
+        brand.visual.logo_url = logo_url
+    else:
+        from app.models.brand import BrandVisual
+        visual_obj = BrandVisual(brand_id=brand.id, logo_url=logo_url)
+        db.add(visual_obj)
+
+    await db.commit()
+
+    return GenerateLogoResponse(
+        logo_url=logo_url,
+        asset_id=str(asset.id),
+        prompt=prompt,
+    )
+
+
+# ── AI Favicon Generator ──────────────────────────────────────────────────────
+
+
+class GenerateFaviconResponse(BaseModel):
+    favicon_url: str
+    asset_id: str
+    prompt: str
+
+
+@router.post("/generate-favicon", response_model=GenerateFaviconResponse)
+async def generate_brand_favicon(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a favicon from the brand logo using AI.
+
+    Takes the brand's logo concept and generates a simplified 512x512
+    square icon suitable for use as a favicon. The result is saved to
+    the media library and stored in brand.visual.logo_variants['favicon'].
+    """
+    import base64
+
+    from app.services.cf_models import CF_TXT2IMG_FREE
+    from app.services.inference import _call_workers_ai_image, _get_provider_config, _is_workers_ai_image_model
+    from app.services.media_storage import persist_generated_image
+
+    brand = await _get_brand(current_user, db)
+    if not brand.visual or not brand.visual.logo_url:
+        raise HTTPException(status_code=400, detail="Generate a logo first before creating a favicon")
+
+    brand_name = brand.name
+    industry = brand.industry or "technology"
+    visual = brand.visual
+
+    colors_desc = f"primary {visual.primary_color or '#0b1220'}"
+    if visual.accent_color:
+        colors_desc += f" with {visual.accent_color} accent"
+
+    # Build a favicon-optimised prompt — simplified, square, recognizable at small sizes
+    prompt = (
+        f"Favicon icon for {brand_name}, a {industry} company. "
+        f"Derived from the brand logo. Simplified, bold, recognizable at 16x16 pixels. "
+        f"Colors: {colors_desc}. "
+        f"Square format, centered, minimal detail, high contrast. "
+        f"No text, no watermark. Clean vector-style icon on solid background."
+    )
+
+    team = await _get_team(current_user, db)
+    team_id = team.id
+
+    _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
+    model = model or CF_TXT2IMG_FREE
+    if not _is_workers_ai_image_model(model):
+        model = CF_TXT2IMG_FREE
+
+    try:
+        result = await _call_workers_ai_image(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            width=512,
+            height=512,
+            steps=6,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Favicon generation failed: {exc}") from exc
+
+    image_base64 = result["image_base64"]
+    image_bytes = base64.b64decode(image_base64)
+
+    # Save to media library
+    asset = await persist_generated_image(
+        db,
+        team_id=team_id,
+        user_id=current_user.id,
+        image_bytes=image_bytes,
+        prompt=prompt,
+        source="ai-favicon",
+    )
+
+    favicon_url = f"/api/v1/media/view/{asset.id}"
+
+    # Store favicon URL in logo_variants
+    variants = dict(brand.visual.logo_variants or {})
+    variants["favicon"] = favicon_url
+    brand.visual.logo_variants = variants
+
+    await db.commit()
+
+    return GenerateFaviconResponse(
+        favicon_url=favicon_url,
+        asset_id=str(asset.id),
+        prompt=prompt,
+    )

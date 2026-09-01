@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeft, Plus, X } from 'lucide-react'
+import { ArrowLeft, Plus, X, Sparkles, Loader2, Upload } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -9,6 +9,19 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { useBrand, useUpdateBrandVisual } from '@/hooks/useQueries'
+import { brandApi, mediaUrl } from '@/services/api'
+import toast from 'react-hot-toast'
+
+const LOGO_STYLES = [
+  { value: 'modern minimalist', label: 'Modern Minimalist' },
+  { value: 'geometric', label: 'Geometric' },
+  { value: 'abstract', label: 'Abstract' },
+  { value: 'lettermark', label: 'Lettermark' },
+  { value: 'wordmark', label: 'Wordmark' },
+  { value: 'emblem', label: 'Emblem' },
+  { value: 'mascot', label: 'Mascot' },
+  { value: 'combination', label: 'Combination' },
+]
 
 export default function BrandVisualPage() {
   const { data: brand, isLoading } = useBrand()
@@ -21,8 +34,15 @@ export default function BrandVisualPage() {
   const [fontHeading, setFontHeading] = useState('')
   const [fontBody, setFontBody] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
+  const [faviconUrl, setFaviconUrl] = useState('')
   const [imageStyle, setImageStyle] = useState('')
   const [photographyDirection, setPhotographyDirection] = useState('')
+
+  // AI logo generation state
+  const [logoDescription, setLogoDescription] = useState('')
+  const [logoStyle, setLogoStyle] = useState('modern minimalist')
+  const [generatingLogo, setGeneratingLogo] = useState(false)
+  const [generatingFavicon, setGeneratingFavicon] = useState(false)
 
   useEffect(() => {
     if (brand?.visual) {
@@ -32,6 +52,8 @@ export default function BrandVisualPage() {
       setFontHeading(brand.visual.font_heading || '')
       setFontBody(brand.visual.font_body || '')
       setLogoUrl(brand.visual.logo_url || '')
+      const variants = brand.visual.logo_variants || {}
+      setFaviconUrl(variants.favicon || '')
       setImageStyle(brand.visual.image_style || '')
       setPhotographyDirection(brand.visual.photography_direction || '')
     }
@@ -61,6 +83,51 @@ export default function BrandVisualPage() {
       image_style: imageStyle || undefined,
       photography_direction: photographyDirection || undefined,
     })
+  }
+
+  const handleGenerateLogo = async () => {
+    setGeneratingLogo(true)
+    try {
+      const res = await brandApi.generateLogo({
+        description: logoDescription,
+        style: logoStyle,
+      })
+      const data = res.data as { logo_url: string; asset_id: string; prompt: string }
+      setLogoUrl(data.logo_url)
+      toast.success('Logo generated and saved to brand!')
+    } catch {
+      toast.error('Failed to generate logo')
+    } finally {
+      setGeneratingLogo(false)
+    }
+  }
+
+  const handleGenerateFavicon = async () => {
+    if (!logoUrl) {
+      toast.error('Generate or set a logo first')
+      return
+    }
+    setGeneratingFavicon(true)
+    try {
+      const res = await brandApi.generateFavicon()
+      const data = res.data as { favicon_url: string; asset_id: string }
+      setFaviconUrl(data.favicon_url)
+      toast.success('Favicon generated and saved to brand!')
+    } catch {
+      toast.error('Failed to generate favicon')
+    } finally {
+      setGeneratingFavicon(false)
+    }
+  }
+
+  // Resolve logo URL for preview — media view paths need the full API base
+  const resolveLogoUrl = (url: string) => {
+    if (!url) return ''
+    if (url.startsWith('http')) return url
+    if (url.startsWith('/api/v1/media/view/')) {
+      return `${process.env.NEXT_PUBLIC_API_URL || ''}${url}`
+    }
+    return mediaUrl(url)
   }
 
   return (
@@ -155,23 +222,122 @@ export default function BrandVisualPage() {
         </CardContent>
       </Card>
 
-      {/* Logo */}
+      {/* Logo — AI Generation + URL */}
       <Card>
         <CardHeader>
           <CardTitle>Logo</CardTitle>
-          <CardDescription>URL to your logo (upload to media library first)</CardDescription>
+          <CardDescription>Generate a logo with AI or enter a URL to your existing logo</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="logo-url">Logo URL</Label>
-            <Input id="logo-url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." />
-          </div>
+          {/* Current logo preview */}
           {logoUrl && (
             <div className="rounded-lg border p-6 flex items-center justify-center bg-muted/30">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logoUrl} alt="Brand logo" className="max-h-24 max-w-xs" />
+              <img src={resolveLogoUrl(logoUrl)} alt="Brand logo" className="max-h-24 max-w-xs" />
             </div>
           )}
+
+          {/* AI Logo Generator */}
+          <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
+              <Sparkles className="h-5 w-5" />
+              <span className="font-medium">AI Logo Generator</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Generate a professional logo using your brand name, colors, and industry. The result is saved to your media library and set as your brand logo automatically.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="logo-style">Logo Style</Label>
+              <select
+                id="logo-style"
+                value={logoStyle}
+                onChange={(e) => setLogoStyle(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {LOGO_STYLES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-desc">Description (optional)</Label>
+              <Textarea
+                id="logo-desc"
+                value={logoDescription}
+                onChange={(e) => setLogoDescription(e.target.value)}
+                rows={2}
+                placeholder="e.g. A cloud with a checkmark, representing clear skies and reliability"
+              />
+            </div>
+            <Button
+              type="button"
+              onClick={handleGenerateLogo}
+              disabled={generatingLogo}
+              className="w-full"
+            >
+              {generatingLogo ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating logo...</>
+              ) : (
+                <><Sparkles className="mr-2 h-4 w-4" /> Generate Logo with AI</>
+              )}
+            </Button>
+          </div>
+
+          {/* Manual URL input */}
+          <div className="space-y-2">
+            <Label htmlFor="logo-url">Or enter Logo URL manually</Label>
+            <Input id="logo-url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Favicon — AI Generation from Logo */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Favicon</CardTitle>
+          <CardDescription>Generate a favicon icon from your brand logo with AI</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Current favicon preview */}
+          {faviconUrl && (
+            <div className="flex items-center gap-4">
+              <div className="rounded-lg border p-3 flex items-center justify-center bg-muted/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={resolveLogoUrl(faviconUrl)} alt="Brand favicon" className="h-16 w-16" />
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Favicon saved to media library and brand variants.
+              </div>
+            </div>
+          )}
+
+          {/* AI Favicon Generator */}
+          <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
+              <Sparkles className="h-5 w-5" />
+              <span className="font-medium">AI Favicon Generator</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Generates a simplified square icon from your brand logo, optimized for use as a browser favicon. Requires a logo to be set first.
+            </p>
+            <Button
+              type="button"
+              onClick={handleGenerateFavicon}
+              disabled={generatingFavicon || !logoUrl}
+              className="w-full"
+            >
+              {generatingFavicon ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating favicon...</>
+              ) : (
+                <><Sparkles className="mr-2 h-4 w-4" /> Generate Favicon from Logo</>
+              )}
+            </Button>
+            {!logoUrl && (
+              <p className="text-xs text-muted-foreground text-center">
+                Generate or set a logo above first.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
