@@ -2,7 +2,23 @@
   "mcpServers": {
     "playwright": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "--init", "--network", "host", "--shm-size=2g", "-v", "/home/tbaltzakis/cu130-slim:/workspace", "-w", "/workspace", "mcr.microsoft.com/playwright/mcp:latest", "--headless"]
+      "args": ["run", "-i", "--init", "--network", "host", "--shm-size=2g",
+        "-v", "/home/tbaltzakis/cu130-slim:/workspace",
+        "-v", "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
+        "-w", "/workspace",
+        "mcr.microsoft.com/playwright/mcp:latest",
+        "--headless",
+        "--user-data-dir", "/home/pwuser/.playwright-data/profile",
+        "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "--viewport-size", "1920x1080",
+        "--timeout-action", "15000",
+        "--timeout-navigation", "120000",
+        "--timeout-settle", "1500",
+        "--no-sandbox",
+        "--ignore-https-errors",
+        "--block-service-workers",
+        "--init-script", "/workspace/.playwright-data/init-script.js"
+      ]
     },
     "github-local": {
       "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
