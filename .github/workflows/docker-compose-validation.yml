@@ -58,7 +58,7 @@ jobs:
             "baltzakist/cu130-slim-env-manager-backend:latest"
             "baltzakist/cu130-slim-env-manager-frontend:latest"
             "baltzakist/cu130-slim-social-api:latest"
-            "baltzakist/cu130-slim-social-worker:latest"
+            "baltzakist/cu130-slim-social-worker-publishing:latest"
             "baltzakist/cu130-slim-social-frontend:latest"
           )
 
@@ -80,7 +80,7 @@ jobs:
           done
 
           # All CI-built services must have pull_policy: always.
-          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker social-frontend celery-beat; do
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-frontend celery-beat; do
             if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
               pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
               if [[ "$pull_policy" == "always" ]]; then

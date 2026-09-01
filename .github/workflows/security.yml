@@ -85,7 +85,7 @@ jobs:
           - env-manager-backend
           - env-manager-frontend
           - social-api
-          - social-worker
+          - social-worker-publishing
           - social-frontend
     steps:
       - uses: actions/checkout@v7

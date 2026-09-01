@@ -33,7 +33,7 @@ jobs:
           - name: social-api
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
-          - name: social-worker
+          - name: social-worker-publishing
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile.worker
           - name: social-frontend

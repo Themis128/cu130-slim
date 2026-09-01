@@ -24,7 +24,7 @@ jobs:
       matrix:
         service:
           - social-api
-          - social-worker
+          - social-worker-publishing
           - env-manager-backend
           - env-manager-frontend
           - social-frontend
