@@ -858,7 +858,7 @@ export default function AccountsPage() {
                                 <div className="p-4 pt-0">
                                   <PageProfileEditor
                                     accountId={account.id}
-                                    accountName={account.username || account.display_name}
+                                    accountName={account.username || account.display_name || undefined}
                                   />
                                 </div>
                               )}
