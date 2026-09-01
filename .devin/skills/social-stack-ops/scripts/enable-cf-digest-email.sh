@@ -40,5 +40,5 @@ PY
 # Preserve shell override pitfalls
 unset EMAIL_PROVIDER || true
 export EMAIL_PROVIDER=cloudflare
-docker compose up -d social-api social-worker --force-recreate
-echo "Recreated api/worker. Test: POST /api/v1/ops/daily-digest?post_to_slack=false&post_to_email=true"
+docker compose up -d social-api social-worker-publishing social-worker-media social-worker-default celery-beat --force-recreate
+echo "Recreated api/workers/beat. Test: POST /api/v1/ops/daily-digest?post_to_slack=false&post_to_email=true"

@@ -45,7 +45,7 @@ A self-hosted, multi-tenant SocialAuto product that lets the Cloudless team (and
 - `call_inference` routes to Cloudflare Workers AI, Groq, Together, Pixazo, HF, Ollama with fallbacks.
 - Carousel pipeline is Cloudflare-only and posts as the configured LinkedIn Company Page.
 - LinkedIn REST client (`app/services/linkedin_api.py`) supports token validation, organization lookup, post/comment/image/document publishing, analytics, and follower counts.
-- Celery workers for publishing, analytics, and digests.
+- Celery workers for publishing, analytics, and digests — 3 queue-dedicated containers (`social-worker-publishing`, `social-worker-media`, `social-worker-default`) with `celery-beat` scheduler.
 - n8n workflows: `cloudless-cf-carousel-linkedin` and `socialauto-daily-slack-digest`.
 
 ### 2.2 Frontend
@@ -384,20 +384,22 @@ sequenceDiagram
     autonumber
     participant Beat as Celery Beat
     participant Redis
-    participant Worker as social-worker
+    participant WPub as social-worker-publishing
+    participant WDefault as social-worker-default
     participant n8n
     participant API as social-api
     participant LI as LinkedIn
 
-    Beat->>Redis: enqueue scheduled carousel
-    Worker->>API: POST /ai/run-carousel-and-publish
+    Beat->>Redis: enqueue scheduled carousel (publishing queue)
+    WPub->>API: POST /ai/run-carousel-and-publish
     API->>API: Cloudflare FLUX/SD generate slides
     API->>API: PDF carousel build
-    API->>Worker: Celery publish task
-    Worker->>LI: publish document post
-    Worker->>Redis: success event
+    API->>WPub: Celery publish task (publishing queue)
+    WPub->>LI: publish document post
+    WPub->>Redis: success event
     n8n->>API: trigger via webhook
-    API->>n8n: digest / status payload
+    API->>WDefault: digest task (default queue)
+    WDefault->>n8n: digest / status payload
 ```
 
 - Workflow JSON schema versioned in `n8n-workflows/`.
@@ -691,16 +693,18 @@ flowchart TB
     end
 
     subgraph Docker
-        Frontend[social-frontend :8083]
-        API[social-api :8000]
-        Worker[social-worker Celery]
+        Frontend[social-frontend :8082]
+        API[social-api :8083]
+        WPub[social-worker-publishing Q:publishing]
+        WMedia[social-worker-media Q:media]
+        WDefault[social-worker-default Q:default,celery]
         Beat[celery-beat]
         Postgres[social-postgres :5432]
         Redis[redis :6379]
         n8n[n8n :5678]
-        Ollama[ollama :11434]
-        Chroma[chroma :8000]
-        ComfyUI[comfyui :8000]
+        Ollama[ollama :11435 100% GPU]
+        Chroma[chroma :8001]
+        ComfyUI[comfyui :8000 --gpu-only --force-fp16]
     end
 
     Browser -->|8082| Frontend
@@ -710,16 +714,23 @@ flowchart TB
     API --> Postgres
     API --> Redis
     API --> Chroma
-    Redis --> Worker
+    Redis --> WPub
+    Redis --> WMedia
+    Redis --> WDefault
     Redis --> Beat
-    Worker --> n8n
+    Beat -->|scheduled tasks| Redis
+    WPub --> n8n
+    WDefault --> n8n
     API --> n8n
-    Worker --> Ollama
-    Worker --> ComfyUI
+    WMedia --> Ollama
+    WMedia --> ComfyUI
+    WDefault --> Ollama
 ```
 
 - All schema changes via Alembic; run `alembic upgrade head` on startup.
-- Restart `social-worker` after any change to `app/services/publishing.py`, `app/services/linkedin_api.py`, or Celery tasks.
+- Restart all 3 `social-worker-*` containers after any change to `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks, or `celery_app.py` queue routing.
+- `celery-beat` is a single scheduler — never scale to multiple instances.
+- Ollama uses `llama3.1:8b-gpu` (all layers on GPU, q8_0 KV cache, 2048 ctx, kept forever). ComfyUI uses `--gpu-only --force-fp16 --reserve-vram 1` to coexist with Ollama in 8GB VRAM.
 - Frontend changes require a rebuild of the `social-frontend` image or a dev container with `next dev`.
 - n8n workflow changes require import, publish, and n8n restart for triggers to register.
 - Cloudflare Workers AI free tier is 10,000 neurons/day shared; monitor `AIUsageLog` to avoid silent failures.
@@ -753,7 +764,7 @@ flowchart TB
 |------|------------|
 | Cloudflare quota exhaustion mid-campaign | Fallback chain + quota dashboard + pre-schedule quota check. |
 | LinkedIn API changes breaking URN / asset status logic | Centralized `LinkedInAPIClient` with versioned fallback paths. |
-| `social-worker` not picking up publishing changes | Restart worker after deployment; add smoke test. |
+| `social-worker-*` not picking up publishing changes | Restart all 3 worker containers after deployment; add smoke test. |
 | Frontend image not reflecting source changes | Rebuild `social-frontend` image or run dev container with mounted source. |
 | n8n trigger not registering after workflow update | Always publish + restart n8n; validate with a manual webhook call. |
 | Multi-tenant data leakage | Team-scoped queries in every endpoint; RBAC in Phase 7. |
@@ -768,7 +779,7 @@ flowchart TB
 
 - [ ] Megaplan reviewed and approved by user.
 - [ ] Phase 0 code is merged and `pytest tests/unit` passes.
-- [ ] `social-api` and `social-worker` containers healthy after restart.
+- [ ] `social-api` and all 3 `social-worker-*` containers healthy after restart.
 - [ ] `AIUsageLog` table exists and is populated on inference calls.
 - [ ] `/ai/seo` endpoint returns valid scores and meta suggestions.
 - [ ] LinkedIn frontend page is reachable and functional after rebuild.
@@ -825,7 +836,7 @@ flowchart TD
 
 After any change to these paths, the matching container must be restarted and health-checked:
 
-- `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks → `social-worker`
+- `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks → `social-worker-publishing`, `social-worker-media`, `social-worker-default`
 - `app/api/*.py`, `app/services/*.py` with new endpoints or imports → `social-api`
 - `frontend/**` → rebuild `social-frontend` or restart dev container
 - `n8n-workflows/**` or webhook nodes → import, publish, restart `n8n`

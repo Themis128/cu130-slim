@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Wire Cloudflare Email Sending for digests (keeps Slack xoxb untouched).
 # Usage:
-#   CLOUDFLARE_EMAIL_API_TOKEN='…' .cursor/skills/social-stack-ops/scripts/enable-cf-digest-email.sh
+#   CLOUDFLARE_EMAIL_API_TOKEN='…' .devin/skills/social-stack-ops/scripts/enable-cf-digest-email.sh
 # Token needs: Account → Email Sending → Edit
 # Create at: https://dash.cloudflare.com/profile/api-tokens
 set -euo pipefail
@@ -40,5 +40,5 @@ PY
 # Preserve shell override pitfalls
 unset EMAIL_PROVIDER || true
 export EMAIL_PROVIDER=cloudflare
-docker compose up -d social-api social-worker --force-recreate
-echo "Recreated api/worker. Test: POST /api/v1/ops/daily-digest?post_to_slack=false&post_to_email=true"
+docker compose up -d social-api social-worker-publishing social-worker-media social-worker-default celery-beat --force-recreate
+echo "Recreated api/workers/beat. Test: POST /api/v1/ops/daily-digest?post_to_slack=false&post_to_email=true"
