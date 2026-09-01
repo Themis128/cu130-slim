@@ -753,6 +753,25 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  # ── Instagram Private API sidecar (aiograpi-rest) ────────────────────────
+  # RESTful HTTP wrapper around aiograpi (async Instagram private mobile API).
+  # Enables profile writes (bio, picture, name, website, phone) that the
+  # official Graph API does not support.  Runs on internal port 8000, exposed
+  # as 8010 on the host for diagnostics.  Session files persist in a named
+  # volume so Instagram login survives container restarts.
+  instagram-private-api:
+    image: subzeroid/aiograpi-rest:latest
+    container_name: instagram-private-api
+    ports:
+    - 8010:8000
+    environment:
+    - TZ=Europe/Athens
+    volumes:
+    - instagram_sessions:/app/sessions
+    restart: unless-stopped
+    <<: *public-dns
+
 volumes:
   portainer_data: null
   postgres_data: null
@@ -760,3 +779,4 @@ volumes:
   redis_data: null
   tunnel_url: null
   minio_data: null
+  instagram_sessions: null
