@@ -22,6 +22,7 @@ API reference: https://subzeroid.github.io/aiograpi-rest/
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -30,6 +31,10 @@ import httpx
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 60.0
+
+# Greek locale and timezone (UTC+3 = 10800 seconds) to reduce challenge risk.
+DEFAULT_LOCALE = "el_GR"
+DEFAULT_TIMEZONE = "10800"
 
 
 class InstagramPrivateAPIError(Exception):
@@ -77,16 +82,31 @@ class InstagramPrivateAPIClient:
         username: str,
         password: str,
         verification_code: str | None = None,
+        proxy: str | None = None,
+        locale: str = DEFAULT_LOCALE,
+        timezone: str = DEFAULT_TIMEZONE,
     ) -> dict[str, Any]:
         """Log in to Instagram and return the session info.
 
         On success, returns a dict with ``session_id``.  If Instagram
         requires 2FA, the response includes ``two_factor_required: True``
         and the caller must retry with ``verification_code``.
+
+        Pass ``proxy`` as a mobile/residential proxy URL to reduce the
+        chance of a challenge_required error from a datacenter IP.
+        ``locale`` and ``timezone`` should match the account's real
+        location (defaults: Greek locale, UTC+3).
         """
-        data: dict[str, Any] = {"username": username, "password": password}
+        data: dict[str, Any] = {
+            "username": username,
+            "password": password,
+            "locale": locale,
+            "timezone": timezone,
+        }
         if verification_code:
             data["verification_code"] = verification_code
+        if proxy:
+            data["proxy"] = proxy
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
@@ -94,22 +114,116 @@ class InstagramPrivateAPIClient:
                 data=data,
                 headers={"Accept": "application/json"},
             )
-            result = self._raise_for_status(resp)
-            # The sidecar may return the session_id in the response body
-            # or set it as a header.  We extract it for the caller.
-            if "session_id" not in result:
-                # Try to extract from response headers
-                session_id = resp.headers.get("x-session-id")
-                if session_id:
-                    result["session_id"] = session_id
-            return result
+            # The sidecar returns the session_id as a plain string on success.
+            if resp.status_code == 200:
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {}
+                if isinstance(body, str):
+                    return {"session_id": body, "logged_in": True}
+                if isinstance(body, bool) and body:
+                    session_id = resp.headers.get("x-session-id", "")
+                    return {"session_id": session_id, "logged_in": True}
+                return body
+            # Error: could be challenge_required or two_factor_required
+            try:
+                error_body = resp.json()
+            except Exception:
+                error_body = {"detail": resp.text}
 
-    async def login_by_sessionid(self, session_id: str) -> dict[str, Any]:
+            # Detect challenge / 2FA from error response
+            exc_type = error_body.get("exc_type", "")
+            if exc_type == "ChallengeRequired":
+                return {
+                    "logged_in": False,
+                    "challenge_required": True,
+                    "two_factor_required": False,
+                    "message": error_body.get("hint", "Instagram challenge required."),
+                    "last_json": error_body.get("last_json", ""),
+                }
+            if exc_type == "TwoFactorRequired":
+                return {
+                    "logged_in": False,
+                    "challenge_required": False,
+                    "two_factor_required": True,
+                    "message": error_body.get("hint", "Instagram 2FA required."),
+                }
+            raise InstagramPrivateAPIError(resp.status_code, str(error_body.get("detail", resp.text))[:500])
+
+    async def login_by_sessionid(
+        self,
+        session_id: str,
+        proxy: str | None = None,
+        locale: str = DEFAULT_LOCALE,
+        timezone: str = DEFAULT_TIMEZONE,
+    ) -> dict[str, Any]:
         """Log in using an existing Instagram sessionid cookie value."""
+        data: dict[str, Any] = {
+            "session_id": session_id,
+            "locale": locale,
+            "timezone": timezone,
+        }
+        if proxy:
+            data["proxy"] = proxy
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base_url}/auth/login/by/sessionid",
-                data={"session_id": session_id},
+                data=data,
+                headers={"Accept": "application/json"},
+            )
+            return self._raise_for_status(resp)
+
+    async def challenge_resolve(
+        self,
+        session_id: str,
+        last_json: str,
+        security_code: str,
+    ) -> dict[str, Any]:
+        """Resolve an Instagram login challenge with a security code.
+
+        After ``login()`` returns ``challenge_required: True``, call this
+        with the SMS/email code Instagram sent to the account owner.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/auth/challenge/resolve",
+                data={
+                    "last_json": last_json if isinstance(last_json, str) else json.dumps(last_json),
+                    "security_code": security_code,
+                },
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def get_settings(self, session_id: str) -> dict[str, Any]:
+        """Get the client settings (can be saved for session restore)."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(
+                f"{self._base_url}/auth/settings",
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def set_settings(
+        self,
+        settings_json: str,
+        proxy: str | None = None,
+        locale: str | None = None,
+        timezone: str | None = None,
+    ) -> dict[str, Any]:
+        """Import client settings to restore a session without password."""
+        data: dict[str, Any] = {"settings": settings_json}
+        if proxy is not None:
+            data["proxy"] = proxy
+        if locale is not None:
+            data["locale"] = locale
+        if timezone is not None:
+            data["timezone"] = timezone
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.patch(
+                f"{self._base_url}/auth/settings",
+                data=data,
                 headers={"Accept": "application/json"},
             )
             return self._raise_for_status(resp)

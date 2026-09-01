@@ -773,8 +773,9 @@ services:
     - 8011:8000
     environment:
     - TZ=Europe/Athens
+    - AIOGRAPI_REST_DB_PATH=/data/db.json
     volumes:
-    - instagram_sessions:/app/sessions
+    - instagram_sessions:/data
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 15s

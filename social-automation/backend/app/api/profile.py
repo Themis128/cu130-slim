@@ -139,6 +139,7 @@ class BrowserLoginRequest(BaseModel):
     """
     username: str | None = None
     password: str | None = None
+    verification_code: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -147,6 +148,7 @@ class LoginResponse(BaseModel):
     storage_state: dict | None = None
     logged_in: bool
     two_factor_required: bool = False
+    challenge_required: bool = False
     message: str = ""
 
 
@@ -353,29 +355,43 @@ async def platform_login(
                 ),
             )
         client = _get_instagram_private_client()
+        proxy = await secret_store.get("INSTAGRAM_PROXY")
         try:
             result = await client.login(
                 username=username,
                 password=password,
                 verification_code=getattr(req, "verification_code", None),
+                proxy=proxy or None,
             )
         except InstagramPrivateAPIError as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
 
         session_id = result.get("session_id")
         two_factor = result.get("two_factor_required", False)
+        challenge = result.get("challenge_required", False)
 
-        if session_id and not two_factor:
+        if session_id and not two_factor and not challenge:
             meta = _get_meta(account)
             meta["private_api_session_id"] = session_id
+            # Also save settings for session restore
+            try:
+                settings = await client.get_settings(session_id)
+                meta["private_api_settings"] = settings
+            except Exception:
+                pass
             account.meta_data = meta
             await db.commit()
 
         return LoginResponse(
             session_id=session_id,
-            logged_in=bool(session_id) and not two_factor,
+            logged_in=bool(session_id) and not two_factor and not challenge,
             two_factor_required=two_factor,
-            message=result.get("message", "Login successful" if session_id else "Login failed"),
+            message=result.get(
+                "message",
+                "Login successful" if session_id
+                else "Challenge required" if challenge
+                else "Login failed",
+            ),
         )
 
     if account.platform in ("facebook", "linkedin"):
