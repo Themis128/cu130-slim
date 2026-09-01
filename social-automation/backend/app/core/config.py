@@ -126,6 +126,14 @@ class Settings(BaseSettings):
     INSTAGRAM2_CLIENT_SECRET: str = ""
     INSTAGRAM2_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/instagram2/callback"
 
+    # Instagram Private API (aiograpi-rest Docker sidecar)
+    # Used for profile writes (bio, picture, name, website, phone) that the
+    # official Graph API does not support.  The sidecar runs on port 8000
+    # inside the compose network, exposed as 8010 on the host.
+    INSTAGRAM_PRIVATE_API_URL: str = "http://instagram-private-api:8000"
+    INSTAGRAM_USERNAME: str = ""
+    INSTAGRAM_PASSWORD: str = ""
+
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
     FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/facebook/callback"
