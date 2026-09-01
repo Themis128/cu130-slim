@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { PageProfileEditor } from '@/components/ui/PageProfileEditor'
 import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts, useSyncBusinessAccounts, useSetBusinessAccount } from '@/hooks/useQueries'
 import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
@@ -401,6 +402,7 @@ function SetupGuideCard({ platform }: { platform: PlatformSetup }) {
 export default function AccountsPage() {
   const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'connections' | 'setup'>('connections')
+  const [expandedPageProfile, setExpandedPageProfile] = useState<string | null>(null)
   const { data: accounts, isLoading } = useAccounts()
   const connectMutation = useConnectAccount()
   const disconnectMutation = useDisconnectAccount()
@@ -796,48 +798,70 @@ export default function AccountsPage() {
                           const Icon = platform?.icon || AlertCircle
                           const color = platformColors[account.platform] || 'bg-gray-500'
                           const isExpired = account.token_expires_at && new Date(account.token_expires_at) < new Date()
+                          const isFacebookPage = account.platform === 'facebook' && account.account_type === 'page'
+                          const isExpanded = expandedPageProfile === account.id
 
                           return (
-                            <div key={account.id} className="flex items-center justify-between p-4 rounded-lg border">
-                              <div className="flex items-center gap-4">
-                                <div className={`p-2 rounded-lg ${color}`}>
-                                  <Icon className="h-5 w-5 text-white" />
+                            <div key={account.id} className="rounded-lg border overflow-hidden">
+                              <div className="flex items-center justify-between p-4">
+                                <div className="flex items-center gap-4">
+                                  <div className={`p-2 rounded-lg ${color}`}>
+                                    <Icon className="h-5 w-5 text-white" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium">{platform?.name || account.platform}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      @{account.username || account.display_name || 'Unknown'}
+                                      <span className="ml-2 text-xs text-muted-foreground/70">
+                                        ({account.account_type})
+                                      </span>
+                                    </p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="font-medium">{platform?.name || account.platform}</p>
-                                  <p className="text-sm text-muted-foreground">
-                                    @{account.username || account.display_name || 'Unknown'}
-                                    <span className="ml-2 text-xs text-muted-foreground/70">
-                                      ({account.account_type})
-                                    </span>
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <Badge variant={isExpired ? 'destructive' : 'success'}>
-                                  {isExpired ? 'Token Expired' : 'Active'}
-                                </Badge>
-                                {account.parent_account_id && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      handleSetBusinessAccount(account.parent_account_id!, account.account_id, platform?.name || account.platform)
-                                    }
-                                    disabled={setBusinessMutation.isPending}
-                                  >
-                                    {setBusinessMutation.isPending ? (
-                                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <Building2 className="mr-1.5 h-3.5 w-3.5" />
-                                    )}
-                                    Use for Publishing
+                                <div className="flex items-center gap-3">
+                                  <Badge variant={isExpired ? 'destructive' : 'success'}>
+                                    {isExpired ? 'Token Expired' : 'Active'}
+                                  </Badge>
+                                  {isFacebookPage && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setExpandedPageProfile(isExpanded ? null : account.id)}
+                                    >
+                                      <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+                                      {isExpanded ? 'Hide' : 'Edit Page'}
+                                    </Button>
+                                  )}
+                                  {account.parent_account_id && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleSetBusinessAccount(account.parent_account_id!, account.account_id, platform?.name || account.platform)
+                                      }
+                                      disabled={setBusinessMutation.isPending}
+                                    >
+                                      {setBusinessMutation.isPending ? (
+                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Building2 className="mr-1.5 h-3.5 w-3.5" />
+                                      )}
+                                      Use for Publishing
+                                    </Button>
+                                  )}
+                                  <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
+                                    <Trash2 className="h-4 w-4 text-destructive" />
                                   </Button>
-                                )}
-                                <Button variant="ghost" size="icon" onClick={() => handleDisconnect(account.id, platform?.name || account.platform)}>
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                </div>
                               </div>
+                              {isFacebookPage && isExpanded && (
+                                <div className="p-4 pt-0">
+                                  <PageProfileEditor
+                                    accountId={account.id}
+                                    accountName={account.username || account.display_name}
+                                  />
+                                </div>
+                              )}
                             </div>
                           )
                         })}
