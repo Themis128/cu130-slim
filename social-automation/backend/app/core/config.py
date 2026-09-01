@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     # ChromaDB
     CHROMA_URL: str = "http://chromadb:8000"
 
-    # Ollama
+    # Ollama — default to the GPU-optimized tag (all layers on VRAM, q8_0 KV cache)
     OLLAMA_URL: str = "http://ollama:11434"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b-gpu"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
 
     # LanguageTool self-hosted spell/grammar checker

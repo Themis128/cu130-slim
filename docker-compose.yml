@@ -115,7 +115,10 @@ services:
     - ./storage-user/output:/home/user/ComfyUI/output
     - ./storage-user/input:/home/user/ComfyUI/input
     environment:
-    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto
+    # ── GPU-first: keep everything in VRAM, use fp16 to fit in 8GB ───────
+    # --gpu-only: force text encoders/CLIP/models onto GPU (minimum RAM)
+    # --force-fp16: halves VRAM usage with minimal quality loss
+    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --gpu-only --force-fp16
     - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
     - FAL_KEY=${FAL_KEY}
     - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
@@ -286,6 +289,18 @@ services:
     volumes:
     - ./ollama/models:/root/.ollama/models
     - ./ollama/cache:/root/.ollama/cache
+    environment:
+    # ── GPU-first settings: maximize VRAM usage, minimize RAM ────────────
+    # Flash Attention reduces both VRAM and RAM usage for attention layers.
+    - OLLAMA_FLASH_ATTENTION=1
+    # Keep only 1 model loaded in GPU memory at a time (we only use llama3.1:8b).
+    - OLLAMA_MAX_LOADED_MODELS=1
+    # Limit to 1 concurrent inference request — reduces KV cache memory overhead.
+    - OLLAMA_NUM_PARALLEL=1
+    # Keep the model in VRAM permanently (no reload latency, no RAM swap-out).
+    - OLLAMA_KEEP_ALIVE=-1
+    # Quantize KV cache to 8-bit — halves the memory used by the context window.
+    - OLLAMA_KV_CACHE_TYPE=q8_0
     runtime: nvidia
     dns:
     - 1.1.1.1
