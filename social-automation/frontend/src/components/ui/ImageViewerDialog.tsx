@@ -18,12 +18,12 @@ import { cn } from '@/lib/utils'
 // PDF.js is loaded dynamically only when a PDF is opened.
 // We use the CDN build to avoid bundling issues with the worker.
 const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69'
-let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null
+let pdfjsPromise: Promise<any> | null = null
 
-async function loadPdfjs() {
+async function loadPdfjs(): Promise<any> {
   if (pdfjsPromise) return pdfjsPromise
   pdfjsPromise = (async () => {
-    // Load the legacy UMD build which works in all browsers
+    // Load the UMD build which works in all browsers without bundler config
     await new Promise<void>((resolve, reject) => {
       const existing = document.getElementById('pdfjs-script')
       if (existing) { resolve(); return }
@@ -34,8 +34,8 @@ async function loadPdfjs() {
       script.onload = () => resolve()
       script.onerror = () => reject(new Error('Failed to load PDF.js'))
       document.head.appendChild(script)
-    }) as Promise<typeof import('pdfjs-dist')>
-    // @ts-expect-error - pdfjs is loaded as a global
+    })
+    // @ts-expect-error - pdfjsLib is loaded as a global by the CDN script
     const pdfjs = globalThis.pdfjsLib
     if (pdfjs) {
       pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`
