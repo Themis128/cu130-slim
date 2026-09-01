@@ -147,7 +147,9 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
   }
 
   const isVideo = !!item?.mime_type?.startsWith('video/')
-  const canZoom = !isVideo && !failed
+  const isPdf = item?.mime_type === 'application/pdf'
+  const isAudio = !!item?.mime_type?.startsWith('audio/')
+  const canZoom = !isVideo && !isPdf && !isAudio && !failed
   const pct = Math.round(scale * 100)
 
   const ZoomControls = (
@@ -272,6 +274,13 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
               </div>
             ) : isVideo ? (
               <video src={item.src} controls autoPlay className="max-h-[85vh] max-w-[92vw]" />
+            ) : isPdf ? (
+              <iframe src={item.src} title={item.alt || item.filename || 'PDF'} className="h-[85vh] w-[92vw] border-0" />
+            ) : isAudio ? (
+              <div className="flex flex-col items-center gap-4 p-8">
+                <audio src={item.src} controls autoPlay className="w-full max-w-md" />
+                <p className="text-sm text-white/80">{item.alt || item.filename || 'Audio'}</p>
+              </div>
             ) : (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img

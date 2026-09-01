@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Search, Image as ImageIcon, Upload, Trash2, Eye, Sparkles,
   FolderOpen, Loader2, ArrowUpDown, CheckSquare, X, ExternalLink, Wand2,
+  FileText, Music,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
@@ -545,6 +546,8 @@ export default function MediaPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                 {media.map((item: MediaAsset) => {
                   const isVideo = !!item.mime_type?.startsWith('video/')
+                  const isPdf = item.mime_type === 'application/pdf'
+                  const isAudio = !!item.mime_type?.startsWith('audio/') || /\.(mp3|wav|aac|m4a|ogg|flac)$/i.test(item.filename || '')
                   const isAi = item.source === 'ai-generated' || item.source === 'comfyui'
                   const isSelected = selectedIds.has(item.id)
                   return (
@@ -591,6 +594,25 @@ export default function MediaPage() {
                             </div>
                           </div>
                         </>
+                      ) : isPdf ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-primary/10 to-muted/50">
+                          <FileText className="h-10 w-10 text-primary" />
+                          {item.ai_caption && (
+                            <p className="mt-2 px-2 text-center text-xs font-medium text-foreground line-clamp-2">{item.ai_caption}</p>
+                          )}
+                          {item.tags && item.tags.length > 0 && (
+                            <div className="mt-1 flex flex-wrap justify-center gap-1 px-2">
+                              {item.tags.filter(t => t !== 'carousel').slice(0, 3).map(tag => (
+                                <span key={tag} className="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] text-primary">{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : isAudio ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-purple-500/10 to-muted/50">
+                          <Music className="h-10 w-10 text-purple-500" />
+                          <p className="mt-2 px-2 text-center text-xs font-medium text-foreground line-clamp-2">{item.filename}</p>
+                        </div>
                       ) : (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
