@@ -102,3 +102,4 @@ social-automation/uploads/
 
 # Slack CLI local auth state (contains OAuth credentials)
 slack-apps/*/.slack/
+.playwright-data/
