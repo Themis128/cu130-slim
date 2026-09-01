@@ -49,6 +49,8 @@ dependencies = [
     "tweepy>=4.14.0,<5.0.0",
     # TikTok profile updates via private mobile API (signing server)
     "tiktok-private-api>=0.4.3",
+    # Browser automation for Facebook/LinkedIn personal profile updates
+    "playwright>=1.46.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,369 @@
+"""Browser-automated profile updates for Facebook and LinkedIn.
+
+Facebook and LinkedIn do not expose profile-write APIs for personal
+profiles.  This service uses Playwright to drive the web UI exactly as a
+human would.  A persistent browser context is used per account and its
+storage state (cookies + localStorage) is persisted in the database so
+2FA / CAPTCHA only needs to be solved once.
+
+Workflow:
+    1. POST /profile/{account_id}/login with username + password
+    2. If 2FA is required, the service returns a challenge and the user
+       completes it (or the account becomes usable after the fact).
+    3. Storage state is saved to ``social_accounts.meta_data``.
+    4. Subsequent profile reads/writes load the storage state into a
+       headless browser and run the UI automation.
+
+Security:
+    - Passwords are never persisted; only the resulting storage state.
+    - Sessions are encrypted like other account metadata.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import tempfile
+from dataclasses import dataclass
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class BrowserProfileError(Exception):
+    """Raised when a browser automation step fails."""
+
+    def __init__(self, status_code: int, detail: str, *, retryable: bool = False) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        self.retryable = retryable
+        super().__init__(f"Browser profile error {status_code}: {detail}")
+
+
+@dataclass
+class BrowserSession:
+    """In-memory handle for a loaded browser context."""
+    browser: Any
+    context: Any
+    page: Any
+    storage_state: dict | None = None
+
+
+class BrowserProfileService:
+    """Playwright-based profile automation for Facebook and LinkedIn."""
+
+    def __init__(self, storage_state: dict | None = None) -> None:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError as e:
+            raise BrowserProfileError(
+                500,
+                "Playwright is not installed. Run: pip install playwright",
+            ) from e
+
+        self._playwright = async_playwright
+        self._storage_state = storage_state
+
+    def _load_storage_state(self, raw: dict | str | None) -> dict | None:
+        """Load a Playwright storage state from the account meta_data."""
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        return raw if isinstance(raw, dict) and raw.get("cookies") else None
+
+    async def _launch_context(self, storage_state: dict | None = None) -> BrowserSession:
+        """Launch a headless Chromium browser with an optional storage state."""
+        p = await self._playwright().start()
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            storage_state=storage_state,
+            viewport={"width": 1280, "height": 720},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await context.new_page()
+        return BrowserSession(browser=browser, context=context, page=page)
+
+    async def _close_session(self, session: BrowserSession) -> None:
+        """Close the browser session."""
+        await session.context.close()
+        await session.browser.close()
+
+    async def _extract_storage_state(self, session: BrowserSession) -> dict:
+        """Return the current storage state for persistence."""
+        return await session.context.storage_state()
+
+    # ── Facebook ────────────────────────────────────────────────────────────
+
+    async def login_facebook(self, username: str, password: str) -> dict[str, Any]:
+        """Log in to Facebook via the web UI and return the storage state."""
+        session = await self._launch_context()
+        try:
+            page = session.page
+            await page.goto("https://www.facebook.com/login")
+            await page.fill("#email", username)
+            await page.fill("#pass", password)
+            await page.click("button[name='login']")
+
+            # Wait for either the home page or a challenge/2FA page
+            await page.wait_for_load_state("networkidle")
+
+            # Check for 2FA / challenge
+            if "checkpoint" in page.url or page.locator("input#approvals_code").count() > 0:
+                return {
+                    "success": False,
+                    "two_factor_required": True,
+                    "message": "Facebook 2FA required. Complete login in a browser, then call the session endpoint.",
+                    "url": page.url,
+                    "storage_state": await self._extract_storage_state(session),
+                }
+
+            # Check if we made it home
+            if "facebook.com" in page.url and ("home" in page.url or "/" in page.url):
+                storage_state = await self._extract_storage_state(session)
+                return {
+                    "success": True,
+                    "two_factor_required": False,
+                    "message": "Facebook login successful",
+                    "storage_state": storage_state,
+                }
+
+            raise BrowserProfileError(401, f"Facebook login failed. Current URL: {page.url}")
+        finally:
+            await self._close_session(session)
+
+    async def get_facebook_profile(self, storage_state: dict) -> dict[str, Any]:
+        """Fetch the current Facebook personal profile page."""
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            # Try the profile page
+            await page.goto("https://www.facebook.com/me")
+            await page.wait_for_load_state("networkidle")
+
+            result: dict[str, Any] = {
+                "url": page.url,
+                "name": None,
+                "about": None,
+                "profile_pic_url": None,
+            }
+
+            # Attempt to read the name
+            title = await page.title()
+            if title and title not in ("Facebook", "Log in"):
+                result["name"] = title.split("(")[0].strip()
+
+            # Attempt to read the "About" intro text
+            intro = await page.locator("[data-pagelet='ProfileActions']").first.inner_text(timeout=2000).catch(lambda _: "")
+            if intro:
+                result["about"] = intro.strip()
+
+            return result
+        finally:
+            await self._close_session(session)
+
+    async def update_facebook_about(self, storage_state: dict, text: str) -> dict[str, Any]:
+        """Update the Facebook personal profile 'About' text.
+
+        This opens the Edit Profile modal, focuses the bio field, and saves.
+        Facebook's selectors change frequently; the method is best-effort.
+        """
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            await page.goto("https://www.facebook.com/profile.php?sk=about")
+            await page.wait_for_load_state("networkidle")
+
+            # Look for an edit bio / add bio button
+            add_bio_btn = page.locator("text='Add Bio'").first
+            edit_bio_btn = page.locator("text='Edit Bio'").first
+
+            if await edit_bio_btn.count() > 0:
+                await edit_bio_btn.click()
+            elif await add_bio_btn.count() > 0:
+                await add_bio_btn.click()
+            else:
+                raise BrowserProfileError(
+                    501,
+                    "Could not locate the Facebook 'Add/Edit Bio' control. "
+                    "The selector may need updating for the current Facebook layout.",
+                    retryable=True,
+                )
+
+            # Fill the bio textarea
+            bio_input = page.locator("textarea[aria-label='Bio']").first
+            if await bio_input.count() == 0:
+                bio_input = page.locator("textarea").first
+            await bio_input.fill(text)
+
+            # Save
+            await page.click("button:has-text('Save')")
+            await page.wait_for_load_state("networkidle")
+
+            return {"success": True, "updated_fields": ["about"], "message": "Facebook bio updated"}
+        finally:
+            await self._close_session(session)
+
+    async def update_facebook_profile_picture(
+        self, storage_state: dict, image_bytes: bytes, filename: str = "profile.jpg"
+    ) -> dict[str, Any]:
+        """Upload a new Facebook personal profile picture."""
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            await page.goto("https://www.facebook.com/profile.php")
+            await page.wait_for_load_state("networkidle")
+
+            # Click update profile picture button
+            update_btn = page.locator("[aria-label='Update profile picture']").first
+            if await update_btn.count() == 0:
+                update_btn = page.locator("text='Update profile picture'").first
+            if await update_btn.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the Facebook 'Update profile picture' control")
+
+            await update_btn.click()
+
+            with tempfile.NamedTemporaryFile(suffix=f".{filename.split('.')[-1]}", delete=False) as f:
+                f.write(image_bytes)
+                temp_path = f.name
+
+            try:
+                # Facebook often uses a hidden input after the button click
+                input_selector = "input[type='file'][accept*='image']"
+                await page.locator(input_selector).set_input_files(temp_path)
+                await page.wait_for_load_state("networkidle")
+
+                # Confirm
+                save_btn = page.locator("button:has-text('Save')").first
+                if await save_btn.count() > 0:
+                    await save_btn.click()
+                    await page.wait_for_load_state("networkidle")
+            finally:
+                import os
+                os.unlink(temp_path)
+
+            return {"success": True, "updated_fields": ["profile_picture"], "message": "Facebook profile picture updated"}
+        finally:
+            await self._close_session(session)
+
+    # ── LinkedIn ────────────────────────────────────────────────────────────
+
+    async def login_linkedin(self, username: str, password: str) -> dict[str, Any]:
+        """Log in to LinkedIn via the web UI and return the storage state."""
+        session = await self._launch_context()
+        try:
+            page = session.page
+            await page.goto("https://www.linkedin.com/login")
+            await page.fill("#username", username)
+            await page.fill("#password", password)
+            await page.click("button[type='submit']")
+
+            await page.wait_for_load_state("networkidle")
+
+            # Check for 2FA / challenge
+            if page.url.startswith("https://www.linkedin.com/checkpoint/"):
+                return {
+                    "success": False,
+                    "two_factor_required": True,
+                    "message": "LinkedIn 2FA / verification required. Complete login in a browser, then call the session endpoint.",
+                    "url": page.url,
+                    "storage_state": await self._extract_storage_state(session),
+                }
+
+            if "linkedin.com/feed" in page.url or "linkedin.com/in/" in page.url:
+                storage_state = await self._extract_storage_state(session)
+                return {
+                    "success": True,
+                    "two_factor_required": False,
+                    "message": "LinkedIn login successful",
+                    "storage_state": storage_state,
+                }
+
+            raise BrowserProfileError(401, f"LinkedIn login failed. Current URL: {page.url}")
+        finally:
+            await self._close_session(session)
+
+    async def get_linkedin_profile(self, storage_state: dict) -> dict[str, Any]:
+        """Fetch the current LinkedIn personal profile page."""
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            await page.goto("https://www.linkedin.com/in/me/")
+            await page.wait_for_load_state("networkidle")
+
+            result: dict[str, Any] = {"url": page.url, "name": None, "headline": None, "about": None}
+
+            # Try to read headline
+            headline = page.locator("h1.text-heading-xlarge").first
+            if await headline.count() > 0:
+                result["name"] = await headline.inner_text()
+
+            # Try to read the top-of-profile headline text
+            top_card_headline = page.locator(".text-body-medium").first
+            if await top_card_headline.count() > 0:
+                result["headline"] = await top_card_headline.inner_text()
+
+            # Try to read about section
+            about_section = page.locator("section:has(h2:has-text('About')) .pv-shared-text-with-see-more").first
+            if await about_section.count() > 0:
+                result["about"] = await about_section.inner_text()
+
+            return result
+        finally:
+            await self._close_session(session)
+
+    async def update_linkedin_headline(self, storage_state: dict, headline: str) -> dict[str, Any]:
+        """Update the LinkedIn profile headline."""
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            await page.goto("https://www.linkedin.com/in/me/edit/intro/")
+            await page.wait_for_load_state("networkidle")
+
+            # Wait for the headline input and fill it
+            headline_input = page.locator("input[aria-label='Headline']").first
+            if await headline_input.count() == 0:
+                headline_input = page.locator("input#headline").first
+            if await headline_input.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn headline input")
+
+            await headline_input.fill(headline)
+
+            # Save
+            save_btn = page.locator("button:has-text('Save')").first
+            await save_btn.click()
+            await page.wait_for_load_state("networkidle")
+
+            return {"success": True, "updated_fields": ["headline"], "message": "LinkedIn headline updated"}
+        finally:
+            await self._close_session(session)
+
+    async def update_linkedin_about(self, storage_state: dict, text: str) -> dict[str, Any]:
+        """Update the LinkedIn 'About' section."""
+        session = await self._launch_context(storage_state)
+        try:
+            page = session.page
+            await page.goto("https://www.linkedin.com/in/me/edit/about/")
+            await page.wait_for_load_state("networkidle")
+
+            about_input = page.locator("textarea[aria-label='About']").first
+            if await about_input.count() == 0:
+                about_input = page.locator("textarea").first
+            if await about_input.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn About textarea")
+
+            await about_input.fill(text)
+
+            save_btn = page.locator("button:has-text('Save')").first
+            await save_btn.click()
+            await page.wait_for_load_state("networkidle")
+
+            return {"success": True, "updated_fields": ["about"], "message": "LinkedIn About updated"}
+        finally:
+            await self._close_session(session)

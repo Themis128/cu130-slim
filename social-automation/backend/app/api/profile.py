@@ -37,6 +37,7 @@ from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember
+from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
@@ -125,9 +126,16 @@ class InstagramLoginRequest(BaseModel):
     verification_code: str | None = None
 
 
-class InstagramLoginResponse(BaseModel):
-    """Instagram private API login response."""
+class BrowserLoginRequest(BaseModel):
+    """Facebook/LinkedIn browser automation login request."""
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """Unified login response for private API or browser sessions."""
     session_id: str | None = None
+    storage_state: dict | None = None
     logged_in: bool
     two_factor_required: bool = False
     message: str = ""
@@ -297,51 +305,78 @@ async def upload_cover_photo(
         )
 
 
-@router.post("/{account_id}/login", response_model=InstagramLoginResponse)
+@router.post("/{account_id}/login", response_model=LoginResponse)
 async def platform_login(
     account_id: uuid.UUID,
-    req: InstagramLoginRequest,
+    req: InstagramLoginRequest | BrowserLoginRequest,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Log in to a platform's private API.
+    """Log in to a platform's private API or browser session.
 
-    Currently only Instagram (via aiograpi-rest sidecar) is supported.
-    The session ID is stored in the account's meta_data for reuse.
+    - Instagram: username + password for aiograpi-rest sidecar
+    - Facebook / LinkedIn: username + password for browser automation
+
+    The resulting session is stored in the account's meta_data for reuse.
     """
     account = await _get_account(account_id, current_user, db)
 
-    if account.platform != "instagram":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Private API login not supported for platform: {account.platform}",
+    if account.platform == "instagram":
+        client = _get_instagram_private_client()
+        try:
+            result = await client.login(
+                username=req.username,
+                password=req.password,
+                verification_code=getattr(req, "verification_code", None),
+            )
+        except InstagramPrivateAPIError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+        session_id = result.get("session_id")
+        two_factor = result.get("two_factor_required", False)
+
+        if session_id and not two_factor:
+            meta = _get_meta(account)
+            meta["private_api_session_id"] = session_id
+            account.meta_data = meta
+            await db.commit()
+
+        return LoginResponse(
+            session_id=session_id,
+            logged_in=bool(session_id) and not two_factor,
+            two_factor_required=two_factor,
+            message=result.get("message", "Login successful" if session_id else "Login failed"),
         )
 
-    client = _get_instagram_private_client()
-    try:
-        result = await client.login(
-            username=req.username,
-            password=req.password,
-            verification_code=req.verification_code,
+    if account.platform in ("facebook", "linkedin"):
+        service = BrowserProfileService()
+        try:
+            if account.platform == "facebook":
+                result = await service.login_facebook(req.username, req.password)
+            else:
+                result = await service.login_linkedin(req.username, req.password)
+        except BrowserProfileError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+        storage_state = result.get("storage_state")
+        logged_in = result.get("success", False) and not result.get("two_factor_required", False)
+
+        if logged_in:
+            meta = _get_meta(account)
+            meta["browser_storage_state"] = storage_state
+            account.meta_data = meta
+            await db.commit()
+
+        return LoginResponse(
+            storage_state=storage_state,
+            logged_in=logged_in,
+            two_factor_required=result.get("two_factor_required", False),
+            message=result.get("message", "Login successful" if logged_in else "Login failed"),
         )
-    except InstagramPrivateAPIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-    session_id = result.get("session_id")
-    two_factor = result.get("two_factor_required", False)
-
-    if session_id and not two_factor:
-        # Persist session_id in meta_data
-        meta = _get_meta(account)
-        meta["private_api_session_id"] = session_id
-        account.meta_data = meta
-        await db.commit()
-
-    return InstagramLoginResponse(
-        session_id=session_id,
-        logged_in=bool(session_id) and not two_factor,
-        two_factor_required=two_factor,
-        message=result.get("message", "Login successful" if session_id else "Login failed"),
+    raise HTTPException(
+        status_code=400,
+        detail=f"Private API or browser login not supported for platform: {account.platform}",
     )
 
 
@@ -563,14 +598,35 @@ async def _upload_facebook_page_cover(
     )
 
 
-# ── Facebook personal (browser automation — Phase 4) ─────────────────────────
+# ── Facebook personal (browser automation) ───────────────────────────────────
+
+
+def _get_facebook_browser_storage(account: SocialAccount) -> dict:
+    meta = _get_meta(account)
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        raise HTTPException(
+            status_code=401,
+            detail="Facebook browser session not found. Call POST /login first.",
+        )
+    return storage
 
 
 async def _get_facebook_user_profile(account: SocialAccount) -> ProfileResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="Facebook personal profile reads require browser automation (Phase 4). "
-        "Use the Facebook Page profile editor for Page accounts.",
+    storage = _get_facebook_browser_storage(account)
+    service = BrowserProfileService()
+    try:
+        data = await service.get_facebook_profile(storage)
+    except BrowserProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileResponse(
+        platform="facebook",
+        account_id=account.account_id,
+        username=data.get("name"),
+        full_name=data.get("name"),
+        about=data.get("about"),
+        profile_pic_url=data.get("profile_pic_url"),
+        raw=data,
     )
 
 
@@ -578,9 +634,35 @@ async def _update_facebook_user_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="Facebook personal profile updates require browser automation (Phase 4).",
+    storage = _get_facebook_browser_storage(account)
+    service = BrowserProfileService()
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    try:
+        if updates.about is not None:
+            result = await service.update_facebook_about(storage, updates.about)
+            if result.get("success"):
+                updated.append("about")
+    except BrowserProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["headline", "biography", "full_name", "website", "location", "phone", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for Facebook personal profile",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="Facebook personal profile updated",
     )
 
 
@@ -588,9 +670,16 @@ async def _upload_facebook_user_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="Facebook personal profile picture upload requires browser automation (Phase 4).",
+    storage = _get_facebook_browser_storage(account)
+    service = BrowserProfileService()
+    try:
+        await service.update_facebook_profile_picture(storage, image_bytes)
+    except BrowserProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="Facebook personal profile picture updated",
     )
 
 
@@ -600,17 +689,40 @@ async def _upload_facebook_user_cover(
 ) -> ProfileUpdateResponse:
     raise HTTPException(
         status_code=501,
-        detail="Facebook personal cover photo upload requires browser automation (Phase 4).",
+        detail="Facebook personal cover photo upload is not yet implemented.",
     )
 
 
-# ── LinkedIn (browser automation — Phase 4) ──────────────────────────────────
+# ── LinkedIn (browser automation) ────────────────────────────────────────────
+
+
+def _get_linkedin_browser_storage(account: SocialAccount) -> dict:
+    meta = _get_meta(account)
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        raise HTTPException(
+            status_code=401,
+            detail="LinkedIn browser session not found. Call POST /login first.",
+        )
+    return storage
 
 
 async def _get_linkedin_profile(account: SocialAccount) -> ProfileResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="LinkedIn profile reads require browser automation (Phase 4).",
+    storage = _get_linkedin_browser_storage(account)
+    service = BrowserProfileService()
+    try:
+        data = await service.get_linkedin_profile(storage)
+    except BrowserProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileResponse(
+        platform="linkedin",
+        account_id=account.account_id,
+        username=data.get("name"),
+        full_name=data.get("name"),
+        headline=data.get("headline"),
+        about=data.get("about"),
+        profile_pic_url=data.get("profile_pic_url"),
+        raw=data,
     )
 
 
@@ -618,9 +730,37 @@ async def _update_linkedin_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="LinkedIn profile updates require browser automation (Phase 4).",
+    storage = _get_linkedin_browser_storage(account)
+    service = BrowserProfileService()
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    try:
+        if updates.headline is not None:
+            await service.update_linkedin_headline(storage, updates.headline)
+            updated.append("headline")
+        if updates.about is not None:
+            await service.update_linkedin_about(storage, updates.about)
+            updated.append("about")
+    except BrowserProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["biography", "full_name", "website", "location", "phone", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for LinkedIn",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="LinkedIn profile updated",
     )
 
 
@@ -630,7 +770,7 @@ async def _upload_linkedin_picture(
 ) -> ProfileUpdateResponse:
     raise HTTPException(
         status_code=501,
-        detail="LinkedIn profile picture upload requires browser automation (Phase 4).",
+        detail="LinkedIn profile picture upload is not yet implemented.",
     )
 
 
@@ -640,7 +780,7 @@ async def _upload_linkedin_cover(
 ) -> ProfileUpdateResponse:
     raise HTTPException(
         status_code=501,
-        detail="LinkedIn cover photo upload requires browser automation (Phase 4).",
+        detail="LinkedIn cover photo upload is not yet implemented.",
     )
 
 
