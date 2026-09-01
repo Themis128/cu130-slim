@@ -100,3 +100,15 @@ Thank you for reviewing our request."
 2. **Analytics reading** — `r_organization_social` + `r_organization_admin`
 3. **No Ads API** — no `rw_ads` or `r_ads` scopes
 4. **Multi-client need** — standard tier needed for >5 Company Pages
+
+## Email sent
+
+The reply email with the business use case description and demo video
+attachment was sent on 2026-09-01 via omv-ha postfix (192.168.1.130:587)
+with SASL authentication, relayed through smtp.resend.com.
+
+- From: tbaltzakis@cloudless.gr
+- To: developer-access@linkedin.com
+- Subject: Re: LinkedIn Marketing API Developer Access Tier Upgrade Request
+- Attachment: linkedin-api-demo.mp4 (68s, 1280x720, 1.2MB)
+- Status: Accepted by postfix for relay delivery
