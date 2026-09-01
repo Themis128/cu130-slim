@@ -759,7 +759,7 @@ async def run_cloudless_carousel_pipeline(
     )
     # Store AI title and target platform on the asset
     carousel_asset.ai_caption = ai_title
-    carousel_asset.tags = ["carousel", "linkedin", f"slides:{len(slide_images)}", account.display_name]
+    carousel_asset.tags = ["carousel", "linkedin", f"slides:{len(slide_images)}", account.display_name or "cloudless.gr"]
     await db.commit()
     await db.refresh(carousel_asset)
     media_ids = [carousel_asset.id]
