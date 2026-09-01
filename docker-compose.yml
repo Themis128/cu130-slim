@@ -269,6 +269,8 @@ services:
     - MB_CHECK_FOR_UPDATES=false
     - MB_LOAD_SAMPLE_CONTENT=false
     - MB_METABOT_ENABLED=false
+    # Limit Java heap — analytics dashboard doesn't need the default 1GB.
+    - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
     depends_on:
       postgres:
         condition: service_healthy
