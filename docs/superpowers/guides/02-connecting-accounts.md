@@ -98,7 +98,7 @@ If no Instagram Business Account is found after connecting:
 
 ### Threads OAuth requirements
 
-- **Authorization endpoint**: `https://threads.com/oauth/authorize` (not `threads.net`).
+- **Authorization endpoint**: `https://threads.net/oauth/authorize`.
 - **Token endpoint**: `https://graph.threads.net/oauth/access_token`.
 - **Scopes**: `threads_basic` (required), `threads_content_publish`, `threads_manage_insights`, `threads_manage_replies`.
 - **Redirect URI**: `https://social.cloudless.gr/api/v1/auth/oauth/threads/callback` (must be HTTPS, registered in the Meta App Dashboard under Threads > Settings).

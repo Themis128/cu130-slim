@@ -262,7 +262,7 @@ facebook_client = FacebookOAuth2(settings.FACEBOOK_CLIENT_ID, settings.FACEBOOK_
 threads_client: BaseOAuth2 = BaseOAuth2(
     settings.THREADS_CLIENT_ID,
     settings.THREADS_CLIENT_SECRET,
-    authorize_endpoint="https://threads.com/oauth/authorize",
+    authorize_endpoint="https://threads.net/oauth/authorize",
     access_token_endpoint="https://graph.threads.net/oauth/access_token",
     refresh_token_endpoint="https://graph.threads.net/oauth/access_token",
     base_scopes=["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],

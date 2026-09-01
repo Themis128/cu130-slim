@@ -13,7 +13,7 @@ All three platforms share one Meta app but have **different OAuth endpoints and 
 |-----------|--------------|-----------|-------------|
 | Facebook | `https://www.facebook.com/dialog/oauth` | `https://graph.facebook.com/oauth/access_token` | Main Meta App ID |
 | Instagram (FB Login) | `https://www.facebook.com/dialog/oauth` | `https://graph.facebook.com/oauth/access_token` | Main Meta App ID |
-| Threads | `https://threads.com/oauth/authorize` | `https://graph.threads.net/oauth/access_token` | **Threads App ID** (separate) |
+| Threads | `https://threads.net/oauth/authorize` | `https://graph.threads.net/oauth/access_token` | **Threads App ID** (separate) |
 
 **Key**: Threads has its own App ID and App Secret, found in App Dashboard > Settings > Basic > Threads App ID/Secret. Facebook and Instagram share the main Meta App ID and Secret.
 
@@ -106,7 +106,7 @@ Optional Threads scopes (add if needed):
 
 1. App Dashboard > App roles > Roles > Add People
 2. Select "Threads Tester" role
-3. The invited user must accept at threads.com/settings/account > Website permissions
+3. The invited user must accept at threads.net/settings/account > Website permissions
 
 ### 5. Update `.env`
 
