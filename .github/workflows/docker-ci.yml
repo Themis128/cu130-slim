@@ -22,27 +22,21 @@ jobs:
       matrix:
         service:
           - name: comfyui
-            compose_image: cu130-slim-comfyui
             context: .
             dockerfile: Dockerfile
           - name: env-manager-backend
-            compose_image: env-manager-backend
             context: env-manager/backend
             dockerfile: env-manager/backend/Dockerfile
           - name: env-manager-frontend
-            compose_image: env-manager-frontend
             context: env-manager/frontend
             dockerfile: env-manager/frontend/Dockerfile
           - name: social-api
-            compose_image: social-api
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
           - name: social-worker
-            compose_image: social-worker
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile.worker
           - name: social-frontend
-            compose_image: social-frontend
             context: social-automation/frontend
             dockerfile: social-automation/frontend/Dockerfile
 
@@ -68,9 +62,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-${{ matrix.service.name }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.name == 'social-frontend' && 'social-frontend' || matrix.service.name == 'social-api' && 'social-api' || matrix.service.name == 'social-worker' && 'social-worker' || matrix.service.name == 'env-manager-backend' && 'env-manager-backend' || matrix.service.name == 'env-manager-frontend' && 'env-manager-frontend' || matrix.service.name == 'comfyui' && 'cu130-slim-comfyui' || format('cu130-slim-{0}', matrix.service.name) }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-${{ matrix.service.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=v2.00,enable={{is_default_branch}}

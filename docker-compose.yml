@@ -9,7 +9,7 @@ x-public-dns: &public-dns
 
 services:
   comfyui:
-    image: baltzakist/cu130-slim-comfyui:2.2.0
+    image: baltzakist/cu130-slim-comfyui:v2.00
     build:
       context: .
       dockerfile: Dockerfile
@@ -275,7 +275,7 @@ services:
     - portainer_data:/data
     restart: unless-stopped
   env-manager-backend:
-    image: baltzakist/env-manager-backend:v2.00
+    image: baltzakist/cu130-slim-env-manager-backend:v2.00
     build:
       context: ./env-manager/backend
       dockerfile: Dockerfile
@@ -295,7 +295,7 @@ services:
       start_period: 15s
     restart: unless-stopped
   env-manager-frontend:
-    image: baltzakist/env-manager-frontend:v2.00
+    image: baltzakist/cu130-slim-env-manager-frontend:v2.00
     build:
       context: ./env-manager/frontend
       dockerfile: Dockerfile
@@ -348,7 +348,7 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
-    image: baltzakist/social-api:v2.00
+    image: baltzakist/cu130-slim-social-api:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
@@ -475,7 +475,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   social-worker:
-    image: baltzakist/social-worker:v2.00
+    image: baltzakist/cu130-slim-social-worker:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -574,7 +574,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   celery-beat:
-    image: baltzakist/social-worker:v2.00
+    image: baltzakist/cu130-slim-social-worker:v2.00
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -662,7 +662,7 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: baltzakist/social-frontend:v2.00
+    image: baltzakist/cu130-slim-social-frontend:v2.00
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile.dev
