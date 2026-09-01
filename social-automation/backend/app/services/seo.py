@@ -41,11 +41,18 @@ _STOPWORDS = {
 }
 
 # Platform-specific best-practice length ranges.
+# Hashtag ranges reflect 2026 platform algorithm best practices:
+#   - Instagram: hard 5-tag cap since December 2025 (extra tags ignored, 20+ generic = suppression)
+#   - LinkedIn: 3-5 hashtags max (more than 5 triggers spam-like signals)
+#   - TikTok: 3-5 targeted hashtags (more dilutes topic signal and reduces FYP distribution)
+#   - Twitter/X: 1-2 hashtags (more dilutes the message)
+#   - Facebook: 1-3 hashtags
+#   - Threads: 0-2 hashtags (minimal)
 _PLATFORM_HINTS: dict[str, dict[str, int | tuple[int, int] | None]] = {
-    "twitter": {"max_chars": 280, "ideal_hashtags": (1, 3), "title_len": (0, 0), "meta_desc_len": (0, 0)},
-    "linkedin": {"max_chars": 3000, "ideal_hashtags": (3, 8), "title_len": (40, 70), "meta_desc_len": (120, 160)},
-    "instagram": {"max_chars": 2200, "ideal_hashtags": (5, 10), "title_len": (0, 0), "meta_desc_len": (0, 0)},
-    "facebook": {"max_chars": 63206, "ideal_hashtags": (0, 3), "title_len": (40, 70), "meta_desc_len": (120, 160)},
+    "twitter": {"max_chars": 280, "ideal_hashtags": (1, 2), "title_len": (0, 0), "meta_desc_len": (0, 0)},
+    "linkedin": {"max_chars": 3000, "ideal_hashtags": (3, 5), "title_len": (40, 70), "meta_desc_len": (120, 160)},
+    "instagram": {"max_chars": 2200, "ideal_hashtags": (3, 5), "title_len": (0, 0), "meta_desc_len": (0, 0)},
+    "facebook": {"max_chars": 63206, "ideal_hashtags": (1, 3), "title_len": (40, 70), "meta_desc_len": (120, 160)},
     "threads": {"max_chars": 500, "ideal_hashtags": (0, 2), "title_len": (0, 0), "meta_desc_len": (0, 0)},
     "tiktok": {"max_chars": 2200, "ideal_hashtags": (3, 5), "title_len": (0, 0), "meta_desc_len": (0, 0)},
 }

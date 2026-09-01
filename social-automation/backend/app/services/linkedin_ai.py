@@ -21,8 +21,15 @@ from app.services.plain_english import (
 _DEFAULT_PROVIDER = "cloudflare"
 _LINKEDIN_GUIDE = (
     "LinkedIn professional audience. Write in plain everyday English. "
-    "Use line breaks for readability. 3-5 relevant hashtags. "
-    "Keep the main body under 250 words. No jargon or buzzwords."
+    "SEO: place the primary keyword in the first 140 characters (the mobile preview cutoff) — "
+    "this is the hook that earns the 'see more' click. Use 2-3 semantic keyword variations "
+    "throughout the body so LinkedIn's search engine can index the post. "
+    "Structure for dwell time: hook → value proposition → substantive content (story, framework, "
+    "or data) → closing question that invites a reply. Make the post save-worthy: include a "
+    "checklist, framework, or data point someone would reference later. "
+    "Use line breaks for readability. 3-5 hashtags only — more than 5 triggers spam-like signals. "
+    "Mix niche (10K-500K posts), mid-tier, and one branded tag. Hashtags must be semantically "
+    "relevant to the post text. Keep the main body under 250 words. No jargon or buzzwords."
 )
 
 
@@ -79,7 +86,9 @@ Include hashtags: {include_hashtags}
 
 Return JSON with:
 - content: the post body (no hashtags, plain English)
-- hashtags: array of 3-8 relevant hashtags without the # symbol (or empty if include_hashtags is false)
+- hashtags: array of 3-5 relevant hashtags without the # symbol (or empty if include_hashtags is false).
+  Mix niche (10K-500K posts), mid-tier, and one branded tag. All hashtags must be semantically
+  relevant to the post content.
 - title: an optional short title/lead line"""
 
     schema = {
@@ -241,11 +250,20 @@ async def generate_linkedin_hashtags(
     team_id=None,
 ) -> list[str]:
     """Suggest LinkedIn-specific hashtags for the provided content."""
-    count = max(1, min(15, int(count)))
+    # LinkedIn 2026 best practice: 3-5 hashtags max. More than 5 triggers spam-like signals.
+    count = max(1, min(5, int(count)))
 
     prompt = f"""Suggest {count} relevant, professional LinkedIn hashtags for this post:
 
 "{content}"
+
+HASHTAG STRATEGY (2026 best practices):
+- Choose hashtags semantically relevant to the post content. A disconnect between text and
+  hashtags harms distribution.
+- Prefer niche and mid-tier hashtags (10K-500K posts) over mega-tags — they outperform 3:1
+  on reach-to-engagement ratio because content can actually compete there.
+- Include one branded hashtag (e.g. cloudless) when relevant.
+- Do not include generic spam-like tags (e.g. #motivation, #follow) unless directly relevant.
 
 Return JSON with: hashtags (array of strings without #)"""
 
@@ -350,7 +368,8 @@ Tone: {tone}
 Return JSON with:
 - improved_content: the improved post body (no hashtags)
 - changes: array of strings describing what was changed and why
-- hashtags: array of 3-8 relevant hashtags without #"""
+- hashtags: array of 3-5 relevant hashtags without #. Mix niche (10K-500K posts), mid-tier,
+  and one branded tag. All hashtags must be semantically relevant to the post content."""
 
     schema = {
         "type": "object",

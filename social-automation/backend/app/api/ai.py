@@ -1304,12 +1304,49 @@ async def generate_content(
             brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
 
     platform_guides = {
-        "linkedin": "Professional, thought-leadership style. 1300 char limit. Use line breaks. 3-5 hashtags. Plain everyday English.",
-        "twitter": "Concise, conversational. 280 char limit. Thread-friendly. 1-2 hashtags. Plain everyday English.",
-        "instagram": "Visual-first, engaging. 2200 char limit. 10-15 hashtags. Use emojis. Plain everyday English.",
-        "facebook": "Community-focused, conversational. No strict limit. 1-3 hashtags. Plain everyday English.",
-        "threads": "Casual, text-based. 500 char limit. Minimal hashtags. Plain everyday English.",
-        "tiktok": "Short-form video/photo caption. 2200 char limit. 3-5 hashtags. Hook in the first line. Use emojis. Plain everyday English.",
+        "linkedin": (
+            "Professional, thought-leadership style for LinkedIn. 3000 char limit. "
+            "SEO: place the primary keyword in the first 140 characters (the mobile preview cutoff) — "
+            "this is the hook that earns the 'see more' click. Use 2-3 semantic keyword variations "
+            "throughout the body so LinkedIn's search engine can index the post. "
+            "Structure for dwell time: hook → value proposition → substantive content (story, framework, "
+            "or data) → closing question that invites a reply. Use line breaks for readability. "
+            "Make the post save-worthy: include a checklist, framework, or data point someone would "
+            "reference later. 3-5 hashtags only — more than 5 triggers spam-like signals. "
+            "Mix niche (10K-500K posts), mid-tier, and one branded tag. Hashtags must be semantically "
+            "relevant to the post text. Plain everyday English."
+        ),
+        "twitter": (
+            "Concise, conversational for X/Twitter. 280 char limit. Thread-friendly. "
+            "1-2 hashtags max — more dilutes the message. Place the keyword early. "
+            "Plain everyday English."
+        ),
+        "instagram": (
+            "Visual-first, engaging for Instagram. 2200 char limit. "
+            "HARD CAP: maximum 5 hashtags per post (Instagram enforced this in December 2025 — "
+            "extra tags are ignored and 20+ generic tags trigger distribution suppression). "
+            "Use 3-5 hyper-relevant tags chosen per post, not recycled from a master list. "
+            "Mix niche community, branded, and topic tags. Hashtags are classification signals "
+            "for the algorithm, not reach drivers — caption keywords and on-screen text matter more. "
+            "Use emojis. Plain everyday English."
+        ),
+        "facebook": (
+            "Community-focused, conversational for Facebook. No strict limit. "
+            "1-3 hashtags. Plain everyday English."
+        ),
+        "threads": (
+            "Casual, text-based for Threads. 500 char limit. Minimal hashtags (0-2). "
+            "Plain everyday English."
+        ),
+        "tiktok": (
+            "Short-form video/photo caption for TikTok. 2200 char limit. "
+            "SEO: place the primary keyword in the first 150 characters — TikTok Search "
+            "weights the opening caption text highest. Write 150-300 character captions for "
+            "maximum indexable keyword surface area. Include long-tail keyword variations. "
+            "3-5 targeted hashtags using a 3-tier mix: niche, mid-tier, and broad. "
+            "More than 5 dilutes the topic signal and reduces FYP distribution. "
+            "Hook in the first line. Use emojis. Plain everyday English."
+        ),
     }
 
     guide = platform_guides.get(request.platform, platform_guides["linkedin"])
@@ -1327,6 +1364,15 @@ Include hashtags: {request.include_hashtags}
 Include emojis: {request.include_emojis}
 
 {PLAIN_ENGLISH_RULES}
+
+HASHTAG RULES (critical for 2026 platform algorithms):
+- Choose hashtags that are semantically relevant to the post content. A disconnect between
+  text and hashtags harms distribution.
+- Prefer niche and mid-tier hashtags (10K-500K posts) over mega-tags — they outperform 3:1
+  on reach-to-engagement ratio because your content can actually compete there.
+- Include one branded hashtag (e.g. #cloudless) when relevant.
+- Never copy-paste the same hashtag block across posts — platforms penalize this as spam.
+- Respect each platform's hashtag cap (see platform guidelines above).
 
 Return JSON with: content, hashtags (array), suggested_media (string or null)"""
 
@@ -1387,9 +1433,47 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
 async def suggest_hashtags(
     request: SuggestHashtagsRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    prompt = f"""Suggest {request.resolved_max()} relevant hashtags for this {request.platform} post:
+    # Platform-specific hashtag caps (2026 algorithm best practices).
+    platform_caps: dict[str, int] = {
+        "linkedin": 5,
+        "twitter": 2,
+        "instagram": 5,  # hard platform cap since December 2025
+        "facebook": 3,
+        "threads": 2,
+        "tiktok": 5,
+    }
+    platform = (request.platform or "linkedin").lower()
+    cap = platform_caps.get(platform, 5)
+    requested = request.resolved_max()
+    # Never exceed the platform cap, but allow fewer if the user asks for fewer.
+    count = min(requested, cap)
 
+    platform_context = {
+        "linkedin": "LinkedIn — professional audience, 3-5 niche/mid-tier hashtags semantically relevant to the post content.",
+        "twitter": "X/Twitter — 1-2 hashtags max, concise and topical.",
+        "instagram": "Instagram — 3-5 hyper-relevant hashtags (hard 5-tag cap). Mix niche community, branded, and topic tags.",
+        "facebook": "Facebook — 1-3 hashtags, community-focused.",
+        "threads": "Threads — 0-2 hashtags, minimal.",
+        "tiktok": "TikTok — 3-5 hashtags using a 3-tier mix: niche, mid-tier, and broad. Must match the caption topic.",
+    }
+    guide = platform_context.get(platform, platform_context["linkedin"])
+
+    prompt = f"""Suggest {count} hashtags for this {platform} post.
+
+Platform: {guide}
+
+HASHTAG STRATEGY (2026 best practices):
+- Choose hashtags semantically relevant to the post content. A disconnect between text and
+  hashtags harms distribution on all platforms.
+- Prefer niche and mid-tier hashtags (10K-500K posts) over mega-tags — they outperform 3:1
+  on reach-to-engagement ratio because content can actually compete there.
+- Include one branded hashtag (e.g. cloudless) when relevant.
+- Do not include generic spam-like tags (e.g. #motivation, #love, #follow) unless directly
+  relevant to the post topic.
+
+Post content:
 "{request.content}"
 
 Return JSON with: hashtags (array of strings without #)"""
@@ -1402,9 +1486,12 @@ Return JSON with: hashtags (array of strings without #)"""
         "required": ["hashtags"],
     }
 
-    result = await call_ollama(prompt, schema=schema)
+    # Use the full inference chain (Cloudflare-first) instead of Ollama-only,
+    # so hashtag suggestions benefit from the same provider fallback as content generation.
+    result = await call_inference(prompt, provider_name="cloudflare", db=db, schema=schema)
 
-    return SuggestHashtagsResponse(hashtags=result.get("hashtags", []))
+    hashtags = [str(h).lstrip("#").strip() for h in result.get("hashtags") or [] if str(h).strip()]
+    return SuggestHashtagsResponse(hashtags=hashtags[:count])
 
 
 @router.post("/best-time-to-post", response_model=BestTimeResponse)

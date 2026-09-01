@@ -552,6 +552,8 @@ async def generate_carousel_copy(
 
 CAPTION RULES (most important):
 - 2-3 short sentences max. No marketing clichés.
+- SEO: place the primary keyword in the first 140 characters (the mobile preview cutoff) —
+  this is the hook that earns the 'see more' click and helps LinkedIn's search engine index the post.
 - Open with a human observation or a surprising fact, not "We are excited..."
 - End with one clear takeaway or gentle question to drive comments.
 - Do NOT mention "no credit card" — cloudless.gr accepts credit cards.
@@ -591,7 +593,9 @@ INFOGRAPHIC DATA (for slides with numbers/comparisons):
 Return JSON only:
 - slides: array of exactly {num} objects with title, body, highlight, slide_type, image_prompt, chart_data
 - suggested_caption: the engaging 2-3 sentence post caption
-- hashtags: 5-7 relevant hashtags without #"""
+- hashtags: 3-5 relevant hashtags without #. Mix niche (10K-500K posts), mid-tier, and one branded
+  tag (e.g. cloudless). All hashtags must be semantically relevant to the post content. More than 5
+  hashtags triggers spam-like signals on LinkedIn."""
 
     schema = {
         "type": "object",
@@ -671,7 +675,7 @@ async def run_cloudless_carousel_pipeline(
     if custom_slides:
         slides = list(custom_slides)[:num_slides]
         caption = custom_caption or "cloudless.gr — Clear skies. Zero friction."
-        hashtags = custom_hashtags or ["cloudless", "serverless", "cloud"]
+        hashtags = custom_hashtags or ["cloudless", "serverless", "cloudnative", "startups", "smb"]
         # Minimal NLP report for custom slides
         from app.services.plain_english import NlpCheckReport
         nlp_report = NlpCheckReport(needs_fix=False, fixed=False, fields_rewritten=[], issues=[], duplicates={})
@@ -689,7 +693,7 @@ async def run_cloudless_carousel_pipeline(
 
         slides = list(raw.get("slides") or [])[:num_slides]
         caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
-        hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloud"]
+        hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloudnative", "startups", "smb"]
 
         # 2) NLP checker + fixer (runs on both slides and caption)
         slides, caption, nlp_report = await run_nlp_check_and_fix(
