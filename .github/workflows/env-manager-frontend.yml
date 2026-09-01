@@ -42,6 +42,7 @@ jobs:
         run: |
           cd env-manager/backend
           pip install -r requirements.txt
+          pip install ruff
 
       - name: Run linting
         run: |

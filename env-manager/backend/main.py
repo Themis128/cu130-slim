@@ -1,12 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Body
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Dict, Optional, List
 import os
 import secrets
 from pathlib import Path
-from dotenv import load_dotenv, dotenv_values
+
+from dotenv import dotenv_values
+from fastapi import Body, Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from pydantic import BaseModel
 
 app = FastAPI(title="Env Manager API", version="1.0.0")
 
@@ -60,7 +60,7 @@ ENV_DEFINITIONS = {
     "OLLAMA_MODEL": {"category": "Core", "description": "Ollama Model Name", "required": True, "default": "llama3"},
 }
 
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):  # noqa: B008
     correct_username = secrets.compare_digest(credentials.username, ENV_MANAGER_USER)
     correct_password = secrets.compare_digest(credentials.password, ENV_MANAGER_PASS)
     if not (correct_username and correct_password):
@@ -71,13 +71,13 @@ def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-def load_env() -> Dict[str, str]:
+def load_env() -> dict[str, str]:
     """Load .env file, return dict"""
     if ENV_FILE.exists():
         return dotenv_values(ENV_FILE)
     return {}
 
-def save_env(env_vars: Dict[str, str]):
+def save_env(env_vars: dict[str, str]):
     """Save env vars to .env file"""
     lines = []
     for key, value in env_vars.items():
@@ -103,9 +103,9 @@ class EnvVarResponse(BaseModel):
     sensitive: bool
 
 class EnvUpdateRequest(BaseModel):
-    updates: Dict[str, str]
+    updates: dict[str, str]
 
-@app.get("/api/env", response_model=List[EnvVarResponse])
+@app.get("/api/env", response_model=list[EnvVarResponse])
 def get_env(username: str = Depends(verify_credentials)):
     """Get all environment variables with metadata"""
     current = load_env()
