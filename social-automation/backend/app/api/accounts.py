@@ -5,7 +5,7 @@ import secrets
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -821,4 +821,191 @@ async def set_business_account(
         "platform": business.platform,
         "business_account_id": business.account_id,
     }
+
+
+# ── Facebook Page profile management ──────────────────────────────────────────
+
+
+def _get_facebook_page_client(account: SocialAccount) -> FacebookAPIClient:
+    """Build a FacebookAPIClient from a Page-type account.
+
+    Page accounts store the permanent Page token in ``access_token_enc``
+    and the Page ID in ``account_id``.
+    """
+    token = decrypt_token(account.access_token_enc)
+    page_id = account.account_id
+    return FacebookAPIClient(access_token=token, page_id=page_id)
+
+
+async def _get_facebook_account(
+    account_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+    require_page: bool = False,
+) -> SocialAccount:
+    """Fetch a Facebook account owned by the current user's team."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            SocialAccount.platform == "facebook",
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Facebook account not found")
+    if require_page and not account.is_business:
+        raise HTTPException(
+            status_code=400,
+            detail="This operation requires a Facebook Page account, not a user account. "
+            "Use 'Sync Business Accounts' first to discover your Pages.",
+        )
+    return account
+
+
+class PageProfileUpdate(BaseModel):
+    """Editable Facebook Page profile fields."""
+    about: str | None = None
+    description: str | None = None
+    website: str | None = None
+    phone: str | None = None
+
+
+@router.get("/{account_id}/page-profile")
+async def get_facebook_page_profile(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current Facebook Page profile metadata (about, description, website, etc.)."""
+    account = await _get_facebook_account(account_id, current_user, db, require_page=True)
+    client = _get_facebook_page_client(account)
+    try:
+        info = await client.get_page_info()
+        tasks = await client.get_page_tasks()
+        return {"profile": info, "tasks": tasks}
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.put("/{account_id}/page-profile")
+async def update_facebook_page_profile(
+    account_id: uuid.UUID,
+    updates: PageProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update Facebook Page profile fields (about, description, website, phone).
+
+    Requires the Page token to have ``pages_manage_metadata`` permission
+    and the user to have the ``MANAGE`` task on the Page.
+    """
+    account = await _get_facebook_account(account_id, current_user, db, require_page=True)
+    client = _get_facebook_page_client(account)
+    try:
+        success = await client.update_page_info(
+            about=updates.about,
+            description=updates.description,
+            website=updates.website,
+            phone=updates.phone,
+        )
+        return {"success": success}
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{account_id}/page-profile/picture")
+async def upload_facebook_profile_picture(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload a new profile picture for the Facebook Page."""
+    account = await _get_facebook_account(account_id, current_user, db, require_page=True)
+    client = _get_facebook_page_client(account)
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="No image file provided")
+    try:
+        success = await client.upload_profile_picture(image_bytes)
+        return {"success": success}
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/{account_id}/page-profile/cover")
+async def upload_facebook_cover_photo(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload a new cover photo for the Facebook Page.
+
+    The image must be at least 400px wide. Two-step: upload as unpublished
+    photo, then set as cover.
+    """
+    account = await _get_facebook_account(account_id, current_user, db, require_page=True)
+    client = _get_facebook_page_client(account)
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="No image file provided")
+    try:
+        photo_id = await client.upload_cover_photo(image_bytes)
+        return {"success": True, "photo_id": photo_id}
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+class AssignManageTaskRequest(BaseModel):
+    """Request body for assigning the MANAGE task to the current user."""
+    business_id: str
+    business_user_id: str | None = None
+
+
+@router.post("/{account_id}/page-profile/assign-manage-task")
+async def assign_facebook_manage_task(
+    account_id: uuid.UUID,
+    req: AssignManageTaskRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign the MANAGE task to the current user on the Facebook Page.
+
+    This is required to update ``about`` and ``description`` fields via
+    the Graph API. If ``business_user_id`` is not provided, the endpoint
+    looks it up from the Page's assigned users list.
+    """
+    account = await _get_facebook_account(account_id, current_user, db, require_page=True)
+    client = _get_facebook_page_client(account)
+
+    business_user_id = req.business_user_id
+    if not business_user_id:
+        try:
+            users = await client.get_assigned_users(req.business_id)
+            if users:
+                business_user_id = users[0].get("id")
+        except FacebookAPIError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    if not business_user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not determine business_user_id. Provide it in the request body.",
+        )
+
+    tasks = ["MANAGE", "CREATE_CONTENT", "MODERATE", "ADVERTISE", "ANALYZE", "MESSAGING"]
+    try:
+        success = await client.assign_page_tasks(
+            business_user_id=business_user_id,
+            tasks=tasks,
+            business_id=req.business_id,
+        )
+        return {"success": success, "business_user_id": business_user_id, "tasks": tasks}
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 

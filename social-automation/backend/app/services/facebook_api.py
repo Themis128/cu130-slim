@@ -395,6 +395,156 @@ class FacebookAPIClient:
             return resp.json()
 
     # ------------------------------------------------------------------
+    # Page profile / metadata management
+    # ------------------------------------------------------------------
+
+    async def get_page_info(self) -> dict:
+        """Fetch the current Page profile metadata.
+
+        ``GET /{page_id}`` with the standard set of editable fields.
+        Returns the Graph API response dict.
+        """
+        url = self._url(self.page_id)
+        fields = "name,about,description,website,phone,category,emails,single_line_address,location,picture.type(large),cover,fan_count,link"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.get(url, params=self._params({"fields": fields}))
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def update_page_info(
+        self,
+        about: str | None = None,
+        description: str | None = None,
+        website: str | None = None,
+        phone: str | None = None,
+    ) -> bool:
+        """Update editable Page profile fields.
+
+        ``POST /{page_id}`` with any of ``about`` (≤100 chars),
+        ``description``, ``website``, ``phone``. Only non-None fields are
+        sent. Returns ``True`` on success.
+        """
+        payload: dict[str, Any] = {}
+        if about is not None:
+            if len(about) > 100:
+                raise ValueError("Facebook 'about' field is limited to 100 characters")
+            payload["about"] = about
+        if description is not None:
+            payload["description"] = description
+        if website is not None:
+            payload["website"] = website
+        if phone is not None:
+            payload["phone"] = phone
+        if not payload:
+            raise ValueError("At least one field must be provided to update")
+
+        url = self._url(self.page_id)
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(url, params=self._params(), data=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            return bool(data.get("success", True))
+
+    async def upload_profile_picture(self, image_bytes: bytes) -> bool:
+        """Upload a new profile picture for the Page.
+
+        ``POST /{page_id}/picture`` with the image file as multipart form
+        data and ``published=false``. Returns ``True`` on success.
+        """
+        url = self._url(f"{self.page_id}/picture")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            files = {"source": ("image.png", image_bytes, "image/png")}
+            data = {"published": "false"}
+            resp = await client.post(url, params=self._params(), files=files, data=data)
+            self._raise_for_status(resp, url)
+            result = resp.json() or {}
+            return bool(result.get("success", True))
+
+    async def upload_cover_photo(self, image_bytes: bytes) -> str:
+        """Upload a cover photo and set it as the Page cover.
+
+        Two-step: upload as an unpublished photo via ``POST /{page_id}/photos``,
+        then set it as cover via ``POST /{page_id}`` with ``cover={photo_id}``.
+        Returns the photo ID.
+        """
+        # Step 1: upload unpublished photo
+        photo_url = self._url(f"{self.page_id}/photos")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            files = {"source": ("cover.png", image_bytes, "image/png")}
+            data = {"published": "false"}
+            resp = await client.post(photo_url, params=self._params(), files=files, data=data)
+            self._raise_for_status(resp, photo_url)
+            photo_id = (resp.json() or {}).get("id")
+            if not photo_id:
+                raise FacebookAPIError(
+                    status_code=400,
+                    response_text="Facebook did not return a photo ID for cover upload",
+                    url=photo_url,
+                )
+
+        # Step 2: set as cover
+        page_url = self._url(self.page_id)
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(page_url, params=self._params(), data={"cover": photo_id})
+            self._raise_for_status(resp, page_url)
+            return str(photo_id)
+
+    async def get_assigned_users(self, business_id: str) -> list[dict]:
+        """List users assigned to the Page with their tasks.
+
+        ``GET /{page_id}/assigned_users?business={business_id}``.
+        Returns the list of user dicts with ``id``, ``name``, ``tasks``.
+        """
+        business_id = _validate_id(business_id, "business_id")
+        url = self._url(f"{self.page_id}/assigned_users")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.get(url, params=self._params({"business": business_id}))
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            return data.get("data") or []
+
+    async def assign_page_tasks(
+        self,
+        business_user_id: str,
+        tasks: list[str],
+        business_id: str,
+    ) -> bool:
+        """Assign Page tasks (roles) to a business user.
+
+        ``POST /{page_id}/assigned_users`` with ``user``, ``tasks``, and
+        ``business``. The ``business_user_id`` must be business-scoped
+        (from ``get_assigned_users``). Returns ``True`` on success.
+        """
+        business_user_id = _validate_id(business_user_id, "business_user_id")
+        business_id = _validate_id(business_id, "business_id")
+        if not tasks:
+            raise ValueError("At least one task must be provided")
+
+        url = self._url(f"{self.page_id}/assigned_users")
+        payload: dict[str, Any] = {
+            "user": business_user_id,
+            "tasks": tasks,
+            "business": business_id,
+        }
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(url, params=self._params(), data=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            return bool(data.get("success", True))
+
+    async def get_page_tasks(self) -> list[str]:
+        """Get the tasks (roles) the current token's user can perform on the Page.
+
+        ``GET /{page_id}`` with ``fields=tasks``. Returns the list of task strings.
+        """
+        url = self._url(self.page_id)
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.get(url, params=self._params({"fields": "tasks"}))
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            return data.get("tasks") or []
+
+    # ------------------------------------------------------------------
     # Deletion
     # ------------------------------------------------------------------
 
