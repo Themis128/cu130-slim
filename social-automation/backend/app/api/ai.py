@@ -79,6 +79,7 @@ class GenerateContentResponse(BaseModel):
     content: str
     hashtags: list[str]
     suggested_media: str | None = None
+    brand_compliance: dict | None = None
 
 
 class SuggestHashtagsRequest(BaseModel):
@@ -1268,6 +1269,36 @@ async def generate_content(
                 update={"prompt": f"{request.prompt}\n\n[Note: avoid repeating these similar posts: {similar[:2]}]"}
             )
 
+    # Load brand context for on-brand generation
+    brand_context_str = ""
+    if team:
+        from app.models.brand import Brand
+        from app.services.brand_compliance import build_brand_system_prompt
+        brand_result = await db.execute(
+            select(Brand).where(Brand.team_id == team.id)
+        )
+        brand = brand_result.scalars().first()
+        if brand:
+            brand_dict = {
+                "name": brand.name,
+                "positioning_statement": brand.positioning_statement,
+                "mission": brand.mission,
+                "values": brand.values or [],
+                "tagline": brand.tagline,
+                "target_audience": brand.target_audience or {},
+            }
+            voice_dict = None
+            if brand.voice:
+                voice_dict = {
+                    "tone_dimensions": brand.voice.tone_dimensions or {},
+                    "messaging_pillars": brand.voice.messaging_pillars or [],
+                    "banned_phrases": brand.voice.banned_phrases or [],
+                    "preferred_phrases": brand.voice.preferred_phrases or [],
+                    "example_content": brand.voice.example_content,
+                    "voice_signature": brand.voice.voice_signature or {},
+                }
+            brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
+
     platform_guides = {
         "linkedin": "Professional, thought-leadership style. 1300 char limit. Use line breaks. 3-5 hashtags. Plain everyday English.",
         "twitter": "Concise, conversational. 280 char limit. Thread-friendly. 1-2 hashtags. Plain everyday English.",
@@ -1281,8 +1312,10 @@ async def generate_content(
 
     from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
 
+    # Build prompt with brand context if available
+    brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
     prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-
+{brand_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
@@ -1323,10 +1356,25 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
             f"{request.platform}:{content}",
         )
 
+    # Score brand compliance if brand exists
+    brand_compliance = None
+    if team and brand_context_str and content:
+        try:
+            from app.services.brand_compliance import score_brand_compliance
+            brand_compliance = await score_brand_compliance(
+                content=content,
+                brand=brand_dict,
+                voice=voice_dict,
+                platform=request.platform,
+            )
+        except Exception:
+            pass  # non-fatal — compliance scoring is best-effort
+
     return GenerateContentResponse(
         content=content,
         hashtags=result.get("hashtags", []),
         suggested_media=result.get("suggested_media"),
+        brand_compliance=brand_compliance,
     )
 
 

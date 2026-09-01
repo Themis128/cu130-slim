@@ -497,3 +497,109 @@ async def delete_brand_asset(
         raise HTTPException(status_code=404, detail="Brand asset not found")
     await db.delete(asset)
     await db.commit()
+
+
+# ── AI Brand Kit Extractor ────────────────────────────────────────────────────
+
+
+class ExtractRequest(BaseModel):
+    url: str
+
+
+@router.post("/extract")
+async def extract_brand_kit(
+    data: ExtractRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Extract a brand kit draft from a website URL using AI.
+
+    Fetches the website, parses colors/fonts/logo/copy, then uses
+    Cloudflare Workers AI to analyze tone and generate positioning/mission.
+    Returns a structured draft that the user can review and edit.
+    """
+    from app.services.brand_extractor import extract_brand_from_url
+
+    try:
+        result = await extract_brand_from_url(data.url)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Brand extraction failed: {e}") from e
+
+
+# ── AI Voice Analyzer ─────────────────────────────────────────────────────────
+
+
+class AnalyzeVoiceRequest(BaseModel):
+    samples: list[str]
+
+
+@router.post("/analyze-voice")
+async def analyze_voice(
+    data: AnalyzeVoiceRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Analyze content samples and return a voice signature using AI.
+
+    Sends the samples to Cloudflare Workers AI to extract tone dimensions,
+    messaging pillars, banned/preferred phrases, and a voice signature.
+    """
+    from app.services.brand_voice import analyze_brand_voice
+
+    try:
+        result = await analyze_brand_voice(data.samples)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice analysis failed: {e}") from e
+
+
+# ── Brand Compliance Scorer ───────────────────────────────────────────────────
+
+
+class ComplianceRequest(BaseModel):
+    content: str
+    platform: str | None = None
+
+
+@router.post("/compliance")
+async def score_compliance(
+    data: ComplianceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Score content against the team's brand guidelines.
+
+    Checks banned phrases, preferred phrases, and uses AI to score
+    tone/voice match. Returns a 1-5 score with issues and suggestions.
+    """
+    from app.services.brand_compliance import score_brand_compliance
+
+    brand = await _get_brand(current_user, db)
+    brand_dict = {
+        "name": brand.name,
+        "positioning_statement": brand.positioning_statement,
+        "mission": brand.mission,
+        "values": brand.values or [],
+        "tagline": brand.tagline,
+        "target_audience": brand.target_audience or {},
+    }
+    voice_dict = None
+    if brand.voice:
+        voice_dict = {
+            "tone_dimensions": brand.voice.tone_dimensions or {},
+            "messaging_pillars": brand.voice.messaging_pillars or [],
+            "banned_phrases": brand.voice.banned_phrases or [],
+            "preferred_phrases": brand.voice.preferred_phrases or [],
+            "example_content": brand.voice.example_content,
+            "voice_signature": brand.voice.voice_signature or {},
+        }
+
+    try:
+        result = await score_brand_compliance(
+            content=data.content,
+            brand=brand_dict,
+            voice=voice_dict,
+            platform=data.platform,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compliance scoring failed: {e}") from e
