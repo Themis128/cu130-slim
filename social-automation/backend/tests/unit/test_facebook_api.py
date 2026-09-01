@@ -127,7 +127,7 @@ async def test_get_pages(client):
     assert pages[0]["name"] == "Page One"
     assert fake.calls[0]["method"] == "GET"
     assert fake.calls[0]["url"].endswith("/me/accounts")
-    assert fake.calls[0]["params"]["fields"] == "id,name,access_token,category,perms"
+    assert fake.calls[0]["params"]["fields"] == "id,name,access_token,category,tasks"
 
 
 @pytest.mark.asyncio
