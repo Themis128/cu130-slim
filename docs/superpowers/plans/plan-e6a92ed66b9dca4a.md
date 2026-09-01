@@ -176,17 +176,22 @@ flowchart LR
     WorkersAI -->|free fallback| Groq[Groq]
     WorkersAI -->|free fallback| Pixazo[Pixazo FLUX]
     WorkersAI -->|free fallback| HF[Hugging Face]
-    WorkersAI -->|local fallback| Ollama[Ollama]
+    WorkersAI -->|local fallback| Ollama[Ollama llama3.1:8b-gpu 100% GPU]
     FastAPI --> R2[(Cloudflare R2)]
     R2 -->|failover| MinIO[(MinIO)]
     MinIO -->|failover| Disk[Local disk]
-    Redis --> Worker[social-worker Celery]
-    Worker --> LinkedIn[LinkedIn API]
-    Worker --> Twitter[X / Twitter API]
-    Worker --> TikTok[TikTok Content API]
-    Worker --> Meta[Meta Graph API]
+    Redis --> WPub[social-worker-publishing]
+    Redis --> WMedia[social-worker-media]
+    Redis --> WDefault[social-worker-default]
+    Beat[celery-beat] -->|scheduled tasks| Redis
+    WPub -->|publishing queue| LinkedIn[LinkedIn API]
+    WPub -->|publishing queue| Twitter[X / Twitter API]
+    WPub -->|publishing queue| TikTok[TikTok Content API]
+    WPub -->|publishing queue| Meta[Meta Graph API]
+    WMedia -->|media queue| ComfyUI[ComfyUI --gpu-only --force-fp16]
+    WDefault -->|default queue| n8n
     n8n -->|triggers| FastAPI
-    Worker --> n8n
+    WPub --> n8n
     User -->|public assets| R2
     Meta -->|fetch media| R2
     TikTok -->|fetch media| R2
@@ -225,7 +230,7 @@ flowchart TD
     T2 -->|fail| HF[HF serverless free tier]
     V -->|quota / 5xx| V2[Ollama llava / bakllava]
     G -->|fail| H2[Hugging Face free tier]
-    H2 -->|fail| O[Ollama llama3.1/mistral]
+    H2 -->|fail| O[Ollama llama3.1:8b-gpu 100% GPU q8_0]
     O -->|unavailable| E[HTTP 503]
     B -->|log success/failure| K[(AIUsageLog)]
 ```
