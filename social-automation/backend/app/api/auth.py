@@ -114,9 +114,13 @@ _OAUTH_CLIENT_ID_ENV_VAR: dict[str, str] = {
 #   - r_organization_admin           : Legacy Organizations API — REQUIRED to
 #     query /rest/organizationAcls so we can discover the Company Pages the
 #     member administers. Do not drop it unless org discovery is intentionally
-#     disabled. Keep the requested list small: a degraded or denied consent
-#     screen from LinkedIn is frequently caused by requesting a scope (or
-#     enabling a Product below) that the app does not actually have approved.
+#     disabled.
+#   - rw_organization_admin          : Community Management API — manage
+#     organization page details (description, specialties, etc). Requires
+#     ADMINISTRATOR role on the page. Needed for programmatic profile updates.
+#     Keep the requested list small: a degraded or denied consent screen from
+#     LinkedIn is frequently caused by requesting a scope (or enabling a
+#     Product below) that the app does not actually have approved.
 LINKEDIN_SCOPES: list[str] = [
     "openid",
     "profile",
@@ -125,6 +129,7 @@ LINKEDIN_SCOPES: list[str] = [
     "w_organization_social",
     "r_organization_social",
     "r_organization_admin",
+    "rw_organization_admin",
 ]
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
