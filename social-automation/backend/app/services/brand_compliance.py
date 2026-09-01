@@ -95,7 +95,7 @@ def _calculate_score(
     # Factor in AI tone match
     if isinstance(tone_match, dict):
         ai_score = tone_match.get("score", 3)
-    elif isinstance(tone_match, (int, float)):
+    elif isinstance(tone_match, int | float):
         ai_score = tone_match
     else:
         ai_score = 3
