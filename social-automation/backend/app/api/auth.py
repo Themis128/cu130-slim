@@ -1100,7 +1100,7 @@ async def oauth_callback(
             if isinstance(_raw_scope, str) and _raw_scope:
                 scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
             else:
-                scopes = list(PLATFORM_SCOPES.get("facebook", ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]))
+                scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement", "pages_manage_metadata"]
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
             threads_user_id = token.get("user_id")
