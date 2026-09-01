@@ -889,9 +889,16 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": [
-            "public_profile",
+            "public_profile", "email",
+            "user_about_me", "user_birthday", "user_hometown", "user_location",
+            "user_website", "user_work_history", "user_education_history",
+            "user_relationships", "user_religion_politics", "user_likes",
+            "user_posts", "user_photos", "user_videos", "user_friends",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
             "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+            "pages_read_user_content", "read_insights",
+            "ads_management", "ads_read", "business_management",
+            "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
         ],
         "instagram": [
             "instagram_basic", "instagram_content_publish",
@@ -1101,8 +1108,16 @@ async def oauth_callback(
                 scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
             else:
                 scopes = [
+                    "public_profile", "email",
+                    "user_about_me", "user_birthday", "user_hometown", "user_location",
+                    "user_website", "user_work_history", "user_education_history",
+                    "user_relationships", "user_religion_politics", "user_likes",
+                    "user_posts", "user_photos", "user_videos", "user_friends",
                     "pages_show_list", "pages_read_engagement", "pages_manage_posts",
                     "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+                    "pages_read_user_content", "read_insights",
+                    "ads_management", "ads_read", "business_management",
+                    "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
                 ]
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
