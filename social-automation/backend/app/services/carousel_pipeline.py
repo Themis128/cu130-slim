@@ -679,7 +679,7 @@ async def run_cloudless_carousel_pipeline(
     # Skip dedupe for custom slides — they are intentionally curated
 
     # 3) Per-slide CF txt2img: unique realistic background for each slide
-    media_ids: list[uuid.UUID] = []
+    slide_images: list[Image.Image] = []
     for i, slide in enumerate(slides):
         title = slide.get("title") or f"Slide {i + 1}"
         body = slide.get("body") or ""
@@ -711,20 +711,59 @@ async def run_cloudless_carousel_pipeline(
             motif=slide.get("visual") or slide.get("motif"),
             chart_data=slide.get("chart_data"),
         )
-        buf = io.BytesIO()
-        branded.save(buf, format="PNG", optimize=True)
-        safe_topic = re.sub(r"[^a-zA-Z0-9_-]", "-", topic)[:32]
-        folder_name = f"carousel-{safe_topic}"
-        asset = await persist_generated_image(
-            db,
+        slide_images.append(branded)
+
+    # 4) Generate AI title for the carousel
+    title_schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "A short, catchy title for the carousel (max 80 chars)"},
+        },
+        "required": ["title"],
+    }
+    title_prompt = f"Generate a short, catchy title (max 80 chars) for a LinkedIn carousel about: {topic}. Brand: cloudless.gr. Tone: clear and friendly."
+    try:
+        title_result = await call_inference(
+            title_prompt,
+            provider_name=effective_provider,
+            db=db,
             team_id=team.id,
-            user_id=user.id,
-            image_bytes=buf.getvalue(),
-            prompt=f"n8n-carousel:{title}",
-            source="n8n-cf-pipe",
-            folder=folder_name,
+            schema=title_schema,
+            model_override=text_model,
+            allow_fallback=False,
         )
-        media_ids.append(asset.id)
+        ai_title = (title_result.get("title") or topic)[:80]
+    except Exception:
+        ai_title = topic[:80]
+    print(f"[n8n-pipeline] AI carousel title: {ai_title}", flush=True)
+
+    # 5) Combine all slides into a single PDF — one media library entry
+    safe_topic = re.sub(r"[^a-zA-Z0-9_-]", "-", topic)[:32]
+    folder_name = f"carousel-{safe_topic}"
+    pdf_buf = io.BytesIO()
+    if len(slide_images) > 1:
+        slide_images[0].save(pdf_buf, format="PDF", save_all=True, append_images=slide_images[1:])
+    else:
+        slide_images[0].save(pdf_buf, format="PDF")
+    pdf_bytes = pdf_buf.getvalue()
+    print(f"[n8n-pipeline] carousel PDF created — {len(slide_images)} slides, {len(pdf_bytes)} bytes", flush=True)
+
+    carousel_asset = await persist_generated_image(
+        db,
+        team_id=team.id,
+        user_id=user.id,
+        image_bytes=pdf_bytes,
+        prompt=f"n8n-carousel:{ai_title}",
+        source="n8n-cf-pipe",
+        extension=".pdf",
+        folder=folder_name,
+    )
+    # Store AI title and target platform on the asset
+    carousel_asset.ai_caption = ai_title
+    carousel_asset.tags = ["carousel", "linkedin", f"slides:{len(slide_images)}", account.display_name]
+    await db.commit()
+    await db.refresh(carousel_asset)
+    media_ids = [carousel_asset.id]
 
     full_caption = build_linkedin_caption(caption, hashtags)
 
@@ -743,7 +782,9 @@ async def run_cloudless_carousel_pipeline(
                 "text_model": text_model,
                 "nlp": nlp_report.to_dict(),
                 "slides": slides,
+                "ai_title": ai_title,
                 "account": account.display_name,
+                "platform": account.platform,
             }
         },
     )
@@ -757,6 +798,7 @@ async def run_cloudless_carousel_pipeline(
         "post_id": str(post.id),
         "media_ids": [str(m) for m in media_ids],
         "slides": slides,
+        "ai_title": ai_title,
         "caption": caption,
         "hashtags": hashtags,
         "nlp_report": nlp_report.to_dict(),
@@ -764,6 +806,7 @@ async def run_cloudless_carousel_pipeline(
             "id": str(account.id),
             "display_name": account.display_name,
             "account_type": (account.meta_data or {}).get("account_type"),
+            "platform": account.platform,
         },
         "status": post.status.value,
         "platform_url": None,
