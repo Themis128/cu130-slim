@@ -377,7 +377,6 @@ def compose_branded_slide(
     # ── Copy zone ─────────────────────────────────────────────────────────────
     PAD = 80
     INFOGRAPHIC_TOP = 530  # y where the infographic card begins
-    FOOTER_TOP = 1044      # y where the footer strip begins
     MAX_TEXT_BOTTOM = INFOGRAPHIC_TOP - 16  # stop text before infographic
 
     if stype == "cover":
