@@ -17,6 +17,7 @@
         "--no-sandbox",
         "--ignore-https-errors",
         "--block-service-workers",
+        "--grant-permissions", "clipboard-read", "clipboard-write",
         "--init-script", "/workspace/.playwright-data/init-script.js"
       ]
     },

@@ -1,2 +1,3 @@
-2026/09/01-10:06:03.727 20 Creating DB /home/pwuser/.playwright-data/profile/Default/shared_proto_db since it was missing.
-2026/09/01-10:06:03.815 20 Reusing MANIFEST /home/pwuser/.playwright-data/profile/Default/shared_proto_db/MANIFEST-000001
+2026/09/01-10:18:31.904 1f Reusing MANIFEST /home/pwuser/.playwright-data/profile/Default/shared_proto_db/MANIFEST-000001
+2026/09/01-10:18:31.904 1f Recovering log #3
+2026/09/01-10:18:31.905 1f Reusing old log /home/pwuser/.playwright-data/profile/Default/shared_proto_db/000003.log 
