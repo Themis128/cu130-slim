@@ -46,6 +46,7 @@ from app.services.instagram_private_api import (
     InstagramPrivateAPIError,
 )
 from app.services.secret_store import secret_store
+from app.services.tiktok_browser import TikTokBrowserError, TikTokBrowserService
 from app.services.tiktok_profile import TikTokProfileError, TikTokProfileService
 from app.services.twitter_profile import TwitterProfileError, TwitterProfileService
 
@@ -1131,15 +1132,279 @@ async def _upload_tiktok_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    # Avatar upload via private API is not yet implemented — the official
-    # Display API has no avatar write endpoint, and the private mobile
-    # avatar endpoint requires additional reverse-engineering.
+    # Avatar upload requires TikTok's slider captcha — not automatable.
+    # The browser sidecar skips captcha-gated operations.
     raise HTTPException(
         status_code=501,
-        detail="TikTok profile picture upload is not yet supported. "
-        "The official Display API is read-only for avatar, and the "
-        "private mobile avatar endpoint requires further work.",
+        detail="TikTok profile picture upload requires a slider captcha "
+        "that cannot be solved programmatically. Please upload the "
+        "avatar manually via the TikTok app or website.",
     )
+
+
+# ── TikTok browser settings (Playwright sidecar) ─────────────────────────────
+# These endpoints configure TikTok settings that the official Display API
+# does not expose. They drive the tiktok-browser-sidecar container which
+# uses Playwright to automate the TikTok web UI.
+#
+# All operations are captcha-free toggles/selections. Captcha-gated writes
+# (bio, avatar, nickname) are NOT supported here.
+
+
+def _get_tiktok_browser_service() -> TikTokBrowserService:
+    return TikTokBrowserService()
+
+
+class TikTokSessionRequest(BaseModel):
+    """Inject a TikTok session cookie into the browser sidecar."""
+    session_id: str
+    user_id: str | None = None
+
+
+class TikTokToggleRequest(BaseModel):
+    """Toggle a boolean setting."""
+    enabled: bool
+
+
+class TikTokCommentsRequest(BaseModel):
+    """Set comments permission."""
+    permission: str  # "Everyone" or "Friends"
+
+
+class TikTokDirectMessagesRequest(BaseModel):
+    """Set direct messages permission."""
+    potential_connections: str | None = None
+    others: str | None = None
+
+
+class TikTokInteractionNotificationsRequest(BaseModel):
+    """Set interaction notification preferences."""
+    likes: bool | None = None
+    comments: bool | None = None
+    new_followers: bool | None = None
+    mentions_and_tags: bool | None = None
+
+
+class TikTokBusinessVerificationRequest(BaseModel):
+    """Fill the business verification form."""
+    company_name: str | None = None
+    website: str | None = None
+    country: str | None = None
+    address: str | None = None
+    industry: str | None = None
+    business_license_number: str | None = None
+
+
+@router.post("/tiktok/session")
+async def set_tiktok_browser_session(
+    req: TikTokSessionRequest,
+    current_user=Depends(get_current_user),
+):
+    """Inject the TikTok session cookie into the browser sidecar.
+
+    The session_id is the ``sessionid`` cookie from a logged-in TikTok
+    web session. After injection, the sidecar verifies the session
+    is alive by navigating to the profile page.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_session(req.session_id, req.user_id)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/session")
+async def check_tiktok_browser_session(current_user=Depends(get_current_user)):
+    """Check if the TikTok browser session is still alive."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.check_session()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/settings")
+async def get_tiktok_all_settings(current_user=Depends(get_current_user)):
+    """Read all current TikTok settings from the browser."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.read_all_settings()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/private-account")
+async def set_tiktok_private_account(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle the TikTok private account setting."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_private_account(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/comments")
+async def set_tiktok_comments(
+    req: TikTokCommentsRequest,
+    current_user=Depends(get_current_user),
+):
+    """Set who can comment on your TikTok posts (Everyone or Friends)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_comments(req.permission)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/direct-messages")
+async def set_tiktok_direct_messages(
+    req: TikTokDirectMessagesRequest,
+    current_user=Depends(get_current_user),
+):
+    """Set who can send you direct messages on TikTok."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_direct_messages(
+            req.potential_connections, req.others,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/notifications/desktop")
+async def set_tiktok_desktop_notifications(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok desktop browser notifications."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_desktop_notifications(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/notifications/interactions")
+async def set_tiktok_interaction_notifications(
+    req: TikTokInteractionNotificationsRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle individual TikTok interaction notification preferences.
+
+    Only fields that are set (not None) will be toggled.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_interaction_notifications(
+            likes=req.likes,
+            comments=req.comments,
+            new_followers=req.new_followers,
+            mentions_and_tags=req.mentions_and_tags,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/ads/personalized")
+async def set_tiktok_personalized_ads(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok personalized ads (off-TikTok data tracking)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_personalized_ads(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/accessibility/contrast")
+async def set_tiktok_color_contrast(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok increased color contrast (web accessibility)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_color_contrast(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/business-verification/fill")
+async def fill_tiktok_business_verification(
+    req: TikTokBusinessVerificationRequest,
+    current_user=Depends(get_current_user),
+):
+    """Fill the TikTok business verification form.
+
+    Fills company name, website, country, address, industry, and
+    business license number. The company certification document
+    upload and final submit still require manual action.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.fill_business_verification(
+            company_name=req.company_name,
+            website=req.website,
+            country=req.country,
+            address=req.address,
+            industry=req.industry,
+            business_license_number=req.business_license_number,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/business-verification/status")
+async def get_tiktok_business_verification_status(
+    current_user=Depends(get_current_user),
+):
+    """Check the TikTok business verification status."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.get_business_verification_status()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 # ── Browser bridge (noVNC visual login) ──────────────────────────────────────

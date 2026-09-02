@@ -573,6 +573,8 @@ services:
     - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://warp-proxy:1080}
     # Browser + noVNC bridge (visual social logins)
     - BROWSER_BRIDGE_URL=http://browser-novnc:9223
+    # TikTok Browser Automation sidecar (Playwright)
+    - TIKTOK_BROWSER_SIDECAR_URL=http://tiktok-browser-sidecar:9224
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -864,6 +866,33 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
+  # RESTful HTTP wrapper around Playwright for TikTok profile settings that
+  # the official Display API does not expose: privacy toggles, notification
+  # preferences, ad settings, accessibility, business verification form.
+  # Captcha-gated writes (bio, avatar, nickname) are NOT supported.
+  # Session cookie is injected at runtime via the /session endpoint.
+  tiktok-browser-sidecar:
+    build:
+      context: ./tiktok-browser-sidecar
+      dockerfile: Dockerfile
+    container_name: tiktok-browser-sidecar
+    ports:
+    - 9224:9224
+    environment:
+    - TIKTOK_SIDECAR_PORT=9224
+    - TZ=Europe/Athens
+    volumes:
+    - tiktok_browser_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9224/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    <<: *public-dns
+
 volumes:
   portainer_data: null
   postgres_data: null
@@ -874,3 +903,4 @@ volumes:
   minio_data: null
   instagram_sessions: null
   warp_data: null
+  tiktok_browser_data: null

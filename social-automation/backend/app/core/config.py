@@ -167,6 +167,13 @@ class Settings(BaseSettings):
     # handles X-Argus / X-Ladon / X-Gorgon request signing.
     TIKTOK_PRIVATE_API_KEY: str = ""
 
+    # TikTok Browser Automation sidecar (Playwright)
+    # RESTful HTTP wrapper around Playwright for TikTok settings that the
+    # official Display API does not expose: privacy toggles, notification
+    # preferences, ad settings, accessibility, business verification form.
+    # Captcha-gated writes (bio, avatar, nickname) are NOT supported.
+    TIKTOK_BROWSER_SIDECAR_URL: str = "http://tiktok-browser-sidecar:9224"
+
     # Twitter v1.0a app credentials (for media upload via v1.1 API)
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""
