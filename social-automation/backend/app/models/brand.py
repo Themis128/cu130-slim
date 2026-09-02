@@ -58,6 +58,8 @@ class Brand(Base):
     visual: Mapped["BrandVisual | None"] = relationship("BrandVisual", back_populates="brand", uselist=False, cascade="all, delete-orphan")
     guidelines: Mapped["BrandGuidelines | None"] = relationship("BrandGuidelines", back_populates="brand", uselist=False, cascade="all, delete-orphan")
     assets: Mapped[list["BrandAsset"]] = relationship("BrandAsset", back_populates="brand", cascade="all, delete-orphan")
+    mentions: Mapped[list["BrandMention"]] = relationship("BrandMention", back_populates="brand", cascade="all, delete-orphan")
+    competitor_snapshots: Mapped[list["CompetitorSnapshot"]] = relationship("CompetitorSnapshot", back_populates="brand", cascade="all, delete-orphan")
 
 
 class BrandVoice(Base):

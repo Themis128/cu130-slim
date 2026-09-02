@@ -1,7 +1,7 @@
 """Brand identity API — CRUD for brand, voice, visual, guidelines, and assets."""
 import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -830,3 +830,160 @@ async def generate_brand_favicon(
         asset_id=str(asset.id),
         prompt=prompt,
     )
+
+
+# ── Brand Monitoring & Intelligence ───────────────────────────────────────────
+
+from app.models.brand_monitoring import BrandMention, CompetitorSnapshot  # noqa: E402
+from app.services.brand_monitoring import (  # noqa: E402
+    calculate_health_score,
+    collect_mentions,
+    snapshot_competitor,
+)
+
+
+class MentionOut(BaseModel):
+    id: uuid.UUID
+    platform: str
+    author: str | None = None
+    content: str
+    url: str | None = None
+    sentiment: str | None = None
+    sentiment_score: float | None = None
+    engagement: int = 0
+    mentioned_at: datetime | None = None
+    extra_data: dict = {}
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitorSnapshotOut(BaseModel):
+    id: uuid.UUID
+    competitor_name: str
+    platform: str
+    follower_count: int | None = None
+    engagement_rate: float | None = None
+    post_count: int | None = None
+    top_post_content: str | None = None
+    top_post_engagement: int | None = None
+    snapshot_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HealthScoreOut(BaseModel):
+    overall: float
+    sentiment: float
+    reach: float
+    share_of_voice: float
+    engagement: float
+    consistency: float
+    mention_count: int
+    total_engagement: int
+    avg_sentiment: float
+
+
+@router.get("/mentions", response_model=list[MentionOut])
+async def list_brand_mentions(
+    platform: str | None = None,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List brand mentions from monitoring sources."""
+    brand = await _get_brand(current_user, db)
+    query = select(BrandMention).where(BrandMention.brand_id == brand.id)
+    if platform:
+        query = query.where(BrandMention.platform == platform)
+    query = query.order_by(BrandMention.mentioned_at.desc()).limit(limit)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/mentions/collect", response_model=list[MentionOut])
+async def collect_brand_mentions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger mention collection from all sources (Twitter, Reddit, Google News)."""
+    import os
+
+    brand = await _get_brand(current_user, db)
+    twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
+    mentions = await collect_mentions(db, brand, twitter_token)
+    return mentions
+
+
+@router.get("/competitors", response_model=list[CompetitorSnapshotOut])
+async def list_competitor_snapshots(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List competitor snapshots."""
+    brand = await _get_brand(current_user, db)
+    result = await db.execute(
+        select(CompetitorSnapshot)
+        .where(CompetitorSnapshot.brand_id == brand.id)
+        .order_by(CompetitorSnapshot.snapshot_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/competitors/snapshot", response_model=CompetitorSnapshotOut)
+async def take_competitor_snapshot(
+    competitor_name: str,
+    platform: str = "twitter",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take a snapshot of a competitor's metrics."""
+    brand = await _get_brand(current_user, db)
+    snapshot = await snapshot_competitor(db, brand, competitor_name, platform)
+    return snapshot
+
+
+@router.get("/health", response_model=HealthScoreOut)
+async def get_brand_health(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Calculate and return brand health score."""
+    from sqlalchemy import func
+
+    from app.models.content import Post, PostStatus
+
+    brand = await _get_brand(current_user, db)
+
+    # Get mentions from last 30 days
+    thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
+    mentions_result = await db.execute(
+        select(BrandMention)
+        .where(BrandMention.brand_id == brand.id, BrandMention.mentioned_at >= thirty_days_ago)
+    )
+    mentions = mentions_result.scalars().all()
+
+    # Get competitor snapshots
+    competitors_result = await db.execute(
+        select(CompetitorSnapshot).where(CompetitorSnapshot.brand_id == brand.id)
+    )
+    competitors = competitors_result.scalars().all()
+
+    # Get post count and engagement from last 30 days
+    posts_result = await db.execute(
+        select(func.count(Post.id))
+        .where(
+            Post.team_id == current_user.team_id,
+            Post.status == PostStatus.PUBLISHED,
+            Post.created_at >= thirty_days_ago,
+        )
+    )
+    post_count = posts_result.scalar() or 0
+
+    health = calculate_health_score(
+        mentions=mentions,
+        competitor_snapshots=competitors,
+        post_count_30d=post_count,
+    )
+    return health

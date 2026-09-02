@@ -768,6 +768,15 @@ export const brandApi = {
   // AI Favicon Generator — generate a favicon from the brand logo
   generateFavicon: () =>
     api.post('/brand/generate-favicon', {}, { timeout: 90000 }),
+
+  // Brand Monitoring — mentions, competitors, health
+  listMentions: (params?: { platform?: string; limit?: number }) =>
+    api.get('/brand/mentions', { params }),
+  collectMentions: () => api.post('/brand/mentions/collect', {}, { timeout: 60000 }),
+  listCompetitors: () => api.get('/brand/competitors'),
+  snapshotCompetitor: (data: { competitor_name: string; platform?: string }) =>
+    api.post('/brand/competitors/snapshot', null, { params: data }),
+  getHealth: () => api.get('/brand/health'),
 }
 
 // Media AI enhancement endpoints
