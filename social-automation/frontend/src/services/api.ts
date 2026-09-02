@@ -215,6 +215,8 @@ export const contentApi = {
     targets?: Array<{ social_account_id: string }>
     metadata?: Record<string, unknown>
     music_asset_id?: string
+    pillar_id?: string | null
+    content_brief_id?: string | null
   }) => {
     const { targets, target_account_ids, ...rest } = data
     const accountIds =
@@ -237,12 +239,34 @@ export const contentApi = {
     scheduled_at: string
     status: string
     music_asset_id: string | null
+    pillar_id: string | null
+    content_brief_id: string | null
   }>) => api.patch(`/content/posts/${id}`, data),
   deletePost: (id: string) => api.delete(`/content/posts/${id}`),
   duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),
   publishNow: (id: string) => api.post(`/content/posts/${id}/publish-now`),
   schedulePost: (id: string, scheduled_at: string) =>
     api.post(`/content/posts/${id}/schedule`, { scheduled_at }),
+  // Approval workflow
+  submitForReview: (id: string) => api.post(`/content/posts/${id}/submit-review`),
+  approvePost: (id: string, body?: string) =>
+    api.post(`/content/posts/${id}/approve`, body ? { body } : undefined),
+  rejectPost: (id: string, body?: string) =>
+    api.post(`/content/posts/${id}/reject`, body ? { body } : undefined),
+  addComment: (id: string, body: string, action?: string) =>
+    api.post(`/content/posts/${id}/comments`, { body, action }),
+  // Pillars
+  listPillars: () => api.get('/content/pillars'),
+  createPillar: (data: { name: string; description?: string; color?: string; sort_order?: number }) =>
+    api.post('/content/pillars', data),
+  updatePillar: (id: string, data: { name: string; description?: string; color?: string; sort_order?: number }) =>
+    api.patch(`/content/pillars/${id}`, data),
+  deletePillar: (id: string) => api.delete(`/content/pillars/${id}`),
+  // Content briefs
+  listBriefs: () => api.get('/content/briefs'),
+  createBrief: (data: { title: string; outline?: string; pillar_id?: string; target_platforms?: string[]; tone?: string }) =>
+    api.post('/content/briefs', data),
+  deleteBrief: (id: string) => api.delete(`/content/briefs/${id}`),
   getMedia: (params?: { page?: number; page_size?: number; type?: string }) =>
     api.get('/content/media', { params }),
   uploadMedia: (file: File, alt_text?: string, tags?: string) => {

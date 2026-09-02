@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.db.session import get_db
-from app.models.content import Post, PostStatus, PostTarget
+from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget
 from app.models.user import Team, TeamMember, User
 from app.services.spellcheck import auto_correct
 
@@ -29,6 +29,8 @@ class PostCreate(BaseModel):
     target_account_ids: list[uuid.UUID] = []
     metadata: dict = {}
     music_asset_id: uuid.UUID | None = None
+    pillar_id: uuid.UUID | None = None
+    content_brief_id: uuid.UUID | None = None
 
 class PostUpdate(BaseModel):
     content_text: str | None = None
@@ -42,6 +44,8 @@ class PostUpdate(BaseModel):
     target_account_ids: list[uuid.UUID] | None
     metadata: dict | None = None
     music_asset_id: uuid.UUID | None = None
+    pillar_id: uuid.UUID | None = None
+    content_brief_id: uuid.UUID | None = None
 
 
 class PostResponse(BaseModel):
@@ -64,9 +68,12 @@ class PostResponse(BaseModel):
     workflow_run_id: str | None
     metadata: dict
     music_asset_id: uuid.UUID | None = None
+    pillar_id: uuid.UUID | None = None
+    content_brief_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     targets: list[dict] = []
+    comments: list[dict] = []
 
     class Config:
         from_attributes = True
@@ -105,6 +112,8 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
         scheduled_at=post_data.scheduled_at,
         meta_data=post_data.metadata,
         music_asset_id=post_data.music_asset_id,
+        pillar_id=post_data.pillar_id,
+        content_brief_id=post_data.content_brief_id,
     )
     db.add(post)
     await db.flush()
@@ -177,7 +186,7 @@ async def get_calendar(
             Post.team_id == team.id,
             Post.scheduled_at >= start,
             Post.scheduled_at <= end,
-            Post.status.in_([PostStatus.SCHEDULED, PostStatus.PUBLISHED]),
+            Post.status.in_([PostStatus.SCHEDULED, PostStatus.PUBLISHED, PostStatus.APPROVED, PostStatus.REVIEW]),
         )
         .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
     )
@@ -190,6 +199,7 @@ async def get_calendar(
             "start": p.scheduled_at.isoformat() if p.scheduled_at else p.created_at.isoformat(),
             "status": p.status.value,
             "platforms": [t.social_account.platform for t in p.targets],
+            "pillar_id": str(p.pillar_id) if p.pillar_id else None,
         }
         for p in posts
     ]
@@ -218,11 +228,14 @@ async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: U
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if post.status not in [PostStatus.DRAFT, PostStatus.SCHEDULED]:
+    if post.status not in [PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.REVIEW, PostStatus.APPROVED]:
         raise HTTPException(status_code=400, detail="Cannot edit published/failed post")
 
     update_data = post_data.model_dump(exclude_unset=True)
     target_account_ids = update_data.pop("target_account_ids", None)
+    # Map API field name to model field name
+    if "metadata" in update_data:
+        update_data["meta_data"] = update_data.pop("metadata")
 
     if "content_text" in update_data and update_data["content_text"]:
         update_data["content_text"] = await auto_correct(update_data["content_text"])
@@ -345,7 +358,7 @@ async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_cu
 
 
 async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
-    await db.refresh(post, ["targets"])
+    await db.refresh(post, ["targets", "comments"])
     for target in post.targets:
         await db.refresh(target, ["social_account"])
 
@@ -369,6 +382,8 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         workflow_run_id=post.workflow_run_id,
         metadata=post.meta_data,
         music_asset_id=post.music_asset_id,
+        pillar_id=post.pillar_id,
+        content_brief_id=post.content_brief_id,
         created_at=post.created_at,
         updated_at=post.updated_at,
         targets=[
@@ -381,6 +396,16 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
                 "platform_url": t.platform_url,
             }
             for t in post.targets
+        ],
+        comments=[
+            {
+                "id": str(c.id),
+                "author_name": c.author_name,
+                "body": c.body,
+                "action": c.action,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in post.comments
         ],
     )
 
@@ -463,3 +488,229 @@ async def delete_content_media(
 
     if target.exists() and target.is_file():
         target.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Approval workflow, Pillars, Content Briefs
+# ---------------------------------------------------------------------------
+
+
+class CommentCreate(BaseModel):
+    body: str
+    action: str | None = None  # submit_review, approve, reject, comment
+
+
+class CommentOut(BaseModel):
+    id: uuid.UUID
+    author_name: str
+    body: str
+    action: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+async def _get_team(user: User, db: AsyncSession) -> Team:
+    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return team
+
+
+@router.post("/posts/{post_id}/submit-review", response_model=PostResponse)
+async def submit_for_review(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Transition a draft post to REVIEW status."""
+    post = await _get_team_post(post_id, current_user, db)
+    if post.status != PostStatus.DRAFT:
+        raise HTTPException(status_code=400, detail=f"Cannot submit for review from status '{post.status}'")
+    post.status = PostStatus.REVIEW
+    comment = PostComment(
+        post_id=post.id, user_id=current_user.id,
+        author_name=current_user.email or "Unknown",
+        body="Submitted for review", action="submit_review",
+    )
+    db.add(comment)
+    await db.commit()
+    return await _post_to_response(post, db)
+
+
+@router.post("/posts/{post_id}/approve", response_model=PostResponse)
+async def approve_post(post_id: uuid.UUID, comment: CommentCreate | None = None, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Approve a post in REVIEW status."""
+    post = await _get_team_post(post_id, current_user, db)
+    if post.status != PostStatus.REVIEW:
+        raise HTTPException(status_code=400, detail=f"Cannot approve from status '{post.status}'")
+    post.status = PostStatus.APPROVED
+    c = PostComment(
+        post_id=post.id, user_id=current_user.id,
+        author_name=current_user.email or "Unknown",
+        body=comment.body if comment else "Approved", action="approve",
+    )
+    db.add(c)
+    await db.commit()
+    return await _post_to_response(post, db)
+
+
+@router.post("/posts/{post_id}/reject", response_model=PostResponse)
+async def reject_post(post_id: uuid.UUID, comment: CommentCreate | None = None, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Reject a post in REVIEW status — sends it back to DRAFT."""
+    post = await _get_team_post(post_id, current_user, db)
+    if post.status != PostStatus.REVIEW:
+        raise HTTPException(status_code=400, detail=f"Cannot reject from status '{post.status}'")
+    post.status = PostStatus.DRAFT
+    c = PostComment(
+        post_id=post.id, user_id=current_user.id,
+        author_name=current_user.email or "Unknown",
+        body=comment.body if comment else "Rejected — needs revision", action="reject",
+    )
+    db.add(c)
+    await db.commit()
+    return await _post_to_response(post, db)
+
+
+@router.post("/posts/{post_id}/comments", response_model=CommentOut)
+async def add_comment(post_id: uuid.UUID, body: CommentCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Add a general comment to a post (preserved through status transitions)."""
+    post = await _get_team_post(post_id, current_user, db)
+    c = PostComment(
+        post_id=post.id, user_id=current_user.id,
+        author_name=current_user.email or "Unknown",
+        body=body.body, action=body.action or "comment",
+    )
+    db.add(c)
+    await db.commit()
+    await db.refresh(c)
+    return CommentOut(id=c.id, author_name=c.author_name, body=c.body, action=c.action, created_at=c.created_at)
+
+
+async def _get_team_post(post_id: uuid.UUID, user: User, db: AsyncSession) -> Post:
+    team = await _get_team(user, db)
+    result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.team_id == team.id)
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+# ── Pillars ──────────────────────────────────────────────────────────────────
+
+
+class PillarCreate(BaseModel):
+    name: str
+    description: str | None = None
+    color: str = "#6366f1"
+    sort_order: int = 0
+
+
+class PillarOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    color: str
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/pillars", response_model=list[PillarOut])
+async def list_pillars(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    result = await db.execute(
+        select(Pillar).where(Pillar.team_id == team.id).order_by(Pillar.sort_order, Pillar.name)
+    )
+    return result.scalars().all()
+
+
+@router.post("/pillars", response_model=PillarOut, status_code=status.HTTP_201_CREATED)
+async def create_pillar(data: PillarCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    pillar = Pillar(team_id=team.id, **data.model_dump())
+    db.add(pillar)
+    await db.commit()
+    await db.refresh(pillar)
+    return pillar
+
+
+@router.patch("/pillars/{pillar_id}", response_model=PillarOut)
+async def update_pillar(pillar_id: uuid.UUID, data: PillarCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    result = await db.execute(select(Pillar).where(Pillar.id == pillar_id, Pillar.team_id == team.id))
+    pillar = result.scalar_one_or_none()
+    if not pillar:
+        raise HTTPException(status_code=404, detail="Pillar not found")
+    for field, value in data.model_dump().items():
+        setattr(pillar, field, value)
+    await db.commit()
+    await db.refresh(pillar)
+    return pillar
+
+
+@router.delete("/pillars/{pillar_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_pillar(pillar_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    result = await db.execute(select(Pillar).where(Pillar.id == pillar_id, Pillar.team_id == team.id))
+    pillar = result.scalar_one_or_none()
+    if pillar:
+        await db.delete(pillar)
+        await db.commit()
+
+
+# ── Content Briefs ───────────────────────────────────────────────────────────
+
+
+class BriefCreate(BaseModel):
+    title: str
+    outline: str | None = None
+    pillar_id: uuid.UUID | None = None
+    target_platforms: list[str] = []
+    tone: str | None = None
+
+
+class BriefOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    outline: str | None
+    pillar_id: uuid.UUID | None
+    target_platforms: list[str]
+    tone: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/briefs", response_model=list[BriefOut])
+async def list_briefs(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    result = await db.execute(
+        select(ContentBrief).where(ContentBrief.team_id == team.id).order_by(ContentBrief.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/briefs", response_model=BriefOut, status_code=status.HTTP_201_CREATED)
+async def create_brief(data: BriefCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    brief = ContentBrief(team_id=team.id, **data.model_dump())
+    db.add(brief)
+    await db.commit()
+    await db.refresh(brief)
+    return brief
+
+
+@router.delete("/briefs/{brief_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_brief(brief_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    team = await _get_team(current_user, db)
+    result = await db.execute(select(ContentBrief).where(ContentBrief.id == brief_id, ContentBrief.team_id == team.id))
+    brief = result.scalar_one_or_none()
+    if brief:
+        await db.delete(brief)
+        await db.commit()

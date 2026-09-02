@@ -1,7 +1,7 @@
 from app.models.ai_usage import AIUsageLog
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines, BrandVisual, BrandVoice
-from app.models.content import MediaAsset, MediaCollection, Post, PostTarget, StorageBackend
+from app.models.content import ContentBrief, MediaAsset, MediaCollection, Pillar, Post, PostComment, PostTarget, StorageBackend
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
@@ -14,6 +14,10 @@ __all__ = [
     "TeamMember",
     "SocialAccount",
     "Post",
+    "PostComment",
+    "PostTarget",
+    "Pillar",
+    "ContentBrief",
     "MediaAsset",
     "MediaCollection",
     "StorageBackend",

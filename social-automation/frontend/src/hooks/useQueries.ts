@@ -95,6 +95,113 @@ export function useSchedulePost() {
   })
 }
 
+// Approval workflow hooks
+export function useSubmitForReview() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: contentApi.submitForReview,
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      queryClient.invalidateQueries({ queryKey: ['post', id] })
+      toast.success('Submitted for review')
+    },
+  })
+}
+
+export function useApprovePost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body?: string }) => contentApi.approvePost(id, body),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      queryClient.invalidateQueries({ queryKey: ['post', id] })
+      toast.success('Post approved')
+    },
+  })
+}
+
+export function useRejectPost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body?: string }) => contentApi.rejectPost(id, body),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      queryClient.invalidateQueries({ queryKey: ['post', id] })
+      toast.success('Post sent back to draft')
+    },
+  })
+}
+
+export function useAddComment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body, action }: { id: string; body: string; action?: string }) =>
+      contentApi.addComment(id, body, action),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['post', id] })
+    },
+  })
+}
+
+// Pillars
+export function usePillars() {
+  return useQuery({
+    queryKey: ['pillars'],
+    queryFn: () => contentApi.listPillars(),
+    select: (response) => response.data,
+  })
+}
+
+export function useCreatePillar() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: contentApi.createPillar,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pillars'] }),
+  })
+}
+
+export function useUpdatePillar() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof contentApi.updatePillar>[1] }) =>
+      contentApi.updatePillar(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pillars'] }),
+  })
+}
+
+export function useDeletePillar() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: contentApi.deletePillar,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pillars'] }),
+  })
+}
+
+// Content briefs
+export function useBriefs() {
+  return useQuery({
+    queryKey: ['briefs'],
+    queryFn: () => contentApi.listBriefs(),
+    select: (response) => response.data,
+  })
+}
+
+export function useCreateBrief() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: contentApi.createBrief,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['briefs'] }),
+  })
+}
+
+export function useDeleteBrief() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: contentApi.deleteBrief,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['briefs'] }),
+  })
+}
+
 // Media hooks
 export function useMedia(params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string }) {
   return useQuery({

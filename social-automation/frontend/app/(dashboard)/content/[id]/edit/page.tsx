@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2, Heart, MessageCircle, Share2, Eye, TrendingUp } from 'lucide-react'
+import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2, Heart, MessageCircle, Share2, Eye, TrendingUp, CheckCircle2, XCircle, MessageSquare, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia, usePostAnalytics } from '@/hooks/useQueries'
+import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia, usePostAnalytics, useSubmitForReview, useApprovePost, useRejectPost, useAddComment, usePillars, useBriefs } from '@/hooks/useQueries'
 import { contentApi } from '@/services/api'
 import type { Post } from '@/types'
 import Link from 'next/link'
@@ -33,6 +33,12 @@ export default function EditPostPage() {
   const publishMutation = usePublishPost()
   const uploadMediaMutation = useUploadMedia()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const submitReviewMutation = useSubmitForReview()
+  const approveMutation = useApprovePost()
+  const rejectMutation = useRejectPost()
+  const addCommentMutation = useAddComment()
+  const { data: pillars } = usePillars()
+  const { data: briefs } = useBriefs()
 
   const [content, setContent] = useState('')
   const [hashtags, setHashtags] = useState<string[]>([])
@@ -42,6 +48,11 @@ export default function EditPostPage() {
   const [newMediaFiles, setNewMediaFiles] = useState<File[]>([])
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [pillarId, setPillarId] = useState<string | null>(null)
+  const [briefId, setBriefId] = useState<string | null>(null)
+  const [commentText, setCommentText] = useState('')
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
     if (post) {
@@ -50,6 +61,8 @@ export default function EditPostPage() {
       setLinkUrl((post as Post).link_url || '')
       setMediaIds(((post as Post).media_ids || []).map(String))
       setScheduleDate((post as Post).scheduled_at ? toAthensDateTimeLocal((post as Post).scheduled_at!) : '')
+      setPillarId((post as Post & { pillar_id?: string | null })?.pillar_id ?? null)
+      setBriefId((post as Post & { content_brief_id?: string | null })?.content_brief_id ?? null)
     }
   }, [post])
 
@@ -61,9 +74,51 @@ export default function EditPostPage() {
           content_text: content,
           hashtags,
           link_url: linkUrl || undefined,
+          pillar_id: pillarId,
+          content_brief_id: briefId,
         } as Partial<Post>,
       })
       router.push('/content')
+    } catch {
+      // mutation already toasts
+    }
+  }
+
+  const handleSubmitReview = async () => {
+    try {
+      await updateMutation.mutateAsync({
+        id,
+        data: { content_text: content, hashtags, link_url: linkUrl || undefined, pillar_id: pillarId, content_brief_id: briefId } as Partial<Post>,
+      })
+      await submitReviewMutation.mutateAsync(id)
+    } catch {
+      // mutation already toasts
+    }
+  }
+
+  const handleApprove = async () => {
+    try {
+      await approveMutation.mutateAsync({ id })
+    } catch {
+      // mutation already toasts
+    }
+  }
+
+  const handleReject = async () => {
+    try {
+      await rejectMutation.mutateAsync({ id, body: rejectReason || 'Needs revision' })
+      setRejectOpen(false)
+      setRejectReason('')
+    } catch {
+      // mutation already toasts
+    }
+  }
+
+  const handleAddComment = async () => {
+    if (!commentText.trim()) return
+    try {
+      await addCommentMutation.mutateAsync({ id, body: commentText })
+      setCommentText('')
     } catch {
       // mutation already toasts
     }

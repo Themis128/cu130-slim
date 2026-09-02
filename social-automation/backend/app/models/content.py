@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -12,6 +12,8 @@ from app.db.base import Base
 
 class PostStatus(enum.StrEnum):
     DRAFT = "draft"
+    REVIEW = "review"
+    APPROVED = "approved"
     SCHEDULED = "scheduled"
     PUBLISHING = "publishing"
     PUBLISHED = "published"
@@ -50,12 +52,15 @@ class Post(Base):
     workflow_run_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
     music_asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
+    pillar_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pillars.id", ondelete="SET NULL"), nullable=True, index=True)
+    content_brief_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("content_briefs.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     team: Mapped["Team"] = relationship("Team", back_populates="posts")
     author: Mapped["User"] = relationship("User", back_populates="posts")
     targets: Mapped[list["PostTarget"]] = relationship("PostTarget", back_populates="post", cascade="all, delete-orphan")
+    comments: Mapped[list["PostComment"]] = relationship("PostComment", back_populates="post", cascade="all, delete-orphan", order_by="PostComment.created_at")
 
 
 class MediaCollection(Base):
@@ -142,3 +147,64 @@ class PostTarget(Base):
 
     post: Mapped["Post"] = relationship("Post", back_populates="targets")
     social_account: Mapped["SocialAccount"] = relationship("SocialAccount", back_populates="post_targets")
+
+
+class PostComment(Base):
+    """Approval workflow comments — preserved through status transitions."""
+
+    __tablename__ = "post_comments"
+    __table_args__ = (
+        Index("ix_post_comments_post", "post_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    author_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str | None] = mapped_column(String(20), nullable=True)  # submit_review, approve, reject, comment
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    post: Mapped["Post"] = relationship("Post", back_populates="comments")
+
+
+class Pillar(Base):
+    """Content pillar — one of the strategic themes posts are organized around."""
+
+    __tablename__ = "pillars"
+    __table_args__ = (
+        Index("ix_pillars_team", "team_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str] = mapped_column(String(20), default="#6366f1", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+
+    team: Mapped["Team"] = relationship("Team")
+
+
+class ContentBrief(Base):
+    """Content brief — a structured prompt/outline linked to a pillar."""
+
+    __tablename__ = "content_briefs"
+    __table_args__ = (
+        Index("ix_content_briefs_team_pillar", "team_id", "pillar_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    pillar_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pillars.id", ondelete="SET NULL"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    outline: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_platforms: Mapped[list[str]] = mapped_column(ARRAY(String), default=[], nullable=False)
+    tone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+
+    team: Mapped["Team"] = relationship("Team")
+    pillar: Mapped["Pillar | None"] = relationship("Pillar")
