@@ -384,6 +384,21 @@ async def get_brand_guidelines(
     return brand.guidelines
 
 
+@router.get("/guidelines/share/{token}", response_model=BrandGuidelinesOut)
+async def get_brand_guidelines_by_token(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public endpoint — no auth required. Returns guidelines by share token."""
+    result = await db.execute(
+        select(BrandGuidelines).where(BrandGuidelines.share_token == token)
+    )
+    guidelines = result.scalars().first()
+    if not guidelines:
+        raise HTTPException(status_code=404, detail="Brand guidelines not found")
+    return guidelines
+
+
 @router.post("/guidelines/compile", response_model=BrandGuidelinesOut)
 async def compile_brand_guidelines(
     current_user: User = Depends(get_current_user),

@@ -10,15 +10,8 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { useBrand, useUpdateBrandVoice } from '@/hooks/useQueries'
 import { brandApi } from '@/services/api'
+import { ToneSliders, TONE_DIMENSIONS } from '@/components/ui/ToneSliders'
 import toast from 'react-hot-toast'
-
-const TONE_DIMENSIONS = [
-  { key: 'formality', label: 'Formality', leftLabel: 'Casual', rightLabel: 'Formal' },
-  { key: 'playfulness', label: 'Playfulness', leftLabel: 'Serious', rightLabel: 'Playful' },
-  { key: 'authority', label: 'Authority', leftLabel: 'Humble', rightLabel: 'Authoritative' },
-  { key: 'friendliness', label: 'Friendliness', leftLabel: 'Distant', rightLabel: 'Friendly' },
-  { key: 'technical', label: 'Technical Depth', leftLabel: 'Simple', rightLabel: 'Technical' },
-]
 
 interface MessagingPillar {
   pillar: string
@@ -71,14 +64,11 @@ export default function BrandVoicePage() {
     )
   }
 
-  // Ensure all tone dimensions have a default value of 3
-  const getToneValue = (key: string) => tones[key] ?? 3
-
   const handleSave = () => {
     // Build tone_dimensions with defaults for all 5 dimensions
     const fullTones: Record<string, number> = {}
     for (const dim of TONE_DIMENSIONS) {
-      fullTones[dim.key] = getToneValue(dim.key)
+      fullTones[dim.key] = tones[dim.key] ?? 3
     }
 
     // Parse voice signature if provided
@@ -176,25 +166,8 @@ export default function BrandVoicePage() {
           <CardTitle>Tone Dimensions</CardTitle>
           <CardDescription>Slide to define your brand&apos;s voice personality (1-5)</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {TONE_DIMENSIONS.map((dim) => (
-            <div key={dim.key} className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{dim.leftLabel}</span>
-                <span className="font-medium">{dim.label}: {getToneValue(dim.key)}</span>
-                <span className="text-muted-foreground">{dim.rightLabel}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={1}
-                value={getToneValue(dim.key)}
-                onChange={(e) => setTones({ ...tones, [dim.key]: parseInt(e.target.value) })}
-                className="w-full accent-primary"
-              />
-            </div>
-          ))}
+        <CardContent>
+          <ToneSliders dimensions={tones} onChange={setTones} />
         </CardContent>
       </Card>
 

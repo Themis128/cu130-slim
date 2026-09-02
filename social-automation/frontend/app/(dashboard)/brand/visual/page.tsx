@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeft, Plus, X, Sparkles, Loader2, Upload } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, Upload } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
+import { ColorPalettePicker } from '@/components/ui/ColorPalettePicker'
 import { useBrand, useUpdateBrandVisual } from '@/hooks/useQueries'
 import { brandApi, mediaUrl } from '@/services/api'
 import toast from 'react-hot-toast'
@@ -30,7 +31,6 @@ export default function BrandVisualPage() {
   const [primaryColor, setPrimaryColor] = useState('#0b1220')
   const [accentColor, setAccentColor] = useState('#22d3e6')
   const [neutralColors, setNeutralColors] = useState<string[]>([])
-  const [newNeutral, setNewNeutral] = useState('#64748B')
   const [fontHeading, setFontHeading] = useState('')
   const [fontBody, setFontBody] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
@@ -145,62 +145,17 @@ export default function BrandVisualPage() {
           <CardTitle>Color Palette</CardTitle>
           <CardDescription>Brand colors used in AI image generation and carousels</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Primary Color</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={primaryColor}
-                  onChange={(e) => setPrimaryColor(e.target.value)}
-                  className="h-10 w-16 rounded border cursor-pointer"
-                />
-                <Input value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="flex-1" />
-              </div>
-              <div className="h-12 rounded-lg" style={{ backgroundColor: primaryColor }} />
-            </div>
-            <div className="space-y-2">
-              <Label>Accent Color</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={accentColor}
-                  onChange={(e) => setAccentColor(e.target.value)}
-                  className="h-10 w-16 rounded border cursor-pointer"
-                />
-                <Input value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="flex-1" />
-              </div>
-              <div className="h-12 rounded-lg" style={{ backgroundColor: accentColor }} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Neutral Colors</Label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={newNeutral}
-                onChange={(e) => setNewNeutral(e.target.value)}
-                className="h-10 w-16 rounded border cursor-pointer"
-              />
-              <Button type="button" variant="outline" onClick={() => {
-                if (!neutralColors.includes(newNeutral)) setNeutralColors([...neutralColors, newNeutral])
-              }}>
-                <Plus className="h-4 w-4" /> Add
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {neutralColors.map((c, i) => (
-                <div key={i} className="flex items-center gap-1">
-                  <div className="h-10 w-10 rounded border" style={{ backgroundColor: c }} />
-                  <button onClick={() => setNeutralColors(neutralColors.filter((_, idx) => idx !== i))}>
-                    <X className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+        <CardContent>
+          <ColorPalettePicker
+            primary={primaryColor}
+            accent={accentColor}
+            neutrals={neutralColors}
+            onChange={({ primary, accent, neutrals }) => {
+              if (primary) setPrimaryColor(primary)
+              if (accent) setAccentColor(accent)
+              if (neutrals) setNeutralColors(neutrals)
+            }}
+          />
         </CardContent>
       </Card>
 

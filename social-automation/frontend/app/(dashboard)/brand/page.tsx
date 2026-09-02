@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Palette, Plus, Sparkles, Loader2, Wand2, Type, Image as ImageIcon, BookOpen } from 'lucide-react'
+import { Palette, Plus, Sparkles, Loader2, Wand2, Type, Image as ImageIcon, BookOpen, Package } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -254,6 +254,7 @@ export default function BrandPage() {
             <CompletenessCard label="Voice" filled={!!brand.voice?.tone_dimensions && Object.keys(brand.voice.tone_dimensions).length > 0} href="/brand/voice" />
             <CompletenessCard label="Visual" filled={!!brand.visual?.primary_color} href="/brand/visual" />
             <CompletenessCard label="Guidelines" filled={!!brand.guidelines} href="/brand/guidelines" />
+            <CompletenessCard label="Assets" filled={!!brand.assets && brand.assets.length > 0} href="/brand/assets" />
           </div>
         </CardContent>
       </Card>
@@ -283,6 +284,12 @@ export default function BrandPage() {
           description="Compiled guidelines, shareable link"
           icon={<BookOpen className="h-5 w-5" />}
           href="/brand/guidelines"
+        />
+        <BrandLinkCard
+          title="Brand Assets"
+          description="Logos, templates, OG images, favicons"
+          icon={<Package className="h-5 w-5" />}
+          href="/brand/assets"
         />
       </div>
     </div>

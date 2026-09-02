@@ -30,7 +30,7 @@ export default function BrandGuidelinesPage() {
   const handleCompile = () => compileGuidelines.mutate()
   const handleShare = () => {
     if (guidelines?.share_token) {
-      const url = `${window.location.origin}/brand/guidelines?token=${guidelines.share_token}`
+      const url = `${window.location.origin}/brand/guidelines/share/${guidelines.share_token}`
       navigator.clipboard.writeText(url)
     }
   }

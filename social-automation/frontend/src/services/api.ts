@@ -735,6 +735,7 @@ export const brandApi = {
 
   // Guidelines
   getGuidelines: () => api.get('/brand/guidelines'),
+  getGuidelinesByToken: (token: string) => api.get(`/brand/guidelines/share/${token}`),
   compileGuidelines: () => api.post('/brand/guidelines/compile'),
 
   // Assets
