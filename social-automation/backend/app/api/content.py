@@ -537,7 +537,10 @@ async def submit_for_review(post_id: uuid.UUID, current_user: User = Depends(get
 
 
 @router.post("/posts/{post_id}/approve", response_model=PostResponse)
-async def approve_post(post_id: uuid.UUID, comment: CommentCreate | None = None, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def approve_post(
+    post_id: uuid.UUID, comment: CommentCreate | None = None,
+    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+):
     """Approve a post in REVIEW status."""
     post = await _get_team_post(post_id, current_user, db)
     if post.status != PostStatus.REVIEW:
@@ -554,7 +557,10 @@ async def approve_post(post_id: uuid.UUID, comment: CommentCreate | None = None,
 
 
 @router.post("/posts/{post_id}/reject", response_model=PostResponse)
-async def reject_post(post_id: uuid.UUID, comment: CommentCreate | None = None, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def reject_post(
+    post_id: uuid.UUID, comment: CommentCreate | None = None,
+    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+):
     """Reject a post in REVIEW status — sends it back to DRAFT."""
     post = await _get_team_post(post_id, current_user, db)
     if post.status != PostStatus.REVIEW:

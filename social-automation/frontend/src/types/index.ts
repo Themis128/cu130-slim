@@ -49,7 +49,7 @@ export interface Post {
   id: string
   team_id: string
   user_id: string | null
-  status: 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'archived'
+  status: 'draft' | 'review' | 'approved' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'archived'
   content_text: string | null
   media_ids: string[]
   platform_specific: Record<string, unknown>
@@ -64,6 +64,9 @@ export interface Post {
   workflow_id: string | null
   workflow_run_id: string | null
   metadata: Record<string, unknown>
+  pillar_id?: string | null
+  content_brief_id?: string | null
+  comments?: Array<{ id: string; author_name: string; body: string; action?: string; created_at: string }>
   created_at: string
   updated_at: string
   targets?: PostTarget[]

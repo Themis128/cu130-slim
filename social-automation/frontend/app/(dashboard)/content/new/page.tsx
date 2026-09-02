@@ -16,7 +16,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
-import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent } from '@/hooks/useQueries'
+import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent, usePillars, useBriefs, useContentTemplates } from '@/hooks/useQueries'
 import { contentApi, aiApi, mediaUrl, brandApi } from '@/services/api'
 import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
 import { MusicPickerDialog } from '@/components/ui/MusicPickerDialog'
@@ -339,6 +339,9 @@ export default function NewPostPage() {
   const searchParams = useSearchParams()
   const { data: accounts } = useAccounts()
   const createPostMutation = useCreatePost()
+  const { data: pillars } = usePillars()
+  const { data: briefs } = useBriefs()
+  const { data: contentTemplates } = useContentTemplates()
   const uploadMediaMutation = useUploadMedia()
   const generateContentMutation = useGenerateContent()
   const { setCtx } = useAdvisor()
@@ -360,6 +363,9 @@ export default function NewPostPage() {
   const [providerInfo, setProviderInfo] = useState<{ provider?: string; fallback?: boolean; primary?: string } | null>(null)
   const [tone, setTone] = useState('professional')
   const [repurposing, setRepurposing] = useState(false)
+  const [pillarId, setPillarId] = useState<string | null>(null)
+  const [briefId, setBriefId] = useState<string | null>(null)
+  const [templateId, setTemplateId] = useState<string | null>(null)
   const [variants, setVariants] = useState<Record<string, string>>({})
   const [openVariants, setOpenVariants] = useState<Set<string>>(new Set())
   const [brandCompliance, setBrandCompliance] = useState<{ score: number; issues: Array<{ type: string; message: string; suggestion: string }>; banned_found: string[]; preferred_found: string[]; tone_match: { score: number; issues: string[]; suggestions: string[] } } | null>(null)
@@ -560,6 +566,8 @@ export default function NewPostPage() {
           ? { tiktok: { publish_mode: tiktokPublishMode, privacy_level: tiktokPrivacyLevel } }
           : undefined,
         scheduled_at: action === 'schedule' ? athensDateTimeLocalToIso(scheduleDate) : undefined,
+        pillar_id: pillarId,
+        content_brief_id: briefId,
       })
       if (action === 'publish') {
         const postId = (post as unknown as { data?: { id?: string } })?.data?.id
@@ -584,6 +592,7 @@ export default function NewPostPage() {
         prompt: content || 'Write an engaging social media post',
         platform, tone, length: 'medium',
         include_hashtags: true, include_emojis: true,
+        template_id: templateId || undefined,
       })
       const data = result.data
       const generated = data.content || ''
@@ -878,6 +887,40 @@ export default function NewPostPage() {
                     {t.label}
                   </button>
                 ))}
+              </div>
+
+              {/* Pillar & Brief selectors */}
+              <div className="flex flex-wrap gap-2 mt-2">
+                <select
+                  value={pillarId ?? ''}
+                  onChange={(e) => setPillarId(e.target.value || null)}
+                  className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                >
+                  <option value="">No pillar</option>
+                  {(pillars as { id: string; name: string }[] | undefined)?.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={briefId ?? ''}
+                  onChange={(e) => setBriefId(e.target.value || null)}
+                  className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                >
+                  <option value="">No brief</option>
+                  {(briefs as { id: string; title: string }[] | undefined)?.map((b) => (
+                    <option key={b.id} value={b.id}>{b.title}</option>
+                  ))}
+                </select>
+                <select
+                  value={templateId ?? ''}
+                  onChange={(e) => setTemplateId(e.target.value || null)}
+                  className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                >
+                  <option value="">No template</option>
+                  {(contentTemplates as { id: string; name: string }[] | undefined)?.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
               </div>
             </CardHeader>
             <CardContent>

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { useScheduledPosts, useSchedulePost } from '@/hooks/useQueries'
+import { useScheduledPosts, useSchedulePost, usePillars } from '@/hooks/useQueries'
 import { cn, formatTime, isOnAthensCalendarDay, moveToAthensDay, athensDateKey } from '@/lib/utils'
 import { WeekCalendar } from '@/components/ui/WeekCalendar'
 import Link from 'next/link'
@@ -53,6 +53,8 @@ type PostStatus = Post['status']
 
 const STATUS_CHIP: Record<PostStatus, string> = {
   draft:      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  review:     'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  approved:   'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300',
   scheduled:  'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
   publishing: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   published:  'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
@@ -62,6 +64,8 @@ const STATUS_CHIP: Record<PostStatus, string> = {
 
 const STATUS_DOT: Record<PostStatus, string> = {
   draft:      'bg-gray-400',
+  review:     'bg-amber-400',
+  approved:   'bg-teal-500',
   scheduled:  'bg-blue-500',
   publishing: 'bg-amber-500',
   published:  'bg-green-500',
@@ -71,6 +75,8 @@ const STATUS_DOT: Record<PostStatus, string> = {
 
 const STATUS_ICON: Record<PostStatus, React.ElementType> = {
   draft:      FileText,
+  review:     Clock,
+  approved:   CheckCircle2,
   scheduled:  Clock,
   publishing: Send,
   published:  CheckCircle2,
@@ -115,9 +121,12 @@ export default function CalendarPage() {
   const [view, setView] = useState<ViewMode>('month')
   const [platformFilter, setPlatformFilter] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+  const [colorMode, setColorMode] = useState<'status' | 'pillar'>('status')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const { data: allPosts = [], refetch } = useAllCalendarPosts()
   const { data: scheduledPosts = [] } = useScheduledPosts()
+  const { data: pillars = [] } = usePillars()
   const schedulePost = useSchedulePost()
 
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>({})
@@ -153,6 +162,11 @@ export default function CalendarPage() {
 
   const onDrop = async (e: React.DragEvent, targetDay: Date) => {
     e.preventDefault()
+    // Bulk move if posts are selected
+    if (selectedIds.size > 0) {
+      await bulkReschedule(targetDay)
+      return
+    }
     const id = draggingId.current
     if (!id) return
     draggingId.current = null
@@ -185,6 +199,51 @@ export default function CalendarPage() {
   }
 
   const selectedDayPosts = selectedDay ? postsForDay(selectedDay) : []
+
+  // Pillar color lookup
+  const pillarColorMap: Record<string, string> = {}
+  ;(pillars as { id: string; color: string; name: string }[] | undefined)?.forEach((p) => {
+    pillarColorMap[p.id] = p.color
+  })
+
+  const chipColorFor = (post: Post): string => {
+    if (colorMode === 'pillar') {
+      const pid = (post as Post & { pillar_id?: string | null }).pillar_id
+      if (pid && pillarColorMap[pid]) {
+        return pillarColorMap[pid]
+      }
+      return '#94a3b8' // slate-400 for unassigned
+    }
+    return '' // status mode uses STATUS_CHIP classes
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const bulkReschedule = async (targetDay: Date) => {
+    if (selectedIds.size === 0) return
+    for (const id of selectedIds) {
+      const post = effectivePosts.find(p => p.id === id)
+      if (!post?.scheduled_at) continue
+      const newIso = moveToAthensDay(post.scheduled_at, targetDay)
+      setLocalOverrides(prev => ({ ...prev, [id]: newIso }))
+      try {
+        await schedulePost.mutateAsync({ id, scheduled_at: newIso })
+      } catch {
+        setLocalOverrides(prev => { const next = { ...prev }; delete next[id]; return next })
+        toast.error('Failed to reschedule post')
+      }
+    }
+    toast.success(`Moved ${selectedIds.size} posts to ${format(targetDay, 'MMM d')}`)
+    setSelectedIds(new Set())
+    refetch()
+  }
 
   const isCurrentMonth =
     month.getFullYear() === new Date().getFullYear() &&
@@ -270,7 +329,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* ── Platform filter ── */}
+      {/* ── Platform filter + color mode ── */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <button
           onClick={() => setPlatformFilter(null)}
@@ -301,7 +360,30 @@ export default function CalendarPage() {
             </button>
           )
         })}
+        {/* Color mode toggle */}
+        <div className="ml-2 flex rounded-lg border overflow-hidden">
+          <button
+            onClick={() => setColorMode('status')}
+            className={cn('px-2.5 py-1 text-xs font-medium', colorMode === 'status' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+          >
+            Status
+          </button>
+          <button
+            onClick={() => setColorMode('pillar')}
+            className={cn('px-2.5 py-1 text-xs font-medium border-l', colorMode === 'pillar' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+          >
+            Pillar
+          </button>
+        </div>
       </div>
+
+      {/* ── Bulk selection bar ── */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-lg border bg-primary/5 px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.size} selected — drag onto a day to bulk-reschedule</span>
+          <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+        </div>
+      )}
 
       {/* ── Week view ── */}
       {view === 'week' && (
@@ -384,20 +466,25 @@ export default function CalendarPage() {
                       const platforms = getPlatforms(post)
                       const firstPlatform = platforms[0]
                       const time = post.scheduled_at ? formatTime(post.scheduled_at) : ''
+                      const isSel = selectedIds.has(post.id)
+                      const pillarHex = chipColorFor(post)
                       return (
                         <div
                           key={post.id}
                           draggable
                           onDragStart={e => { e.stopPropagation(); onDragStart(e, post.id) }}
-                          onClick={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); if (e.shiftKey || e.metaKey || e.ctrlKey) toggleSelect(post.id) }}
                           className={cn(
                             'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium cursor-grab active:cursor-grabbing',
                             'truncate select-none transition-opacity',
-                            STATUS_CHIP[post.status] ?? STATUS_CHIP.draft,
+                            colorMode === 'pillar' && pillarHex ? '' : (STATUS_CHIP[post.status] ?? STATUS_CHIP.draft),
+                            isSel && 'ring-2 ring-primary',
                           )}
+                          style={colorMode === 'pillar' && pillarHex ? { backgroundColor: pillarHex + '20', color: pillarHex, borderLeft: `3px solid ${pillarHex}` } : undefined}
                           title={`${post.content_text ?? ''} · ${time}`}
                         >
-                          {firstPlatform && (
+                          {isSel && <span className="text-primary">✓</span>}
+                          {firstPlatform && colorMode === 'status' && (
                             <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', PLATFORM_COLORS[firstPlatform] ?? 'bg-gray-400')} />
                           )}
                           <span className="truncate flex-1">{post.content_text?.slice(0, 22) ?? '—'}</span>
@@ -528,13 +615,29 @@ export default function CalendarPage() {
 
       {/* ── Legend ── */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground px-1">
-        <span className="flex items-center gap-1.5 font-medium text-foreground">Status:</span>
-        {(['scheduled', 'published', 'failed', 'draft'] as PostStatus[]).map(s => (
-          <span key={s} className="flex items-center gap-1.5">
-            <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[s])} />{s}
-          </span>
-        ))}
-        <span className="ml-auto">Drag a chip to reschedule</span>
+        {colorMode === 'status' ? (
+          <>
+            <span className="flex items-center gap-1.5 font-medium text-foreground">Status:</span>
+            {(['draft', 'review', 'approved', 'scheduled', 'published', 'failed'] as PostStatus[]).map(s => (
+              <span key={s} className="flex items-center gap-1.5">
+                <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[s])} />{s}
+              </span>
+            ))}
+          </>
+        ) : (
+          <>
+            <span className="flex items-center gap-1.5 font-medium text-foreground">Pillars:</span>
+            {(pillars as { id: string; color: string; name: string }[] | undefined)?.map((p) => (
+              <span key={p.id} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />{p.name}
+              </span>
+            ))}
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-slate-400" />Unassigned
+            </span>
+          </>
+        )}
+        <span className="ml-auto">Drag a chip to reschedule · Shift/Cmd+click to multi-select</span>
       </div>
     </div>
   )

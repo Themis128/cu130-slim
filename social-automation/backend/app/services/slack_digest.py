@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.ai_usage import AIUsageLog
 from app.models.analytics import PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus
 from app.models.queue import PublishQueue, QueueStatus
@@ -44,6 +45,7 @@ class DigestReport:
     engagement_24h: int = 0
     top_posts: list[dict[str, Any]] = field(default_factory=list)
     issues: list[DigestIssue] = field(default_factory=list)
+    ai_usage: dict[str, Any] = field(default_factory=dict)
     posted_to_slack: bool = False
     slack_error: str | None = None
     emailed: bool = False
@@ -59,6 +61,7 @@ class DigestReport:
             "impressions_24h": self.impressions_24h,
             "engagement_24h": self.engagement_24h,
             "top_posts": self.top_posts,
+            "ai_usage": self.ai_usage,
             "issues": [
                 {"severity": i.severity, "title": i.title, "detail": i.detail}
                 for i in self.issues
@@ -102,6 +105,22 @@ class DigestReport:
         errors = [i for i in self.issues if i.severity == "error"]
         warnings = [i for i in self.issues if i.severity == "warning"]
         lines.append("")
+        # AI usage summary
+        ai = self.ai_usage
+        if ai:
+            lines.append("*AI Usage (24h)*")
+            lines.append(
+                f"• Calls: *{ai.get('total_calls', 0)}* · "
+                f"Providers: *{ai.get('providers', 0)}* · "
+                f"Neurons: *{ai.get('total_neurons', 0)}* · "
+                f"Est. cost: *${ai.get('total_cost', 0):.4f}*"
+            )
+            for prov in ai.get("by_provider", [])[:5]:
+                lines.append(
+                    f"  - {prov.get('provider', '?')}: {prov.get('calls', 0)} calls, "
+                    f"{prov.get('neurons', 0)} neurons, ${prov.get('cost', 0):.4f}"
+                )
+            lines.append("")
         if not errors and not warnings:
             lines.append("*Issues:* none 🟢")
         else:
@@ -331,6 +350,33 @@ async def build_daily_digest(
                 )
             )
 
+    # AI usage summary (24h)
+    ai_usage_rows = await db.execute(
+        select(
+            AIUsageLog.provider,
+            func.count(AIUsageLog.id).label("calls"),
+            func.coalesce(func.sum(AIUsageLog.actual_neurons), 0).label("neurons"),
+            func.coalesce(func.sum(AIUsageLog.estimated_cost), 0).label("cost"),
+        )
+        .where(
+            AIUsageLog.team_id == team.id,
+            AIUsageLog.created_at >= since_24h,
+        )
+        .group_by(AIUsageLog.provider)
+        .order_by(func.count(AIUsageLog.id).desc())
+    )
+    by_provider = [
+        {"provider": p, "calls": int(c), "neurons": int(n or 0), "cost": float(co or 0)}
+        for p, c, n, co in ai_usage_rows.all()
+    ]
+    ai_usage = {
+        "total_calls": sum(p["calls"] for p in by_provider),
+        "providers": len(by_provider),
+        "total_neurons": sum(p["neurons"] for p in by_provider),
+        "total_cost": sum(p["cost"] for p in by_provider),
+        "by_provider": by_provider,
+    }
+
     return DigestReport(
         generated_at=now,
         timezone=tz_name,
@@ -341,6 +387,7 @@ async def build_daily_digest(
         engagement_24h=engagement_24h,
         top_posts=top_posts,
         issues=issues,
+        ai_usage=ai_usage,
     )
 
 

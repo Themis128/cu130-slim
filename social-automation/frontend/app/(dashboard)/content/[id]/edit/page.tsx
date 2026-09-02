@@ -348,6 +348,95 @@ export default function EditPostPage() {
         </CardContent>
       </Card>
 
+      {/* Pillar & Brief selection */}
+      <Card>
+        <CardHeader><CardTitle>Content Pillar & Brief</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Pillar</label>
+            <select
+              value={pillarId ?? ''}
+              onChange={(e) => setPillarId(e.target.value || null)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">No pillar</option>
+              {(pillars as { id: string; name: string; color: string }[] | undefined)?.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Content Brief</label>
+            <select
+              value={briefId ?? ''}
+              onChange={(e) => setBriefId(e.target.value || null)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">No brief</option>
+              {(briefs as { id: string; title: string }[] | undefined)?.map((b) => (
+                <option key={b.id} value={b.id}>{b.title}</option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Approval workflow & comments */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Approval Workflow
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Status flow visualization */}
+          <div className="flex items-center gap-1 text-xs">
+            {['draft', 'review', 'approved', 'scheduled', 'published'].map((s, i) => (
+              <div key={s} className="flex items-center gap-1">
+                <span className={`px-2 py-1 rounded-full capitalize ${typedPost.status === s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                  {s}
+                </span>
+                {i < 4 && <span className="text-muted-foreground">→</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* Comments history */}
+          {((typedPost as Post & { comments?: { id: string; author_name: string; body: string; action?: string; created_at: string }[] }).comments ?? []).length > 0 && (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {((typedPost as Post & { comments?: { id: string; author_name: string; body: string; action?: string; created_at: string }[] }).comments ?? []).map((c) => (
+                <div key={c.id} className="flex gap-3 text-sm border-l-2 pl-3 py-1" style={{ borderColor: c.action === 'approve' ? '#22c55e' : c.action === 'reject' ? '#ef4444' : '#6366f1' }}>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{c.author_name}</span>
+                      {c.action && c.action !== 'comment' && (
+                        <Badge variant="outline" className="text-xs capitalize">{c.action.replace('_', ' ')}</Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="text-muted-foreground mt-0.5">{c.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add comment */}
+          <div className="flex gap-2">
+            <Input
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddComment())}
+              placeholder="Add a comment..."
+            />
+            <Button variant="outline" size="sm" onClick={handleAddComment} disabled={addCommentMutation.isPending || !commentText.trim()}>
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Performance card — only for published posts with analytics */}
       {typedPost.status === 'published' && (() => {
         const a = analytics as { likes?: number; comments?: number; shares?: number; impressions?: number; reach?: number; engagement_rate?: number } | undefined
@@ -440,7 +529,25 @@ export default function EditPostPage() {
           <Save className="mr-2 h-4 w-4" />
           {updateMutation.isPending ? 'Saving...' : 'Save Draft'}
         </Button>
-        {typedPost.status !== 'published' && (
+        {typedPost.status === 'draft' && (
+          <Button variant="outline" onClick={handleSubmitReview} disabled={submitReviewMutation.isPending || updateMutation.isPending}>
+            <Clock className="mr-2 h-4 w-4" />
+            {submitReviewMutation.isPending ? 'Submitting...' : 'Submit for Review'}
+          </Button>
+        )}
+        {typedPost.status === 'review' && (
+          <>
+            <Button variant="outline" onClick={() => setRejectOpen(true)} disabled={rejectMutation.isPending}>
+              <XCircle className="mr-2 h-4 w-4 text-red-500" />
+              Reject
+            </Button>
+            <Button onClick={handleApprove} disabled={approveMutation.isPending}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              {approveMutation.isPending ? 'Approving...' : 'Approve'}
+            </Button>
+          </>
+        )}
+        {typedPost.status !== 'published' && typedPost.status !== 'review' && (
           <>
             <Button variant="outline" onClick={() => setScheduleOpen(true)}>
               <Calendar className="mr-2 h-4 w-4" />
@@ -453,6 +560,28 @@ export default function EditPostPage() {
           </>
         )}
       </div>
+
+      {/* Reject dialog */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject & Send Back to Draft</DialogTitle></DialogHeader>
+          <div className="py-4">
+            <label className="block text-sm font-medium mb-2">Reason (optional)</label>
+            <Textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="What needs to change?"
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={rejectMutation.isPending}>
+              {rejectMutation.isPending ? 'Rejecting...' : 'Send Back to Draft'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Schedule dialog */}
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>

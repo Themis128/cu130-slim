@@ -6,7 +6,7 @@ from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
 from app.models.user import Team, TeamMember, User
-from app.models.workflow import GeneratedWorkflow, PromptTemplate
+from app.models.workflow import ContentPromptTemplate, GeneratedWorkflow, PromptTemplate
 
 __all__ = [
     "User",
@@ -24,6 +24,7 @@ __all__ = [
     "PostTarget",
     "PromptTemplate",
     "GeneratedWorkflow",
+    "ContentPromptTemplate",
     "PublishQueue",
     "AnalyticsEvent",
     "PostAnalyticsSnapshot",

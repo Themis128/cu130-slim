@@ -356,6 +356,14 @@ export const workflowApi = {
   deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
   undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
   getExecutions: (id: string, limit = 10) => api.get(`/workflows/${id}/executions`, { params: { limit } }),
+  // Content prompt templates (Phase 5)
+  listContentTemplates: (params?: { pillar_id?: string; platform?: string; tone?: string }) =>
+    api.get('/workflows/content-templates', { params }),
+  createContentTemplate: (data: { name: string; pillar_id?: string; platform?: string; tone?: string; system_prompt: string; user_prompt_template: string; variables?: string[]; is_default?: boolean }) =>
+    api.post('/workflows/content-templates', data),
+  updateContentTemplate: (id: string, data: { name: string; pillar_id?: string; platform?: string; tone?: string; system_prompt: string; user_prompt_template: string; variables?: string[]; is_default?: boolean }) =>
+    api.patch(`/workflows/content-templates/${id}`, data),
+  deleteContentTemplate: (id: string) => api.delete(`/workflows/content-templates/${id}`),
 }
 
 // Accounts endpoints

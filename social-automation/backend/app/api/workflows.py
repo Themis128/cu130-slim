@@ -11,7 +11,7 @@ from app.api.auth import get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import Team, TeamMember, User
-from app.models.workflow import GeneratedWorkflow, PromptTemplate
+from app.models.workflow import ContentPromptTemplate, GeneratedWorkflow, PromptTemplate
 
 router = APIRouter()
 settings = get_settings()
@@ -645,3 +645,116 @@ async def get_workflow_executions(
             "time": finished_at or ex.get("startedAt", ""),
         })
     return runs
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Content Prompt Templates (per pillar/tone/platform)
+# ---------------------------------------------------------------------------
+
+
+class ContentTemplateCreate(BaseModel):
+    name: str
+    pillar_id: uuid.UUID | None = None
+    platform: str | None = None
+    tone: str | None = None
+    system_prompt: str
+    user_prompt_template: str
+    variables: list[str] = []
+    is_default: bool = False
+
+
+class ContentTemplateOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    pillar_id: uuid.UUID | None
+    platform: str | None
+    tone: str | None
+    system_prompt: str
+    user_prompt_template: str
+    variables: list[str]
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/content-templates", response_model=list[ContentTemplateOut])
+async def list_content_templates(
+    pillar_id: uuid.UUID | None = None,
+    platform: str | None = None,
+    tone: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    team_id = await _resolve_team_id(current_user, db)
+    q = select(ContentPromptTemplate).where(ContentPromptTemplate.team_id == team_id)
+    if pillar_id:
+        q = q.where(ContentPromptTemplate.pillar_id == pillar_id)
+    if platform:
+        q = q.where(ContentPromptTemplate.platform == platform)
+    if tone:
+        q = q.where(ContentPromptTemplate.tone == tone)
+    q = q.order_by(ContentPromptTemplate.is_default.desc(), ContentPromptTemplate.name)
+    result = await db.execute(q)
+    return result.scalars().all()
+
+
+@router.post("/content-templates", response_model=ContentTemplateOut, status_code=status.HTTP_201_CREATED)
+async def create_content_template(
+    data: ContentTemplateCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    team_id = await _resolve_team_id(current_user, db)
+    tpl = ContentPromptTemplate(team_id=team_id, **data.model_dump())
+    db.add(tpl)
+    await db.commit()
+    await db.refresh(tpl)
+    return tpl
+
+
+@router.patch("/content-templates/{template_id}", response_model=ContentTemplateOut)
+async def update_content_template(
+    template_id: uuid.UUID,
+    data: ContentTemplateCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    team_id = await _resolve_team_id(current_user, db)
+    result = await db.execute(
+        select(ContentPromptTemplate).where(ContentPromptTemplate.id == template_id, ContentPromptTemplate.team_id == team_id)
+    )
+    tpl = result.scalar_one_or_none()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    for field, value in data.model_dump().items():
+        setattr(tpl, field, value)
+    await db.commit()
+    await db.refresh(tpl)
+    return tpl
+
+
+@router.delete("/content-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_content_template(
+    template_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    team_id = await _resolve_team_id(current_user, db)
+    result = await db.execute(
+        select(ContentPromptTemplate).where(ContentPromptTemplate.id == template_id, ContentPromptTemplate.team_id == team_id)
+    )
+    tpl = result.scalar_one_or_none()
+    if tpl:
+        await db.delete(tpl)
+        await db.commit()
+
+
+async def _resolve_team_id(user: User, db: AsyncSession) -> uuid.UUID:
+    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return team.id

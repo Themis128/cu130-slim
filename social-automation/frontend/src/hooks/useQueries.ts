@@ -685,6 +685,31 @@ export function useGenerateContent() {
   })
 }
 
+// Content prompt templates (Phase 5)
+export function useContentTemplates(params?: { pillar_id?: string; platform?: string; tone?: string }) {
+  return useQuery({
+    queryKey: ['content-templates', params],
+    queryFn: () => workflowApi.listContentTemplates(params),
+    select: (response) => response.data,
+  })
+}
+
+export function useCreateContentTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: workflowApi.createContentTemplate,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['content-templates'] }),
+  })
+}
+
+export function useDeleteContentTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: workflowApi.deleteContentTemplate,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['content-templates'] }),
+  })
+}
+
 export function useImproveContent() {
   return useMutation({
     mutationFn: aiApi.improveContent,

@@ -74,6 +74,7 @@ class GenerateContentRequest(BaseModel):
     include_emojis: bool = True
     provider: str = "cloudflare"
     model: str | None = None
+    template_id: uuid.UUID | None = None
 
 
 class GenerateContentResponse(BaseModel):
@@ -1303,6 +1304,18 @@ async def generate_content(
                 }
             brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
 
+    # Load saved content prompt template if provided
+    saved_template = None
+    if request.template_id and team:
+        from app.models.workflow import ContentPromptTemplate
+        tpl_result = await db.execute(
+            select(ContentPromptTemplate).where(
+                ContentPromptTemplate.id == request.template_id,
+                ContentPromptTemplate.team_id == team.id,
+            )
+        )
+        saved_template = tpl_result.scalar_one_or_none()
+
     platform_guides = {
         "linkedin": (
             "Professional, thought-leadership style for LinkedIn. 3000 char limit. "
@@ -1353,9 +1366,26 @@ async def generate_content(
 
     from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
 
-    # Build prompt with brand context if available
+    # Build prompt — use saved template if available, otherwise default
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
-    prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
+    if saved_template:
+        # Replace variables in the user prompt template
+        user_prompt = saved_template.user_prompt_template
+        for var in saved_template.variables:
+            placeholder = "{{" + var + "}}"
+            if var == "topic":
+                user_prompt = user_prompt.replace(placeholder, request.prompt)
+            elif var == "platform":
+                user_prompt = user_prompt.replace(placeholder, request.platform)
+            elif var == "tone":
+                user_prompt = user_prompt.replace(placeholder, request.tone)
+            elif var == "brand":
+                user_prompt = user_prompt.replace(placeholder, brand_context_str or "")
+            elif var == "length":
+                user_prompt = user_prompt.replace(placeholder, request.length)
+        prompt = f"{saved_template.system_prompt}\n\n{user_prompt}\n\nReturn JSON with: content, hashtags (array), suggested_media (string or null)"
+    else:
+        prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
 {brand_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
