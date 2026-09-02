@@ -67,7 +67,7 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
             h = h.lstrip("#")
             if len(h) == 3:
                 h = "".join(c * 2 for c in h)
-            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
         accent = _hex_rgb(visual.primary_color) or ACCENT
         accent2 = _hex_rgb(visual.accent_color) or ACCENT2
         return {

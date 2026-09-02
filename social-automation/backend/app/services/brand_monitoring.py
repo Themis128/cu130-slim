@@ -175,9 +175,9 @@ async def collect_mentions(
 
     mentions: list[BrandMention] = []
     for result in results:
-        if isinstance(result, Exception) or not result:
+        if isinstance(result, BaseException) or not result:
             continue
-        for m in result:
+        for m in result:  # type: ignore[union-attr]
             # Analyze sentiment
             sentiment = await analyze_sentiment(m.get("content", ""), db)
             mention = BrandMention(
@@ -255,7 +255,7 @@ def calculate_health_score(
 
     # Reach: mention count + total engagement
     total_engagement = sum(m.engagement or 0 for m in mentions)
-    reach_score = min(len(mentions) * 5 + total_engagement * 0.5, 100)
+    reach_score = min(float(len(mentions) * 5 + total_engagement * 0.5), 100.0)
 
     # Share of voice: vs competitors
     if competitor_snapshots:

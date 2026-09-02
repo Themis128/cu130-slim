@@ -107,7 +107,7 @@ class FacebookDriver(_BaseDriver):
         from app.core.security import decrypt_token
         from app.services.facebook_api import FacebookAPIClient
         token = decrypt_token(bytes(account.access_token_enc))
-        client = FacebookAPIClient(access_token=token)
+        client = FacebookAPIClient(access_token=token, page_id=account.account_id)
         await client.delete_post(platform_post_id)
         return True
 
@@ -131,7 +131,7 @@ class ThreadsDriver(_BaseDriver):
         from app.core.security import decrypt_token
         from app.services.threads_api import ThreadsAPIClient
         token = decrypt_token(bytes(account.access_token_enc))
-        client = ThreadsAPIClient(access_token=token)
+        client = ThreadsAPIClient(access_token=token, user_id=account.account_id)
         await client.delete_post(platform_post_id)
         return True
 
