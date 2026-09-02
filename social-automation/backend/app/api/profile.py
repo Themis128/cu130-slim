@@ -10,7 +10,7 @@ Platform dispatch:
     - Facebook user → browser automation (Phase 4)
     - LinkedIn     → browser automation (Phase 4)
     - Twitter/X    → tweepy v1.1 API (Phase 2)
-    - TikTok       → tiktok-private-api (Phase 3)
+    - TikTok       → official Display API (reads) + private mobile API (writes)
 
 Endpoints:
     GET  /api/v1/profile/{account_id}           — get current profile
@@ -1040,26 +1040,34 @@ async def _upload_twitter_banner(
     )
 
 
-# ── TikTok (private API via tiktokflow) ──────────────────────────────────────
+# ── TikTok (official API for reads, private API for writes) ──────────────────
 
 
-async def _get_tiktok_service() -> TikTokProfileService:
-    """Build a TikTokProfileService from SecretStore, falling back to settings."""
-    api_key = await secret_store.get("TIKTOK_PRIVATE_API_KEY") or settings.TIKTOK_PRIVATE_API_KEY
-    if not api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="TikTok private API key not configured. "
-            "Set TIKTOK_PRIVATE_API_KEY in the secret store or .env. "
-            "Get a signing server API key at tiktok-private-api.com.",
-        )
-    return TikTokProfileService(api_key=api_key)
+async def _get_tiktok_service(account: SocialAccount) -> TikTokProfileService:
+    """Build a TikTokProfileService.
+
+    Reads use the official Display API (access token from the account).
+    Writes use the private mobile API (session_id + user_id from SecretStore).
+    """
+    access_token = decrypt_token(account.access_token_enc) if account.access_token_enc else None
+    open_id = account.account_id
+
+    session_id = await secret_store.get("TIKTOK_SESSION_ID")
+    user_id_str = await secret_store.get("TIKTOK_USER_ID")
+    user_id = int(user_id_str) if user_id_str else None
+
+    return TikTokProfileService(
+        access_token=access_token,
+        open_id=open_id,
+        session_id=session_id,
+        user_id=user_id,
+    )
 
 
 async def _get_tiktok_profile(account: SocialAccount) -> ProfileResponse:
-    service = await _get_tiktok_service()
+    service = await _get_tiktok_service(account)
     try:
-        data = service.get_profile()
+        data = await service.get_profile()
     except TikTokProfileError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     return ProfileResponse(
@@ -1069,9 +1077,7 @@ async def _get_tiktok_profile(account: SocialAccount) -> ProfileResponse:
         full_name=data.get("full_name"),
         biography=data.get("biography"),
         profile_pic_url=data.get("profile_pic_url"),
-        followers=data.get("followers"),
         is_verified=data.get("is_verified"),
-        is_private=data.get("is_private"),
         raw=data.get("raw", {}),
     )
 
@@ -1080,16 +1086,24 @@ async def _update_tiktok_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    service = await _get_tiktok_service()
+    service = await _get_tiktok_service(account)
+    if not service.can_write:
+        raise HTTPException(
+            status_code=503,
+            detail="TikTok profile writes require TIKTOK_SESSION_ID and "
+            "TIKTOK_USER_ID in the secret store. Log in via the TikTok "
+            "QR-code flow to obtain a session cookie.",
+        )
+
     updated: list[str] = []
     ignored: list[str] = []
 
     try:
         if updates.full_name is not None:
-            service.update_nickname(updates.full_name)
+            await service.update_nickname(updates.full_name)
             updated.append("nickname")
         if updates.about is not None or updates.biography is not None:
-            service.update_signature(updates.about or updates.biography or "")
+            await service.update_signature(updates.about or updates.biography or "")
             updated.append("signature")
     except TikTokProfileError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -1117,15 +1131,14 @@ async def _upload_tiktok_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    service = await _get_tiktok_service()
-    try:
-        service.upload_avatar(image_bytes)
-    except TikTokProfileError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    return ProfileUpdateResponse(
-        success=True,
-        updated_fields=["avatar"],
-        message="TikTok profile picture updated",
+    # Avatar upload via private API is not yet implemented — the official
+    # Display API has no avatar write endpoint, and the private mobile
+    # avatar endpoint requires additional reverse-engineering.
+    raise HTTPException(
+        status_code=501,
+        detail="TikTok profile picture upload is not yet supported. "
+        "The official Display API is read-only for avatar, and the "
+        "private mobile avatar endpoint requires further work.",
     )
 
 
