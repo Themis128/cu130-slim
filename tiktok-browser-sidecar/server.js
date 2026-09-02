@@ -48,6 +48,7 @@ async function ensureBrowser() {
     locale: 'en-US',
     timezoneId: 'Europe/Athens',
     extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
+    permissions: ['notifications'],
   });
 
   page = await context.newPage();
@@ -231,20 +232,32 @@ async function handleSetComments(req, res) {
   try {
     await gotoSettings();
     // Click on the Comments row to open the dialog
-    const commentsRow = page.locator('text=Who can comment on your posts').locator('..');
+    const commentsText = page.locator('text=Who can comment on your posts').first();
+    await commentsText.waitFor({ state: 'visible', timeout: 10000 });
+    const commentsRow = commentsText.locator('xpath=ancestor::*[position()=1]').first();
     await commentsRow.click();
-    await page.waitForTimeout(1500);
-    // Click the radio option matching the desired permission
-    const option = page.locator(`[role="radio"]`, { hasText: permission }).first();
-    await option.waitFor({ state: 'visible', timeout: 10000 });
-    const isChecked = await option.getAttribute('aria-checked');
-    if (isChecked !== 'true') {
-      await option.click();
-      await page.waitForTimeout(1000);
-    }
-    await page.keyboard.press('Escape');
+    await page.waitForTimeout(2000);
+    // Use JavaScript to find and click the radio inside the dialog
+    const result = await page.evaluate((perm) => {
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      const dialog = dialogs[dialogs.length - 1];
+      if (!dialog) return { found: false, reason: 'no dialog' };
+      const radios = dialog.querySelectorAll('[role="radio"]');
+      for (const radio of radios) {
+        const container = radio.closest('div');
+        const text = container ? container.textContent : '';
+        if (text.includes(perm)) {
+          const isChecked = radio.getAttribute('aria-checked') === 'true';
+          if (!isChecked) radio.click();
+          return { found: true, wasChecked: isChecked, clicked: !isChecked };
+        }
+      }
+      return { found: false, reason: 'option not found', radioCount: radios.length };
+    }, permission);
     await page.waitForTimeout(1000);
-    res.json({ status: 'ok', setting: 'comments', permission });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    res.json({ status: 'ok', setting: 'comments', permission, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -252,35 +265,40 @@ async function handleSetComments(req, res) {
 
 async function handleSetDirectMessages(req, res) {
   const { potential_connections, others } = req.body;
-  // potential_connections: "Friends" | "Followers" | "No one"
-  // others: "Message request" | "Don't receive"
   try {
     await page.goto('https://www.tiktok.com/setting/privacy/direct-messages', {
       waitUntil: 'networkidle', timeout: 60000,
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    if (potential_connections) {
-      const opt = page.locator(`[role="radio"]`, { hasText: potential_connections }).first();
-      if (await opt.isVisible().catch(() => false)) {
-        const checked = await opt.getAttribute('aria-checked');
-        if (checked !== 'true') {
-          await opt.click();
-          await page.waitForTimeout(1000);
+    async function selectRadio(label) {
+      if (!label) return null;
+      const result = await page.evaluate((lbl) => {
+        const radios = document.querySelectorAll('[role="radio"]');
+        for (const radio of radios) {
+          const container = radio.closest('div');
+          const text = container ? container.textContent : '';
+          if (text.includes(lbl)) {
+            const isChecked = radio.getAttribute('aria-checked') === 'true';
+            if (!isChecked) radio.click();
+            return { found: true, wasChecked: isChecked, clicked: !isChecked };
+          }
         }
-      }
+        return { found: false };
+      }, label);
+      if (result.found) await page.waitForTimeout(1000);
+      return result;
     }
-    if (others) {
-      const opt = page.locator(`[role="radio"]`, { hasText: others }).first();
-      if (await opt.isVisible().catch(() => false)) {
-        const checked = await opt.getAttribute('aria-checked');
-        if (checked !== 'true') {
-          await opt.click();
-          await page.waitForTimeout(1000);
-        }
-      }
-    }
-    res.json({ status: 'ok', setting: 'direct_messages', potential_connections, others });
+
+    const pcResult = await selectRadio(potential_connections);
+    const othersResult = await selectRadio(others);
+
+    res.json({
+      status: 'ok',
+      setting: 'direct_messages',
+      potential_connections: pcResult?.found ? potential_connections : null,
+      others: othersResult?.found ? others : null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
