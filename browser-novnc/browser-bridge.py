@@ -513,6 +513,30 @@ async def click_element(req: ClickRequest):
         raise HTTPException(500, f"Click failed: {e}")
 
 
+class FillRequest(BaseModel):
+    selector: str
+    value: str
+
+
+@app.post("/session/fill")
+async def fill_field(req: FillRequest):
+    """Fill an input field using Playwright's native fill (handles React)."""
+    page = _state.get("page")
+    if not page:
+        raise HTTPException(400, "No active browser session")
+    try:
+        locator = page.locator(req.selector).first
+        count = await locator.count()
+        if count == 0:
+            raise HTTPException(404, f"Element not found: {req.selector}")
+        await locator.fill(req.value, timeout=10000)
+        return {"status": "ok", "filled": True, "value": req.value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Fill failed: {e}")
+
+
 class MouseClickRequest(BaseModel):
     x: float
     y: float
