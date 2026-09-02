@@ -181,18 +181,32 @@ async function handleCheckSession(req, res) {
 async function handleReadProfile(req, res) {
   try {
     await gotoProfile();
-    const nameEl = page.locator('h1').first();
-    const usernameEl = page.locator('h2').first();
-    const bioEl = page.locator('h2').nth(1);
+    // Wait for the profile title to appear — this ensures the profile
+    // header has loaded and avoids capturing navigation/inbox text.
+    const nameEl = page.locator('[data-e2e="user-title"]').first();
+    await nameEl.waitFor({ state: 'visible', timeout: 15000 });
     const name = await nameEl.textContent().catch(() => null);
+
+    // Username is in h2[data-e2e="user-subtitle"]
+    const usernameEl = page.locator('[data-e2e="user-subtitle"]').first();
     const username = await usernameEl.textContent().catch(() => null);
+
+    // Bio is in h2[data-e2e="user-bio"]
+    const bioEl = page.locator('[data-e2e="user-bio"]').first();
     const bio = await bioEl.textContent().catch(() => null);
-    // Get avatar URL from the profile image
-    const avatarSrc = await page.locator('img[alt*="Avatar"], img[src*="tiktok"]').first()
+
+    // Avatar image inside the [data-e2e="user-avatar"] container
+    const avatarSrc = await page.locator('[data-e2e="user-avatar"] img').first()
       .getAttribute('src').catch(() => null);
+
     res.json({
       status: 'ok',
-      profile: { name, username, bio, avatar_url: avatarSrc },
+      profile: {
+        name: name?.trim() || null,
+        username: username?.trim() || null,
+        bio: bio?.trim() || null,
+        avatar_url: avatarSrc,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

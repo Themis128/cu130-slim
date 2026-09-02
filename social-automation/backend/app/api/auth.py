@@ -290,7 +290,7 @@ tiktok_client = TikTokOAuth2(
     authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
     access_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
     refresh_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
-    base_scopes=["user.info.basic", "video.publish", "video.upload"],
+    base_scopes=["user.info.basic", "video.publish", "video.upload", "video.list"],
     name="tiktok",
     token_endpoint_auth_method="client_secret_post",
 )
