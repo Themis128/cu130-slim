@@ -166,6 +166,13 @@ export default function BrandPage() {
                   <Plus className="mr-2 h-5 w-5" />
                   Create Brand Manually
                 </Button>
+
+                <Link href="/brand/onboarding" className="block">
+                  <Button className="w-full" size="lg" variant="secondary">
+                    <Wand2 className="mr-2 h-5 w-5" />
+                    Use Brand Kit Wizard (3 steps)
+                  </Button>
+                </Link>
               </div>
             ) : (
               <form
