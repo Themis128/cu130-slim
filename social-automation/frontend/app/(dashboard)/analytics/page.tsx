@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
-  Users, Heart, UserCheck, Send, RefreshCw, FileText,
+  Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends } from '@/hooks/useQueries'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime } from '@/hooks/useQueries'
 import type { PlatformMetrics, TopPost } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { analyticsApi } from '@/services/api'
@@ -60,6 +60,10 @@ export default function AnalyticsPage() {
   const [platformFilter, setPlatformFilter] = useState('')
   const [compareMode, setCompareMode] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [bestTime, setBestTime] = useState<{ best_hour?: number; best_day?: string; recommendation?: string; confidence?: string } | null>(null)
+
+  const bestTimeMutation = useLinkedinBestTime()
 
   const { data: overview, isLoading: overviewLoading } = useOverviewMetrics(days)
   const { data: platformData, isLoading: platformLoading } = usePlatformMetrics(days)
@@ -68,6 +72,7 @@ export default function AnalyticsPage() {
     compareMode ? days * 2 : days,
     platformFilter || undefined
   )
+  const { data: followerData } = useFollowerGrowth(days)
 
   const { currentTrend, deltaEngagement } = useMemo(() => {
     const trend = (rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
@@ -241,8 +246,46 @@ export default function AnalyticsPage() {
             <RefreshCw className={cn('mr-1.5 h-4 w-4', syncing && 'animate-spin')} />
             Sync
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true)
+              try {
+                const res = await analyticsApi.exportReport({
+                  format: 'csv',
+                  days,
+                  platform: platformFilter || undefined,
+                })
+                const blob = new Blob([res.data as BlobPart], { type: 'text/csv' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `analytics_${new Date().toISOString().slice(0, 10)}.csv`
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success('Export downloaded')
+              } catch {
+                toast.error('Export failed')
+              } finally {
+                setExporting(false)
+              }
+            }}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            Export
+          </Button>
         </div>
       </div>
+
+      {/* Data freshness indicator */}
+      {overview?.last_sync_at && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock className="h-3.5 w-3.5" />
+          <span>Last synced {formatRelativeTime(overview.last_sync_at)}</span>
+        </div>
+      )}
 
       {/* KPI Cards — 5 metrics in a responsive grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '1rem' }}>
@@ -384,6 +427,85 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
 
+        {/* Follower Growth — full width time series */}
+        <Card style={{ gridColumn: '1 / -1' }}>
+          <CardHeader>
+            <CardTitle>Follower Growth</CardTitle>
+            <CardDescription>
+              Follower count over time per platform
+              {followerData && followerData.length > 0 && ` — ${followerData.length} platform${followerData.length > 1 ? 's' : ''}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!followerData || followerData.length === 0 ? (
+              <div style={{ height: '18rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem' }}>
+                <UserCheck className="h-10 w-10 text-muted-foreground/30" />
+                <p className="text-sm font-medium text-muted-foreground">No follower data yet</p>
+                <p className="text-xs text-muted-foreground/70">Run a sync to start tracking follower growth over time.</p>
+              </div>
+            ) : (
+              <div style={{ height: '18rem' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart>
+                    <defs>
+                      {followerData.map((fp, i) => (
+                        <linearGradient key={fp.platform} id={`folGrad-${fp.platform}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0.25} />
+                          <stop offset="95%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0} />
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }}
+                      className="text-xs"
+                      allowDuplicatedCategory={false}
+                    />
+                    <YAxis className="text-xs" allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                      formatter={(value: number, name: string) => [value.toLocaleString(), name]}
+                      labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
+                    />
+                    {followerData.map((fp, i) => (
+                      <Area
+                        key={fp.platform}
+                        type="monotone"
+                        dataKey="followers"
+                        data={fp.series.map((s) => ({ date: s.date, followers: s.followers, platform: fp.platform }))}
+                        name={fp.platform}
+                        stroke={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]}
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill={`url(#folGrad-${fp.platform})`}
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+                {/* Follower summary chips */}
+                <div className="flex flex-wrap gap-3 mt-3">
+                  {followerData.map((fp, i) => (
+                    <div key={fp.platform} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length] }}
+                      />
+                      <span className="font-medium capitalize">{fp.platform}</span>
+                      <span className="tabular-nums text-muted-foreground">{fp.current.toLocaleString()}</span>
+                      {fp.change !== 0 && (
+                        <span className={cn('tabular-nums', fp.change > 0 ? 'text-green-500' : 'text-red-500')}>
+                          {fp.change > 0 ? '+' : ''}{fp.change.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Impressions by Platform — full width */}
         <Card style={{ gridColumn: '1 / -1' }}>
           <CardHeader>
@@ -476,6 +598,71 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Best Time to Post */}
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>Best Time to Post</CardTitle>
+            <CardDescription>
+              Recommended posting times based on your engagement analytics
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bestTimeMutation.isPending}
+            onClick={async () => {
+              try {
+                const res = await bestTimeMutation.mutateAsync({ account_type: 'organization' })
+                setBestTime(res.data as typeof bestTime)
+              } catch {
+                toast.error('Could not load best time recommendations')
+              }
+            }}
+          >
+            <Calendar className="mr-1.5 h-4 w-4" />
+            {bestTimeMutation.isPending ? 'Analyzing…' : 'Get Recommendation'}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {!bestTime ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+              <Calendar className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">
+                Click "Get Recommendation" to analyze your post engagement data and find the best posting times.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {bestTime.best_hour != null && (
+                <div className="rounded-lg border p-4 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Best Hour</p>
+                  <p className="text-2xl font-bold tabular-nums">{bestTime.best_hour}:00</p>
+                </div>
+              )}
+              {bestTime.best_day && (
+                <div className="rounded-lg border p-4 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Best Day</p>
+                  <p className="text-2xl font-bold capitalize">{bestTime.best_day}</p>
+                </div>
+              )}
+              {bestTime.confidence && (
+                <div className="rounded-lg border p-4 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Confidence</p>
+                  <p className="text-2xl font-bold capitalize">{bestTime.confidence}</p>
+                </div>
+              )}
+              {bestTime.recommendation && (
+                <div className="sm:col-span-3 rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Recommendation</p>
+                  <p className="text-sm">{bestTime.recommendation}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Top Posts */}
       <Card>

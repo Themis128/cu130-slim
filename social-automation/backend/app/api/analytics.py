@@ -15,7 +15,7 @@ from app.api.auth import get_current_user
 from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
-from app.models.analytics import AnalyticsEvent, PostAnalyticsSnapshot
+from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
@@ -240,6 +240,7 @@ class OverviewMetrics(BaseModel):
     connected_accounts: int
     total_followers: int
     total_engagement: int
+    last_sync_at: datetime | None = None
 
 
 class PostMetrics(BaseModel):
@@ -287,6 +288,19 @@ class FollowerPoint(BaseModel):
     platform: str
     followers: int
     change: int
+    captured_at: datetime | None = None
+
+
+class FollowerSeriesPoint(BaseModel):
+    date: str
+    followers: int
+
+
+class FollowerSeries(BaseModel):
+    platform: str
+    current: int
+    change: int
+    series: list[FollowerSeriesPoint]
 
 
 class PlatformMetrics(BaseModel):
@@ -358,6 +372,14 @@ async def get_overview(
     else:
         total_engagement = total_from_snaps
 
+    # Data freshness: most recent snapshot capture time
+    last_sync_row = await db.execute(
+        select(func.max(PostAnalyticsSnapshot.captured_at)).where(
+            PostAnalyticsSnapshot.team_id == team.id
+        )
+    )
+    last_sync_at = last_sync_row.scalar()
+
     return OverviewMetrics(
         total_posts=sum(counts.values()),
         published_posts=counts.get(PostStatus.PUBLISHED, 0),
@@ -367,6 +389,7 @@ async def get_overview(
         connected_accounts=accounts_count.scalar() or 0,
         total_followers=total_followers,
         total_engagement=total_engagement,
+        last_sync_at=last_sync_at,
     )
 
 
@@ -640,11 +663,18 @@ async def get_engagement_trends(
     ]
 
 
-@router.get("/followers", response_model=list[FollowerPoint])
+@router.get("/followers", response_model=list[FollowerSeries])
 async def get_follower_counts(
+    days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Return follower-growth time series per platform from persisted snapshots.
+
+    Each platform gets: current count, net change over the period, and a
+    daily-resolution series of ``{date, followers}`` points.  When no
+    historical snapshots exist yet, the series contains only the live count.
+    """
     team = await _team_for_user(db, current_user)
     if not team:
         return []
@@ -655,11 +685,47 @@ async def get_follower_counts(
         )
     )
     accounts = accounts_result.scalars().all()
-    # Fetch live follower counts from all platforms
-    result: list[FollowerPoint] = []
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    result: list[FollowerSeries] = []
     for account in accounts:
-        followers = await _follower_count(account)
-        result.append(FollowerPoint(platform=account.platform, followers=followers, change=0))
+        # Historical snapshots
+        snap_rows = await db.execute(
+            select(FollowerSnapshot.captured_at, FollowerSnapshot.followers)
+            .where(
+                FollowerSnapshot.social_account_id == account.id,
+                FollowerSnapshot.captured_at >= since,
+            )
+            .order_by(FollowerSnapshot.captured_at.asc())
+        )
+        snaps = snap_rows.all()
+
+        # Live count (always fetch so "current" is accurate even if sync
+        # hasn't run recently)
+        live = await _follower_count(account)
+
+        if snaps:
+            series = [
+                FollowerSeriesPoint(
+                    date=row[0].astimezone(UTC).strftime("%Y-%m-%d"),
+                    followers=row[1],
+                )
+                for row in snaps
+            ]
+            change = live - snaps[0][1]
+        else:
+            series = [FollowerSeriesPoint(
+                date=datetime.now(UTC).strftime("%Y-%m-%d"),
+                followers=live,
+            )]
+            change = 0
+
+        result.append(FollowerSeries(
+            platform=account.platform,
+            current=live,
+            change=change,
+            series=series,
+        ))
     return result
 
 
@@ -745,6 +811,11 @@ async def get_platform_metrics(
 async def export_report(
     format: str = Query("csv", pattern="^(csv|json)$"),
     days: int = Query(30, ge=1, le=365),
+    platform: str | None = Query(None, description="Filter by platform (linkedin, twitter, etc.)"),
+    account_id: uuid.UUID | None = Query(None, description="Filter by social account ID"),
+    post_id: uuid.UUID | None = Query(None, description="Export a single post's metrics"),
+    start_date: datetime | None = Query(None, description="ISO start date (overrides days)"),
+    end_date: datetime | None = Query(None, description="ISO end date (overrides days)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -752,7 +823,12 @@ async def export_report(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    since = datetime.now(UTC) - timedelta(days=days)
+    if start_date and end_date:
+        since = start_date
+        until = end_date
+    else:
+        since = datetime.now(UTC) - timedelta(days=days)
+        until = datetime.now(UTC)
 
     impressions_col = func.sum(
         case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
@@ -762,7 +838,7 @@ async def export_report(
     shares_col = func.sum(case((AnalyticsEvent.event_type == "share", _event_count_expr()), else_=0))
     clicks_col = func.sum(case((AnalyticsEvent.event_type == "click", _event_count_expr()), else_=0))
 
-    result = await db.execute(
+    query = (
         select(
             Post.id,
             SocialAccount.platform,
@@ -782,15 +858,23 @@ async def export_report(
             (AnalyticsEvent.post_id == Post.id)
             & (AnalyticsEvent.social_account_id == PostTarget.social_account_id),
         )
-        .where(Post.team_id == team.id, Post.created_at >= since)
-        .group_by(
-            Post.id,
-            SocialAccount.platform,
-            Post.status,
-            Post.scheduled_at,
-            PostTarget.published_at,
-        )
+        .where(Post.team_id == team.id, Post.created_at >= since, Post.created_at <= until)
     )
+    if platform:
+        query = query.where(SocialAccount.platform == platform)
+    if account_id:
+        query = query.where(PostTarget.social_account_id == account_id)
+    if post_id:
+        query = query.where(Post.id == post_id)
+    query = query.group_by(
+        Post.id,
+        SocialAccount.platform,
+        Post.status,
+        Post.scheduled_at,
+        PostTarget.published_at,
+    )
+
+    result = await db.execute(query)
 
     rows = []
     for (

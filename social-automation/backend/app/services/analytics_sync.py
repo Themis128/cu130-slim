@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.security import decrypt_token
-from app.models.analytics import AnalyticsEvent, PostAnalyticsSnapshot
+from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 
@@ -953,6 +953,33 @@ async def sync_team_analytics(
             combined.skipped += r.skipped
             combined.errors.extend(r.errors)
             combined.snapshots.extend(r.snapshots)
+            # Persist a follower snapshot for this account so we can chart
+            # follower growth over time without re-fetching from each API.
+            await _persist_follower_snapshot(db, account)
         except Exception as exc:  # noqa: BLE001
             combined.errors.append(f"{platform}:{account.username}: {exc}")
+    await db.commit()
     return combined
+
+
+async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -> None:
+    """Fetch the live follower count for *account* and append a FollowerSnapshot row.
+
+    Failures are logged but never raised — follower tracking is a nice-to-have
+    and must not break the analytics sync.
+    """
+    try:
+        from app.api.analytics import _follower_count
+
+        followers = await _follower_count(account)
+        if followers < 0:
+            return
+        snap = FollowerSnapshot(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            platform=account.platform,
+            followers=followers,
+        )
+        db.add(snap)
+    except Exception:
+        pass  # follower tracking is best-effort

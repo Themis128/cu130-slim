@@ -440,8 +440,16 @@ export const analyticsApi = {
     api.get('/analytics/followers', { params }),
   getTopPosts: (params?: { limit?: number; platform?: string; days?: number }) =>
     api.get('/analytics/top-posts', { params }),
-  exportReport: (params: { format: 'csv' | 'json'; days: number; platform?: string }) =>
-    api.get('/analytics/reports/export', { params }),
+  exportReport: (params: {
+    format: 'csv' | 'json'
+    days?: number
+    platform?: string
+    account_id?: string
+    post_id?: string
+    start_date?: string
+    end_date?: string
+  }) =>
+    api.get('/analytics/reports/export', { params, responseType: 'blob' }),
   syncFromPlatforms: (data?: { days?: number; async_mode?: boolean }) =>
     api.post('/analytics/sync', data || { days: 365, async_mode: true }),
   listSnapshots: (params?: { days?: number; post_id?: string; limit?: number }) =>

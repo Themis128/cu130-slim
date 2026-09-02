@@ -551,6 +551,23 @@ export function useEngagementTrends(days?: number, platform?: string) {
   })
 }
 
+export function useFollowerGrowth(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'followers', days],
+    queryFn: () => analyticsApi.getFollowerGrowth({ days }),
+    select: (response) => {
+      const items = (response.data || []) as Array<{
+        platform: string
+        current: number
+        change: number
+        series: Array<{ date: string; followers: number }>
+      }>
+      return items
+    },
+    refetchInterval: 60000,
+  })
+}
+
 // AI hooks
 export function useGenerateContent() {
   return useMutation({
