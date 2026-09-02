@@ -1135,6 +1135,28 @@ async def oauth_callback(
             if "access_token" in ll_data:
                 access_token = ll_data["access_token"]
                 headers = {"Authorization": f"Bearer {access_token}"}
+                # Carry the long-lived expiry (seconds) into the token dict so the
+                # downstream token_expires_at calculation uses it instead of the
+                # short-lived response (which has no expires_in field).
+                if "expires_in" in ll_data:
+                    token["expires_in"] = ll_data["expires_in"]
+            else:
+                # Long-lived exchange failed — surface the error instead of
+                # silently storing a ~1h short-lived token that will expire
+                # before the next publishing run.
+                logger.error(
+                    "Threads long-lived token exchange failed: "
+                    "HTTP %s response=%s",
+                    ll_resp.status_code,
+                    str(ll_data)[:500],
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Threads long-lived token exchange failed "
+                        f"(HTTP {ll_resp.status_code}): {str(ll_data)[:300]}"
+                    ),
+                )
             resp = await http.get(
                 "https://graph.threads.net/me",
                 headers=headers,
