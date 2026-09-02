@@ -231,28 +231,58 @@ async function handleSetComments(req, res) {
   }
   try {
     await gotoSettings();
-    // Click on the Comments row to open the dialog
-    const commentsText = page.locator('text=Who can comment on your posts').first();
-    await commentsText.waitFor({ state: 'visible', timeout: 10000 });
-    const commentsRow = commentsText.locator('xpath=ancestor::*[position()=1]').first();
-    await commentsRow.click();
-    await page.waitForTimeout(2000);
-    // Use JavaScript to find and click the radio inside the dialog
-    const result = await page.evaluate((perm) => {
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      const dialog = dialogs[dialogs.length - 1];
-      if (!dialog) return { found: false, reason: 'no dialog' };
-      const radios = dialog.querySelectorAll('[role="radio"]');
-      for (const radio of radios) {
-        const container = radio.closest('div');
-        const text = container ? container.textContent : '';
-        if (text.includes(perm)) {
-          const isChecked = radio.getAttribute('aria-checked') === 'true';
-          if (!isChecked) radio.click();
-          return { found: true, wasChecked: isChecked, clicked: !isChecked };
+    // Click on the Comments row cell to open the dialog.
+    // TikTok renders settings rows as tux-list-cell elements; the clickable
+    // target is the cell whose text includes "Who can comment on your posts".
+    const clicked = await page.evaluate(() => {
+      const cells = document.querySelectorAll('[class*="tux-list-cell"]');
+      for (const cell of cells) {
+        if (cell.innerText.includes('Who can comment on your posts')) {
+          cell.click();
+          return true;
         }
       }
-      return { found: false, reason: 'option not found', radioCount: radios.length };
+      return false;
+    });
+    if (!clicked) {
+      return res.status(404).json({ error: 'Comments settings row not found' });
+    }
+    await page.waitForTimeout(2000);
+    // TikTok radios are <input type="radio"> with class tux-radio__input
+    // (no role="radio"). The label text lives in a parent wrapper element.
+    const result = await page.evaluate((perm) => {
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      let dialog = null;
+      for (const d of dialogs) {
+        if (d.innerText.includes('Who can comment')) { dialog = d; break; }
+      }
+      if (!dialog) return { found: false, reason: 'no comments dialog' };
+      const radios = dialog.querySelectorAll('input[type="radio"]');
+      for (const radio of radios) {
+        // Walk up ancestors to find the label text
+        let label = '';
+        let n = radio;
+        for (let i = 0; i < 6 && n; i++) {
+          n = n.parentElement;
+          if (n && n.innerText && n.innerText.trim().length > 0 && n.innerText.trim().length < 50) {
+            label = n.innerText.trim();
+            break;
+          }
+        }
+        if (label.includes(perm)) {
+          const isChecked = radio.checked;
+          if (!isChecked) {
+            radio.click();
+          }
+          return { found: true, wasChecked: isChecked, clicked: !isChecked, label, name: radio.name };
+        }
+      }
+      return {
+        found: false,
+        reason: 'option not found',
+        radioCount: radios.length,
+        radioNames: Array.from(radios).map(r => r.name),
+      };
     }, permission);
     await page.waitForTimeout(1000);
     await page.keyboard.press('Escape');
@@ -265,39 +295,88 @@ async function handleSetComments(req, res) {
 
 async function handleSetDirectMessages(req, res) {
   const { potential_connections, others } = req.body;
+  // Valid DM options per TikTok's dialog
+  const validOptions = ['Requests', "Don't receive", 'Dont receive', 'Everyone', 'Friends'];
   try {
     await page.goto('https://www.tiktok.com/setting/privacy/direct-messages', {
       waitUntil: 'networkidle', timeout: 60000,
     });
     await page.waitForTimeout(3000);
 
-    async function selectRadio(label) {
-      if (!label) return null;
-      const result = await page.evaluate((lbl) => {
-        const radios = document.querySelectorAll('[role="radio"]');
-        for (const radio of radios) {
-          const container = radio.closest('div');
-          const text = container ? container.textContent : '';
-          if (text.includes(lbl)) {
-            const isChecked = radio.getAttribute('aria-checked') === 'true';
-            if (!isChecked) radio.click();
-            return { found: true, wasChecked: isChecked, clicked: !isChecked };
+    // Each DM category (Potential connection, Others on TikTok) is a tux-list-cell
+    // row. Clicking the trailing cell opens a dialog with radio inputs.
+    // TikTok radios are <input type="radio"> with class tux-radio__input (no role="radio").
+    async function selectDMOption(rowText, desiredLabel) {
+      if (!desiredLabel) return null;
+      // Normalize "Don't receive" variants
+      const normalize = (s) => s.replace(/['’]/g, '').toLowerCase().trim();
+      const desiredNorm = normalize(desiredLabel);
+
+      // Click the trailing cell of the target row to open its dialog
+      const opened = await page.evaluate((rowTxt) => {
+        const trailingCells = document.querySelectorAll('.tux-list-cell__trailing__eeUVA7_v1_8_0');
+        for (const cell of trailingCells) {
+          const row = cell.closest('[class*="tux-list-cell__main"]') || cell.parentElement;
+          if (row && row.innerText.includes(rowTxt)) {
+            cell.click();
+            return true;
           }
         }
-        return { found: false };
-      }, label);
-      if (result.found) await page.waitForTimeout(1000);
+        return false;
+      }, rowText);
+      if (!opened) return { found: false, reason: `${rowText} row not found` };
+      await page.waitForTimeout(1500);
+
+      // Find and click the matching radio in the dialog
+      const result = await page.evaluate((desiredNormStr) => {
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        let dialog = null;
+        for (const d of dialogs) {
+          if (d.innerText.includes('Receive message')) { dialog = d; break; }
+        }
+        if (!dialog) return { found: false, reason: 'no DM dialog open' };
+        const radios = dialog.querySelectorAll('input[type="radio"]');
+        const norm = (s) => s.replace(/['’]/g, '').toLowerCase().trim();
+        for (const radio of radios) {
+          let label = '';
+          let n = radio;
+          for (let i = 0; i < 6 && n; i++) {
+            n = n.parentElement;
+            if (n && n.innerText && n.innerText.trim().length > 0 && n.innerText.trim().length < 50) {
+              label = n.innerText.trim();
+              break;
+            }
+          }
+          if (norm(label) === desiredNormStr) {
+            const isChecked = radio.checked;
+            if (!isChecked) radio.click();
+            return { found: true, wasChecked: isChecked, clicked: !isChecked, label, name: radio.name };
+          }
+        }
+        return {
+          found: false,
+          reason: 'option not found in dialog',
+          radioCount: radios.length,
+          radioNames: Array.from(radios).map(r => r.name),
+        };
+      }, desiredNorm);
+      await page.waitForTimeout(1000);
+      // Close the dialog before moving to the next row
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(800);
       return result;
     }
 
-    const pcResult = await selectRadio(potential_connections);
-    const othersResult = await selectRadio(others);
+    const pcResult = await selectDMOption('Potential connection', potential_connections);
+    const othersResult = await selectDMOption('Others on TikTok', others);
 
     res.json({
       status: 'ok',
       setting: 'direct_messages',
       potential_connections: pcResult?.found ? potential_connections : null,
+      potential_connections_result: pcResult,
       others: othersResult?.found ? others : null,
+      others_result: othersResult,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
