@@ -7,6 +7,12 @@ Platform capabilities actually used per connected account:
   LinkedIn  (person + org page)    — text / single image / multi-image / PDF carousel
   Threads                        — text + single image (via Threads Content Publishing API)
   TikTok                         — video + photo carousel (via inbox upload, PULL_FROM_URL)
+
+Platform driver abstraction: ``app.services.platforms`` provides a uniform
+``PlatformDriver`` protocol with ``publish()``, ``delete()``, and
+``get_follower_count()`` methods per platform.
+Content adaptation: ``app.services.content_renderer`` handles per-platform
+text truncation, hashtag caps, and link inclusion rules.
 """
 
 from __future__ import annotations
@@ -230,23 +236,9 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
 
 
 def _build_post_text(post: Post, platform: str) -> str:
-    parts: list[str] = []
-    if post.content_text:
-        parts.append(post.content_text)
-
-    override = (post.platform_specific or {}).get(platform, {})
-    if override.get("content_text"):
-        parts = [override["content_text"]]
-
-    if post.hashtags:
-        tags = " ".join(f"#{t.lstrip('#')}" for t in post.hashtags)
-        if platform in ("twitter", "instagram", "tiktok"):
-            parts.append(tags)
-
-    if post.link_url and platform not in ("twitter", "threads", "tiktok"):
-        parts.append(post.link_url)
-
-    return "\n\n".join(p for p in parts if p)
+    """Delegate to content_renderer for per-platform adaptation."""
+    from app.services.content_renderer import render_post_text
+    return render_post_text(post, platform)
 
 
 def _images_to_pdf(image_paths: list[str], title: str = "Carousel") -> bytes:
@@ -397,11 +389,19 @@ async def _publish_twitter(
 ) -> PublishResult:
     """Publish to X/Twitter using TwitterAPIClient.
 
-    Free tier does not support media upload (v1.1 requires Basic+), so
-    media is skipped for the v2 flow. Long text is split into a reply
-    thread.
+    Text + thread splitting via v2.  Image upload via v1.1 (OAuth 1.0a)
+    when app-level credentials are configured; up to 4 images per tweet.
     """
     client = TwitterAPIClient(access_token=access_token)
+
+    # Upload up to 4 images for the first tweet in the thread
+    media_ids: list[str] = []
+    if media_paths:
+        image_paths = [p for p in media_paths[:4] if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+        for img_path in image_paths:
+            mid = await _twitter_upload_media(img_path)
+            if mid:
+                media_ids.append(mid)
 
     tweets = _split_thread(text)
     first_id: str | None = None
@@ -409,7 +409,9 @@ async def _publish_twitter(
 
     for i, chunk in enumerate(tweets):
         try:
-            result = await client.create_tweet(text=chunk, reply_tweet_id=last_id)
+            # Only attach media to the first tweet in the thread
+            tweet_media_ids = media_ids if i == 0 else None
+            result = await client.create_tweet(text=chunk, reply_tweet_id=last_id, media_ids=tweet_media_ids)
         except TwitterAPIError as exc:
             if exc.status_code == 402:
                 return PublishResult(

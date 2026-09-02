@@ -920,7 +920,7 @@ async def sync_team_analytics(
     days: int = 365,
     platforms: list[str] | None = None,
 ) -> SyncResult:
-    """Sync all active accounts for a team. LinkedIn implemented; others skipped."""
+    """Sync all active accounts for a team across all six platforms."""
     q = select(SocialAccount).where(
         SocialAccount.team_id == team_id,
         SocialAccount.status == "active",
