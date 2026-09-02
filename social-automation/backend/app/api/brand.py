@@ -987,3 +987,59 @@ async def get_brand_health(
         post_count_30d=post_count,
     )
     return health
+
+
+# ── Autonomous Brand Content (Phase 6) ────────────────────────────────────────
+
+from app.services.brand_agent import run_autopilot  # noqa: E402
+from app.services.trend_scout import scout_trends  # noqa: E402
+
+
+class AutopilotResultOut(BaseModel):
+    created_count: int = 0
+    skipped_count: int = 0
+    slots_filled: int = 0
+    drafts: list[dict] = []
+    error: str | None = None
+    message: str | None = None
+
+
+class TrendScoutOut(BaseModel):
+    twitter_trends: list[dict] = []
+    reddit_hot: list[dict] = []
+    top_posts: list[dict] = []
+
+
+@router.post("/autopilot/run", response_model=AutopilotResultOut)
+async def run_brand_autopilot(
+    days: int = 7,
+    min_compliance_score: int = 4,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run the autonomous brand content agent.
+
+    Finds empty calendar slots, generates on-brand content from messaging
+    pillars, checks compliance, and creates draft posts.
+    """
+    result = await run_autopilot(
+        db=db,
+        team_id=current_user.team_id,
+        user_id=current_user.id,
+        days=days,
+        min_compliance_score=min_compliance_score,
+    )
+    return result
+
+
+@router.get("/trends", response_model=TrendScoutOut)
+async def get_trends(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get trending topics from Twitter/X, Reddit, and top-performing posts."""
+    import os
+
+    twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
+    result = await scout_trends(db, current_user.team_id, twitter_token)
+    return result

@@ -777,6 +777,11 @@ export const brandApi = {
   snapshotCompetitor: (data: { competitor_name: string; platform?: string }) =>
     api.post('/brand/competitors/snapshot', null, { params: data }),
   getHealth: () => api.get('/brand/health'),
+
+  // Autonomous Brand Content (Phase 6)
+  runAutopilot: (params?: { days?: number; min_compliance_score?: number }) =>
+    api.post('/brand/autopilot/run', null, { params, timeout: 120000 }),
+  getTrends: () => api.get('/brand/trends', { timeout: 30000 }),
 }
 
 // Media AI enhancement endpoints

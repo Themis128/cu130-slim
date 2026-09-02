@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Palette, Plus, Sparkles, Loader2, Wand2, Type, Image as ImageIcon, BookOpen, Package, Activity, Camera, TrendingUp } from 'lucide-react'
+import { Palette, Plus, Sparkles, Loader2, Wand2, Type, Image as ImageIcon, BookOpen, Package, Activity, Camera, TrendingUp, Bot } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -315,6 +315,12 @@ export default function BrandPage() {
           description="Overall brand health score and metrics"
           icon={<TrendingUp className="h-5 w-5" />}
           href="/brand/health"
+        />
+        <BrandLinkCard
+          title="Autopilot"
+          description="Autonomous content generation from brand pillars"
+          icon={<Bot className="h-5 w-5" />}
+          href="/brand/autopilot"
         />
       </div>
     </div>
