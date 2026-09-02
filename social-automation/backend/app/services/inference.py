@@ -1597,12 +1597,20 @@ async def call_inference(
     allow_fallback: bool = True,
     *,
     endpoint: str = "",
+    brand_context: str | None = None,
 ) -> dict:
     """Public inference entry point with usage tracking.
 
     ``_do_call_inference`` performs the actual request. This wrapper records the
     provider, model, latency and success/failure to ``AIUsageLog``.
+
+    If ``brand_context`` is provided, it is prepended to the prompt as a system
+    instruction so every inference call can be brand-aware without callers
+    manually assembling the system prompt.
     """
+    # Prepend brand context to the prompt if provided
+    if brand_context:
+        prompt = f"{brand_context}\n\n---\n\n{prompt}"
     # Resolve the intended model for logging (best effort; _do_call_inference may
     # override it for provider-specific reasons).
     tracked_model = model_override

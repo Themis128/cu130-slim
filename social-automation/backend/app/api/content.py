@@ -309,6 +309,40 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
+    # Brand compliance check before publish (non-blocking — logs issues but doesn't prevent publish)
+    try:
+        from app.models.brand import Brand, BrandVoice
+        from app.services.brand_compliance import score_brand_compliance
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == current_user.team_id))
+        brand = brand_result.scalars().first()
+        if brand:
+            voice_result = await db.execute(select(BrandVoice).where(BrandVoice.brand_id == brand.id))
+            voice = voice_result.scalars().first()
+            brand_dict = {
+                "name": brand.name,
+                "positioning_statement": brand.positioning_statement,
+                "mission": brand.mission,
+                "values": brand.values,
+            }
+            voice_dict = None
+            if voice:
+                voice_dict = {
+                    "tone_dimensions": voice.tone_dimensions,
+                    "banned_phrases": voice.banned_phrases,
+                    "preferred_phrases": voice.preferred_phrases,
+                }
+            compliance = await score_brand_compliance(
+                content=post.content or "",
+                brand=brand_dict,
+                voice=voice_dict,
+            )
+            if compliance.get("score", 5) < 3:
+                import structlog
+                logger = structlog.get_logger()
+                logger.warning("brand_compliance_low", post_id=str(post_id), score=compliance.get("score"), issues=compliance.get("issues"))
+    except Exception:
+        pass  # Compliance check is advisory only — never block publishing
+
     post.status = PostStatus.SCHEDULED
     post.scheduled_at = datetime.now(UTC)
     await log_action(db, user=current_user, action="publish", resource_type="post", resource_id=str(post_id))
