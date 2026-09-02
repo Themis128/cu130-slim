@@ -31,6 +31,10 @@ from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
 from app.services.facebook_api import FacebookAPIClient
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
+from app.services.instagram_private_api import (
+    InstagramPrivateAPIClient,
+    InstagramPrivateAPIError,
+)
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
@@ -593,10 +597,17 @@ async def _publish_facebook(
 
 
 # ── Instagram ─────────────────────────────────────────────────────────────────
-# Requires an Instagram Business/Creator account linked to a Facebook Page.
-# Images must be at publicly reachable URLs (Instagram servers fetch them).
-# Set MEDIA_PUBLIC_BASE_URL in .env to a public base (ngrok, Cloudflare Tunnel,
-# or any public host) to enable image-based posts.
+# Two publishing paths:
+#
+# 1. Private API sidecar (primary) — uses the aiograpi-rest Docker sidecar
+#    with a logged-in session. Supports photo, video, carousel, and story
+#    uploads from local files (no public URL needed). Works with any account
+#    type (personal, creator, business). Requires a valid session_id stored
+#    in social_accounts.meta_data["private_api_session_id"].
+#
+# 2. Graph API (fallback) — requires a Business/Creator account linked to a
+#    Facebook Page and publicly reachable image URLs (MEDIA_PUBLIC_BASE_URL
+#    or Cloudflare Tunnel). Used when no sidecar session is available.
 
 async def _instagram_public_urls(
     storage_paths: list[str],
@@ -624,21 +635,135 @@ async def _instagram_public_urls(
     return urls
 
 
-async def _publish_instagram(
+def _sidecar_file_path(host_path: str) -> str | None:
+    """Map a host-side upload path to the sidecar container's view.
+
+    The uploads directory is mounted read-only at /uploads inside the
+    instagram-private-api container.  Host paths like
+    ``/app/uploads/2024/01/img.jpg`` map to ``/uploads/2024/01/img.jpg``.
+    """
+    if not host_path:
+        return None
+    clean = host_path.lstrip("/")
+    # Strip leading "app/" if present (social-api stores uploads under /app/uploads)
+    if clean.startswith("app/uploads/"):
+        clean = clean[4:]  # → "uploads/..."
+    # Now clean should start with "uploads/"
+    if clean.startswith("uploads/"):
+        return f"/{clean}"
+    # Already an absolute path starting with /uploads
+    if host_path.startswith("/uploads/"):
+        return host_path
+    # Relative path without uploads/ prefix — prepend it
+    if not host_path.startswith("/"):
+        return f"/uploads/{clean}"
+    return None
+
+
+async def _publish_instagram_via_sidecar(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish via the aiograpi-rest private API sidecar.
+
+    Requires ``private_api_session_id`` in the account's meta_data.
+    Uses local file paths (uploads volume mounted in the sidecar at /uploads).
+    """
+    meta = account.meta_data or {}
+    session_id = meta.get("private_api_session_id")
+    if not session_id:
+        return PublishResult(
+            success=False,
+            error=(
+                "Instagram private API session not found. "
+                "Log in via the Accounts page (POST /api/v1/profile/{account_id}/login) "
+                "to establish a sidecar session, or reconnect with a Business account "
+                "for Graph API fallback."
+            ),
+        )
+
+    client = InstagramPrivateAPIClient(_settings.INSTAGRAM_PRIVATE_API_URL)
+    caption = text[:2200]
+
+    # No media → text-only is not supported by Instagram
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            error="Instagram requires at least one image or video. Set media on the post.",
+        )
+
+    # Map host paths to sidecar container paths
+    sidecar_paths = [p for p in (_sidecar_file_path(mp) for mp in media_paths) if p]
+    if not sidecar_paths:
+        return PublishResult(
+            success=False,
+            error="Could not map media paths to the sidecar container. Ensure uploads are under /app/uploads.",
+        )
+
+    try:
+        if len(sidecar_paths) == 1:
+            fp = sidecar_paths[0]
+            lower = fp.lower()
+            if lower.endswith((".mp4", ".mov", ".webm", ".avi")):
+                result = await client.upload_video(
+                    session_id=session_id,
+                    file_path=fp,
+                    caption=caption,
+                )
+            else:
+                result = await client.upload_photo(
+                    session_id=session_id,
+                    file_path=fp,
+                    caption=caption,
+                )
+        else:
+            # Carousel: up to 10 items
+            result = await client.upload_album(
+                session_id=session_id,
+                file_paths=sidecar_paths[:10],
+                caption=caption,
+            )
+    except InstagramPrivateAPIError as exc:
+        # If session expired, hint at re-login
+        if exc.status_code == 401 or "login_required" in exc.detail.lower():
+            return PublishResult(
+                success=False,
+                error=(
+                    "Instagram private API session expired. "
+                    "Re-login via the Accounts page to restore the sidecar session."
+                ),
+            )
+        return PublishResult(
+            success=False,
+            error=f"Instagram private API publish failed: {exc.detail}",
+        )
+
+    media_id = str(result.get("id") or result.get("pk") or "")
+    code = result.get("code") or ""
+    platform_url = f"https://www.instagram.com/p/{code}/" if code else None
+    return PublishResult(
+        success=True,
+        platform_post_id=media_id,
+        platform_url=platform_url,
+    )
+
+
+async def _publish_instagram_via_graph(
     access_token: str,
     text: str,
     account: SocialAccount,
     post: Post,
     media_paths: list[str],
-    storage_paths: list[str] | None = None,
+    storage_paths: list[str] | None,
 ) -> PublishResult:
+    """Publish via the Instagram Graph API (fallback)."""
     ig_user_id = account.account_id
 
     # Detect fallback accounts (FB user ID used because no IG Business account found)
-    # account_type will be "person" and scopes suggest this is a fallback
     meta = account.meta_data or {}
     if meta.get("account_type", "person") == "person" and not meta.get("ig_business_id"):
-        # Check via Graph API if this ID actually has IG content publishing
         async with httpx.AsyncClient(timeout=10.0) as probe:
             r = await probe.get(
                 f"https://graph.facebook.com/v20.0/{ig_user_id}",
@@ -659,7 +784,6 @@ async def _publish_instagram(
 
     if not image_urls:
         if media_paths:
-            # Media exists but can't generate public URL
             return PublishResult(
                 success=False,
                 error=(
@@ -668,7 +792,6 @@ async def _publish_instagram(
                     "(e.g. an ngrok tunnel or Cloudflare Tunnel) and restart the API."
                 ),
             )
-        # Text-only: Instagram doesn't support text-only posts via Graph API
         return PublishResult(
             success=False,
             error="Instagram requires at least one image. Set an image on the post.",
@@ -690,18 +813,59 @@ async def _publish_instagram(
                 children_ids=child_ids,
                 caption=caption,
             )
-
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:
         return PublishResult(
             success=False,
-            error=f"Instagram publish failed: {exc.message}",
+            error=f"Instagram publish failed: {exc}",
         )
 
     return PublishResult(
         success=True,
         platform_post_id=media_id,
         platform_url=f"https://www.instagram.com/p/{media_id}" if media_id else None,
+    )
+
+
+async def _publish_instagram(
+    access_token: str,
+    text: str,
+    account: SocialAccount,
+    post: Post,
+    media_paths: list[str],
+    storage_paths: list[str] | None = None,
+) -> PublishResult:
+    """Publish to Instagram.
+
+    Primary path: aiograpi-rest private API sidecar (supports all account
+    types, local files, no public URL needed). Falls back to the Graph API
+    if no sidecar session is available.
+    """
+    meta = account.meta_data or {}
+    has_sidecar_session = bool(meta.get("private_api_session_id"))
+
+    if has_sidecar_session:
+        result = await _publish_instagram_via_sidecar(account, text, post, media_paths)
+        if result.success:
+            return result
+        # If sidecar fails with a non-session error, try Graph API as fallback
+        if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
+            # Sidecar failed for a non-session reason — still try Graph API
+            graph_result = await _publish_instagram_via_graph(
+                access_token, text, account, post, media_paths, storage_paths,
+            )
+            if graph_result.success:
+                return graph_result
+            # Both failed — return the sidecar error (more likely actionable)
+            return result
+        # Session expired — try Graph API
+        return await _publish_instagram_via_graph(
+            access_token, text, account, post, media_paths, storage_paths,
+        )
+
+    # No sidecar session — use Graph API directly
+    return await _publish_instagram_via_graph(
+        access_token, text, account, post, media_paths, storage_paths,
     )
 
 

@@ -119,7 +119,7 @@ async def test_get_profile_success(client):
 
     assert result["username"] == "testuser"
     assert fake.calls[0]["url"] == f"{api.INSTAGRAM_API_BASE}/{api.INSTAGRAM_DEFAULT_API_VERSION}/987654321"
-    assert "id,username,account_type" in fake.calls[0]["params"]["fields"]
+    assert "id,username,followers_count" in fake.calls[0]["params"]["fields"]
 
 
 @pytest.mark.asyncio

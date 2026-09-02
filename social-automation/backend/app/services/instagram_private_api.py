@@ -340,3 +340,132 @@ class InstagramPrivateAPIClient:
                 headers=self._headers(session_id),
             )
             return self._raise_for_status(resp)
+
+    # ── Media publishing ──────────────────────────────────────────────────
+
+    async def upload_photo(
+        self,
+        session_id: str,
+        file_path: str,
+        caption: str,
+        location: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload a single photo post.
+
+        ``file_path`` must be a path accessible inside the sidecar container
+        (e.g. ``/uploads/...`` when the uploads volume is mounted).
+        Returns the media dict (includes ``id``, ``pk``, ``code``).
+        """
+        data: dict[str, Any] = {"file": file_path, "caption": caption}
+        if location:
+            data["location"] = location
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/photo/upload",
+                data=data,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def upload_photo_by_url(
+        self,
+        session_id: str,
+        url: str,
+        caption: str,
+    ) -> dict[str, Any]:
+        """Upload a single photo post from a public URL."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/photo/upload/by/url",
+                data={"url": url, "caption": caption},
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def upload_video(
+        self,
+        session_id: str,
+        file_path: str,
+        caption: str,
+        thumbnail: str | None = None,
+        location: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload a single video post."""
+        data: dict[str, Any] = {"file": file_path, "caption": caption}
+        if thumbnail:
+            data["thumbnail"] = thumbnail
+        if location:
+            data["location"] = location
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/video/upload",
+                data=data,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def upload_video_by_url(
+        self,
+        session_id: str,
+        url: str,
+        caption: str,
+        thumbnail: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload a single video post from a public URL."""
+        data: dict[str, Any] = {"url": url, "caption": caption}
+        if thumbnail:
+            data["thumbnail"] = thumbnail
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/video/upload/by/url",
+                data=data,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def upload_album(
+        self,
+        session_id: str,
+        file_paths: list[str],
+        caption: str,
+        location: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload a carousel/album post (up to 10 items).
+
+        ``file_paths`` are paths accessible inside the sidecar container.
+        Mixed photo/video is supported.
+        """
+        data: dict[str, Any] = {
+            "files": file_paths,
+            "caption": caption,
+        }
+        if location:
+            data["location"] = location
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/album/upload",
+                data=data,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
+
+    async def upload_story(
+        self,
+        session_id: str,
+        file_path: str,
+        caption: str = "",
+        as_video: bool = False,
+    ) -> dict[str, Any]:
+        """Upload a story post."""
+        data: dict[str, Any] = {"file": file_path}
+        if caption:
+            data["caption"] = caption
+        if as_video:
+            data["as_video"] = "true"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/story/upload",
+                data=data,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)

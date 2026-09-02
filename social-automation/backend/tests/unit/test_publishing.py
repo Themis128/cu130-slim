@@ -63,6 +63,15 @@ class _FakeAsyncClient:
         })
         return self._next_response()
 
+    async def get(self, url, headers=None, params=None):
+        self.calls.append({
+            "method": "GET",
+            "url": url,
+            "headers": headers,
+            "params": params,
+        })
+        return self._next_response()
+
     def _next_response(self):
         if self._call_index >= len(self._responses):
             return _FakeResponse(500, "out of preset responses")
@@ -220,3 +229,198 @@ async def test_publish_tiktok_supports_direct_post(monkeypatch):
     assert result.platform_url == "https://www.tiktok.com/@creator/video/video-123"
     client.init_video_post.assert_awaited_once()
     client.init_video_upload.assert_not_awaited()
+
+
+# ── Instagram sidecar publishing tests ──────────────────────────────────────
+
+
+@pytest.fixture
+def ig_account_with_session():
+    return SimpleNamespace(
+        account_id="17841463022505300",
+        username="cloudless.gr",
+        platform="instagram",
+        meta_data={"private_api_session_id": "sid-abc123"},
+    )
+
+
+@pytest.fixture
+def ig_account_no_session():
+    return SimpleNamespace(
+        account_id="17841463022505300",
+        username="cloudless.gr",
+        platform="instagram",
+        meta_data={},
+    )
+
+
+@pytest.fixture
+def ig_post():
+    return SimpleNamespace(platform_specific={})
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_photo(ig_account_with_session, ig_post):
+    """Sidecar path: single photo upload via private API."""
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "123456", "pk": 123456, "code": "Cabc123"}))
+
+    with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        result = await pub._publish_instagram(
+            "graph-token", "Nice photo!", ig_account_with_session, ig_post,
+            ["/app/uploads/2024/01/img.jpg"], ["uploads/2024/01/img.jpg"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "123456"
+    assert result.platform_url == "https://www.instagram.com/p/Cabc123/"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["url"].endswith("/photo/upload")
+    assert fake.calls[0]["data"]["file"] == "/uploads/2024/01/img.jpg"
+    assert fake.calls[0]["data"]["caption"] == "Nice photo!"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_video(ig_account_with_session, ig_post):
+    """Sidecar path: single video upload via private API."""
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "vid-789", "pk": 789, "code": "Cvid456"}))
+
+    with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        result = await pub._publish_instagram(
+            "graph-token", "Video caption", ig_account_with_session, ig_post,
+            ["/app/uploads/2024/01/clip.mp4"], ["uploads/2024/01/clip.mp4"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "vid-789"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["url"].endswith("/video/upload")
+    assert fake.calls[0]["data"]["file"] == "/uploads/2024/01/clip.mp4"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post):
+    """Sidecar path: carousel/album upload via private API."""
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "album-111", "pk": 111, "code": "Calb222"}))
+
+    with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        result = await pub._publish_instagram(
+            "graph-token", "Carousel!", ig_account_with_session, ig_post,
+            ["/app/uploads/a.jpg", "/app/uploads/b.jpg", "/app/uploads/c.jpg"],
+            ["uploads/a.jpg", "uploads/b.jpg", "uploads/c.jpg"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "album-111"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["url"].endswith("/album/upload")
+    assert fake.calls[0]["data"]["files"] == ["/uploads/a.jpg", "/uploads/b.jpg", "/uploads/c.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_account_no_session, ig_post, monkeypatch):
+    """When no sidecar session exists, fall back to Graph API."""
+    # Make the account look like a business account to skip the probe
+    ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
+    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"id": "17841460000000001"}),
+        _FakeResponse(200, {"id": "17841460000000002"}),
+    ])
+
+    with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await pub._publish_instagram(
+            "graph-token", "Fallback!", ig_account_no_session, ig_post,
+            ["/tmp/img.png"], ["fake/img.png"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "17841460000000002"
+    # Should have called Graph API (2 calls: container + publish)
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_no_media(ig_account_with_session, ig_post):
+    """Sidecar path: no media → error (Instagram requires at least one image/video)."""
+    result = await pub._publish_instagram(
+        "graph-token", "Text only", ig_account_with_session, ig_post, [], [],
+    )
+
+    assert result.success is False
+    assert "at least one image or video" in result.error
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_session_expired(ig_account_with_session, ig_post):
+    """Sidecar returns login_required → falls back to Graph API."""
+    # Make the account look like a business account to skip the Graph probe
+    ig_account_with_session.meta_data = {
+        "private_api_session_id": "sid-abc123",
+        "account_type": "business",
+        "ig_business_id": "17841463022505300",
+    }
+    fake_sidecar = _FakeAsyncClient(_FakeResponse(401, {"detail": "login_required"}))
+
+    # Graph API mock for fallback (numeric IDs required by _validate_id)
+    fake_graph = _FakeAsyncClient([
+        _FakeResponse(200, {"id": "17841460000000003"}),
+        _FakeResponse(200, {"id": "17841460000000004"}),
+    ])
+
+    import app.services.instagram_api as graph_mod
+    import app.services.instagram_private_api as priv_mod
+
+    with patch.object(priv_mod, "httpx") as mock_priv_httpx, \
+         patch.object(graph_mod, "httpx") as mock_graph_httpx, \
+         patch.object(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png"):
+
+        mock_priv_httpx.AsyncClient = lambda timeout=60.0: fake_sidecar
+        mock_graph_httpx.AsyncClient = lambda timeout=30.0: fake_graph
+
+        result = await pub._publish_instagram(
+            "graph-token", "After expiry", ig_account_with_session, ig_post,
+            ["/app/uploads/img.jpg"], ["uploads/img.jpg"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "17841460000000004"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_sidecar_error_no_fallback(ig_account_with_session, ig_post):
+    """Sidecar fails with non-session error and Graph API also fails → return sidecar error."""
+    # Make the account look like a business account to skip the Graph probe
+    ig_account_with_session.meta_data = {
+        "private_api_session_id": "sid-abc123",
+        "account_type": "business",
+        "ig_business_id": "17841463022505300",
+    }
+    fake_sidecar = _FakeAsyncClient(_FakeResponse(400, {"detail": "Invalid media format"}))
+    fake_graph = _FakeAsyncClient(_FakeResponse(400, {"error": {"message": "Graph also failed"}}))
+
+    import app.services.instagram_api as graph_mod
+    import app.services.instagram_private_api as priv_mod
+
+    with patch.object(priv_mod, "httpx") as mock_priv_httpx, \
+         patch.object(graph_mod, "httpx") as mock_graph_httpx, \
+         patch.object(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png"):
+
+        mock_priv_httpx.AsyncClient = lambda timeout=60.0: fake_sidecar
+        mock_graph_httpx.AsyncClient = lambda timeout=30.0: fake_graph
+
+        result = await pub._publish_instagram(
+            "graph-token", "Bad media", ig_account_with_session, ig_post,
+            ["/app/uploads/img.jpg"], ["uploads/img.jpg"],
+        )
+
+    assert result.success is False
+    # Should return the sidecar error (more actionable)
+    assert "Invalid media format" in result.error
+
+
+def test_sidecar_file_path_mapping():
+    """Test the host-to-sidecar path mapping."""
+    assert pub._sidecar_file_path("/app/uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
+    assert pub._sidecar_file_path("uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
+    assert pub._sidecar_file_path("/uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
+    assert pub._sidecar_file_path("") is None
