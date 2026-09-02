@@ -136,6 +136,17 @@ class Settings(BaseSettings):
     INSTAGRAM_USERNAME: str = ""
     INSTAGRAM_PASSWORD: str = ""
 
+    # Residential/mobile proxy for Instagram private API — datacenter IPs
+    # get challenge_required from Instagram's anti-abuse system.
+    # Format: http://user:pass@host:port  or  socks5://user:pass@host:port
+    # Default: Cloudflare WARP proxy (free, non-datacenter IP)
+    INSTAGRAM_PROXY: str = "socks5://warp-proxy:1080"
+
+    # Browser bridge (browser-novnc container) — used as fallback for
+    # Instagram profile operations when the aiograpi-rest sidecar fails
+    # (challenge_required, login_required, fingerprint mismatch).
+    BROWSER_BRIDGE_URL: str = "http://browser-novnc:9223"
+
     FACEBOOK_CLIENT_ID: str = ""
     FACEBOOK_CLIENT_SECRET: str = ""
     FACEBOOK_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/facebook/callback"

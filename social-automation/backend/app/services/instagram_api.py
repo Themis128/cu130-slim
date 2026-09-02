@@ -129,7 +129,7 @@ class InstagramAPIClient:
 
     async def get_profile(self) -> dict[str, Any]:
         """Fetch the Instagram Business/Creator account profile."""
-        fields = "id,username,account_type,media_count,followers_count"
+        fields = "id,username,followers_count,media_count,follows_count,profile_picture_url,biography,name"
         url = f"{self.base_url}/{self.ig_user_id}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(

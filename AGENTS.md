@@ -22,6 +22,17 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 9. If n8n workflows changed: import, publish, and trigger a dry run.
 10. `curl http://localhost:8083/api/v1/cf-db/health` — D1, KV, and Vectorize should report `true` when Cloudflare is reachable.
 
+## Proxy policy (Cloudflare-first)
+
+- **When a proxy is needed (Instagram, scraping, geo-bypass, IP rotation), always use Cloudflare WARP first.**
+- The `warp-proxy` container (image `caomingjun/warp`) runs a free Cloudflare WARP SOCKS5 proxy on port 1080 inside the compose network.
+- Internal proxy URL: `socks5://warp-proxy:1080`
+- Host proxy URL: `socks5://127.0.0.1:1080`
+- WARP gives a Cloudflare IP (not datacenter-flagged), located in Greece by default.
+- Only consider paid residential proxies (SOAX, BrightData, IPRoyal, WebShare) if WARP IPs are also blocked by the target service.
+- The Instagram sidecar (`INSTAGRAM_PROXY` env var) defaults to `socks5://warp-proxy:1080`.
+- The `socksio` package must be installed in any container that uses SOCKS5 with httpx (`pip install httpx[socks]`).
+
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.

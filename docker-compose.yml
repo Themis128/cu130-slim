@@ -563,6 +563,9 @@ services:
     - INSTAGRAM_PRIVATE_API_URL=http://instagram-private-api:8000
     - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME:-}
     - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD:-}
+    # Residential/mobile proxy for Instagram (prevents challenge_required
+    # from datacenter IPs). Default: Cloudflare WARP SOCKS5 proxy.
+    - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://warp-proxy:1080}
     # Browser + noVNC bridge (visual social logins)
     - BROWSER_BRIDGE_URL=http://browser-novnc:9223
     volumes:
@@ -787,6 +790,38 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── Cloudflare WARP proxy (residential IP for Instagram sidecar) ───────────
+  # Provides a SOCKS5 proxy on port 1080 that routes traffic through
+  # Cloudflare WARP, giving the Instagram sidecar a non-datacenter IP
+  # to avoid challenge_required from Instagram's anti-abuse system.
+  # Free, no account required. Uses WireGuard tunnel via wgcf.
+  warp-proxy:
+    image: caomingjun/warp
+    container_name: warp-proxy
+    ports:
+    - 1080:1080
+    environment:
+    - WARP_SLEEP=2
+    - TZ=Europe/Athens
+    device_cgroup_rules:
+    - 'c 10:200 rwm'
+    cap_add:
+    - MKNOD
+    - AUDIT_WRITE
+    - NET_ADMIN
+    sysctls:
+    - net.ipv6.conf.all.disable_ipv6=0
+    - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+    - warp_data:/var/lib/cloudflare-warp
+    healthcheck:
+      test: ["CMD-SHELL", "curl --socks5-hostname 127.0.0.1:1080 -sL https://cloudflare.com/cdn-cgi/trace | grep -q 'warp=on' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
   # ── Browser + noVNC container (visual browser for social logins) ─────────
   # Provides a headed Chromium browser accessible via web browser (noVNC)
   # and an HTTP bridge API for the SocialAuto backend to start sessions,
@@ -832,3 +867,4 @@ volumes:
   browser_cookies: null
   minio_data: null
   instagram_sessions: null
+  warp_data: null

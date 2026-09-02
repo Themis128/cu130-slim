@@ -38,6 +38,7 @@ from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember
+from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.instagram_private_api import (
@@ -189,6 +190,10 @@ def _get_meta(account: SocialAccount) -> dict:
 
 def _get_instagram_private_client() -> InstagramPrivateAPIClient:
     return InstagramPrivateAPIClient(settings.INSTAGRAM_PRIVATE_API_URL)
+
+
+def _get_browser_bridge_client() -> BrowserBridgeClient:
+    return BrowserBridgeClient(settings.BROWSER_BRIDGE_URL)
 
 
 def _get_instagram_session_id(account: SocialAccount) -> str | None:
@@ -473,36 +478,52 @@ async def platform_login(
 
 async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
     session_id = _get_instagram_session_id(account)
-    if not session_id:
-        raise HTTPException(
-            status_code=401,
-            detail="Instagram private API session not found. Call POST /login first.",
-        )
     client = _get_instagram_private_client()
+
+    # Try the sidecar first
+    if session_id:
+        try:
+            data = await client.get_account(session_id)
+            return ProfileResponse(
+                platform="instagram",
+                account_id=account.account_id,
+                username=data.get("username"),
+                full_name=data.get("full_name"),
+                biography=data.get("biography"),
+                website=data.get("external_url"),
+                phone=data.get("phone_number"),
+                email=data.get("email"),
+                profile_pic_url=data.get("profile_pic_url"),
+                is_private=data.get("is_private"),
+                is_verified=data.get("is_verified"),
+                raw=data,
+            )
+        except InstagramPrivateAPIError as e:
+            logger.warning("Instagram sidecar failed (%s) — falling back to browser bridge", e.detail)
+
+    # Fallback: browser-novnc bridge
+    bridge = _get_browser_bridge_client()
     try:
-        data = await client.get_account(session_id)
-    except InstagramPrivateAPIError as e:
-        if e.status_code == 401:
+        data = await bridge.get_instagram_profile()
+        return ProfileResponse(
+            platform="instagram",
+            account_id=account.account_id,
+            username=data.get("username"),
+            full_name=data.get("full_name"),
+            biography=data.get("biography"),
+            website=data.get("external_url"),
+            profile_pic_url=data.get("profile_pic_url"),
+            is_private=data.get("is_private"),
+            is_verified=data.get("is_verified"),
+            raw=data,
+        )
+    except BrowserBridgeError as e:
+        if e.status_code == 400:
             raise HTTPException(
                 status_code=401,
-                detail="Instagram session expired. Call POST /login to re-authenticate.",
+                detail="No active browser session. Start one via the browser-login page first.",
             )
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-
-    return ProfileResponse(
-        platform="instagram",
-        account_id=account.account_id,
-        username=data.get("username"),
-        full_name=data.get("full_name"),
-        biography=data.get("biography"),
-        website=data.get("external_url"),
-        phone=data.get("phone_number"),
-        email=data.get("email"),
-        profile_pic_url=data.get("profile_pic_url"),
-        is_private=data.get("is_private"),
-        is_verified=data.get("is_verified"),
-        raw=data,
-    )
 
 
 async def _update_instagram_profile(
@@ -511,12 +532,6 @@ async def _update_instagram_profile(
     db: AsyncSession,
 ) -> ProfileUpdateResponse:
     session_id = _get_instagram_session_id(account)
-    if not session_id:
-        raise HTTPException(
-            status_code=401,
-            detail="Instagram private API session not found. Call POST /login first.",
-        )
-
     client = _get_instagram_private_client()
     updated: list[str] = []
     ignored: list[str] = []
@@ -548,17 +563,48 @@ async def _update_instagram_profile(
             ignored_fields=ignored,
         )
 
+    # Try the sidecar first
+    if session_id:
+        try:
+            await client.update_account(session_id, **kwargs)
+            updated = list(kwargs.keys())
+            return ProfileUpdateResponse(
+                success=True,
+                updated_fields=updated,
+                ignored_fields=ignored,
+                message="Instagram profile updated (sidecar)",
+            )
+        except InstagramPrivateAPIError as e:
+            logger.warning("Instagram sidecar update failed (%s) — falling back to browser bridge", e.detail)
+
+    # Fallback: browser-novnc bridge
+    bridge = _get_browser_bridge_client()
     try:
-        await client.update_account(session_id, **kwargs)
-        updated = list(kwargs.keys())
-    except InstagramPrivateAPIError as e:
+        result = await bridge.update_instagram_profile(
+            full_name=kwargs.get("full_name"),
+            biography=kwargs.get("biography"),
+            external_url=kwargs.get("external_url"),
+        )
+        if result.get("status") == "updated":
+            updated = result.get("updated_fields", [])
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Browser bridge update failed: {result.get('response', 'unknown error')}",
+            )
+    except BrowserBridgeError as e:
+        if e.status_code == 400:
+            raise HTTPException(
+                status_code=401,
+                detail="No active browser session. Start one via the browser-login page first.",
+            )
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
     return ProfileUpdateResponse(
         success=True,
         updated_fields=updated,
         ignored_fields=ignored,
-        message="Instagram profile updated",
+        message="Instagram profile updated (browser bridge)",
     )
 
 
