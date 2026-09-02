@@ -146,15 +146,15 @@ async def test_publish_threads_access_denied(account, post, monkeypatch):
 async def test_publish_threads_video(account, post, monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/vid.mp4")
     fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "v-creation"}),
-        _FakeResponse(200, {"id": "v-published"}),
+        _FakeResponse(200, {"id": "11111"}),
+        _FakeResponse(200, {"id": "22222"}),
     ])
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
         result = await pub._publish_threads("tok-123", "Watch this!", account, post, ["/tmp/vid.mp4"], ["fake/vid.mp4"])
 
     assert result.success is True
-    assert result.platform_post_id == "v-published"
+    assert result.platform_post_id == "22222"
     assert fake.calls[0]["data"]["media_type"] == "VIDEO"
     assert fake.calls[0]["data"]["video_url"] == "https://cdn.example.com/vid.mp4"
 
@@ -163,10 +163,10 @@ async def test_publish_threads_video(account, post, monkeypatch):
 async def test_publish_threads_carousel(account, post, monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda path: f"https://cdn.example.com/{path}")
     fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "item-1"}),
-        _FakeResponse(200, {"id": "item-2"}),
-        _FakeResponse(200, {"id": "carousel-creation"}),
-        _FakeResponse(200, {"id": "carousel-published"}),
+        _FakeResponse(200, {"id": "11111"}),
+        _FakeResponse(200, {"id": "22222"}),
+        _FakeResponse(200, {"id": "33333"}),
+        _FakeResponse(200, {"id": "44444"}),
     ])
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
@@ -177,16 +177,16 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
         )
 
     assert result.success is True
-    assert result.platform_post_id == "carousel-published"
+    assert result.platform_post_id == "44444"
     # First two calls create carousel items, third creates the carousel container, fourth publishes
     assert fake.calls[0]["data"]["media_type"] == "IMAGE"
     assert fake.calls[0]["data"]["is_carousel_item"] == "true"
     assert fake.calls[1]["data"]["media_type"] == "IMAGE"
     assert fake.calls[1]["data"]["is_carousel_item"] == "true"
     assert fake.calls[2]["data"]["media_type"] == "CAROUSEL"
-    assert fake.calls[2]["data"]["children"] == "item-1,item-2"
+    assert fake.calls[2]["data"]["children"] == "11111,22222"
     assert fake.calls[2]["data"]["text"] == "Carousel post!"
-    assert fake.calls[3]["data"]["creation_id"] == "carousel-creation"
+    assert fake.calls[3]["data"]["creation_id"] == "33333"
 
 
 @pytest.mark.asyncio
