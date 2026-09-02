@@ -33,6 +33,55 @@ from app.services.plain_english import (
 )
 from app.services.spellcheck import auto_correct, preprocess_for_render
 
+
+async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dict:
+    """Load brand visual colors from the database.
+
+    Falls back to Cloudless defaults if no brand is found.
+    Returns dict with keys: bg, accent, accent2, text, sub, brand_name, tagline.
+    """
+    defaults = {
+        "bg": BG,
+        "accent": ACCENT,
+        "accent2": ACCENT2,
+        "text": TEXT,
+        "sub": SUB,
+        "brand_name": "cloudless",
+        "tagline": "cloudless.gr",
+    }
+    if not team_id:
+        return defaults
+    try:
+        from app.models.brand import Brand, BrandVisual
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
+        brand = brand_result.scalars().first()
+        if not brand:
+            return defaults
+        visual_result = await db.execute(select(BrandVisual).where(BrandVisual.brand_id == brand.id))
+        visual = visual_result.scalars().first()
+        if not visual:
+            return {**defaults, "brand_name": brand.name, "tagline": brand.tagline or ""}
+        def _hex_rgb(h: str | None) -> tuple[int, int, int] | None:
+            if not h:
+                return None
+            h = h.lstrip("#")
+            if len(h) == 3:
+                h = "".join(c * 2 for c in h)
+            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        accent = _hex_rgb(visual.primary_color) or ACCENT
+        accent2 = _hex_rgb(visual.accent_color) or ACCENT2
+        return {
+            "bg": BG,
+            "accent": accent,
+            "accent2": accent2,
+            "text": TEXT,
+            "sub": SUB,
+            "brand_name": brand.name,
+            "tagline": brand.tagline or "",
+        }
+    except Exception:
+        return defaults
+
 DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
     "4a8d9440-47d2-4bda-bd11-3776fd9022ba",

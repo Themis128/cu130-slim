@@ -586,10 +586,37 @@ async def generate_image(
     team = team_result.scalars().first()
     team_id = team.id if team else None
 
+    # Enhance prompt with brand visual identity if available
+    enhanced_prompt = request.prompt
+    try:
+        from app.models.brand import Brand, BrandVisual, BrandVoice
+        from app.services.brand_assets import build_brand_image_prompt
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
+        brand = brand_result.scalars().first()
+        if brand:
+            visual_result = await db.execute(select(BrandVisual).where(BrandVisual.brand_id == brand.id))
+            visual = visual_result.scalars().first()
+            voice_result = await db.execute(select(BrandVoice).where(BrandVoice.brand_id == brand.id))
+            voice = voice_result.scalars().first()
+            if visual:
+                visual_dict = {
+                    "primary_color": visual.primary_color,
+                    "accent_color": visual.accent_color,
+                    "neutral_colors": visual.neutral_colors,
+                    "image_style": visual.image_style,
+                    "photography_direction": visual.photography_direction,
+                }
+                voice_dict = None
+                if voice:
+                    voice_dict = {"tone_dimensions": voice.tone_dimensions}
+                enhanced_prompt = build_brand_image_prompt(visual_dict, voice_dict, request.prompt)
+    except Exception:
+        pass  # Brand enhancement is optional
+
     # Check chroma for similar generated images before submitting
     similar: list[str] = []
     if team:
-        similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
+        similar = await chroma_client.query_similar(str(team.id), enhanced_prompt, n_results=3)
 
     provider_name = request.provider or "cloudflare"
 
@@ -617,7 +644,7 @@ async def generate_image(
         result = None
         try:
             result = await _call_workers_ai_image(
-                prompt=request.prompt,
+                prompt=enhanced_prompt,
                 model=model,
                 api_key=api_key,
                 negative_prompt=request.negative_prompt,
@@ -639,7 +666,7 @@ async def generate_image(
                 print("[ai/generate-image] Trying Pixazo", flush=True)
                 try:
                     result = await _call_pixazo_txt2img(
-                        prompt=request.prompt, api_key=pixazo_key,
+                        prompt=enhanced_prompt, api_key=pixazo_key,
                         width=request.width, height=request.height,
                     )
                 except HTTPException:
@@ -649,7 +676,7 @@ async def generate_image(
                 print(f"[ai/generate-image] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
                 try:
                     result = await _call_together_txt2img(
-                        prompt=request.prompt, model=TOGETHER_TXT2IMG_FALLBACK,
+                        prompt=enhanced_prompt, model=TOGETHER_TXT2IMG_FALLBACK,
                         api_key=together_key, width=request.width, height=request.height,
                         steps=request.steps,
                     )
@@ -660,7 +687,7 @@ async def generate_image(
                 print(f"[ai/generate-image] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
                 try:
                     result = await _call_hf_txt2img(
-                        prompt=request.prompt, model=HF_TXT2IMG_FALLBACK,
+                        prompt=enhanced_prompt, model=HF_TXT2IMG_FALLBACK,
                         api_key=hf_key, width=request.width, height=request.height,
                         steps=request.steps,
                     )
