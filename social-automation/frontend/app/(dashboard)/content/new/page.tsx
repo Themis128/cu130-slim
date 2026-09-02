@@ -357,6 +357,7 @@ export default function NewPostPage() {
   const [tiktokPrivacyLevel, setTiktokPrivacyLevel] = useState('SELF_ONLY')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
+  const [providerInfo, setProviderInfo] = useState<{ provider?: string; fallback?: boolean; primary?: string } | null>(null)
   const [tone, setTone] = useState('professional')
   const [repurposing, setRepurposing] = useState(false)
   const [variants, setVariants] = useState<Record<string, string>>({})
@@ -589,6 +590,7 @@ export default function NewPostPage() {
       const hashtags: string[] = data.hashtags || []
       setContent(hashtags.length ? `${generated}\n\n${hashtags.map((h: string) => `#${h}`).join(' ')}` : generated)
       setAiUsed(true)
+      setProviderInfo({ provider: data._provider, fallback: data._fallback, primary: data._primary_provider })
       if (data.brand_compliance) {
         setBrandCompliance(data.brand_compliance)
       }
@@ -839,6 +841,16 @@ export default function NewPostPage() {
                     {aiGenerating ? `Generating ${tone}…` : 'Generate'}
                   </Button>
                 </div>
+                {providerInfo?.provider && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1.5">
+                    <span className="capitalize">{providerInfo.provider}</span>
+                    {providerInfo.fallback && providerInfo.primary && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        (fallback from {providerInfo.primary})
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Tone pills */}

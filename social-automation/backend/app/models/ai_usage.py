@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,8 @@ class AIUsageLog(Base):
     prompt_length: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     estimated_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     estimated_neurons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_neurons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

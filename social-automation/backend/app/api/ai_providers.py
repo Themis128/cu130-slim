@@ -1,17 +1,18 @@
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.core.security import encrypt_token
 from app.db.session import get_db
 from app.models.ai_provider import AIProvider
+from app.models.ai_usage import AIUsageLog
 from app.models.user import Team, TeamMember, User
 from app.services.inference import PROVIDER_CATALOG
 
@@ -27,6 +28,10 @@ class AIProviderUpsert(BaseModel):
     default_model: str | None = None
     is_enabled: bool = True
     is_default: bool = False
+    fallbacks: str | None = None
+    timeout_seconds: int | None = None
+    max_retries: int | None = None
+    daily_neuron_budget: int | None = None
 
 
 class AIProviderOut(BaseModel):
@@ -38,6 +43,13 @@ class AIProviderOut(BaseModel):
     is_enabled: bool
     is_default: bool
     has_key: bool
+    fallbacks: str | None = None
+    timeout_seconds: int = 120
+    max_retries: int = 1
+    daily_neuron_budget: int | None = None
+    failure_count: int = 0
+    circuit_open: bool = False
+    cooldown_until: datetime | None = None
     updated_at: datetime
 
     class Config:
@@ -76,6 +88,13 @@ async def list_providers(
             is_enabled=p.is_enabled,
             is_default=p.is_default,
             has_key=p.api_key_enc is not None,
+            fallbacks=p.fallbacks,
+            timeout_seconds=p.timeout_seconds,
+            max_retries=p.max_retries,
+            daily_neuron_budget=p.daily_neuron_budget,
+            failure_count=p.failure_count,
+            circuit_open=p.circuit_open,
+            cooldown_until=p.cooldown_until,
             updated_at=p.updated_at,
         )
         for p in providers
@@ -110,6 +129,15 @@ async def upsert_provider(
     provider.default_model = body.default_model or (catalog["default_model"] if catalog else "")
     provider.is_enabled = body.is_enabled
     provider.is_default = body.is_default
+    # Phase 4 routing policy fields
+    if body.fallbacks is not None:
+        provider.fallbacks = body.fallbacks
+    if body.timeout_seconds is not None:
+        provider.timeout_seconds = body.timeout_seconds
+    if body.max_retries is not None:
+        provider.max_retries = body.max_retries
+    if body.daily_neuron_budget is not None:
+        provider.daily_neuron_budget = body.daily_neuron_budget
     provider.updated_at = datetime.now(UTC)
 
     if body.api_key:
@@ -136,6 +164,13 @@ async def upsert_provider(
         is_enabled=provider.is_enabled,
         is_default=provider.is_default,
         has_key=provider.api_key_enc is not None,
+        fallbacks=provider.fallbacks,
+        timeout_seconds=provider.timeout_seconds,
+        max_retries=provider.max_retries,
+        daily_neuron_budget=provider.daily_neuron_budget,
+        failure_count=provider.failure_count,
+        circuit_open=provider.circuit_open,
+        cooldown_until=provider.cooldown_until,
         updated_at=provider.updated_at,
     )
 
@@ -220,3 +255,123 @@ async def test_provider(
         # generic error path to avoid log-injection reports on this sink.
         logger.exception("Provider test failed")
         return {"ok": False, "error": "Provider test failed. Check server logs for details."}
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Usage dashboard, circuit breaker, quota status
+# ---------------------------------------------------------------------------
+
+
+class UsageSummary(BaseModel):
+    provider: str
+    model: str
+    total_calls: int
+    successful_calls: int
+    failed_calls: int
+    avg_latency_ms: float
+    total_neurons: int
+    estimated_cost: float
+    last_call_at: datetime | None
+
+
+class UsageResponse(BaseModel):
+    summary: list[UsageSummary]
+    daily_neurons: int
+    daily_neuron_budget: int | None
+    quota_pct: float | None
+
+
+@router.get("/usage", response_model=UsageResponse)
+async def get_usage_summary(
+    days: int = Query(7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate AI usage by provider/model for the dashboard (Phase 4.3)."""
+    team = await _get_team(current_user, db)
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    rows = await db.execute(
+        select(
+            AIUsageLog.provider,
+            AIUsageLog.model,
+            func.count(AIUsageLog.id).label("total_calls"),
+            func.sum(
+                func.cast(AIUsageLog.success, __import__("sqlalchemy").Integer)
+            ).label("successful_calls"),
+            func.avg(AIUsageLog.latency_ms).label("avg_latency_ms"),
+            func.coalesce(func.sum(AIUsageLog.actual_neurons), 0).label("total_neurons"),
+            func.coalesce(func.sum(AIUsageLog.estimated_cost), 0).label("estimated_cost"),
+            func.max(AIUsageLog.created_at).label("last_call_at"),
+        )
+        .where(AIUsageLog.team_id == team.id, AIUsageLog.created_at >= since)
+        .group_by(AIUsageLog.provider, AIUsageLog.model)
+        .order_by(func.count(AIUsageLog.id).desc())
+    )
+
+    summary = []
+    for provider, model, total, ok, avg_lat, neurons, cost, last_call in rows.all():
+        summary.append(UsageSummary(
+            provider=provider,
+            model=model,
+            total_calls=int(total or 0),
+            successful_calls=int(ok or 0),
+            failed_calls=int(total or 0) - int(ok or 0),
+            avg_latency_ms=round(float(avg_lat or 0), 1),
+            total_neurons=int(neurons or 0),
+            estimated_cost=round(float(cost or 0), 4),
+            last_call_at=last_call,
+        ))
+
+    # Daily neuron totals + budget
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_row = await db.execute(
+        func.select(
+            func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)
+        ).where(
+            AIUsageLog.team_id == team.id,
+            AIUsageLog.created_at >= today_start,
+            AIUsageLog.success.is_(True),
+        )
+    )
+    daily_neurons = int(daily_row.scalar() or 0)
+
+    budget_row = await db.execute(
+        select(AIProvider.daily_neuron_budget).where(
+            AIProvider.team_id == team.id,
+            AIProvider.name == "cloudflare",
+        )
+    )
+    budget = budget_row.scalar()
+    quota_pct = round((daily_neurons / budget) * 100, 1) if budget and budget > 0 else None
+
+    return UsageResponse(
+        summary=summary,
+        daily_neurons=daily_neurons,
+        daily_neuron_budget=budget,
+        quota_pct=quota_pct,
+    )
+
+
+@router.post("/{name}/reset-circuit")
+async def reset_circuit_breaker(
+    name: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually reset a provider's circuit breaker (Phase 4.5)."""
+    team = await _get_team(current_user, db)
+    result = await db.execute(
+        select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
+    )
+    provider = result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    provider.failure_count = 0
+    provider.circuit_open = False
+    provider.cooldown_until = None
+    await db.commit()
+    # Also reset in-memory state
+    from app.services.inference import _circuit_state
+    _circuit_state.pop(name, None)
+    return {"ok": True, "provider": name, "message": "Circuit breaker reset"}

@@ -3,6 +3,7 @@ import json
 import re
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +31,67 @@ from app.services.cf_models import (
 )
 
 settings = get_settings()
+
+# ── Circuit breaker + neuron tracking (Phase 4) ──────────────────────────────
+# In-memory per-provider circuit breaker state (DB-backed AIProvider fields are
+# the persistent source of truth; this avoids a DB round-trip on every call).
+_circuit_state: dict[str, dict] = {}  # provider_name → {failures, open_until}
+_CIRCUIT_FAILURE_THRESHOLD = 3
+_CIRCUIT_COOLDOWN_SECONDS = 60
+
+# Last CF neuron spend extracted from response headers (consumed by call_inference)
+_last_cf_neurons: int | None = None
+
+
+def _extract_cf_neurons(headers: httpx.Headers) -> int | None:
+    """Extract actual neuron spend from Cloudflare Workers AI response headers."""
+    for hname in ("cf-ai-neurons-spent", "cf-ai-neuron-estimate", "x-cf-ai-neurons"):
+        val = headers.get(hname)
+        if val:
+            try:
+                return int(float(val))
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _circuit_is_open(provider: str) -> bool:
+    """Check if a provider's circuit breaker is open (in cooldown)."""
+    state = _circuit_state.get(provider)
+    if not state:
+        return False
+    open_until = state.get("open_until")
+    if open_until and datetime.now(UTC) >= open_until:
+        # Cooldown expired — reset
+        _circuit_state.pop(provider, None)
+        return False
+    return bool(state.get("open_until"))
+
+
+def _circuit_record_failure(provider: str) -> None:
+    """Record a failure for *provider*; open the circuit after threshold."""
+    state = _circuit_state.setdefault(provider, {"failures": 0})
+    state["failures"] = state.get("failures", 0) + 1
+    if state["failures"] >= _CIRCUIT_FAILURE_THRESHOLD:
+        state["open_until"] = datetime.now(UTC) + timedelta(seconds=_CIRCUIT_COOLDOWN_SECONDS)
+
+
+def _circuit_record_success(provider: str) -> None:
+    """Reset the failure counter on success."""
+    _circuit_state.pop(provider, None)
+
+
+def _estimate_cost(provider: str, model: str, prompt: str, actual_neurons: int | None) -> float | None:
+    """Rough USD cost estimate per inference call (Phase 4.2).
+
+    Cloudflare Workers AI: free tier → $0 (neurons are internal accounting).
+    Groq: free tier → $0.
+    Together/HF: free tier credits → $0 until exhausted.
+    Ollama: local → $0.
+    Returns None when cost is not estimable.
+    """
+    _ = (provider, model, prompt, actual_neurons)  # all free-tier / local for now
+    return 0.0
 
 
 def _ai_token() -> str:
@@ -475,6 +537,9 @@ async def _call_workers_ai_chat(
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Cloudflare Workers AI error {resp.status_code}: {resp.text[:400]}")
+
+    # Extract actual neuron spend from response headers (Phase 4 quota tracking)
+    _last_cf_neurons = _extract_cf_neurons(resp.headers)
 
     data = resp.json()
     # Handle both new direct format and legacy envelope format
@@ -1492,6 +1557,27 @@ async def _text_provider_chain(
         enabled = set(result.scalars().all())
 
     cloud = [name for name in priority if credentials[name] and name in enabled]
+    # Phase 4.1: respect per-provider fallbacks list from DB if configured
+    custom_fallbacks: list[str] = []
+    if db and team_id and provider_name != "ollama":
+        fb_row = await db.execute(
+            select(AIProvider.fallbacks).where(
+                AIProvider.team_id == team_id,
+                AIProvider.name == provider_name,
+            )
+        )
+        fb_str = fb_row.scalar()
+        if fb_str:
+            custom_fallbacks = [f.strip() for f in fb_str.split(",") if f.strip()]
+    if custom_fallbacks:
+        # Use the configured fallbacks (still filtered by credentials + enabled)
+        ordered = [provider_name] if provider_name != "ollama" else []
+        for fb in custom_fallbacks:
+            if fb not in ordered and (fb == "ollama" or (credentials.get(fb, False) and fb in enabled)):
+                ordered.append(fb)
+        if "ollama" not in ordered:
+            ordered.append("ollama")
+        return ordered
     if provider_name != "ollama" and provider_name not in cloud:
         cloud.insert(0, provider_name)
     elif provider_name in cloud:
@@ -1534,6 +1620,7 @@ async def call_inference(
 
     start = time.perf_counter()
     used_provider = provider_name
+    fallback_used: str | None = None
     is_image_request = provider_name in {
         "nvidia-flux",
         "nvidia-flux-dev",
@@ -1543,6 +1630,14 @@ async def call_inference(
     attempt_providers = [provider_name]
     if allow_fallback and not is_image_request:
         attempt_providers = await _text_provider_chain(provider_name, team_id, db)
+
+    # Filter out providers with open circuit breakers (Phase 4.5)
+    attempt_providers = [p for p in attempt_providers if not _circuit_is_open(p)]
+    if not attempt_providers:
+        raise HTTPException(status_code=503, detail="All inference providers are in circuit-breaker cooldown")
+
+    global _last_cf_neurons
+    _last_cf_neurons = None
 
     try:
         last_error: HTTPException | None = None
@@ -1559,15 +1654,21 @@ async def call_inference(
                     allow_fallback=False,
                 )
                 used_provider = candidate
+                if candidate != provider_name:
+                    fallback_used = candidate
+                _circuit_record_success(candidate)
                 break
             except HTTPException as exc:
                 last_error = exc
+                _circuit_record_failure(candidate)
         else:
             if last_error:
                 raise last_error
             raise HTTPException(status_code=502, detail="No inference provider is available")
 
         latency_ms = int((time.perf_counter() - start) * 1000)
+        actual_neurons = _last_cf_neurons
+        estimated_cost = _estimate_cost(used_provider, tracked_model, prompt, actual_neurons)
         await usage_tracker.track_inference(
             provider=used_provider,
             model=tracked_model,
@@ -1576,8 +1677,15 @@ async def call_inference(
             endpoint=endpoint or None,
             latency_ms=latency_ms,
             success=True,
-            meta_data={"schema": bool(schema)},
+            actual_neurons=actual_neurons,
+            estimated_cost=estimated_cost,
+            meta_data={"schema": bool(schema), "fallback_used": fallback_used},
         )
+        # Inject provider/fallback metadata for the caller (Phase 4.4)
+        if isinstance(result, dict) and fallback_used:
+            result["_provider"] = used_provider
+            result["_fallback"] = True
+            result["_primary_provider"] = provider_name
         return result
     except HTTPException as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)

@@ -51,6 +51,8 @@ async def track_inference(
     latency_ms: int | None = None,
     success: bool = True,
     error: str | None = None,
+    actual_neurons: int | None = None,
+    estimated_cost: float | None = None,
     meta_data: dict[str, Any] | None = None,
 ) -> None:
     """Insert a usage log row, swallowing any DB or serialization errors."""
@@ -64,6 +66,8 @@ async def track_inference(
             prompt_length=len(prompt),
             estimated_tokens=_estimate_tokens(prompt),
             estimated_neurons=_estimate_neurons(provider, model, prompt),
+            actual_neurons=actual_neurons,
+            estimated_cost=estimated_cost,
             latency_ms=latency_ms,
             success=success,
             error=error,
@@ -74,5 +78,82 @@ async def track_inference(
         async with _usage_session() as s:
             s.add(log)
             await s.commit()
+        # Check daily neuron quota (Phase 4.2) — best-effort alert, separate session
+        if actual_neurons is not None and team_id is not None:
+            await _check_daily_quota(team_id, provider, actual_neurons)
     except Exception as exc:
         logger.warning(f"Failed to track AI usage: {exc}")
+
+
+async def get_daily_neuron_usage(team_id: uuid.UUID) -> int:
+    """Return total neurons spent today for *team_id* across all providers."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func, select
+
+    from app.models.ai_usage import AIUsageLog
+
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        async with _usage_session() as s:
+            result = await s.execute(
+                select(func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)).where(
+                    AIUsageLog.team_id == team_id,
+                    AIUsageLog.created_at >= today_start,
+                    AIUsageLog.success.is_(True),
+                )
+            )
+            return int(result.scalar() or 0)
+    except Exception as exc:
+        logger.warning(f"Failed to query daily neuron usage: {exc}")
+        return 0
+
+
+async def _check_daily_quota(
+    team_id: uuid.UUID,
+    provider: str,
+    neurons: int,
+) -> None:
+    """Warn when daily Cloudflare neuron spend exceeds 80% of the configured budget.
+
+    The budget is read from the ``AIProvider.daily_neuron_budget`` column for the
+    team's Cloudflare provider.  Alerts are logged — they do not block inference.
+    """
+    if provider != "cloudflare" or neurons <= 0:
+        return
+    try:
+        from datetime import UTC, datetime
+
+        from sqlalchemy import func, select
+
+        from app.models.ai_provider import AIProvider
+        from app.models.ai_usage import AIUsageLog
+
+        async with _usage_session() as s:
+            # Read budget
+            budget_row = await s.execute(
+                select(AIProvider.daily_neuron_budget).where(
+                    AIProvider.team_id == team_id,
+                    AIProvider.name == "cloudflare",
+                )
+            )
+            budget = budget_row.scalar()
+            if not budget or budget <= 0:
+                return  # no budget configured
+
+            today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            total_row = await s.execute(
+                select(func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)).where(
+                    AIUsageLog.team_id == team_id,
+                    AIUsageLog.created_at >= today_start,
+                    AIUsageLog.success.is_(True),
+                )
+            )
+            total = int(total_row.scalar() or 0)
+            if total >= budget * 0.8:
+                logger.warning(
+                    "⚠️ Daily Cloudflare neuron usage for team %s: %d / %d (%.0f%%) — budget alert",
+                    team_id, total, budget, (total / budget) * 100,
+                )
+    except Exception as exc:
+        logger.warning(f"Quota check failed: {exc}")

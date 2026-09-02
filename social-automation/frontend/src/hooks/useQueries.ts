@@ -635,7 +635,10 @@ export function useAIProviders() {
     queryFn: () => aiProvidersApi.list(),
     select: (r) => r.data as Array<{
       id: string; name: string; display_name: string; base_url: string
-      default_model: string; is_enabled: boolean; is_default: boolean; has_key: boolean; updated_at: string
+      default_model: string; is_enabled: boolean; is_default: boolean; has_key: boolean
+      fallbacks: string | null; timeout_seconds: number; max_retries: number
+      daily_neuron_budget: number | null; failure_count: number; circuit_open: boolean
+      cooldown_until: string | null; updated_at: string
     }>,
     retry: 1,
   })
@@ -685,6 +688,37 @@ export function useAIProviderModels(name: string | null) {
       r.data as Array<{ id: string; task: string | null; description: string }>,
     enabled: !!name,
     staleTime: 10 * 60 * 1000, // live vendor catalog — cache for 10 min
+  })
+}
+
+export function useAIProviderUsage(days?: number) {
+  return useQuery({
+    queryKey: ['ai-provider-usage', days],
+    queryFn: () => aiProvidersApi.getUsage({ days }),
+    select: (r) => r.data as {
+      summary: Array<{
+        provider: string
+        model: string
+        total_calls: number
+        successful_calls: number
+        failed_calls: number
+        avg_latency_ms: number
+        total_neurons: number
+        estimated_cost: number
+        last_call_at: string | null
+      }>
+      daily_neurons: number
+      daily_neuron_budget: number | null
+      quota_pct: number | null
+    },
+    refetchInterval: 30000,
+  })
+}
+
+export function useResetCircuitBreaker() {
+  return useMutation({
+    mutationFn: (name: string) => aiProvidersApi.resetCircuit(name),
+    onSuccess: () => toast.success('Circuit breaker reset'),
   })
 }
 

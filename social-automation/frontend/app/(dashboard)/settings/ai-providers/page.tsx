@@ -3,8 +3,9 @@
 import { useState, useMemo } from 'react'
 import {
   Loader2, Plug, Trash2, TestTube, CheckCircle, XCircle,
-  Eye, EyeOff, Search, ChevronDown, ChevronRight, Zap,
+  Eye, EyeOff, Search, ChevronDown, ChevronRight, Zap, BarChart3,
 } from 'lucide-react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -204,6 +205,12 @@ export default function AIProvidersPage() {
               Default: {defaultProvider.display_name ?? defaultProvider.name}
             </Badge>
           )}
+          <Link href="/settings/ai-providers/usage">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <BarChart3 className="h-4 w-4" />
+              Usage
+            </Button>
+          </Link>
         </div>
       </div>
 

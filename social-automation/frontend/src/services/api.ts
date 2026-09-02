@@ -467,10 +467,16 @@ export const aiProvidersApi = {
     default_model?: string
     is_enabled?: boolean
     is_default?: boolean
+    fallbacks?: string
+    timeout_seconds?: number
+    max_retries?: number
+    daily_neuron_budget?: number
   }) => api.put(`/ai-providers/${name}`, data),
   delete: (name: string) => api.delete(`/ai-providers/${name}`),
   test: (name: string) => api.post(`/ai-providers/${name}/test`),
   listModels: (name: string) => api.get(`/ai-providers/${name}/models`),
+  getUsage: (params?: { days?: number }) => api.get('/ai-providers/usage', { params }),
+  resetCircuit: (name: string) => api.post(`/ai-providers/${name}/reset-circuit`),
 }
 
 export const aiApi = {
