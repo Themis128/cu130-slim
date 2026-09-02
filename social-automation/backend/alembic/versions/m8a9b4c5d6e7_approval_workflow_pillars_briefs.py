@@ -4,10 +4,10 @@ Revision ID: m8a9b4c5d6e7
 Revises: l7f8a9b3c4d5
 Create Date: 2026-09-02
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
+from alembic import op
 
 revision = "m8a9b4c5d6e7"
 down_revision = "l7f8a9b3c4d5"
