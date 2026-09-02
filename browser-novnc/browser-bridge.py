@@ -555,6 +555,52 @@ async def mouse_click(req: MouseClickRequest):
         raise HTTPException(500, f"Mouse click failed: {e}")
 
 
+class FileUploadRequest(BaseModel):
+    selector: str
+    file_path: str
+    click_selector: str | None = None
+
+
+@app.post("/session/upload")
+async def upload_file(req: FileUploadRequest):
+    """Upload a file to an input[type=file] element.
+
+    If click_selector is provided, clicks that element first and intercepts
+    the resulting filechooser event (needed for Instagram's photo upload).
+    Otherwise, uses set_input_files directly on the selector.
+    """
+    page = _state.get("page")
+    if not page:
+        raise HTTPException(400, "No active browser session")
+    try:
+        if req.click_selector:
+            # Set up filechooser listener BEFORE clicking
+            async def handle_filechooser(files):
+                await page.set_input_files(files, [req.file_path])
+
+            page.on("filechooser", lambda fc: asyncio.create_task(fc.set_files(req.file_path)))
+
+            # Click the element that triggers the file picker
+            click_locator = page.locator(req.click_selector).first
+            count = await click_locator.count()
+            if count == 0:
+                raise HTTPException(404, f"Click element not found: {req.click_selector}")
+            await click_locator.click()
+            await page.wait_for_timeout(5000)
+            return {"status": "ok", "uploaded": True, "method": "filechooser", "click_selector": req.click_selector, "file": req.file_path}
+        else:
+            locator = page.locator(req.selector).first
+            count = await locator.count()
+            if count == 0:
+                raise HTTPException(404, f"Element not found: {req.selector}")
+            await locator.set_input_files(req.file_path)
+            return {"status": "ok", "uploaded": True, "method": "set_input_files", "selector": req.selector, "file": req.file_path}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Upload failed: {e}")
+
+
 class CookieRequest(BaseModel):
     cookies: list[dict]
 
