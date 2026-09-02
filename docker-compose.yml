@@ -110,7 +110,7 @@ services:
     - ./.env:/app/.env:ro
     - ./storage-user/custom_nodes:/home/user/ComfyUI/custom_nodes
     - ./storage-models/models:/home/user/ComfyUI/models
-    - ./storage/models/checkpoints:/home/user/ComfyUI/models/checkpoints
+    - ./storage-user/metadata:/home/user/ComfyUI/metadata
     - ./storage-user/user:/home/user/ComfyUI/user
     - ./storage-user/output:/home/user/ComfyUI/output
     - ./storage-user/input:/home/user/ComfyUI/input
@@ -147,6 +147,9 @@ services:
     - 5678:5678
     volumes:
     - ./n8n-data:/home/node/.n8n
+    - ./storage-user/metadata:/home/node/.n8n/storage/metadata
+    - ./comfyui-workflows:/workflows:ro
+    - ./scripts:/scripts:ro
     <<: *public-dns
     depends_on:
       social-postgres:
@@ -256,6 +259,8 @@ services:
     container_name: metabase
     ports:
     - 3000:3000
+    volumes:
+    - ./storage-user/metadata:/storage/metadata:ro
     environment:
     - MB_DB_TYPE=postgres
     - MB_DB_DBNAME=${METABASE_DB_DBNAME}

@@ -3,15 +3,54 @@
   "nodes": [
     {
       "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 6,
+              "unit": "hours"
+            }
+          ]
+        }
+      },
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
         "path": "marketing-trigger",
         "httpMethod": "POST",
         "responseMode": "onReceived",
         "responseData": {}
       },
-      "name": "Webhook",
+      "name": "Webhook (Manual)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [180, 500],
+      "webhookId": "marketing-trigger"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "raw_prompt",
+              "value": "A modern eco-friendly product shot on a white background, vibrant colors, studio lighting"
+            },
+            {
+              "name": "caption",
+              "value": "Check out our latest product shot! #marketing"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Default Prompt (Cron)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [420, 300]
     },
     {
       "parameters": {
@@ -20,8 +59,8 @@
         "jsonParameters": true,
         "options": {
           "bodyContent": {
-            "model": "llama3",
-            "prompt": "Enhance this marketing image prompt for better AI generation: {{$json[\"prompt\"]}} Return only the enhanced prompt.",
+            "model": "llama3.1:8b",
+            "prompt": "=Enhance this marketing image prompt for better AI image generation. Return ONLY the enhanced prompt, no preamble:\n\n{{$json[\"raw_prompt\"]}}",
             "stream": false,
             "temperature": 0.7
           }
@@ -30,8 +69,17 @@
       "name": "Ollama Prompt Enhance",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [500, 200],
+      "position": [640, 300],
       "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "command": "=node /scripts/inject_prompt.js /workflows/marketing-pipeline.json \"{{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || $json[\"raw_prompt\"] }}\" /tmp/marketing_workflow_injected.json"
+      },
+      "name": "Inject Prompt",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [860, 300]
     },
     {
       "parameters": {
@@ -40,83 +88,167 @@
         "jsonParameters": true,
         "options": {
           "bodyContent": {
-            "prompt": "={{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || $json[\"raw_prompt\"] }}"
+            "prompt": "={{ $json[\"prompt\"] }}"
           }
         }
       },
       "name": "Call ComfyUI API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [750, 200]
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const fs = require('fs');\nconst raw = fs.readFileSync('/tmp/marketing_workflow_injected.json', 'utf8');\nconst workflow = JSON.parse(raw);\nreturn [{json: {prompt: workflow, raw_prompt: $('Default Prompt (Cron)').item.json.raw_prompt || $('Webhook (Manual)').item.json.raw_prompt || ''}}];"
+      },
+      "name": "Read Injected Workflow",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1080, 300]
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "http://comfyui:8000/history/={{ $node[\"Call ComfyUI API\"].json[\"prompt_id\"] }}",
+        "url": "={{ \"http://comfyui:8000/history/\" + $node[\"Call ComfyUI API\"].json[\"prompt_id\"] }}",
         "responseFormat": "json",
         "retryOnFail": true,
         "retryInterval": 5000,
-        "maxRetries": 12
+        "maxRetries": 24
       },
       "name": "Poll ComfyUI History",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [1000, 200]
+      "position": [1520, 300]
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"8\"][\"images\"][0][\"filename\"] }}",
-        "responseFormat": "blob"
+        "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"filename\"] + \"&subfolder=\" + ($node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"subfolder\"] || \"\") + \"&type=\" + ($node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"type\"] || \"output\") }}",
+        "responseFormat": "file"
       },
       "name": "Fetch Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [1250, 200]
+      "position": [1740, 300]
     },
     {
       "parameters": {
-        "operation": "post",
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 0
+            }
+          ]
+        }
+      },
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1960, 300],
+      "webhookId": "marketing-approval"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "approved",
+              "value": "={{ $json[\"approved\"] || \"false\" }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Check Approval",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [2180, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json[\"approved\"] }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Is Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2400, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
         "url": "={{ $env[\"TWITTER_API_URL\"] }}",
-        "authentication": "Bearer Token",
-        "token": "={{ $env[\"TWITTER_BEARER_TOKEN\"] }}",
+        "authentication": "bearerToken",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env[\"TWITTER_BEARER_TOKEN\"] }}"
+            }
+          ]
+        },
+        "jsonParameters": true,
         "options": {
           "bodyContent": {
-            "status": "={{ $json[\"caption\"] }}",
-            "media_ids": ["={{ $node[\"Fetch Image\"].binary?.image?.id }}"]
+            "text": "={{ $node[\"Default Prompt (Cron)\"].json[\"caption\"] || \"New marketing image\" }}"
           }
         }
       },
       "name": "Post to Twitter",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [1500, 100],
+      "position": [2620, 200],
       "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "append",
-        "path": "={{ \"/home/node/.n8n/storage/metadata/run_log.csv\" }}",
+        "filePath": "=/home/node/.n8n/storage/metadata/run_log.csv",
         "options": {
           "csv": {
-            "fields": [
-              {"name": "timestamp", "value": "={{ $now }}"},
-              {"name": "prompt", "value": "={{ $json[\"raw_prompt\"] }}"},
-              {"name": "enhanced_prompt", "value": "={{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || \"\" }}"},
-              {"name": "status", "value": "completed"},
-              {"name": "posted", "value": "={{ $node[\"Post to Twitter\"].statusCode === 200 }}"}
-            ]
+            "headers": true,
+            "delimiter": ","
           }
         }
       },
       "name": "Log Run",
       "type": "n8n-nodes-base.writeBinaryFile",
       "typeVersion": 1,
-      "position": [1500, 300]
+      "position": [2620, 400]
     }
   ],
   "connections": {
-    "Webhook": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Default Prompt (Cron)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Manual)": {
+      "main": [
+        [
+          {
+            "node": "Ollama Prompt Enhance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Prompt (Cron)": {
       "main": [
         [
           {
@@ -128,6 +260,28 @@
       ]
     },
     "Ollama Prompt Enhance": {
+      "main": [
+        [
+          {
+            "node": "Inject Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject Prompt": {
+      "main": [
+        [
+          {
+            "node": "Read Injected Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Injected Workflow": {
       "main": [
         [
           {
@@ -164,10 +318,56 @@
       "main": [
         [
           {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Check Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Approval": {
+      "main": [
+        [
+          {
+            "node": "Is Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Approved?": {
+      "main": [
+        [
+          {
             "node": "Post to Twitter",
             "type": "main",
             "index": 0
-          },
+          }
+        ],
+        [
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Twitter": {
+      "main": [
+        [
           {
             "node": "Log Run",
             "type": "main",
@@ -178,6 +378,19 @@
     }
   },
   "active": false,
-  "settings": {},
-  "id": "1"
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "marketing-image-generation",
+  "tags": [
+    {
+      "name": "marketing"
+    },
+    {
+      "name": "comfyui"
+    },
+    {
+      "name": "image-generation"
+    }
+  ]
 }

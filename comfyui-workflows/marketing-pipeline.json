@@ -1,117 +1,88 @@
 {
-  "last_node_id": 10,
-  "last_link_id": 0,
-  "nodes": [
-    {
-      "type": "DiffusersLoader",
-      "id": 1,
-      "pos": [100, 100],
-      "inputs": {
-        "model_path": "tiny-sd"
-      }
-    },
-    {
-      "type": "CLIPTextEncode",
-      "id": 2,
-      "pos": [300, 100],
-      "inputs": {
-        "text": "",
-        "clip": [1, 1]
-      }
-    },
-    {
-      "type": "EmptyLatentImage",
-      "id": 3,
-      "pos": [300, 200],
-      "inputs": {
-        "width": 1024,
-        "height": 1024,
-        "batch_size": 1
-      }
-    },
-    {
-      "type": "KSampler",
-      "id": 4,
-      "pos": [500, 150],
-      "inputs": {
-        "model": [1, 0],
-        "positive": [2, 0],
-        "negative": [2, 0],
-        "latent_image": [3, 0],
-        "seed": 0,
-        "steps": 20,
-        "cfg": 7,
-        "sampler_name": "euler",
-        "scheduler": "normal",
-        "denoise": 1
-      }
-    },
-    {
-      "type": "VAEDecode",
-      "id": 5,
-      "pos": [700, 150],
-      "inputs": {
-        "samples": [4, 0],
-        "vae": [1, 2]
-      }
-    },
-    {
-      "type": "UltimateSDUpscale",
-      "id": 6,
-      "pos": [900, 100],
-      "inputs": {
-        "image": [5, 0],
-        "upscale_method": "SwimIR",
-        "scale": 2,
-        "seed": 0,
-        "steps": 15,
-        "cfg": 7,
-        "sampler_name": "euler",
-        "scheduler": "normal",
-        "denoise": 0.5
-      }
-    },
-    {
-      "type": "RemoveBackground",
-      "id": 7,
-      "pos": [1100, 100],
-      "inputs": {
-        "image": [6, 0]
-      }
-    },
-    {
-      "type": "SaveImage",
-      "id": 8,
-      "pos": [1300, 100],
-      "inputs": {
-        "filename_prefix": "marketing_",
-        "image": [7, 0]
-      }
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "juggernaut_xl.safetensors"
     }
-  ],
-  "links": [
-    [0, 1, 0, "model_path", 1, 0],
-    [0, 2, 0, "text", 2, 0],
-    [0, 2, 1, "clip", 1, 1],
-    [0, 3, 0, "width", 3, 0],
-    [0, 3, 1, "height", 3, 1],
-    [0, 3, 2, "batch_size", 3, 2],
-    [0, 4, 0, "model", 1, 0],
-    [0, 4, 1, "positive", 2, 0],
-    [0, 4, 2, "negative", 2, 0],
-    [0, 4, 3, "latent_image", 3, 0],
-    [0, 5, 0, "samples", 4, 0],
-    [0, 5, 1, "vae", 1, 2],
-    [0, 6, 0, "image", 5, 0],
-    [0, 7, 0, "image", 6, 0],
-    [0, 8, 0, "filename_prefix", 8, 0],
-    [0, 8, 1, "image", 7, 0]
-  ],
-  "groups": [],
-  "config": {
-    "progress_bar": false,
-    "progress_bar_upper_range": 0,
-    "progress_bar_lower_range": 0
   },
-  "version": 0.4
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["1", 1]
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, distorted, watermark, text, ugly, deformed, bad anatomy, extra limbs, jpeg artifacts",
+      "clip": ["1", 1]
+    }
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["4", 0],
+      "seed": 0,
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "7": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["6", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "8": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["7", 0],
+      "seed": 0,
+      "steps": 15,
+      "cfg": 6,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.45
+    }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["8", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "10": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "marketing_",
+      "images": ["9", 0]
+    }
+  }
 }
