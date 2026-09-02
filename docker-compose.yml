@@ -731,11 +731,13 @@ services:
     - tunnel_url:/run/tunnel
     - ./social-automation/cloudflared-entrypoint.sh:/entrypoint.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f cloudflared || exit 1"]
+      # pgrep alone stays "healthy" while cloudflared is disconnected from the
+      # edge; the metrics gauge only exceeds 0 when tunnel connections exist.
+      test: ["CMD-SHELL", "pgrep -f cloudflared >/dev/null && curl -sf http://localhost:20241/metrics | grep -Eq 'cloudflared_tunnel_ha_connections [1-9]'"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
     restart: unless-stopped
     depends_on:
       social-api:

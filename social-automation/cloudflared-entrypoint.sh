@@ -6,7 +6,9 @@ mkdir -p /run/tunnel
 if [ -n "$SOCIAL_TUNNEL_TOKEN" ]; then
   printf '[cloudflared] Starting named tunnel for social.cloudless.gr\n' >&2
   printf 'https://social.cloudless.gr' > /run/tunnel/url
-  exec cloudflared tunnel --no-autoupdate run --token "$SOCIAL_TUNNEL_TOKEN"
+  # http2 (TCP) instead of default QUIC: WSL2 NAT drops idle UDP flow state,
+  # which killed all QUIC edge connections for ~3min (Cloudflare 1033).
+  exec cloudflared tunnel --no-autoupdate run --protocol http2 --token "$SOCIAL_TUNNEL_TOKEN"
 else
   printf '[cloudflared] Starting quick tunnel (no SOCIAL_TUNNEL_TOKEN set)\n' >&2
   cloudflared tunnel --no-autoupdate --url http://social-api:8000 2>&1 | \
