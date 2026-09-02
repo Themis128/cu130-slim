@@ -91,7 +91,21 @@ async function gotoProfile() {
 
 /** Click a switch/toggle by its label text and return the new checked state. */
 async function clickSwitch(labelText) {
-  const sw = page.locator(`[role="switch"]`, { hasText: labelText }).first();
+  // The label text is in a sibling/parent element, not on the switch itself.
+  // Find the text element, then navigate to the switch in the same row.
+  const textEl = page.locator(`text=${labelText}`).first();
+  await textEl.waitFor({ state: 'visible', timeout: 10000 });
+  // Go up to find the row container, then find the switch inside it
+  const row = textEl.locator('xpath=ancestor::div[contains(@class,"row") or contains(@class,"cell") or contains(@class,"container")][1]').first();
+  let sw = row.locator('[role="switch"]').first();
+  // Fallback: try going up multiple levels
+  if (!(await sw.isVisible().catch(() => false))) {
+    sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
+  }
+  if (!(await sw.isVisible().catch(() => false))) {
+    // Last resort: find the nearest switch in the DOM after the text
+    sw = textEl.locator('xpath=following::*[@role="switch"][1]').first();
+  }
   await sw.waitFor({ state: 'visible', timeout: 10000 });
   const wasChecked = await sw.getAttribute('aria-checked');
   await sw.click();
@@ -190,10 +204,11 @@ async function handleSetPrivateAccount(req, res) {
   const { enabled } = req.body;
   try {
     await gotoSettings();
-    // Private account is the first switch on the Privacy section
-    // Find the row containing "Private account" and click its switch
-    const row = page.locator('text=Private account').locator('..').locator('..');
-    const sw = row.locator('[role="switch"]').first();
+    // Find the "Private account" text and navigate to its row's switch
+    const textEl = page.locator('text=Private account').first();
+    await textEl.waitFor({ state: 'visible', timeout: 10000 });
+    // Try multiple ancestor levels to find the switch
+    const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
     await sw.waitFor({ state: 'visible', timeout: 10000 });
     const current = await sw.getAttribute('aria-checked');
     const wantOn = enabled === true || enabled === 'true';
@@ -303,15 +318,18 @@ async function handleSetInteractionNotifications(req, res) {
     for (const [key, desired] of Object.entries(toggles)) {
       if (desired === undefined || desired === null) continue;
       const wantOn = desired === true || desired === 'true';
-      const sw = page.locator(`[role="switch"]`, { hasText: labels[key] }).first();
-      if (await sw.isVisible().catch(() => false)) {
-        const current = await sw.getAttribute('aria-checked');
-        if ((current === 'true') !== wantOn) {
-          await sw.click();
-          await page.waitForTimeout(800);
+      const textEl = page.locator(`text=${labels[key]}`).first();
+      if (await textEl.isVisible().catch(() => false)) {
+        const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
+        if (await sw.isVisible().catch(() => false)) {
+          const current = await sw.getAttribute('aria-checked');
+          if ((current === 'true') !== wantOn) {
+            await sw.click();
+            await page.waitForTimeout(800);
+          }
+          const after = await sw.getAttribute('aria-checked');
+          settings[key] = after === 'true';
         }
-        const after = await sw.getAttribute('aria-checked');
-        settings[key] = after === 'true';
       }
     }
 
@@ -330,9 +348,9 @@ async function handleSetPersonalizedAds(req, res) {
   const { enabled } = req.body;
   try {
     await gotoSettings();
-    // Find the "Personalized ads" switch
-    const row = page.locator('text=Personalized ads').locator('..').locator('..');
-    const sw = row.locator('[role="switch"]').first();
+    const textEl = page.locator('text=Personalized ads').first();
+    await textEl.waitFor({ state: 'visible', timeout: 10000 });
+    const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
     await sw.waitFor({ state: 'visible', timeout: 10000 });
     const current = await sw.getAttribute('aria-checked');
     const wantOn = enabled === true || enabled === 'true';
