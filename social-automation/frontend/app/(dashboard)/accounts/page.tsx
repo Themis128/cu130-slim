@@ -241,7 +241,7 @@ const platforms: PlatformSetup[] = [
     textColor: 'text-black dark:text-white',
     description: 'Short-form video and photo carousels',
     devPortalUrl: 'https://developers.tiktok.com/',
-    scopes: ['user.info.basic', 'video.publish', 'video.upload'],
+    scopes: ['user.info.basic', 'video.publish', 'video.upload', 'video.list'],
     envVars: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'],
     steps: [
       {
@@ -257,7 +257,7 @@ const platforms: PlatformSetup[] = [
       },
       {
         text: 'Under Login Kit → Settings, add this redirect URI:',
-        code: 'http://localhost:8083/api/v1/auth/oauth/tiktok/callback',
+        code: 'https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback',
       },
       {
         text: 'Go to "App details". Copy the Client key → TIKTOK_CLIENT_KEY and Client secret → TIKTOK_CLIENT_SECRET.',
@@ -269,6 +269,11 @@ const platforms: PlatformSetup[] = [
       },
       {
         text: 'Save TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in the Env Manager, then restart the API.',
+      },
+      {
+        text: 'For settings management (privacy, notifications, ads, accessibility), also set up a TikTok browser session.',
+        note: 'Go to the Visual Browser Login page, select TikTok, log in, then click "Import to TikTok Sidecar" to inject the session cookie.',
+        code: '/browser-login',
       },
     ],
   },

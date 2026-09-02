@@ -113,6 +113,31 @@ export default function BrowserLoginPage() {
     }
   }
 
+  const handleImportTiktok = async () => {
+    setImporting(true)
+    setImportResult(null)
+    try {
+      // Extract cookies from the browser session
+      const { data: cookieData } = await browserApi.getCookies()
+      const sessionId = cookieData.cookies?.find((c: any) => c.name === 'sessionid')?.value
+      if (!sessionId) {
+        setImportResult({ success: false, message: 'No sessionid cookie found. Make sure you are logged into TikTok.' })
+        return
+      }
+      const { data } = await browserApi.importTiktokSession(sessionId)
+      setImportResult({
+        success: data.logged_in ?? data.status === 'ok',
+        message: data.logged_in
+          ? `TikTok session imported — logged in as ${data.title || 'unknown'}`
+          : 'Session imported but login could not be verified',
+      })
+    } catch (e: any) {
+      setImportResult({ success: false, message: e.response?.data?.detail || 'Import failed' })
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const statusColor = (status: string) => {
     if (status === 'done') return 'text-green-500'
     if (status === 'error') return 'text-red-500'
@@ -219,6 +244,12 @@ export default function BrowserLoginPage() {
                     <Button onClick={handleImportInstagram} disabled={importing} size="sm">
                       {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       Import to Sidecar
+                    </Button>
+                  )}
+                  {session.status === 'done' && session.platform === 'tiktok' && (
+                    <Button onClick={handleImportTiktok} disabled={importing} size="sm">
+                      {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      Import to TikTok Sidecar
                     </Button>
                   )}
                   <Button onClick={handleStop} variant="outline" size="sm">

@@ -437,6 +437,10 @@ export const browserApi = {
   getNovncUrl: () => api.get('/profile/browser/novnc-url'),
   getPlatforms: () => api.get('/profile/browser/platforms'),
   importInstagramSession: () => api.post('/profile/browser/import-instagram-session'),
+  importTiktokSession: (sessionId: string, userId?: string) =>
+    api.post('/profile/tiktok/session', { session_id: sessionId, user_id: userId }),
+  checkTiktokSession: () => api.get('/profile/tiktok/session'),
+  getTiktokSettings: () => api.get('/profile/tiktok/settings'),
 }
 
 // Secret store endpoints (Cloudflare-first credentials)
