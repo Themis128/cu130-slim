@@ -107,6 +107,27 @@ async def test_get_insights_success(client):
 
 
 @pytest.mark.asyncio
+async def test_get_profile_success(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {
+        "id": "user-456",
+        "username": "cloudless_gr",
+        "name": "cloudless.gr",
+        "followers_count": 42,
+        "following_count": 10,
+        "media_count": 5,
+    }))
+
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await client.get_profile()
+
+    assert result["username"] == "cloudless_gr"
+    assert result["followers_count"] == 42
+    assert fake.calls[0]["method"] == "GET"
+    assert fake.calls[0]["url"] == f"{api.THREADS_API_BASE}/v1.0/user-456"
+    assert "followers_count" in fake.calls[0]["params"]["fields"]
+
+
+@pytest.mark.asyncio
 async def test_create_text_container_success(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "creation-1"}))
 
@@ -143,6 +164,21 @@ async def test_create_video_container_success(client):
     assert fake.calls[0]["data"]["media_type"] == "VIDEO"
     assert fake.calls[0]["data"]["video_url"] == "https://example.com/video.mp4"
     assert fake.calls[0]["data"]["text"] == "Watch this"
+
+
+@pytest.mark.asyncio
+async def test_create_video_container_as_carousel_item(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "creation-vid-item"}))
+
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        creation_id = await client.create_video_container(
+            "https://example.com/clip.mp4", is_carousel_item=True
+        )
+
+    assert creation_id == "creation-vid-item"
+    assert fake.calls[0]["data"]["media_type"] == "VIDEO"
+    assert fake.calls[0]["data"]["is_carousel_item"] == "true"
+    assert "text" not in fake.calls[0]["data"]
 
 
 @pytest.mark.asyncio

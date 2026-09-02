@@ -1375,8 +1375,11 @@ async def generate_content(
             "1-3 hashtags. Plain everyday English."
         ),
         "threads": (
-            "Casual, text-based for Threads. 500 char limit. Minimal hashtags (0-2). "
-            "Plain everyday English."
+            "Casual, conversational, text-first for Threads. 500 char limit. "
+            "Minimal hashtags (0-2). Threads rewards authentic, human-sounding posts "
+            "— write like a person, not a brand press release. Lead with a hook or "
+            "opinion in the first line. Follow the brand voice signature and tone "
+            "dimensions from the BRAND CONTEXT below. Plain everyday English."
         ),
         "tiktok": (
             "Short-form video/photo caption for TikTok. 2200 char limit. "

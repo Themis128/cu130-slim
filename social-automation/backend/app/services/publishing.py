@@ -967,6 +967,14 @@ async def _publish_tiktok(
 
 # ── Threads ───────────────────────────────────────────────────────────────────
 
+def _threads_media_kind(path: str) -> str:
+    """Classify a media file as 'image' or 'video' by extension."""
+    ext = path.lower().rsplit(".", 1)[-1] if "." in path else ""
+    if ext in ("mp4", "mov", "webm"):
+        return "video"
+    return "image"
+
+
 async def _publish_threads(
     access_token: str,
     text: str,
@@ -977,19 +985,44 @@ async def _publish_threads(
 ) -> PublishResult:
     """Publish to Threads using the actual ThreadsAPIClient.
 
-    Supports text-only posts and single-image posts. The Threads API
-    requires a two-step flow: create a media container, then publish it.
+    Supports text-only, single-image, single-video, and carousel posts
+    (up to 20 mixed image/video items). The Threads API requires a
+    two-step flow: create a media container, then publish it.
+
+    Carousel items must be hosted at public URLs. The text/caption is
+    attached to the parent carousel container (not individual items).
     """
     client = ThreadsAPIClient(access_token=access_token, user_id=account.account_id)
-    image_url: str | None = None
+
+    # Resolve public URLs for each media asset (Threads requires URLs)
+    media_urls: list[tuple[str, str]] = []  # (url, kind)
     if storage_paths:
-        image_url = _media_public_url(storage_paths[0])
+        for sp in storage_paths[:20]:
+            url = _media_public_url(sp)
+            if url:
+                media_urls.append((url, _threads_media_kind(sp)))
 
     try:
-        if image_url:
-            creation_id = await client.create_image_container(image_url=image_url, text=text[:500])
-        else:
+        if not media_urls:
+            # Text-only post
             creation_id = await client.create_text_container(text=text[:500])
+        elif len(media_urls) == 1:
+            # Single media (image or video)
+            url, kind = media_urls[0]
+            if kind == "video":
+                creation_id = await client.create_video_container(video_url=url, text=text[:500])
+            else:
+                creation_id = await client.create_image_container(image_url=url, text=text[:500])
+        else:
+            # Carousel: create each item, then combine into a carousel container
+            child_ids: list[str] = []
+            for url, kind in media_urls:
+                if kind == "video":
+                    cid = await client.create_video_container(video_url=url, is_carousel_item=True)
+                else:
+                    cid = await client.create_carousel_item(image_url=url, is_carousel_item=True)
+                child_ids.append(cid)
+            creation_id = await client.create_carousel_container(children_ids=child_ids, text=text[:500])
 
         media_id = await client.publish_container(creation_id)
     except ThreadsAPIError as exc:
@@ -998,7 +1031,9 @@ async def _publish_threads(
                 success=False,
                 error="Threads API access denied. Ensure the app has threads_content_publish permission.",
             )
-        raise
+        return PublishResult(success=False, error=f"Threads publish failed: {exc}")
+    except ValueError as exc:
+        return PublishResult(success=False, error=f"Threads media error: {exc}")
 
     return PublishResult(
         success=True,

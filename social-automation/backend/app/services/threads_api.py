@@ -146,6 +146,21 @@ class ThreadsAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def get_profile(self) -> dict[str, Any]:
+        """Fetch the full Threads profile including follower/following/media counts.
+
+        Returns fields: id, username, name, threads_profile_picture_url,
+        threads_biography, followers_count, following_count, media_count.
+        """
+        url = f"{self._base_url}/{self.user_id}"
+        params = self._params({
+            "fields": "username,name,threads_profile_picture_url,threads_biography,followers_count,following_count,media_count",
+        })
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
     async def _create_container(
         self,
         media_type: str,
@@ -202,14 +217,23 @@ class ThreadsAPIClient:
             raise ValueError("Image URL is required for an image post")
         return await self._create_container("IMAGE", text=text, image_url=image_url)
 
-    async def create_video_container(self, video_url: str, text: str = "") -> str:
+    async def create_video_container(
+        self, video_url: str, text: str = "", is_carousel_item: bool = False
+    ) -> str:
         """Create a video container and return the ``creation_id``.
 
         ``video_url`` must be a publicly accessible URL.
+        When ``is_carousel_item`` is True the container is marked as a
+        carousel child (no text on individual items).
         """
         if not video_url:
             raise ValueError("Video URL is required for a video post")
-        return await self._create_container("VIDEO", text=text, video_url=video_url)
+        return await self._create_container(
+            "VIDEO",
+            text=text,
+            video_url=video_url,
+            is_carousel_item=is_carousel_item,
+        )
 
     async def create_carousel_item(self, image_url: str, is_carousel_item: bool = True) -> str:
         """Create a single carousel item container and return its ``creation_id``.

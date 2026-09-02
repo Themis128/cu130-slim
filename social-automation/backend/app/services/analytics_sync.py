@@ -787,6 +787,44 @@ async def _fetch_threads_media_metrics(
     )
 
 
+async def _fetch_threads_account_insights(
+    client: httpx.AsyncClient, token: str, user_id: str,
+) -> dict[str, Any]:
+    """Fetch account-level insights from the Threads API.
+
+    Returns a dict with aggregated views, likes, replies, reposts, quotes
+    across all posts in the default 30-day window the API returns.
+    """
+    url = f"https://graph.threads.net/v1.0/{user_id}/insights"
+    params = {"metric": "views,likes,replies,reposts,quotes,followers_count", "access_token": token}
+    resp = await client.get(url, params=params)
+    if resp.status_code != 200:
+        return {}
+    data = resp.json() or {}
+    aggregated: dict[str, int] = {}
+    for item in data.get("data", []):
+        name = item.get("name", "")
+        values = item.get("values", [])
+        total = sum(int(v.get("value", 0) or 0) for v in values) if values else 0
+        aggregated[name] = total
+    return aggregated
+
+
+async def _fetch_threads_profile(
+    client: httpx.AsyncClient, token: str, user_id: str,
+) -> dict[str, Any]:
+    """Fetch the Threads profile including follower/following/media counts."""
+    url = f"https://graph.threads.net/v1.0/{user_id}"
+    params = {
+        "fields": "username,name,threads_profile_picture_url,threads_biography,followers_count,following_count,media_count",
+        "access_token": token,
+    }
+    resp = await client.get(url, params=params)
+    if resp.status_code != 200:
+        return {}
+    return resp.json() or {}
+
+
 async def sync_threads_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -814,6 +852,7 @@ async def sync_threads_account(
     targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
+        # Per-post media metrics
         for t in targets:
             media_id = t.platform_post_id or ""
             if not media_id:
@@ -824,6 +863,59 @@ async def sync_threads_account(
                 metrics=metrics, captured_at=captured_at, source="threads_api",
                 result=result, platform="threads",
             )
+
+        # Account-level insights (aggregated views, likes, replies, reposts, quotes)
+        try:
+            account_insights = await _fetch_threads_account_insights(client, token, account.account_id)
+            if account_insights:
+                # Persist as an AnalyticsEvent for dashboard aggregates
+                event = AnalyticsEvent(
+                    team_id=account.team_id,
+                    social_account_id=account.id,
+                    platform="threads",
+                    event_type="account_insights",
+                    meta_data={
+                        "captured_at": captured_at.isoformat(),
+                        "views": account_insights.get("views", 0),
+                        "likes": account_insights.get("likes", 0),
+                        "replies": account_insights.get("replies", 0),
+                        "reposts": account_insights.get("reposts", 0),
+                        "quotes": account_insights.get("quotes", 0),
+                        "followers_count": account_insights.get("followers_count", 0),
+                    },
+                )
+                db.add(event)
+        except Exception as exc:
+            result.errors.append(f"threads account insights: {exc}")
+
+        # Profile data (followers_count, following_count, media_count)
+        try:
+            profile = await _fetch_threads_profile(client, token, account.account_id)
+            if profile:
+                # Update account metadata from profile
+                if profile.get("username") and not account.username:
+                    account.username = profile["username"]
+                if profile.get("name") and not account.display_name:
+                    account.display_name = profile["name"]
+                if profile.get("threads_profile_picture_url") and not account.avatar_url:
+                    account.avatar_url = profile["threads_profile_picture_url"]
+                # Persist profile metadata for dashboard use
+                event = AnalyticsEvent(
+                    team_id=account.team_id,
+                    social_account_id=account.id,
+                    platform="threads",
+                    event_type="profile_sync",
+                    meta_data={
+                        "captured_at": captured_at.isoformat(),
+                        "followers_count": int(profile.get("followers_count", 0) or 0),
+                        "following_count": int(profile.get("following_count", 0) or 0),
+                        "media_count": int(profile.get("media_count", 0) or 0),
+                        "username": profile.get("username", ""),
+                    },
+                )
+                db.add(event)
+        except Exception as exc:
+            result.errors.append(f"threads profile sync: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)

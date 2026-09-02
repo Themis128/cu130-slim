@@ -11,7 +11,9 @@ from sqlalchemy.orm import selectinload
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget
+from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
+from app.services.content_renderer import render_post_text
 from app.services.spellcheck import auto_correct
 
 router = APIRouter()
@@ -386,6 +388,104 @@ async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_cu
 
     for target in post.targets:
         db.add(PostTarget(post_id=new_post.id, social_account_id=target.social_account_id))
+
+    await db.commit()
+    await db.refresh(new_post)
+
+    return await _post_to_response(new_post, db)
+
+
+class CrossPostRequest(BaseModel):
+    """Request body for cross-posting an existing post to another platform."""
+    target_platform: str  # e.g. "threads", "twitter", "facebook"
+    target_account_id: uuid.UUID | None = None  # specific account; auto-select if omitted
+    adapt_content: bool = True  # re-render text for target platform limits
+    schedule_at: datetime | None = None  # schedule instead of draft
+
+
+@router.post("/posts/{post_id}/cross-post", response_model=PostResponse)
+async def cross_post_to_platform(
+    post_id: uuid.UUID,
+    request: CrossPostRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cross-post an existing post to another platform.
+
+    Creates a new draft (or scheduled post) with content adapted for the
+    target platform's character limits, hashtag caps, and link rules.
+    Reuses the original media assets. If ``target_account_id`` is omitted,
+    the first active account on ``target_platform`` for the team is used.
+    """
+    result = await db.execute(
+        select(Post).where(Post.id == post_id).options(selectinload(Post.targets))
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Resolve team
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # Find the target account
+    if request.target_account_id:
+        acct_result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.id == request.target_account_id,
+                SocialAccount.team_id == team.id,
+                SocialAccount.platform == request.target_platform,
+                SocialAccount.status == "active",
+            )
+        )
+        target_account = acct_result.scalar_one_or_none()
+    else:
+        acct_result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == team.id,
+                SocialAccount.platform == request.target_platform,
+                SocialAccount.status == "active",
+            ).limit(1)
+        )
+        target_account = acct_result.scalar_one_or_none()
+
+    if not target_account:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active {request.target_platform} account found for your team",
+        )
+
+    # Adapt content for the target platform
+    if request.adapt_content:
+        adapted_text = render_post_text(post, request.target_platform)
+    else:
+        adapted_text = post.content_text or ""
+
+    corrected_text = await auto_correct(adapted_text)
+
+    new_post = Post(
+        team_id=team.id,
+        user_id=current_user.id,
+        status=PostStatus.DRAFT if not request.schedule_at else PostStatus.SCHEDULED,
+        content_text=corrected_text or adapted_text,
+        media_ids=post.media_ids,
+        platform_specific={request.target_platform: {"content_text": corrected_text or adapted_text}},
+        hashtags=post.hashtags,
+        mention_accounts=post.mention_accounts,
+        link_url=post.link_url,
+        link_preview_override=post.link_preview_override,
+        scheduled_at=request.schedule_at,
+        meta_data={"cross_posted_from": str(post_id), "source_platform": post.targets[0].social_account_id if post.targets else None},
+        music_asset_id=post.music_asset_id,
+    )
+    db.add(new_post)
+    await db.flush()
+
+    db.add(PostTarget(post_id=new_post.id, social_account_id=target_account.id))
 
     await db.commit()
     await db.refresh(new_post)
