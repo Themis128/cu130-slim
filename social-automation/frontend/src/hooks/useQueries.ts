@@ -12,6 +12,7 @@ import {
   aiProvidersApi,
   linkedinApi,
   brandApi,
+  auditApi,
   getAccessToken,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
@@ -1067,5 +1068,13 @@ export function useDeleteBrandAsset() {
       queryClient.invalidateQueries({ queryKey: ['brand'] })
       toast.success('Brand asset removed')
     },
+  })
+}
+// Audit log hooks (Phase 7)
+export function useAuditLogs(params?: { action?: string; resource_type?: string; page?: number; page_size?: number }) {
+  return useQuery({
+    queryKey: ['audit-logs', params],
+    queryFn: () => auditApi.list(params),
+    select: (response) => response.data,
   })
 }

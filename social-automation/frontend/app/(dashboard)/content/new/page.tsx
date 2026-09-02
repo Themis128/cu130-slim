@@ -724,6 +724,8 @@ export default function NewPostPage() {
                       key={platform.id}
                       onClick={() => handlePlatformToggle(platform.id)}
                       disabled={!isConnected}
+                      aria-pressed={isSelected}
+                      aria-label={`${platform.name} ${isConnected ? (isSelected ? 'selected' : 'not selected') : 'not connected'}`}
                       className={cn(
                         'flex items-center gap-2 rounded-lg border-2 px-3 py-1.5 text-sm font-medium transition-all',
                         isSelected ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-muted hover:border-primary/50',
@@ -925,6 +927,7 @@ export default function NewPostPage() {
             </CardHeader>
             <CardContent>
               <Textarea
+                label="Post content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="What do you want to share?"

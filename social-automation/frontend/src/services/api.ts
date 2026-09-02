@@ -798,4 +798,9 @@ export const mediaEnhanceApi = {
     api.post<{ task_id: string; status: string; asset_count: number }>('/media/enhance/batch', data),
 }
 
+export const auditApi = {
+  list: (params?: { action?: string; resource_type?: string; start_date?: string; end_date?: string; page?: number; page_size?: number }) =>
+    api.get('/audit/audit-logs', { params }),
+}
+
 export default api

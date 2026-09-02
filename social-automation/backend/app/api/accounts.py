@@ -16,6 +16,7 @@ from app.api.auth import (
     get_current_user,
     instagram_client,
     linkedin_client,
+    log_action,
     threads_client,
     tiktok_client,
     twitter_client,
@@ -525,6 +526,7 @@ async def refresh_account_token(
     if new_refresh:
         account.refresh_token_enc = encrypt_token(new_refresh)
     account.status = "active"
+    await log_action(db, user=current_user, action="refresh_token", resource_type="social_account", resource_id=str(account_id), meta={"platform": platform})
     await db.commit()
 
     return {"message": "Token refreshed", "status": "active"}

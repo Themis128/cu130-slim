@@ -469,6 +469,43 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Secret rotation & audit logs */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Secret Rotation & Audit</CardTitle>
+              <CardDescription>Manage OAuth tokens and view action history</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">OAuth Token Refresh</p>
+                  <p className="text-xs text-muted-foreground">Refresh expired social account tokens</p>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/accounts">Manage Accounts</Link>
+                </Button>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">AI Provider API Keys</p>
+                  <p className="text-xs text-muted-foreground">Rotate Cloudflare, Groq, and other API keys</p>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/settings/ai-providers">Manage Keys</Link>
+                </Button>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Audit Logs</p>
+                  <p className="text-xs text-muted-foreground">View who did what, when</p>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/settings/audit-logs">View Logs</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ── Notifications ────────────────────────────────────────────────── */}

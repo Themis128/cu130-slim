@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, log_action, require_admin, require_editor
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget
 from app.models.user import Team, TeamMember, User
@@ -263,7 +263,7 @@ async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: U
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def delete_post(post_id: uuid.UUID, current_user: User = Depends(require_editor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Post).where(Post.id == post_id))
     post = result.scalar_one_or_none()
     if not post:
@@ -272,6 +272,7 @@ async def delete_post(post_id: uuid.UUID, current_user: User = Depends(get_curre
     if post.status in [PostStatus.PUBLISHED, PostStatus.PUBLISHING]:
         raise HTTPException(status_code=400, detail="Cannot delete published post")
 
+    await log_action(db, user=current_user, action="delete", resource_type="post", resource_id=str(post_id), detail=(post.content_text or "")[:100])
     await db.delete(post)
     await db.commit()
 
@@ -310,6 +311,7 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
 
     post.status = PostStatus.SCHEDULED
     post.scheduled_at = datetime.now(UTC)
+    await log_action(db, user=current_user, action="publish", resource_type="post", resource_id=str(post_id))
     await db.commit()
     await db.refresh(post)
 
@@ -532,6 +534,7 @@ async def submit_for_review(post_id: uuid.UUID, current_user: User = Depends(get
         body="Submitted for review", action="submit_review",
     )
     db.add(comment)
+    await log_action(db, user=current_user, action="submit_review", resource_type="post", resource_id=str(post_id))
     await db.commit()
     return await _post_to_response(post, db)
 
@@ -539,7 +542,7 @@ async def submit_for_review(post_id: uuid.UUID, current_user: User = Depends(get
 @router.post("/posts/{post_id}/approve", response_model=PostResponse)
 async def approve_post(
     post_id: uuid.UUID, comment: CommentCreate | None = None,
-    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
 ):
     """Approve a post in REVIEW status."""
     post = await _get_team_post(post_id, current_user, db)
@@ -552,6 +555,7 @@ async def approve_post(
         body=comment.body if comment else "Approved", action="approve",
     )
     db.add(c)
+    await log_action(db, user=current_user, action="approve", resource_type="post", resource_id=str(post_id))
     await db.commit()
     return await _post_to_response(post, db)
 
@@ -559,7 +563,7 @@ async def approve_post(
 @router.post("/posts/{post_id}/reject", response_model=PostResponse)
 async def reject_post(
     post_id: uuid.UUID, comment: CommentCreate | None = None,
-    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
 ):
     """Reject a post in REVIEW status — sends it back to DRAFT."""
     post = await _get_team_post(post_id, current_user, db)
@@ -572,6 +576,7 @@ async def reject_post(
         body=comment.body if comment else "Rejected — needs revision", action="reject",
     )
     db.add(c)
+    await log_action(db, user=current_user, action="reject", resource_type="post", resource_id=str(post_id))
     await db.commit()
     return await _post_to_response(post, db)
 

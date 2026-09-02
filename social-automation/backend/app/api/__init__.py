@@ -5,6 +5,7 @@ from app.api import (
     ai,
     ai_providers,
     analytics,
+    audit,
     auth,
     brand,
     cf_db,
@@ -37,3 +38,4 @@ api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
+api_router.include_router(audit.router, prefix="/audit", tags=["audit"])

@@ -48,7 +48,7 @@ export function Header() {
     <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
       <div className="flex h-full items-center justify-between px-4 gap-4">
         {/* Mobile search button */}
-        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setPaletteOpen(true)}>
+        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setPaletteOpen(true)} aria-label="Search">
           <Search className="h-5 w-5" />
         </Button>
 
@@ -152,7 +152,7 @@ export function Header() {
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full" aria-label="User menu">
                 <Avatar className="h-10 w-10">
                   <AvatarImage src={user?.avatar_url || undefined} alt={user?.name || user?.email} />
                   <AvatarFallback className="text-xs">

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, log_action, require_admin
 from app.core.security import encrypt_token
 from app.db.session import get_db
 from app.models.ai_provider import AIProvider
@@ -105,7 +105,7 @@ async def list_providers(
 async def upsert_provider(
     name: str,
     body: AIProviderUpsert,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     team = await _get_team(current_user, db)
@@ -153,6 +153,7 @@ async def upsert_provider(
         for other in others_result.scalars().all():
             other.is_default = False
 
+    await log_action(db, user=current_user, action="update", resource_type="ai_provider", resource_id=name, meta={"is_default": body.is_default})
     await db.commit()
     await db.refresh(provider)
     return AIProviderOut(
@@ -191,7 +192,7 @@ async def list_provider_models(
 @router.delete("/{name}", status_code=204)
 async def delete_provider(
     name: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     team = await _get_team(current_user, db)
@@ -200,6 +201,7 @@ async def delete_provider(
     )
     provider = result.scalar_one_or_none()
     if provider:
+        await log_action(db, user=current_user, action="delete", resource_type="ai_provider", resource_id=name)
         await db.delete(provider)
         await db.commit()
 

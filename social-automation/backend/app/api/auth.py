@@ -1608,3 +1608,79 @@ async def linkedin_sync_orgs(
         "organizations": [{"id": str(a.id), "display_name": a.display_name, "account_id": a.account_id} for a in synced],
         "raw_acl_response": raw,
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — RBAC role enforcement + audit logging helpers
+# ---------------------------------------------------------------------------
+
+# Role hierarchy: owner > admin > editor > viewer
+_ROLE_LEVEL = {UserRole.VIEWER: 0, UserRole.EDITOR: 1, UserRole.ADMIN: 2, UserRole.OWNER: 3}
+
+
+async def get_user_role(user: User, db: AsyncSession) -> UserRole:
+    """Return the user's role in their team (defaults to VIEWER)."""
+    result = await db.execute(
+        select(TeamMember.role).where(TeamMember.user_id == user.id)
+    )
+    role = result.scalar_one_or_none()
+    return role or UserRole.VIEWER
+
+
+def require_role(min_role: UserRole):
+    """FastAPI dependency factory: require the user to have at least ``min_role``."""
+
+    async def _check(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        role = await get_user_role(current_user, db)
+        if _ROLE_LEVEL.get(role, 0) < _ROLE_LEVEL[min_role]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires {min_role.value} role or higher",
+            )
+        return current_user
+
+    return _check
+
+
+# Convenience dependencies
+require_owner = require_role(UserRole.OWNER)
+require_admin = require_role(UserRole.ADMIN)
+require_editor = require_role(UserRole.EDITOR)
+
+
+async def log_action(
+    db: AsyncSession,
+    *,
+    user: User,
+    action: str,
+    resource_type: str,
+    resource_id: str | None = None,
+    detail: str | None = None,
+    ip_address: str | None = None,
+    meta: dict | None = None,
+) -> None:
+    """Write an audit log entry."""
+    from app.models.user import AuditLog
+    # Resolve team
+    result = await db.execute(
+        select(TeamMember.team_id).where(TeamMember.user_id == user.id)
+    )
+    team_id = result.scalar_one_or_none()
+    if not team_id:
+        return
+    entry = AuditLog(
+        team_id=team_id,
+        user_id=user.id,
+        user_email=user.email,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        detail=detail,
+        ip_address=ip_address,
+        meta=meta or {},
+    )
+    db.add(entry)
+    await db.flush()
