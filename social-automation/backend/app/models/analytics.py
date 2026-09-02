@@ -100,3 +100,36 @@ class PostAnalyticsSnapshot(Base):
     team: Mapped[Team] = relationship("Team")
     post: Mapped[Post | None] = relationship("Post")
     social_account: Mapped[SocialAccount] = relationship("SocialAccount")
+
+
+class FollowerSnapshot(Base):
+    """Point-in-time follower count for a social account.
+
+    Appended on every analytics sync so follower-growth time series
+    can be charted without re-fetching from each platform API.
+    """
+
+    __tablename__ = "follower_snapshots"
+    __table_args__ = (
+        Index("ix_follower_snapshots_account_time", "social_account_id", "captured_at"),
+        Index("ix_follower_snapshots_team_time", "team_id", "captured_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    social_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("social_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    platform: Mapped[str] = mapped_column(String(30), nullable=False)
+    followers: Mapped[int] = mapped_column(Integer, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    team: Mapped[Team] = relationship("Team")
+    social_account: Mapped[SocialAccount] = relationship("SocialAccount")
