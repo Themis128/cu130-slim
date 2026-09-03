@@ -21,6 +21,10 @@
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "dmr": {
+      "command": "python3",
+      "args": ["/home/tbaltzakis/cu130-slim/.devin/skills/docker-model-runner/scripts/dmr-mcp-server.py"]
     }
   }
 }
