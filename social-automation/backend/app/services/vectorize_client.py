@@ -24,8 +24,18 @@ class VectorizeClient:
 
     def __init__(self) -> None:
         self.account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-        self.api_token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
         self.index_name = (settings.VECTORIZE_INDEX_NAME or "social-embeddings").strip()
+        # Token fallback chain: API token → AI token → Email token
+        self._tokens = [
+            t for t in [
+                (settings.CLOUDFLARE_API_TOKEN or "").strip(),
+                (settings.CLOUDFLARE_AI_API_TOKEN or "").strip(),
+                (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
+            ]
+            if t
+        ]
+        self.api_token = self._tokens[0] if self._tokens else ""
+        self._active_token: str | None = None
         self._base_url: str | None = None
         self._enabled: bool | None = None
 
@@ -45,10 +55,30 @@ class VectorizeClient:
         return self._base_url
 
     def _headers(self) -> dict[str, str]:
+        token = self._active_token or self.api_token
         return {
-            "Authorization": f"Bearer {self.api_token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+
+    async def _try_tokens(self, method, url, **kwargs) -> httpx.Response:
+        """Try request with each available token until one works (not 401)."""
+        last_resp = None
+        for token in self._tokens:
+            self._active_token = token
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            try:
+                resp = await method(url, headers=headers, **kwargs)
+                if resp.status_code != 401:
+                    return resp
+                last_resp = resp
+                logger.warning("Vectorize token failed (401), trying next token...")
+            except Exception:
+                continue
+        self._active_token = None
+        if last_resp:
+            return last_resp
+        raise RuntimeError("All Cloudflare tokens failed for Vectorize")
 
     async def upsert(
         self,
@@ -83,7 +113,7 @@ class VectorizeClient:
         if metadata:
             body["vectors"][0]["metadata"] = metadata
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=body, headers=self._headers())
+            resp = await self._try_tokens(client.post, url, json=body)
         return resp.status_code == 200
 
     async def upsert_many(
@@ -103,7 +133,7 @@ class VectorizeClient:
             v.setdefault("namespace", namespace)
         body = {"vectors": vectors}
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=body, headers=self._headers())
+            resp = await self._try_tokens(client.post, url, json=body)
         if resp.status_code == 200:
             return len(vectors)
         logger.error("Vectorize upsert_many failed: %s", resp.text[:200])
@@ -137,7 +167,7 @@ class VectorizeClient:
             "return_metadata": return_metadata,
         }
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=body, headers=self._headers())
+            resp = await self._try_tokens(client.post, url, json=body)
         if resp.status_code != 200:
             logger.error("Vectorize query failed: %s", resp.text[:200])
             return []
@@ -154,7 +184,7 @@ class VectorizeClient:
         url = f"{self.base_url}/get"
         body = {"ids": ids, "namespace": namespace}
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=body, headers=self._headers())
+            resp = await self._try_tokens(client.post, url, json=body)
         if resp.status_code != 200:
             return []
         data = resp.json()
@@ -167,7 +197,7 @@ class VectorizeClient:
         url = f"{self.base_url}/delete_by_ids"
         body = {"ids": ids}
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, json=body, headers=self._headers())
+            resp = await self._try_tokens(client.post, url, json=body)
         return resp.status_code == 200
 
     async def health(self) -> bool:
@@ -177,13 +207,14 @@ class VectorizeClient:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes"
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(url, headers=self._headers())
+                resp = await self._try_tokens(client.get, url)
             data = resp.json()
             if data.get("success"):
                 indexes = data.get("result", [])
                 return any(idx.get("name") == self.index_name for idx in indexes)
             return False
-        except Exception:
+        except Exception as exc:
+            logger.warning("Vectorize health check failed: %s", exc)
             return False
 
 

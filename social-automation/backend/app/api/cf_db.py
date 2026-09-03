@@ -23,11 +23,24 @@ router = APIRouter()
 @router.get("/health")
 async def cf_db_health() -> dict:
     """Check health of all Cloudflare database services."""
+    from app.core.config import get_settings
+    s = get_settings()
+    # Count available tokens (without exposing values)
+    tokens_available = sum(1 for t in [
+        (s.CLOUDFLARE_API_TOKEN or "").strip(),
+        (s.CLOUDFLARE_AI_API_TOKEN or "").strip(),
+        (getattr(s, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
+    ] if t)
     return {
         "d1": await d1_client.health(),
         "kv": await kv_client.health(),
         "vectorize": await vectorize_client.health(),
         "router": await db_router.health(),
+        "tokens_available": tokens_available,
+        "account_id_configured": bool((s.CLOUDFLARE_ACCOUNT_ID or "").strip()),
+        "d1_db_id_configured": bool((getattr(s, "D1_SOCIAL_AUTOMATION_ID", "") or "").strip()),
+        "kv_namespace_configured": bool((s.KV_CACHE_NAMESPACE or "").strip()),
+        "vectorize_index_configured": bool((s.VECTORIZE_INDEX_NAME or "").strip()),
     }
 
 

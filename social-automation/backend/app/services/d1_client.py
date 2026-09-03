@@ -24,8 +24,18 @@ class D1Client:
 
     def __init__(self) -> None:
         self.account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-        self.api_token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
         self.db_id = (getattr(settings, "D1_SOCIAL_AUTOMATION_ID", "") or "").strip()
+        # Token fallback chain: API token → AI token → Email token
+        self._tokens = [
+            t for t in [
+                (settings.CLOUDFLARE_API_TOKEN or "").strip(),
+                (settings.CLOUDFLARE_AI_API_TOKEN or "").strip(),
+                (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
+            ]
+            if t
+        ]
+        self.api_token = self._tokens[0] if self._tokens else ""
+        self._active_token: str | None = None
         self._base_url: str | None = None
         self._enabled: bool | None = None
 
@@ -45,10 +55,29 @@ class D1Client:
         return self._base_url
 
     def _headers(self) -> dict[str, str]:
+        token = self._active_token or self.api_token
         return {
-            "Authorization": f"Bearer {self.api_token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+
+    async def _try_with_token_fallback(self, request_fn) -> httpx.Response:
+        """Try request with each available token until one works (not 401)."""
+        last_resp = None
+        for token in self._tokens:
+            self._active_token = token
+            try:
+                resp = await request_fn(token)
+                if resp.status_code != 401:
+                    return resp
+                last_resp = resp
+                logger.warning("D1 token failed (401), trying next token...")
+            except Exception:
+                continue
+        self._active_token = None
+        if last_resp:
+            return last_resp
+        raise RuntimeError("All Cloudflare tokens failed for D1")
 
     async def execute(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         """Execute a SQL statement and return rows.
@@ -68,7 +97,12 @@ class D1Client:
             body["params"] = [self._serialize_param(p) for p in params]
 
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(self.base_url, json=body, headers=self._headers())
+            resp = await self._try_with_token_fallback(
+                lambda token: client.post(
+                    self.base_url, json=body,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                )
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -191,7 +225,8 @@ class D1Client:
         try:
             await self.execute("SELECT 1 as ok")
             return True
-        except Exception:
+        except Exception as exc:
+            logger.warning("D1 health check failed: %s", exc)
             return False
 
     @staticmethod
