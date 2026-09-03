@@ -245,10 +245,14 @@ async function handleLogin(req, res) {
       await page.keyboard.type(password, { delay: 50 });
     }
 
-    // Submit
-    const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in")').first();
+    // Submit — try multiple selectors including localized text
+    const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion"), button[data-tracking-control-name="homepage-basic_sign-in-submit"]').first();
     if (await submitBtn.count() > 0) {
-      await submitBtn.click();
+      try {
+        await submitBtn.click({ timeout: 5000 });
+      } catch (_) {
+        await passInput.press('Enter');
+      }
     } else {
       await passInput.press('Enter');
     }
