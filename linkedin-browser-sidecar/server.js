@@ -194,6 +194,92 @@ async function handleCheckSession(req, res) {
   }
 }
 
+// ── API: Login (username + password) ───────────────────────────────────────
+
+async function handleLogin(req, res) {
+  const { username, password, verification_code } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required' });
+  }
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+    await dismissDialogs();
+
+    // Fill login form
+    const emailInput = page.locator('input#username, input[name="session_key"]').first();
+    if (await emailInput.count() === 0) {
+      return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
+    }
+    await emailInput.fill(username);
+
+    const passInput = page.locator('input#password, input[name="session_password"]').first();
+    if (await passInput.count() === 0) {
+      return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
+    }
+    await passInput.fill(password);
+
+    // Submit
+    const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in")').first();
+    if (await submitBtn.count() > 0) {
+      await submitBtn.click();
+    } else {
+      await passInput.press('Enter');
+    }
+
+    // Wait for navigation
+    await page.waitForTimeout(8000);
+
+    const currentUrl = page.url();
+
+    // Check for 2FA / checkpoint
+    if (currentUrl.includes('/checkpoint') || currentUrl.includes('/two-factor')) {
+      if (verification_code) {
+        const codeInput = page.locator('input#pin, input[name="pin"], input[autocomplete="one-time-code"]').first();
+        if (await codeInput.count() > 0) {
+          await codeInput.fill(verification_code);
+          const verifyBtn = page.locator('button#reset-password-submit-button, button:has-text("Verify")').first();
+          if (await verifyBtn.count() > 0) {
+            await verifyBtn.click();
+          } else {
+            await codeInput.press('Enter');
+          }
+          await page.waitForTimeout(5000);
+          if (!page.url().includes('/login') && !page.url().includes('/checkpoint')) {
+            storageState = await context.storageState();
+            res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+          } else {
+            res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA code rejected' });
+          }
+        } else {
+          res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA required but no code input found' });
+        }
+      } else {
+        res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: 'LinkedIn 2FA / verification required. Provide verification_code and retry.' });
+      }
+      return;
+    }
+
+    // Check if login succeeded
+    if (!currentUrl.includes('/login') && !currentUrl.includes('/checkpoint')) {
+      storageState = await context.storageState();
+      res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+    } else {
+      let errorMsg = 'LinkedIn login failed';
+      try {
+        const errorEl = page.locator("div[role='alert'], .form-error, #error-for-username, #error-for-password").first();
+        if (await errorEl.count() > 0) {
+          errorMsg = await errorEl.innerText();
+        }
+      } catch (_) {}
+      res.json({ status: 'ok', logged_in: false, message: errorMsg, url: currentUrl });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ── API: Personal profile read ─────────────────────────────────────────────
 
 async function handleReadProfile(req, res) {
@@ -1400,6 +1486,7 @@ app.get('/health', (req, res) => {
 // Session
 app.post('/session', handleSetSession);
 app.get('/session', handleCheckSession);
+app.post('/login', handleLogin);
 
 // Personal profile
 app.get('/profile', handleReadProfile);

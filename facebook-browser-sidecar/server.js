@@ -181,20 +181,122 @@ async function handleCheckSession(req, res) {
   }
 }
 
+// ── API: Login (username + password) ───────────────────────────────────────
+
+async function handleLogin(req, res) {
+  const { username, password, verification_code } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required' });
+  }
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.facebook.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForSelector('input[name="email"]', { timeout: 30000 });
+
+    await page.fill('input[name="email"]', username);
+    await page.fill('input[name="pass"]', password);
+    await page.press('input[name="pass"]', 'Enter');
+
+    // Wait for navigation
+    await page.waitForTimeout(8000);
+
+    const currentUrl = page.url();
+
+    // Check for 2FA / checkpoint
+    if (currentUrl.includes('checkpoint') || currentUrl.includes('two_factor')) {
+      if (verification_code) {
+        const codeInput = page.locator('input#approvals_code, input[name="approvals_code"]').first();
+        if (await codeInput.count() > 0) {
+          await codeInput.fill(verification_code);
+          await codeInput.press('Enter');
+          await page.waitForTimeout(5000);
+          if (isLoggedIn()) {
+            storageState = await context.storageState();
+            res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+          } else {
+            res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA code rejected' });
+          }
+        } else {
+          res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA required but no code input found' });
+        }
+      } else {
+        res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: 'Facebook 2FA required. Provide verification_code and retry.' });
+      }
+      return;
+    }
+
+    // Check if login succeeded
+    if (isLoggedIn()) {
+      storageState = await context.storageState();
+      res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+    } else {
+      // Check for error message
+      let errorMsg = 'Facebook login failed';
+      try {
+        const errorEl = page.locator("div[role='alert'], .login_error, [data-testid='royal_login_error']").first();
+        if (await errorEl.count() > 0) {
+          errorMsg = await errorEl.innerText();
+        }
+      } catch (_) {}
+      res.json({ status: 'ok', logged_in: false, message: errorMsg, url: currentUrl });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ── API: Personal profile read ─────────────────────────────────────────────
 
 async function handleReadProfile(req, res) {
   try {
     await ensureBrowser();
-    await page.goto('https://www.facebook.com/profile.php', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // Navigate to the user's own profile — Facebook redirects /me to the correct profile URL
+    await page.goto('https://www.facebook.com/me', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
     if (!isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
+    // If redirected to home, try profile.php with the user ID from the page
+    let profileUrl = page.url();
+    if (profileUrl === 'https://www.facebook.com/' || profileUrl.endsWith('facebook.com/')) {
+      // Try extracting user ID from cookies or page source
+      const userId = await page.evaluate(() => {
+        // Try to get user ID from the page's data
+        const el = document.querySelector('[data-userid]') || document.querySelector('[id^="pagelet_timeline"]');
+        if (el) return el.getAttribute('data-userid');
+        // Try from the JSON data
+        const scripts = document.querySelectorAll('script[type="application/json"]');
+        for (const s of scripts) {
+          const text = s.textContent || '';
+          const match = text.match(/"user_id":"(\d+)"/);
+          if (match) return match[1];
+        }
+        return null;
+      }).catch(() => null);
+
+      if (userId) {
+        await page.goto(`https://www.facebook.com/${userId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await settle();
+        profileUrl = page.url();
+      } else {
+        // Last resort: try the profile link in the navigation
+        const profileLink = page.locator('a[aria-label*="Profile"], a[aria-label*="profile"], a[href*="/profile.php?id="]').first();
+        if (await profileLink.count() > 0) {
+          const href = await profileLink.getAttribute('href');
+          if (href) {
+            await page.goto(href.startsWith('http') ? href : `https://www.facebook.com${href}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await settle();
+            profileUrl = page.url();
+          }
+        }
+      }
+    }
+
     const result = {
-      url: page.url(),
+      url: profileUrl,
       name: null,
       bio: null,
       profile_pic_url: null,
@@ -207,24 +309,33 @@ async function handleReadProfile(req, res) {
     if (await nameEl.count() > 0) {
       result.name = (await nameEl.innerText()).trim();
     }
+    if (!result.name) {
+      // Try the profile name in the title or meta
+      const titleName = await page.title().catch(() => '');
+      if (titleName && titleName.includes('|')) {
+        result.name = titleName.split('|')[0].trim();
+      } else if (titleName && !titleName.includes('Facebook')) {
+        result.name = titleName.trim();
+      }
+    }
 
     // Profile picture
-    const profilePic = page.locator('img[data-imgperflogname="profilePhoto"], img[alt*="Profile photo"], img[alt*="profile photo"]').first();
+    const profilePic = page.locator('img[data-imgperflogname="profilePhoto"], img[alt*="Profile photo"], img[alt*="profile photo"], img[src*="profile_pic"]').first();
     if (await profilePic.count() > 0) {
       result.profile_pic_url = await profilePic.getAttribute('src');
     }
 
     // Cover photo
-    const coverImg = page.locator('img[data-imgperflogname="coverPhoto"], img[alt*="Cover"], img[alt*="cover"]').first();
+    const coverImg = page.locator('img[data-imgperflogname="coverPhoto"], img[alt*="Cover"], img[alt*="cover"], img[src*="cover"]').first();
     if (await coverImg.count() > 0) {
       result.cover_url = await coverImg.getAttribute('src');
     }
 
     // Bio / intro — try the about page for reliability
     try {
-      await page.goto('https://www.facebook.com/profile.php?sk=about', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(profileUrl + '?sk=about', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await settle();
-      const bioEl = page.locator('[data-pagelet="ProfileActions"] span, div[data-sigil*="intro"] span, span:has-text("Lives in")').first();
+      const bioEl = page.locator('[data-pagelet="ProfileActions"] span, div[data-sigil*="intro"] span, span:has-text("Lives in"), div[class*="intro"] span').first();
       if (await bioEl.count() > 0) {
         result.bio = (await bioEl.innerText()).trim();
       }
@@ -1035,6 +1146,7 @@ app.get('/health', (req, res) => {
 // Session
 app.post('/session', handleSetSession);
 app.get('/session', handleCheckSession);
+app.post('/login', handleLogin);
 
 // Personal profile
 app.get('/profile', handleReadProfile);
@@ -1054,6 +1166,18 @@ app.get('/pages', handleListPages);
 app.post('/page/:page_id/use', handleUsePage);
 app.post('/page/post/text', handlePagePostText);
 app.post('/page/post/photo', handlePagePostPhoto);
+
+// Debug: screenshot
+app.get('/screenshot', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const buf = await page.screenshot({ type: 'png' });
+    res.set('Content-Type', 'image/png');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

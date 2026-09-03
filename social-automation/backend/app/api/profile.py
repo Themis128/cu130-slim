@@ -445,23 +445,27 @@ async def platform_login(
                 ),
             )
 
-        service = BrowserProfileService()
+        # Use the browser sidecars for login — they have better anti-detection
+        # than the in-process Playwright in BrowserProfileService.
         try:
             if account.platform == "facebook":
-                result = await service.login_facebook(
+                fb_client = FacebookSidecarClient()
+                result = await fb_client.login(
                     username, password, verification_code=getattr(req, "verification_code", None)
                 )
             else:
-                result = await service.login_linkedin(
+                li_client = LinkedInSidecarClient()
+                result = await li_client.login(
                     username, password, verification_code=getattr(req, "verification_code", None)
                 )
-        except BrowserProfileError as e:
+        except (FacebookSidecarError, LinkedInSidecarError) as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
 
         storage_state = result.get("storage_state")
-        logged_in = result.get("success", False) and not result.get("two_factor_required", False)
+        logged_in = result.get("logged_in", False)
+        two_factor = result.get("two_factor_required", False)
 
-        if logged_in:
+        if logged_in and storage_state:
             meta = _get_meta(account)
             meta["browser_storage_state"] = storage_state
             account.meta_data = meta
@@ -473,7 +477,7 @@ async def platform_login(
         return LoginResponse(
             storage_state=storage_state,
             logged_in=logged_in,
-            two_factor_required=result.get("two_factor_required", False),
+            two_factor_required=two_factor,
             message=result.get("message", "Login successful" if logged_in else "Login failed"),
         )
 

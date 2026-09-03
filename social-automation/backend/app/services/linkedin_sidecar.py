@@ -64,6 +64,16 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def login(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"username": username, "password": password}
+        if verification_code:
+            payload["verification_code"] = verification_code
+        async with self._client as c:
+            r = await c.post("/login", json=payload)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
     # ── Personal profile ──────────────────────────────────────────────────
 
     async def get_profile(self) -> dict[str, Any]:

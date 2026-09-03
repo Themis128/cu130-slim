@@ -76,6 +76,12 @@ class FacebookSidecarClient:
     async def check_session(self) -> dict[str, Any]:
         return await self._get("/session")
 
+    async def login(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"username": username, "password": password}
+        if verification_code:
+            payload["verification_code"] = verification_code
+        return await self._post("/login", payload)
+
     # ── Personal profile ──────────────────────────────────────────────────
 
     async def get_profile(self) -> dict[str, Any]:
