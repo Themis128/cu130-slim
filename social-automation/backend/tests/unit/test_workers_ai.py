@@ -636,8 +636,11 @@ async def test_text_provider_chain_keeps_ollama_last(monkeypatch):
 
     chain = await inference._text_provider_chain("cloudflare", None, None)
 
+    # DMR is in the priority list (local, no key); cloudflare is the explicit
+    # provider so it's reordered to front; ollama stays last.
     assert chain == [
         "cloudflare",
+        "dmr",
         "groq",
         "gemini",
         "mistral",
@@ -664,4 +667,6 @@ async def test_text_provider_chain_reorders_explicit_ollama(monkeypatch):
 
     chain = await inference._text_provider_chain("ollama", None, None)
 
-    assert chain == ["cloudflare", "ollama"]
+    # DMR is always first (local); cloudflare has creds; ollama is the explicit
+    # provider but since it's a local provider it's not prepended — DMR + CF + ollama.
+    assert chain == ["dmr", "cloudflare", "ollama"]

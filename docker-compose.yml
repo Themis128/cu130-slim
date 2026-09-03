@@ -22,6 +22,11 @@ x-worker-env: &worker-env
   - N8N_PASSWORD=${N8N_PASSWORD}
   - COMFYUI_URL=http://comfyui:8000
   - OLLAMA_URL=http://ollama:11434
+  - DMR_URL=${DMR_URL:-http://host.docker.internal:12434/engines/llama.cpp/v1}
+  - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+  - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
+  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
+  - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm2}
   - CHROMA_URL=http://chroma:8000
   - LANGUAGETOOL_URL=http://languagetool:8010
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
@@ -495,6 +500,11 @@ services:
     - N8N_PASSWORD=${N8N_PASSWORD}
     - COMFYUI_URL=http://comfyui:8000
     - OLLAMA_URL=http://ollama:11434
+    - DMR_URL=${DMR_URL:-http://host.docker.internal:12434/engines/llama.cpp/v1}
+    - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+    - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
+    - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
+    - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm2}
     - CHROMA_URL=http://chroma:8000
     - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
     - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}

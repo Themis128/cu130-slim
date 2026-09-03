@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b-gpu"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
 
+    # Docker Model Runner — local llama.cpp backend on the host (OpenAI-compatible API)
+    # Reachable from containers via host.docker.internal:12434
+    # Models are pulled via `docker model pull ai/<name>` and loaded on demand.
+    DMR_URL: str = "http://host.docker.internal:12434/engines/llama.cpp/v1"
+    DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"
+    DMR_VISION_MODEL: str = "ai/qwen3-vl"
+    DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
+    DMR_TINY_MODEL: str = "ai/smollm2"
+
     # LanguageTool self-hosted spell/grammar checker
     LANGUAGETOOL_URL: str = "http://languagetool:8010"
 

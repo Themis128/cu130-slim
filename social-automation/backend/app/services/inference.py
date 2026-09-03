@@ -103,6 +103,15 @@ def _ai_token() -> str:
 # Pre-configured provider catalog (UI uses this to show provider cards)
 PROVIDER_CATALOG = [
     {
+        "name": "dmr",
+        "display_name": "Docker Model Runner",
+        "base_url": "",  # filled from env at runtime
+        "default_model": "ai/qwen3:8b-q4_K_M",
+        "requires_key": False,
+        "description": "Local Docker Model Runner (llama.cpp) — no API key needed, GPU-accelerated",
+        "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm2"],
+    },
+    {
         "name": "ollama",
         "display_name": "Local (Ollama)",
         "base_url": "",  # filled from env at runtime
@@ -279,6 +288,9 @@ async def _get_provider_config(
     """Return (base_url, model, api_key) for the requested provider."""
     if provider_name == "ollama":
         return settings.OLLAMA_URL, settings.OLLAMA_DEFAULT_MODEL, None
+
+    if provider_name == "dmr":
+        return settings.DMR_URL, settings.DMR_TEXT_MODEL, None
 
     if provider_name == "local-sd35":
         # Use environment variable for local NIM URL
@@ -1433,6 +1445,9 @@ async def _do_call_inference(
     if provider_name == "ollama":
         return await _call_ollama(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
 
+    if provider_name == "dmr":
+        return await _call_dmr_chat(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
+
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:
         model = model_override
@@ -1451,7 +1466,7 @@ async def _do_call_inference(
     # _call_workers_ai_chat already falls back to the env var and validates it,
     # so we must not reject a missing per-team key here for Cloudflare (same
     # pattern as local-sd35).
-    if not api_key and provider_name not in ("local-sd35", "cloudflare"):
+    if not api_key and provider_name not in ("local-sd35", "cloudflare", "dmr", "ollama"):
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
@@ -1538,8 +1553,11 @@ async def _text_provider_chain(
     team_id: uuid.UUID | None,
     db: AsyncSession | None,
 ) -> list[str]:
-    priority = ["cloudflare", "groq", "gemini", "mistral", "cohere", "openrouter", "nvidia"]
+    # DMR (local Docker Model Runner) is always first — no API key, no cost.
+    # Cloudflare is the primary cloud failover. Ollama remains the last resort.
+    priority = ["dmr", "cloudflare", "groq", "gemini", "mistral", "cohere", "openrouter", "nvidia"]
     credentials = {
+        "dmr": bool(settings.DMR_URL),
         "cloudflare": bool(_ai_token() and settings.CLOUDFLARE_ACCOUNT_ID),
         "groq": bool(settings.GROQ_API_KEY),
         "gemini": bool(settings.GEMINI_API_KEY),
@@ -1573,24 +1591,26 @@ async def _text_provider_chain(
             custom_fallbacks = [f.strip() for f in fb_str.split(",") if f.strip()]
     if custom_fallbacks:
         # Use the configured fallbacks (still filtered by credentials + enabled)
-        ordered = [provider_name] if provider_name != "ollama" else []
+        ordered = [provider_name] if provider_name not in ("ollama", "dmr") else []
         for fb in custom_fallbacks:
-            if fb not in ordered and (fb == "ollama" or (credentials.get(fb, False) and fb in enabled)):
+            if fb not in ordered and (fb in ("ollama", "dmr") or (credentials.get(fb, False) and fb in enabled)):
                 ordered.append(fb)
         if "ollama" not in ordered:
             ordered.append("ollama")
         return ordered
-    if provider_name != "ollama" and provider_name not in cloud:
+    if provider_name not in ("ollama", "dmr") and provider_name not in cloud:
         cloud.insert(0, provider_name)
     elif provider_name in cloud:
         cloud.remove(provider_name)
         cloud.insert(0, provider_name)
-    return [*cloud, "ollama"]
+    # DMR is always available (no key) — prepend if not already present
+    local = ["dmr"] if "dmr" not in cloud else []
+    return [*local, *cloud, "ollama"]
 
 
 async def call_inference(
     prompt: str,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     db: AsyncSession | None = None,
     team_id: uuid.UUID | None = None,
     schema: dict | None = None,
@@ -1625,6 +1645,8 @@ async def call_inference(
 
     if not tracked_model and provider_name == "cloudflare":
         tracked_model = CF_TXT2IMG_FREE if (schema is None and _is_workers_ai_image_model(model_override or CF_TEXT_FREE)) else CF_TEXT_FREE
+    if not tracked_model and provider_name == "dmr":
+        tracked_model = settings.DMR_TEXT_MODEL
     if not tracked_model:
         tracked_model = model_override or provider_name
 
@@ -1723,6 +1745,61 @@ async def call_inference(
             error=str(exc)[:500],
         )
         raise
+
+
+async def _call_dmr_chat(
+    prompt: str,
+    schema: dict | None = None,
+    model_override: str | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    """Call Docker Model Runner (llama.cpp, OpenAI-compatible API on the host).
+
+    DMR loads models on demand and unloads them when idle, so the first request
+    may take several seconds while the model spins up.  No API key is required.
+    """
+    model = model_override or settings.DMR_TEXT_MODEL
+    system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
+    user_msg = prompt
+    if schema:
+        user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
+
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]
+    payload: dict = {"model": model, "messages": messages, "temperature": 0.7}
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    if schema:
+        payload["response_format"] = {"type": "json_object"}
+
+    # DMR may need 300s for cold-start (model load from disk to VRAM).
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(
+            f"{settings.DMR_URL}/chat/completions",
+            headers={"Content-Type": "application/json"},
+            json=payload,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"DMR error {resp.status_code}: {resp.text[:400]}")
+
+    msg = resp.json()["choices"][0]["message"]
+    content = msg.get("content") or msg.get("reasoning_content") or ""
+    if schema:
+        return _parse_json_response(content)
+    return {"text": content}
+
+
+async def _call_dmr_embedding(text: str, model_override: str | None = None) -> list[float]:
+    """Generate embeddings via Docker Model Runner (OpenAI-compatible /embeddings)."""
+    model = model_override or settings.DMR_EMBEDDING_MODEL
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{settings.DMR_URL}/embeddings",
+            headers={"Content-Type": "application/json"},
+            json={"model": model, "input": text},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"DMR embedding error {resp.status_code}: {resp.text[:400]}")
+    return resp.json()["data"][0]["embedding"]
 
 
 async def _call_ollama(prompt: str, schema: dict | None = None, model_override: str | None = None, max_tokens: int | None = None) -> dict:
