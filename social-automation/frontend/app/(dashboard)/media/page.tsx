@@ -519,9 +519,9 @@ export default function MediaPage() {
           )}
 
           {isLoading ? (
-            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <Skeleton key={i} className="aspect-square rounded-lg" />
+            <div className="p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton key={i} className="aspect-[4/5] rounded-xl" />
               ))}
             </div>
           ) : media.length === 0 ? (
@@ -543,7 +543,7 @@ export default function MediaPage() {
             )
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 p-4">
                 {media.map((item: MediaAsset) => {
                   const isVideo = !!item.mime_type?.startsWith('video/')
                   const isPdf = item.mime_type === 'application/pdf'
@@ -553,150 +553,156 @@ export default function MediaPage() {
                   return (
                   <div
                     key={item.id}
-                    className={`relative group aspect-square rounded-lg overflow-hidden border bg-muted/50 ${
-                      selectMode ? 'cursor-pointer' : 'cursor-zoom-in'
+                    className={`group rounded-xl border bg-card overflow-hidden flex flex-col ${
+                      selectMode ? 'cursor-pointer' : ''
                     } ${isSelected ? 'ring-2 ring-primary ring-offset-2' : ''}`}
-                    onClick={() => {
-                      if (selectMode) toggleSelect(item.id)
-                      else setViewerItem(item)
-                    }}
-                    role="button"
-                    tabIndex={0}
+                    onClick={() => { if (selectMode) toggleSelect(item.id) }}
+                    role={selectMode ? 'button' : undefined}
+                    tabIndex={selectMode ? 0 : undefined}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        if (selectMode) toggleSelect(item.id)
-                        else setViewerItem(item)
-                      }
+                      if (selectMode && e.key === 'Enter') toggleSelect(item.id)
                     }}
                   >
-                    {/* Select checkbox */}
-                    {selectMode && (
-                      <div className={`absolute top-2 left-2 z-10 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        isSelected ? 'bg-primary border-primary text-primary-foreground' : 'bg-white/90 border-muted-foreground/40'
-                      }`}>
-                        {isSelected && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                      </div>
-                    )}
+                    {/* Media preview — portrait 4:5 ratio like a social post */}
+                    <div
+                      className={`relative aspect-[4/5] bg-muted/50 overflow-hidden ${!selectMode ? 'cursor-zoom-in' : ''}`}
+                      onClick={() => { if (!selectMode) setViewerItem(item) }}
+                      onKeyDown={(e) => { if (!selectMode && e.key === 'Enter') setViewerItem(item) }}
+                      role={!selectMode ? 'button' : undefined}
+                      tabIndex={!selectMode ? 0 : undefined}
+                    >
+                      {/* Select checkbox */}
+                      {selectMode && (
+                        <div className={`absolute top-2 left-2 z-10 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
+                          isSelected ? 'bg-primary border-primary text-primary-foreground' : 'bg-white/90 border-muted-foreground/40'
+                        }`}>
+                          {isSelected && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                        </div>
+                      )}
 
-                    {item.storage_path ? (
-                      isVideo ? (
-                        <>
-                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                          <video
-                            src={mediaDisplayUrl(item.storage_path)}
-                            muted
-                            preload="metadata"
-                            className="h-full w-full object-cover"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="rounded-full bg-black/60 p-2">
-                              <Eye className="h-5 w-5 text-white" />
+                      {item.storage_path ? (
+                        isVideo ? (
+                          <>
+                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                            <video
+                              src={mediaDisplayUrl(item.storage_path)}
+                              muted
+                              preload="metadata"
+                              className="h-full w-full object-cover"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <div className="rounded-full bg-black/60 p-3">
+                                <Eye className="h-6 w-6 text-white" />
+                              </div>
+                            </div>
+                          </>
+                        ) : isPdf ? (
+                          <div className="relative w-full h-full overflow-hidden bg-white">
+                            <iframe
+                              src={`${mediaDisplayUrl(item.storage_path)}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                              className="absolute top-0 left-0 border-none pointer-events-none"
+                              style={{ width: '200%', height: '200%', transform: 'scale(0.5)', transformOrigin: 'top left' }}
+                              title={item.filename || 'PDF preview'}
+                            />
+                            {/* PDF badge */}
+                            <div className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white flex items-center gap-1 pointer-events-none">
+                              <FileText className="h-3 w-3" />PDF
                             </div>
                           </div>
-                        </>
-                      ) : isPdf ? (
-                        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-primary/10 to-muted/50">
-                          <FileText className="h-10 w-10 text-primary" />
-                          {item.ai_caption && (
-                            <p className="mt-2 px-2 text-center text-xs font-medium text-foreground line-clamp-2">{item.ai_caption}</p>
-                          )}
-                          {item.tags && item.tags.length > 0 && (
-                            <div className="mt-1 flex flex-wrap justify-center gap-1 px-2">
-                              {item.tags.filter(t => t !== 'carousel').slice(0, 3).map(tag => (
-                                <span key={tag} className="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] text-primary">{tag}</span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : isAudio ? (
-                        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-purple-500/10 to-muted/50">
-                          <Music className="h-10 w-10 text-purple-500" />
-                          <p className="mt-2 px-2 text-center text-xs font-medium text-foreground line-clamp-2">{item.filename}</p>
-                        </div>
-                      ) : (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={mediaDisplayUrl(item.storage_path)}
-                          alt={item.alt_text || item.filename || 'Media'}
-                          loading="lazy"
-                          onError={(e) => {
-                            const el = e.target as HTMLImageElement
-                            el.style.display = 'none'
-                            const fallback = el.parentElement?.querySelector('[data-fallback]') as HTMLElement | null
-                            if (fallback) fallback.style.display = 'flex'
-                          }}
-                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                        />
-                      )
-                    ) : null}
+                        ) : isAudio ? (
+                          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-purple-500/10 to-muted/50">
+                            <Music className="h-14 w-14 text-purple-500" />
+                            <p className="mt-3 px-4 text-center text-sm font-medium text-foreground line-clamp-3">{item.filename}</p>
+                          </div>
+                        ) : (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={mediaDisplayUrl(item.storage_path)}
+                            alt={item.alt_text || item.filename || 'Media'}
+                            loading="lazy"
+                            onError={(e) => {
+                              const el = e.target as HTMLImageElement
+                              el.style.display = 'none'
+                              const fallback = el.parentElement?.querySelector('[data-fallback]') as HTMLElement | null
+                              if (fallback) fallback.style.display = 'flex'
+                            }}
+                            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          />
+                        )
+                      ) : null}
 
-                    {/* Fallback placeholder (hidden by default, shown on img error) */}
-                    <div
-                      data-fallback
-                      className="absolute inset-0 items-center justify-center text-muted-foreground bg-muted/50"
-                      style={{ display: item.storage_path ? 'none' : 'flex' }}
-                    >
-                      <ImageIcon className="h-8 w-8" />
+                      {/* Fallback placeholder */}
+                      <div
+                        data-fallback
+                        className="absolute inset-0 items-center justify-center text-muted-foreground bg-muted/50"
+                        style={{ display: item.storage_path ? 'none' : 'flex' }}
+                      >
+                        <ImageIcon className="h-12 w-12" />
+                      </div>
+
+                      {/* AI badge */}
+                      {isAi && !selectMode && (
+                        <Badge className="absolute top-2 left-2" variant="outline">
+                          <Sparkles className="mr-1 h-3 w-3" />
+                          AI
+                        </Badge>
+                      )}
+
+                      {/* Action buttons on hover */}
+                      {!selectMode && (
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="bg-white/90 h-8 w-8"
+                            title="View (zoom & pan)"
+                            onClick={(e) => { e.stopPropagation(); setViewerItem(item) }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Link href={`/media/enhance/${item.id}`} onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="bg-white/90 h-8 w-8"
+                              title="AI Enhance"
+                            >
+                              <Wand2 className="h-4 w-4 text-primary" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="bg-white/90 h-8 w-8"
+                            title="Delete"
+                            onClick={(e) => { e.stopPropagation(); deleteWithUndo(item, item.filename || 'Media') }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Hover info overlay */}
-                    <div className="absolute inset-x-0 bottom-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 pointer-events-none">
-                      <p className="text-[10px] text-white truncate">{item.filename}</p>
-                      <p className="text-[9px] text-white/80 truncate">
+                    {/* Post metadata below the image */}
+                    <div className="px-3 py-2 space-y-0.5 border-t bg-card">
+                      <p className="text-sm font-medium truncate" title={item.filename || undefined}>{item.filename || 'Untitled'}</p>
+                      <p className="text-xs text-muted-foreground">
                         {[
                           item.width && item.height ? `${item.width}×${item.height}` : null,
                           formatBytes(item.size_bytes),
                           formatDate(item.created_at),
                         ].filter(Boolean).join(' · ')}
                       </p>
+                      {item.alt_text && (
+                        <p className="text-xs text-muted-foreground/70 truncate" title={item.alt_text}>{item.alt_text}</p>
+                      )}
                       {isAi && item.generation_prompt && (
-                        <p className="text-[9px] text-white/70 truncate mt-0.5" title={item.generation_prompt}>
-                          <Sparkles className="inline h-2.5 w-2.5 mr-0.5 -mt-px" />
+                        <p className="text-xs text-muted-foreground/70 truncate" title={item.generation_prompt}>
+                          <Sparkles className="inline h-3 w-3 mr-0.5 -mt-px text-primary" />
                           {item.generation_prompt}
                         </p>
                       )}
                     </div>
-
-                    {/* Action buttons (hidden in select mode) */}
-                    {!selectMode && (
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="bg-white/90 h-7 w-7"
-                          title="View (zoom & pan)"
-                          onClick={(e) => { e.stopPropagation(); setViewerItem(item) }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Link href={`/media/enhance/${item.id}`} onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="bg-white/90 h-7 w-7"
-                            title="AI Enhance"
-                          >
-                            <Wand2 className="h-4 w-4 text-primary" />
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="bg-white/90 h-7 w-7"
-                          title="Delete"
-                          onClick={(e) => { e.stopPropagation(); deleteWithUndo(item, item.filename || 'Media') }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    )}
-
-                    {isAi && !selectMode && (
-                      <Badge className="absolute bottom-8 left-2" variant="outline">
-                        <Sparkles className="mr-1 h-3 w-3" />
-                        AI
-                      </Badge>
-                    )}
                   </div>
                   )
                 })}

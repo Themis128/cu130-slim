@@ -190,7 +190,7 @@ services:
     - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
     - TWITTER_API_URL=https://api.twitter.com/2/tweets
     - N8N_SANDBOX_ENABLED=true
-    - N8N_RUNNERS_ENABLED=true
+    - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
     - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
     - N8N_WEBHOOK_URL=http://localhost:5678/
     - N8N_WORKFLOW_FILE_SYSTEM=true

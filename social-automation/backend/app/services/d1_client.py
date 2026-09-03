@@ -38,6 +38,9 @@ class D1Client:
         self._active_token: str | None = None
         self._base_url: str | None = None
         self._enabled: bool | None = None
+        # Set when ALL tokens return 403 (permission denied, not just expired).
+        # Avoids hammering the API on every row when the token lacks D1 scope.
+        self._auth_dead: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -62,19 +65,40 @@ class D1Client:
         }
 
     async def _try_with_token_fallback(self, request_fn) -> httpx.Response:
-        """Try request with each available token until one works (not 401)."""
+        """Try request with each available token until one works (not 401).
+
+        If every token returns 403 (authenticated but no D1 permission), sets
+        self._auth_dead so callers can skip further D1 calls immediately.
+        """
+        if self._auth_dead:
+            raise RuntimeError("D1 disabled: all tokens lack D1 permission (403)")
+
         last_resp = None
+        all_403 = True
         for token in self._tokens:
             self._active_token = token
             try:
                 resp = await request_fn(token)
-                if resp.status_code != 401:
-                    return resp
-                last_resp = resp
-                logger.warning("D1 token failed (401), trying next token...")
+                if resp.status_code == 401:
+                    last_resp = resp
+                    logger.warning("D1 token failed (401), trying next token...")
+                    all_403 = False
+                    continue
+                if resp.status_code != 403:
+                    all_403 = False
+                return resp
             except Exception:
+                all_403 = False
                 continue
         self._active_token = None
+        if all_403 and len(self._tokens) > 0:
+            logger.error(
+                "D1 auth dead: all %d token(s) returned 403. "
+                "Grant the token 'D1:edit' scope in Cloudflare dashboard → API Tokens. "
+                "Skipping all further D1 calls until restart.",
+                len(self._tokens),
+            )
+            self._auth_dead = True
         if last_resp:
             return last_resp
         raise RuntimeError("All Cloudflare tokens failed for D1")
