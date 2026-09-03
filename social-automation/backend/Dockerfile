@@ -34,6 +34,13 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e . && \
     pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
+# Playwright browsers for browser-automated profile updates (LinkedIn/Facebook).
+# System-wide path so the non-root `app` user can execute them at runtime;
+# --with-deps adds the required OS libraries (must run before switching to app).
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN playwright install --with-deps chromium && \
+    chmod -R a+rX /opt/ms-playwright
+
 # Copy application code
 COPY . .
 
