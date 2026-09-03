@@ -550,35 +550,41 @@ async function handleUpdateBio(req, res) {
     return res.status(400).json({ error: 'bio is required' });
   }
   try {
-    await ensureBrowser();
-    // Navigate to the about page where the "About you" / Bio edit control is
-    await page.goto('https://www.facebook.com/profile.php?sk=about', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
-
-    if (!isLoggedIn()) {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about');
+    if (!loggedIn) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
-    // Click the "About you" button (the bio edit control on the about page)
-    // Facebook shows it as a div with role="button" containing "About you" text
-    const aboutYouBtn = page.locator('[role="button"]:has-text("About you"), [role="button"]:has-text("Edit details"), [role="button"]:has-text("Add bio"), [role="button"]:has-text("Edit bio")').first();
-    if (await aboutYouBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find the "About you" / bio edit button on the about page' });
-    }
-    await aboutYouBtn.click();
-    await page.waitForTimeout(3000);
+    // Strategy 1: Look for "Edit bio" button on the about page
+    // Strategy 2: Look for "About you" button (the section header that's clickable)
+    // Strategy 3: Look for "Add bio" button (when no bio exists yet)
+    // Strategy 4: Look for "Edit details" button
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Edit bio")',
+      '[role="button"]:has-text("Add bio")',
+      '[role="button"]:has-text("About you")',
+      '[role="button"]:has-text("Edit details")',
+      'a:has-text("Edit bio")',
+      'a:has-text("Add bio")',
+    ], { retries: 2, settleMs: 3000 });
 
-    // A dialog should open with a textarea for the bio
-    let bioInput = page.locator('div[role="dialog"] textarea').first();
-    if (await bioInput.count() === 0) {
-      bioInput = page.locator('textarea[aria-label*="Bio"], textarea[aria-label*="bio"], textarea[aria-label*="intro"], textarea[placeholder*="bio"], textarea[placeholder*="Bio"]').first();
+    if (!clicked) {
+      // Fallback: try finding the button by scanning page text
+      const lines = await getPageLines();
+      const editIdx = lines.findIndex(l => l === 'Edit bio' || l === 'Add bio');
+      if (editIdx >= 0) {
+        const text = lines[editIdx];
+        await findAndClick([`[role="button"]:has-text("${text}")`, `a:has-text("${text}")`]);
+      }
     }
-    if (await bioInput.count() === 0) {
-      // Try contenteditable div
-      bioInput = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+
+    if (!clicked) {
+      return res.status(404).json({ error: 'Could not find the bio edit button on the about page' });
     }
-    if (await bioInput.count() === 0) {
-      // Debug: list what's in the dialog
+
+    // Find the bio textarea in the dialog
+    const bioInput = await findTextInput({ scope: 'dialog', label: 'Bio' });
+    if (!bioInput) {
       const dialogText = await page.locator('div[role="dialog"]').innerText().catch(() => 'no dialog');
       return res.status(404).json({ error: 'Could not locate the bio textarea in the edit dialog', dialogText: dialogText.substring(0, 300) });
     }
@@ -589,13 +595,12 @@ async function handleUpdateBio(req, res) {
     await page.keyboard.type(bio);
     await page.waitForTimeout(500);
 
-    // Save — look for a Save button in the dialog
     const saved = await clickSave();
     if (!saved) {
-      // Try pressing Enter as fallback
       await page.keyboard.press('Enter');
       await settle();
     }
+    await saveSession();
 
     res.json({ status: 'ok', updated: ['bio'] });
   } catch (err) {
@@ -752,51 +757,64 @@ async function handleUpdateWebsite(req, res) {
   const { website } = req.body;
   if (!website) return res.status(400).json({ error: 'website is required' });
   try {
-    await ensureBrowser();
-    await page.goto('https://www.facebook.com/profile.php?sk=about_contact', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
-
-    if (!isLoggedIn()) {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_contact');
+    if (!loggedIn) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
-    // Click "Edit" or "Add a website" in the contact info section
-    const editBtn = page.locator('[role="button"]:has-text("Edit"), [aria-label*="Edit"], span:has-text("Edit"), a:has-text("Edit Details"), [role="button"]:has-text("Edit Details")').first();
-    if (await editBtn.count() === 0) {
+    // Click "Edit" or "Edit Details" in the contact info section
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Edit Details")',
+      '[role="button"]:has-text("Edit details")',
+      'a:has-text("Edit Details")',
+      '[role="button"]:has-text("Edit")',
+      'a:has-text("Edit")',
+      '[aria-label*="Edit"]',
+    ], { retries: 2, settleMs: 3000 });
+
+    if (!clicked) {
       return res.status(404).json({ error: 'Could not locate the contact info "Edit" button' });
     }
-    await editBtn.click();
-    await page.waitForTimeout(2000);
 
-    // Find the website input — Facebook uses a text input with a placeholder
-    // like "Website" or an aria-label containing "website"
-    let websiteInput = page.locator('input[aria-label*="Website"], input[aria-label*="website"], input[placeholder*="Website"], input[placeholder*="website"]').first();
-    if (await websiteInput.count() === 0) {
-      // Fallback: look for any input in the dialog that's not the name
-      const inputs = await page.locator('div[role="dialog"] input:visible, form input:visible').all();
+    // Find the website input using multiple strategies
+    const websiteInput = await findElement([
+      'div[role="dialog"] input[aria-label*="Website"]:visible',
+      'div[role="dialog"] input[aria-label*="website"]:visible',
+      'div[role="dialog"] input[placeholder*="Website"]:visible',
+      'div[role="dialog"] input[placeholder*="website"]:visible',
+      'div[role="dialog"] input[placeholder*="http"]:visible',
+      'div[role="dialog"] input[placeholder*="URL"]:visible',
+    ], { timeout: 3000 });
+
+    if (!websiteInput) {
+      // Fallback: scan all inputs in the dialog for website-like attributes
+      const inputs = await page.locator('div[role="dialog"] input:visible').all();
+      let found = null;
       for (const inp of inputs) {
         const ph = await inp.getAttribute('placeholder').catch(() => '');
         const label = await inp.getAttribute('aria-label').catch(() => '');
-        if (
-          (ph && (ph.includes('http') || ph.includes('url') || ph.includes('Website') || ph.includes('website'))) ||
-          (label && (label.includes('Website') || label.includes('website')))
-        ) {
-          websiteInput = inp;
+        if ((ph && /web|url|http/i.test(ph)) || (label && /web|url|http/i.test(label))) {
+          found = inp;
           break;
         }
       }
+      if (!found) {
+        return res.status(404).json({ error: 'Could not locate the website input in contact info' });
+      }
+      await found.click();
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Delete');
+      await page.keyboard.type(website);
+    } else {
+      await websiteInput.click();
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Delete');
+      await page.keyboard.type(website);
     }
-    if (await websiteInput.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the website input in contact info' });
-    }
-
-    await websiteInput.click();
-    await page.keyboard.press('Control+a');
-    await page.keyboard.press('Delete');
-    await page.keyboard.type(website);
     await page.waitForTimeout(500);
 
     await clickSave();
+    await saveSession();
     res.json({ status: 'ok', updated: ['website'] });
   } catch (err) {
     res.status(500).json({ error: err.message });
