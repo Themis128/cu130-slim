@@ -356,15 +356,19 @@ class InstagramPrivateAPIClient:
         (e.g. ``/uploads/...`` when the uploads volume is mounted).
         Returns the media dict (includes ``id``, ``pk``, ``code``).
         """
-        data: dict[str, Any] = {"file": file_path, "caption": caption}
+        import os
+        filename = os.path.basename(file_path)
+        data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/photo/upload",
-                data=data,
-                headers=self._headers(session_id),
-            )
+            with open(file_path, "rb") as f:
+                resp = await client.post(
+                    f"{self._base_url}/photo/upload",
+                    data=data,
+                    files={"file": (filename, f, "application/octet-stream")},
+                    headers=self._headers(session_id),
+                )
             return self._raise_for_status(resp)
 
     async def upload_photo_by_url(
@@ -391,15 +395,19 @@ class InstagramPrivateAPIClient:
         location: str | None = None,
     ) -> dict[str, Any]:
         """Upload a single video post."""
-        data: dict[str, Any] = {"file": file_path, "caption": caption}
-        if thumbnail:
-            data["thumbnail"] = thumbnail
+        import os
+        filename = os.path.basename(file_path)
+        data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
+        files = {"file": (filename, open(file_path, "rb"), "application/octet-stream")}
+        if thumbnail:
+            files["thumbnail"] = (os.path.basename(thumbnail), open(thumbnail, "rb"), "application/octet-stream")
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base_url}/video/upload",
                 data=data,
+                files=files,
                 headers=self._headers(session_id),
             )
             return self._raise_for_status(resp)
@@ -432,19 +440,21 @@ class InstagramPrivateAPIClient:
     ) -> dict[str, Any]:
         """Upload a carousel/album post (up to 10 items).
 
-        ``file_paths`` are paths accessible inside the sidecar container.
+        ``file_paths`` are local filesystem paths in the worker container.
         Mixed photo/video is supported.
         """
-        data: dict[str, Any] = {
-            "files": file_paths,
-            "caption": caption,
-        }
+        import os
+        data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
+        files = []
+        for fp in file_paths:
+            files.append(("files", (os.path.basename(fp), open(fp, "rb"), "application/octet-stream")))
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base_url}/album/upload",
                 data=data,
+                files=files,
                 headers=self._headers(session_id),
             )
             return self._raise_for_status(resp)
@@ -457,15 +467,19 @@ class InstagramPrivateAPIClient:
         as_video: bool = False,
     ) -> dict[str, Any]:
         """Upload a story post."""
-        data: dict[str, Any] = {"file": file_path}
+        import os
+        filename = os.path.basename(file_path)
+        data: dict[str, str] = {}
         if caption:
             data["caption"] = caption
         if as_video:
             data["as_video"] = "true"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/story/upload",
-                data=data,
-                headers=self._headers(session_id),
-            )
+            with open(file_path, "rb") as f:
+                resp = await client.post(
+                    f"{self._base_url}/story/upload",
+                    data=data,
+                    files={"file": (filename, f, "application/octet-stream")},
+                    headers=self._headers(session_id),
+                )
             return self._raise_for_status(resp)

@@ -857,17 +857,12 @@ async def _publish_instagram_via_sidecar(
             error="Instagram requires at least one image or video. Set media on the post.",
         )
 
-    # Map host paths to sidecar container paths
-    sidecar_paths = [p for p in (_sidecar_file_path(mp) for mp in media_paths) if p]
-    if not sidecar_paths:
-        return PublishResult(
-            success=False,
-            error="Could not map media paths to the sidecar container. Ensure uploads are under /app/uploads.",
-        )
-
+    # The upload_photo/upload_video methods now send file bytes via
+    # multipart, so we pass the worker-container paths directly (the
+    # files are on the shared uploads volume).
     try:
-        if len(sidecar_paths) == 1:
-            fp = sidecar_paths[0]
+        if len(media_paths) == 1:
+            fp = media_paths[0]
             lower = fp.lower()
             if lower.endswith((".mp4", ".mov", ".webm", ".avi")):
                 result = await client.upload_video(
@@ -885,7 +880,7 @@ async def _publish_instagram_via_sidecar(
             # Carousel: up to 10 items
             result = await client.upload_album(
                 session_id=session_id,
-                file_paths=sidecar_paths[:10],
+                file_paths=media_paths[:10],
                 caption=caption,
             )
     except InstagramPrivateAPIError as exc:
