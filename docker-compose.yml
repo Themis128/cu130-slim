@@ -535,6 +535,7 @@ services:
     - SMTP_USER=${SMTP_USER:-resend}
     - SMTP_PASSWORD=${SMTP_PASSWORD:-}
     - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+    - SMTP_SSL_VERIFY=${SMTP_SSL_VERIFY:-true}
     - SMTP_FROM=${SMTP_FROM:-noreply@cloudless.gr}
     - DIGEST_EMAIL_TO=${DIGEST_EMAIL_TO:-tbaltzakis@cloudless.gr}
     - DIGEST_EMAIL_ISSUES_ONLY=${DIGEST_EMAIL_ISSUES_ONLY:-false}
