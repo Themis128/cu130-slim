@@ -40,7 +40,6 @@ from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
-from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
 from app.services.instagram_private_api import (
