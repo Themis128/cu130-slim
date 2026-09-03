@@ -149,6 +149,7 @@ class SyncService:
             )
 
             # Batch upsert
+            _consecutive_errors = 0
             for row in rows:
                 row_dict = dict(zip(columns, row, strict=False))
                 # Serialize complex types for D1
@@ -156,7 +157,8 @@ class SyncService:
                 for col in columns:
                     val = row_dict[col]
                     if isinstance(val, dict | list):
-                        val = json.dumps(val)
+                        # Convert non-JSON-serializable items (UUID, etc) to strings
+                        val = json.dumps(val, default=str)
                     elif isinstance(val, bool):
                         val = 1 if val else 0
                     elif isinstance(val, datetime):
@@ -170,9 +172,17 @@ class SyncService:
                 try:
                     await d1_client.execute(sql, values)
                     stats["synced"] += 1
+                    _consecutive_errors = 0
                 except Exception as exc:
                     logger.error("D1 sync row failed for %s: %s", table, exc)
                     stats["errors"] += 1
+                    _consecutive_errors += 1
+                    if _consecutive_errors >= 3:
+                        logger.error(
+                            "D1 sync for %s: aborting after %d consecutive errors",
+                            table, _consecutive_errors,
+                        )
+                        break
 
         finally:
             await engine.dispose()
