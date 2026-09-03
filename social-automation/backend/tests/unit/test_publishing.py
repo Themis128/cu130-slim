@@ -51,7 +51,7 @@ class _FakeAsyncClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    async def post(self, url, headers=None, params=None, data=None, json=None, content=None):
+    async def post(self, url, headers=None, params=None, data=None, json=None, content=None, files=None):
         self.calls.append({
             "method": "POST",
             "url": url,
@@ -60,6 +60,7 @@ class _FakeAsyncClient:
             "data": data,
             "json": json,
             "content": content,
+            "files": files,
         })
         return self._next_response()
 
