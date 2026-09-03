@@ -1517,6 +1517,30 @@ app.post('/post/link', handlePostLink);
 app.post('/company/:vanity/post/text', handleCompanyPostText);
 app.post('/company/:vanity/post/image', handleCompanyPostImage);
 
+// Debug: screenshot
+app.get('/screenshot', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const buf = await page.screenshot({ type: 'png' });
+    res.set('Content-Type', 'image/png');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: page text
+app.get('/debug/page-text', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const text = await page.innerText('body');
+    const url = page.url();
+    res.json({ url, text: text.substring(0, 2000) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   await closeBrowser();
