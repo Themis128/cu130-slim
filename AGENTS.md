@@ -106,7 +106,8 @@ docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.ll
 - **Cache fallback chain**: KV (Cloudflare, primary) → Redis (local, failover).
 - **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
 - **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
-- **Inference fallback chain**: Cloudflare Workers AI → Groq/Together/HF free tiers → Ollama (last resort).
+- **Inference fallback chain (text)**: DMR (local Docker Model Runner) → Cloudflare Workers AI (the ONLY cloud fallback). Other cloud providers (Groq, Gemini, Mistral, Cohere, OpenRouter, NVIDIA, HuggingFace, OpenAI, SambaNova) are kept in PROVIDER_CATALOG for manual selection but are NOT in the automatic fallback chain.
+- **Inference fallback chain (images)**: Local Diffusers (SD 1.5, GPU) → Cloudflare Workers AI (the ONLY cloud fallback). Other image providers (Pixazo, Together, HuggingFace, NVIDIA FLUX) are manual-selection-only.
 - **Ollama default model**: `llama3.1:8b-gpu` (custom Modelfile with `num_gpu=99`, `num_ctx=2048`). All layers on GPU, q8_0 KV cache, 2048-token context. See GPU & VRAM section below.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
