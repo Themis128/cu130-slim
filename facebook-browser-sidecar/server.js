@@ -378,35 +378,36 @@ async function handleUpdateBio(req, res) {
   }
   try {
     await ensureBrowser();
-    // Navigate to the profile page (not about) — the "Edit profile" button is there
-    await page.goto('https://www.facebook.com/profile.php', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // Navigate to the about page where the "About you" / Bio edit control is
+    await page.goto('https://www.facebook.com/profile.php?sk=about', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
     if (!isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
-    // Click "Edit profile" button
-    const editProfile = page.locator('[role="button"]:has-text("Edit profile"), span:has-text("Edit profile"), a:has-text("Edit profile")').first();
-    if (await editProfile.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Edit profile" button' });
+    // Click the "About you" button (the bio edit control on the about page)
+    // Facebook shows it as a div with role="button" containing "About you" text
+    const aboutYouBtn = page.locator('[role="button"]:has-text("About you"), [role="button"]:has-text("Edit details"), [role="button"]:has-text("Add bio"), [role="button"]:has-text("Edit bio")').first();
+    if (await aboutYouBtn.count() === 0) {
+      return res.status(404).json({ error: 'Could not find the "About you" / bio edit button on the about page' });
     }
-    await editProfile.click();
+    await aboutYouBtn.click();
     await page.waitForTimeout(3000);
 
-    // In the Edit profile dialog, look for the Bio/Intro textarea
-    // Facebook's edit dialog has textareas with aria-labels or placeholders
-    let bioInput = page.locator('textarea[aria-label*="Bio"], textarea[aria-label*="bio"], textarea[aria-label*="intro"], textarea[placeholder*="bio"], textarea[placeholder*="Bio"]').first();
+    // A dialog should open with a textarea for the bio
+    let bioInput = page.locator('div[role="dialog"] textarea').first();
     if (await bioInput.count() === 0) {
-      // Try finding by the "Bio" label text near a textarea
-      bioInput = page.locator('div[role="dialog"] textarea').first();
+      bioInput = page.locator('textarea[aria-label*="Bio"], textarea[aria-label*="bio"], textarea[aria-label*="intro"], textarea[placeholder*="bio"], textarea[placeholder*="Bio"]').first();
     }
     if (await bioInput.count() === 0) {
       // Try contenteditable div
       bioInput = page.locator('div[role="dialog"] [contenteditable="true"]').first();
     }
     if (await bioInput.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the bio textarea in the edit dialog' });
+      // Debug: list what's in the dialog
+      const dialogText = await page.locator('div[role="dialog"]').innerText().catch(() => 'no dialog');
+      return res.status(404).json({ error: 'Could not locate the bio textarea in the edit dialog', dialogText: dialogText.substring(0, 300) });
     }
 
     await bioInput.click();
