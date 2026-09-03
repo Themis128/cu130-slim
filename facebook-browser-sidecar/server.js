@@ -14,6 +14,12 @@
  *   POST /profile/picture      — upload profile picture
  *   POST /profile/cover        — upload cover photo
  *   POST /profile/website      — update website in contact info
+ *   POST /profile/work         — add work experience
+ *   POST /profile/education    — add education
+ *   POST /profile/location     — update current city / hometown
+ *   POST /profile/quotes       — update favorite quotes
+ *   POST /profile/contact      — update email / phone
+ *   GET  /profile/cookies      — export current session cookies
  *
  * Personal posting endpoints (the main gap the Graph API leaves):
  *   POST /post/text            — post a text status update
@@ -27,9 +33,19 @@
  *   POST /page/post/text       — post text as the current Page
  *   POST /page/post/photo      — post a photo as the current Page
  *
+ * Debug endpoints:
+ *   GET  /screenshot           — capture current page as PNG
+ *   GET  /debug/page-text      — get page body text
+ *   GET  /debug/inspect?text=X — find HTML structure around a text label
+ *   GET  /debug/inputs         — list all textareas/inputs on the page
+ *   GET  /debug/html?text=X    — get raw HTML around a text match
+ *   GET  /debug/buttons        — list all visible buttons/links with text
+ *   GET  /debug/screenshot     — full-page screenshot as PNG
+ *   POST /debug/navigate       — navigate to a URL (for debugging)
+ *
  * Session is injected via POST /session with a Playwright storage_state
- * JSON (cookies + origins).  The browser-novnc container or the
- * BrowserProfileService.login_facebook() flow produces this state.
+ * JSON (cookies + origins) or a cookies dict. Sessions are persisted to
+ * /data/fb-session.json and restored on container restart.
  */
 
 import express from 'express';
@@ -1728,7 +1744,7 @@ app.get('/debug/inputs', async (req, res) => {
     await ensureBrowser();
     const inputs = await page.evaluate(() => {
       const results = [];
-      document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"]').forEach(el => {
+      document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"], input[type="email"], input[type="tel"], input[type="url"]').forEach(el => {
         results.push({
           tag: el.tagName,
           type: el.getAttribute('type'),
@@ -1744,6 +1760,87 @@ app.get('/debug/inputs', async (req, res) => {
       return results;
     });
     res.json({ url: page.url(), inputs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: get raw HTML of a section matching text
+app.get('/debug/html', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const searchText = req.query.text || '';
+    const contextLines = parseInt(req.query.context || '3');
+    const html = await page.evaluate(({ searchText, contextLines }) => {
+      if (!searchText) return document.body.outerHTML.substring(0, 5000);
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.textContent && node.textContent.includes(searchText)) {
+          let el = node.parentElement;
+          for (let i = 0; i < contextLines && el; i++) el = el.parentElement;
+          if (el) return el.outerHTML.substring(0, 5000);
+        }
+      }
+      return 'Text not found';
+    }, { searchText, contextLines });
+    res.json({ url: page.url(), html });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: list all buttons/links with their text
+app.get('/debug/buttons', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const buttons = await page.evaluate(() => {
+      const results = [];
+      document.querySelectorAll('[role="button"], button, a[href]').forEach(el => {
+        if (el.offsetParent !== null) {
+          const text = (el.innerText || '').trim();
+          if (text && text.length < 80) {
+            results.push({
+              tag: el.tagName,
+              text,
+              role: el.getAttribute('role'),
+              ariaLabel: el.getAttribute('aria-label'),
+              href: el.getAttribute('href'),
+              testid: el.getAttribute('data-testid'),
+            });
+          }
+        }
+      });
+      return results.slice(0, 100);
+    });
+    res.json({ url: page.url(), count: buttons.length, buttons });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: full-page screenshot (base64)
+app.get('/debug/screenshot', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const fullPage = req.query.full === 'true';
+    const buf = await page.screenshot({ type: 'png', fullPage });
+    res.set('Content-Type', 'image/png');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: navigate to a URL
+app.post('/debug/navigate', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    await ensureBrowser();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+    res.json({ status: 'ok', url: page.url(), loggedIn: isLoggedIn() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
