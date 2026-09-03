@@ -632,13 +632,21 @@ async def _call_local_diffusers_txt2img(
     if seed:
         payload["seed"] = seed
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(url, json=payload)
-        if resp.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Local Diffusers error {resp.status_code}: {resp.text[:400]}",
-            )
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Local Diffusers error {resp.status_code}: {resp.text[:400]}",
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local Diffusers unavailable: {type(exc).__name__}: {exc}",
+        ) from exc
     data = resp.json()
     b64 = data["data"][0]["b64_json"]
     return {"image_base64": b64, "model": payload["model"]}
