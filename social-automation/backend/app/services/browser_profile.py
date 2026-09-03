@@ -281,6 +281,18 @@ class BrowserProfileService:
         finally:
             await self._close_session(session)
 
+    async def _settle(self, page: Any, timeout: int = 20000) -> None:
+        """Best-effort wait for the page to calm down.
+
+        ``networkidle`` never fires on pages with long-polling (LinkedIn feed,
+        checkpoint challenges), so treat it as best-effort and settle briefly.
+        """
+        try:
+            await page.wait_for_load_state("networkidle", timeout=timeout)
+        except Exception:
+            pass
+        await page.wait_for_timeout(1500)
+
     # ── LinkedIn ────────────────────────────────────────────────────────────
 
     async def login_linkedin(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
@@ -311,7 +323,7 @@ class BrowserProfileService:
                 sign_in = page.get_by_role("button", name="Sign in", exact=True)
                 if await sign_in.count() > 0:
                     await sign_in.first.click()
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             # Check for 2FA / challenge
             if page.url.startswith("https://www.linkedin.com/checkpoint/"):
@@ -321,7 +333,7 @@ class BrowserProfileService:
                         try:
                             await page.fill(sel, verification_code)
                             await page.press(sel, "Enter")
-                            await page.wait_for_load_state("networkidle")
+                            await self._settle(page)
                             break
                         except Exception:
                             pass
@@ -359,7 +371,7 @@ class BrowserProfileService:
         try:
             page = session.page
             await page.goto("https://www.linkedin.com/in/me/")
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             result: dict[str, Any] = {"url": page.url, "name": None, "headline": None, "about": None}
 
@@ -388,7 +400,7 @@ class BrowserProfileService:
         try:
             page = session.page
             await page.goto("https://www.linkedin.com/in/me/edit/intro/")
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             # Wait for the headline input and fill it
             headline_input = page.locator("input[aria-label='Headline']").first
@@ -402,7 +414,7 @@ class BrowserProfileService:
             # Save
             save_btn = page.locator("button:has-text('Save')").first
             await save_btn.click()
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             return {"success": True, "updated_fields": ["headline"], "message": "LinkedIn headline updated"}
         finally:
@@ -414,7 +426,7 @@ class BrowserProfileService:
         try:
             page = session.page
             await page.goto("https://www.linkedin.com/in/me/edit/about/")
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             about_input = page.locator("textarea[aria-label='About']").first
             if await about_input.count() == 0:
@@ -426,7 +438,7 @@ class BrowserProfileService:
 
             save_btn = page.locator("button:has-text('Save')").first
             await save_btn.click()
-            await page.wait_for_load_state("networkidle")
+            await self._settle(page)
 
             return {"success": True, "updated_fields": ["about"], "message": "LinkedIn About updated"}
         finally:
