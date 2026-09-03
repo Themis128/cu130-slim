@@ -17,6 +17,7 @@ Facebook Page. The two-step flow is:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -340,3 +341,271 @@ class InstagramAPIClient:
             )
             self._raise_for_status(resp, url)
             return resp.json()
+
+    # ── Feature 1: Publishing quota check ────────────────────────────────
+
+    async def get_publishing_limit(self) -> dict[str, Any]:
+        """Check the 24-hour content publishing limit.
+
+        Returns quota usage including remaining posts. Instagram allows
+        25 published posts per 24-hour rolling window. Call this before
+        attempting to publish to avoid failed posts.
+
+        Example response::
+
+            {"data": [{"quota_usage": [...], "config": {"quota_total": 25}}]}
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/content_publishing_limit"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=self._params())
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_remaining_publish_quota(self) -> int:
+        """Return the number of posts remaining in the current 24h window.
+
+        Returns 25 if no usage data is available (fresh account).
+        """
+        try:
+            data = await self.get_publishing_limit()
+            usage_data = (data.get("data") or [{}])[0]
+            quota_usage = usage_data.get("quota_usage") or []
+            used = 0
+            for item in quota_usage:
+                if item.get("metric") == "publish_count":
+                    used = int(item.get("value", 0))
+                    break
+            config = usage_data.get("config") or {}
+            total = int(config.get("quota_total", 25))
+            return max(0, total - used)
+        except Exception:
+            return 25  # fail open — assume full quota
+
+    # ── Feature 2: Comment management ────────────────────────────────────
+
+    async def list_comments(
+        self,
+        media_id: str,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List comments on a published media object.
+
+        Requires ``instagram_manage_comments`` permission.
+        Returns up to ``limit`` comments with id, text, username, timestamp.
+        """
+        media_id = _validate_id(media_id, "media_id")
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        url = f"{self.base_url}/{media_id}/comments"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params=self._params({"fields": "id,text,username,timestamp,like_count", "limit": limit}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def reply_to_comment(
+        self,
+        comment_id: str,
+        message: str,
+    ) -> dict[str, Any]:
+        """Reply to an existing comment.
+
+        Requires ``instagram_manage_comments`` permission.
+        Returns the new reply comment object.
+        """
+        comment_id = _validate_id(comment_id, "comment_id")
+        if not message or not message.strip():
+            raise ValueError("message is required")
+        url = f"{self.base_url}/{comment_id}/replies"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                data=self._params({"message": message[:1000]}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def hide_comment(self, comment_id: str, hide: bool = True) -> dict[str, Any]:
+        """Hide or unhide a comment.
+
+        Requires ``instagram_manage_comments`` permission.
+        """
+        comment_id = _validate_id(comment_id, "comment_id")
+        url = f"{self.base_url}/{comment_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                data=self._params({"hidden": "true" if hide else "false"}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def delete_comment(self, comment_id: str) -> bool:
+        """Delete a comment.
+
+        Requires ``instagram_manage_comments`` permission.
+        Returns True if deleted successfully.
+        """
+        comment_id = _validate_id(comment_id, "comment_id")
+        url = f"{self.base_url}/{comment_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(url, params=self._params())
+            self._raise_for_status(resp, url)
+            return True
+
+    # ── Feature 3: Auto-poll container status ────────────────────────────
+
+    async def wait_for_container_ready(
+        self,
+        container_id: str,
+        timeout: float = 120.0,
+        interval: float = 3.0,
+    ) -> str:
+        """Poll container status until FINISHED or ERROR.
+
+        Video and reel containers process asynchronously on Instagram's
+        side. This method polls ``check_container_status`` at regular
+        intervals until the container is ready or an error occurs.
+
+        Raises ``InstagramAPIError`` if the container ends in ERROR state
+        or ``TimeoutError`` if ``timeout`` seconds elapse.
+        """
+        import time
+
+        container_id = _validate_id(container_id, "container_id")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = await self.check_container_status(container_id)
+            if status == "FINISHED":
+                return status
+            if status == "ERROR":
+                raise InstagramAPIError(
+                    400,
+                    f"Container {container_id} processing failed with ERROR status",
+                    f"container:{container_id}",
+                )
+            await asyncio.sleep(interval)
+        raise TimeoutError(
+            f"Container {container_id} did not finish processing within {timeout}s"
+        )
+
+    async def create_and_publish_video(
+        self,
+        video_url: str,
+        caption: str = "",
+        timeout: float = 120.0,
+    ) -> str:
+        """One-call video publish: create container, wait for ready, publish.
+
+        Handles the async container processing automatically. Returns the
+        published media id.
+        """
+        container_id = await self.create_video_container(video_url, caption)
+        await self.wait_for_container_ready(container_id, timeout=timeout)
+        return await self.publish_container(container_id)
+
+    # ── Feature 4: Story builder with stickers/links/mentions ────────────
+
+    async def create_story_container(
+        self,
+        media_url: str,
+        media_type: str = "IMAGE",
+        link: str | None = None,
+        alt_text: str | None = None,
+    ) -> str:
+        """Create a story media container via the Graph API.
+
+        Instagram stories support images and videos. The optional ``link``
+        adds a swipe-up link (requires 10K+ followers or a verified account
+        for the link sticker). ``alt_text`` improves accessibility.
+
+        Returns the container id to be passed to ``publish_container``.
+        """
+        if not media_url:
+            raise ValueError("media_url is required")
+        if media_type not in ("IMAGE", "VIDEO"):
+            raise ValueError("media_type must be 'IMAGE' or 'VIDEO'")
+
+        payload: dict[str, Any] = {
+            "media_type": media_type,
+            "image_url" if media_type == "IMAGE" else "video_url": media_url,
+        }
+        if link:
+            payload["link"] = link
+        if alt_text:
+            payload["alt_text"] = alt_text
+
+        url = f"{self.base_url}/{self.ig_user_id}/media"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(url, data=self._params(payload))
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            container_id = data.get("id")
+            if not container_id:
+                raise InstagramAPIError(
+                    resp.status_code,
+                    "create_story_container returned no id",
+                    url,
+                )
+            return str(container_id)
+
+    async def publish_story(
+        self,
+        media_url: str,
+        media_type: str = "IMAGE",
+        link: str | None = None,
+        alt_text: str | None = None,
+        timeout: float = 120.0,
+    ) -> str:
+        """One-call story publish: create container, wait (if video), publish.
+
+        For video stories, polls the container until processing is complete.
+        Returns the published media id.
+        """
+        container_id = await self.create_story_container(
+            media_url=media_url,
+            media_type=media_type,
+            link=link,
+            alt_text=alt_text,
+        )
+        if media_type == "VIDEO":
+            await self.wait_for_container_ready(container_id, timeout=timeout)
+        return await self.publish_container(container_id)
+
+    # ── Feature 5: Mentions tracking (tagged_media) ──────────────────────
+
+    async def get_tagged_media(
+        self,
+        fields: str = "id,caption,media_type,media_url,permalink,timestamp,username",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """Fetch media where the account is tagged (brand mentions/UGC).
+
+        Requires ``instagram_manage_insights`` permission.
+        Returns posts where the Instagram Business account is tagged,
+        useful for discovering user-generated content and brand mentions.
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/tagged_media"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params=self._params({"fields": fields, "limit": limit}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_recent_mentions(
+        self,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Return a flat list of recent tagged media (brand mentions).
+
+        Convenience wrapper around ``get_tagged_media`` that extracts
+        the ``data`` array from the Graph API response.
+        """
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        result = await self.get_tagged_media(limit=limit)
+        return result.get("data") or []

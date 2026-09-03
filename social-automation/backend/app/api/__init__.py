@@ -10,6 +10,7 @@ from app.api import (
     brand,
     cf_db,
     content,
+    instagram,
     linkedin,
     media,
     media_enhance,
@@ -29,6 +30,7 @@ api_router.include_router(media_enhance.router, prefix="/media/enhance", tags=["
 api_router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 api_router.include_router(linkedin.router, prefix="/linkedin", tags=["linkedin"])
+api_router.include_router(instagram.router, prefix="/instagram", tags=["instagram"])
 api_router.include_router(publishing.router, prefix="/publishing", tags=["publishing"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
