@@ -215,18 +215,33 @@ async function handleLogin(req, res) {
       await page.waitForTimeout(3000);
     }
 
-    // Fill login form
+    // Fill login form — LinkedIn may render inputs as not visible, so use evaluate
     const emailInput = page.locator('input#username, input[name="session_key"], input[type="text"], input[type="email"]').first();
     if (await emailInput.count() === 0) {
       return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
     }
-    await emailInput.fill(username);
+    // Try fill first, fall back to evaluate if element is not visible
+    try {
+      await emailInput.fill(username, { timeout: 5000 });
+    } catch (_) {
+      await emailInput.evaluate((el, val) => {
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }, username);
+    }
 
     const passInput = page.locator('input#password, input[name="session_password"], input[type="password"]').first();
     if (await passInput.count() === 0) {
       return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
     }
-    await passInput.fill(password);
+    try {
+      await passInput.fill(password, { timeout: 5000 });
+    } catch (_) {
+      await passInput.evaluate((el, val) => {
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }, password);
+    }
 
     // Submit
     const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in")').first();
