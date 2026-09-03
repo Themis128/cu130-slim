@@ -215,19 +215,21 @@ async function handleLogin(req, res) {
       await page.waitForTimeout(3000);
     }
 
-    // Fill login form — LinkedIn may render inputs as not visible, so use evaluate
+    // Fill login form — LinkedIn uses React, so we need to type into the inputs
+    // The inputs may be visually hidden but still functional — use focus + type
     const emailInput = page.locator('input#username, input[name="session_key"], input[type="text"], input[type="email"]').first();
     if (await emailInput.count() === 0) {
       return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
     }
-    // Try fill first, fall back to evaluate if element is not visible
+    // Click the input first to make it visible/focused, then type
     try {
+      await emailInput.click({ timeout: 5000 });
       await emailInput.fill(username, { timeout: 5000 });
     } catch (_) {
-      await emailInput.evaluate((el, val) => {
-        el.value = val;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      }, username);
+      // If click fails, try scroll into view + type
+      await emailInput.scrollIntoViewIfNeeded().catch(() => {});
+      await emailInput.evaluate((el) => { el.focus(); });
+      await page.keyboard.type(username, { delay: 50 });
     }
 
     const passInput = page.locator('input#password, input[name="session_password"], input[type="password"]').first();
@@ -235,12 +237,12 @@ async function handleLogin(req, res) {
       return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
     }
     try {
+      await passInput.click({ timeout: 5000 });
       await passInput.fill(password, { timeout: 5000 });
     } catch (_) {
-      await passInput.evaluate((el, val) => {
-        el.value = val;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      }, password);
+      await passInput.scrollIntoViewIfNeeded().catch(() => {});
+      await passInput.evaluate((el) => { el.focus(); });
+      await page.keyboard.type(password, { delay: 50 });
     }
 
     // Submit
