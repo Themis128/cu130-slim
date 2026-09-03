@@ -174,6 +174,13 @@ class Settings(BaseSettings):
     # Captcha-gated writes (bio, avatar, nickname) are NOT supported.
     TIKTOK_BROWSER_SIDECAR_URL: str = "http://tiktok-browser-sidecar:9224"
 
+    # LinkedIn Browser Automation sidecar (Playwright)
+    # RESTful HTTP wrapper for LinkedIn profile management that the official
+    # API does not expose: headline, about, cover photo, profile picture,
+    # website, location, experience, education, skills, and Company Page
+    # management (about, logo, cover, specialties, website).
+    LINKEDIN_BROWSER_SIDECAR_URL: str = "http://linkedin-browser-sidecar:9225"
+
     # Facebook Browser Automation sidecar (Playwright)
     # RESTful HTTP wrapper around Playwright for Facebook personal-profile
     # operations the Graph API does not support: personal posting (text,

@@ -42,6 +42,7 @@ from app.models.user import Team, TeamMember
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
+from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
@@ -755,21 +756,33 @@ def _get_facebook_browser_storage(account: SocialAccount) -> dict:
     return storage
 
 
-async def _get_facebook_user_profile(account: SocialAccount) -> ProfileResponse:
+async def _get_facebook_sidecar(account: SocialAccount) -> FacebookSidecarClient:
+    """Build a FacebookSidecarClient and inject the browser storage state."""
     storage = _get_facebook_browser_storage(account)
-    service = BrowserProfileService()
+    client = FacebookSidecarClient()
     try:
-        data = await service.get_facebook_profile(storage)
-    except BrowserProfileError as e:
+        await client.set_session(storage)
+    except FacebookSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return client
+
+
+async def _get_facebook_user_profile(account: SocialAccount) -> ProfileResponse:
+    client = await _get_facebook_sidecar(account)
+    try:
+        result = await client.get_profile()
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    profile = result.get("profile", {})
     return ProfileResponse(
         platform="facebook",
         account_id=account.account_id,
-        username=data.get("name"),
-        full_name=data.get("name"),
-        about=data.get("about"),
-        profile_pic_url=data.get("profile_pic_url"),
-        raw=data,
+        username=profile.get("name"),
+        full_name=profile.get("name"),
+        about=profile.get("bio"),
+        website=profile.get("website"),
+        profile_pic_url=profile.get("profile_pic_url"),
+        raw=profile,
     )
 
 
@@ -777,20 +790,21 @@ async def _update_facebook_user_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    storage = _get_facebook_browser_storage(account)
-    service = BrowserProfileService()
+    client = await _get_facebook_sidecar(account)
     updated: list[str] = []
     ignored: list[str] = []
 
     try:
         if updates.about is not None:
-            result = await service.update_facebook_about(storage, updates.about)
-            if result.get("success"):
-                updated.append("about")
-    except BrowserProfileError as e:
+            await client.update_bio(updates.about)
+            updated.append("about")
+        if updates.website is not None:
+            await client.update_website(updates.website)
+            updated.append("website")
+    except FacebookSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-    for field in ["headline", "biography", "full_name", "website", "location", "phone", "email", "quotes", "work", "education"]:
+    for field in ["headline", "biography", "full_name", "location", "phone", "email", "quotes", "work", "education"]:
         if getattr(updates, field, None) is not None:
             ignored.append(field)
 
@@ -813,11 +827,10 @@ async def _upload_facebook_user_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    storage = _get_facebook_browser_storage(account)
-    service = BrowserProfileService()
+    client = await _get_facebook_sidecar(account)
     try:
-        await service.update_facebook_profile_picture(storage, image_bytes)
-    except BrowserProfileError as e:
+        await client.upload_picture(image_bytes)
+    except FacebookSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     return ProfileUpdateResponse(
         success=True,
@@ -830,9 +843,15 @@ async def _upload_facebook_user_cover(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="Facebook personal cover photo upload is not yet implemented.",
+    client = await _get_facebook_sidecar(account)
+    try:
+        await client.upload_cover(image_bytes)
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["cover"],
+        message="Facebook personal cover photo updated",
     )
 
 

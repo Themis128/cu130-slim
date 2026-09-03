@@ -80,7 +80,7 @@ async function ensureBrowser() {
   }
 
   context = await browser.newContext(ctxOptions);
-  await context.add_init_script(
+  await context.addInitScript(
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
   );
   page = await context.newPage();
