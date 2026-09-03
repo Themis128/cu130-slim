@@ -575,6 +575,8 @@ services:
     - BROWSER_BRIDGE_URL=http://browser-novnc:9223
     # TikTok Browser Automation sidecar (Playwright)
     - TIKTOK_BROWSER_SIDECAR_URL=http://tiktok-browser-sidecar:9224
+    # LinkedIn Browser Automation sidecar (Playwright)
+    - LINKEDIN_BROWSER_SIDECAR_URL=http://linkedin-browser-sidecar:9225
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -895,6 +897,33 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── LinkedIn Browser Automation sidecar (Playwright) ──────────────────────
+  # RESTful HTTP wrapper around Playwright for LinkedIn profile management
+  # that the official API does not expose: headline, about, cover photo,
+  # profile picture, website, location, experience, education, skills,
+  # and Company Page management (about, logo, cover, specialties).
+  # Browser session is injected via POST /session with storage_state.
+  linkedin-browser-sidecar:
+    build:
+      context: ./linkedin-browser-sidecar
+      dockerfile: Dockerfile
+    container_name: linkedin-browser-sidecar
+    ports:
+    - 9225:9225
+    environment:
+    - LINKEDIN_SIDECAR_PORT=9225
+    - TZ=Europe/Athens
+    volumes:
+    - linkedin_browser_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9225/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    <<: *public-dns
+
 volumes:
   portainer_data: null
   postgres_data: null
@@ -906,3 +935,4 @@ volumes:
   instagram_sessions: null
   warp_data: null
   tiktok_browser_data: null
+  linkedin_browser_data: null
