@@ -143,7 +143,11 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
         if data:
             import tempfile
             ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
-            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir="/tmp")
+            # Save to the uploads directory so the file is accessible by
+            # sidecar containers (instagram-private-api, etc.) that mount
+            # the uploads volume at /uploads.
+            upload_dir = os.environ.get("UPLOAD_DIR", "/app/uploads")
+            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir=upload_dir)
             tmp.write(data)
             tmp.close()
             paths.append(tmp.name)
