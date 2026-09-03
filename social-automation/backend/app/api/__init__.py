@@ -14,6 +14,7 @@ from app.api import (
     linkedin,
     media,
     media_enhance,
+    mcp,
     ops,
     profile,
     publishing,
@@ -41,3 +42,4 @@ api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
+api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])

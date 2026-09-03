@@ -21,6 +21,7 @@ import {
   Linkedin,
   Palette,
   Monitor,
+  Server,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -39,6 +40,7 @@ const navigation = [
   { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'Accounts', href: '/accounts', icon: Users },
   { name: 'Browser Login', href: '/browser-login', icon: Monitor },
+  { name: 'MCP Stack', href: '/mcp-stack', icon: Server },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]

@@ -62,14 +62,14 @@ automatically by reading `.env` for `SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWOR
   "media_ids": ["uuid-of-media-asset"],
   "hashtags": ["serverless", "cloud"],
   "link_url": "https://www.cloudless.gr",
-  "platforms": ["linkedin", "twitter"],
+  "target_account_ids": ["uuid-of-social-account"],
   "scheduled_at": "2026-09-01T10:00:00Z",
   "status": "draft"
 }
 ```
 
 - `media_ids`: optional, references media library assets
-- `platforms`: optional, if omitted targets all connected accounts
+- `target_account_ids`: **required for publishing** — list of social account UUIDs to publish to. Use `GET /api/v1/accounts` to find account IDs. If omitted, the post will have no targets and `publish-now` will return a 400 error.
 - `scheduled_at`: ISO 8601, omit for draft
 - `status`: `draft` or `scheduled`
 

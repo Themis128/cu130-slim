@@ -8,7 +8,7 @@
  *   GET  /health
  *   POST /session              — set storage state (cookies + localStorage)
  *   GET  /session              — check if session is alive
- *   GET  /profile              — read full personal profile
+ *   GET  /profile              — read full personal profile (name, headline, about, experience, education, skills)
  *   POST /profile/headline     — update headline
  *   POST /profile/about        — update About section
  *   POST /profile/cover        — upload cover/background photo
@@ -18,6 +18,7 @@
  *   POST /profile/experience   — add a work experience entry
  *   POST /profile/education    — add an education entry
  *   POST /profile/skills       — add a skill
+ *   GET  /profile/cookies      — export current session cookies
  *
  * Company page endpoints:
  *   GET  /company/:vanity      — read company page info
@@ -27,6 +28,20 @@
  *   POST /company/:vanity/specialties — update company specialties
  *   POST /company/:vanity/logo     — upload company logo
  *   POST /company/:vanity/cover    — upload company cover photo
+ *
+ * Debug endpoints:
+ *   GET  /screenshot           — capture current page as PNG
+ *   GET  /debug/page-text      — get page body text
+ *   GET  /debug/form-html      — list all inputs/buttons on the page
+ *   GET  /debug/html?text=X    — get raw HTML around a text match
+ *   GET  /debug/buttons        — list all visible buttons/links with text
+ *   GET  /debug/screenshot     — full-page screenshot as PNG
+ *   POST /debug/navigate       — navigate to a URL (for debugging)
+ *   POST /debug/eval           — evaluate JavaScript in the page
+ *
+ * Session is injected via POST /session with a Playwright storage_state
+ * JSON (cookies + origins) or a cookies dict. Sessions are persisted to
+ * /data/li-session.json and restored on container restart.
  */
 
 import express from 'express';
@@ -46,6 +61,11 @@ let storageState = null;
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
+
+  // Try to load a saved session if we don't have one in memory
+  if (!storageState) {
+    await loadSavedSession();
+  }
 
   browser = await chromium.launch({
     headless: true,
@@ -164,19 +184,254 @@ async function clickSave() {
   return false;
 }
 
+// ── Robust selector framework ──────────────────────────────────────────────
+
+/**
+ * Try multiple selector strategies in order and return the first visible element.
+ * Each strategy is a Playwright selector string. Makes the sidecar resilient
+ * to LinkedIn layout changes.
+ */
+async function findElement(selectors, opts = {}) {
+  const { timeout = 3000, visible = true } = opts;
+  for (const sel of selectors) {
+    try {
+      const loc = page.locator(sel).first();
+      if (visible) {
+        if (await loc.isVisible({ timeout }).catch(() => false)) {
+          return loc;
+        }
+      } else {
+        if ((await loc.count()) > 0) {
+          return loc;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Find and click the first visible element from a list of selectors.
+ * Includes retry logic — tries each selector, then waits and retries.
+ */
+async function findAndClick(selectors, opts = {}) {
+  const { retries = 2, settleMs = 1500 } = opts;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const el = await findElement(selectors, { timeout: 3000 });
+    if (el) {
+      await el.click().catch(() => {});
+      await page.waitForTimeout(settleMs);
+      return true;
+    }
+    if (attempt < retries) await page.waitForTimeout(2000);
+  }
+  return false;
+}
+
+/**
+ * Find a textarea or contenteditable input inside a dialog or page.
+ */
+async function findTextInput(opts = {}) {
+  const { scope = 'any', label = null } = opts;
+  const dialogScope = scope === 'dialog' ? 'div[role="dialog"] ' : '';
+  const strategies = [];
+  if (label) {
+    strategies.push(
+      `${dialogScope}textarea[aria-label*="${label}"]:visible`,
+      `${dialogScope}textarea[placeholder*="${label}"]:visible`,
+      `${dialogScope}input[aria-label*="${label}"]:visible`,
+      `${dialogScope}input[placeholder*="${label}"]:visible`,
+    );
+  }
+  strategies.push(
+    `${dialogScope}textarea:visible`,
+    `${dialogScope}[contenteditable="true"]:visible`,
+    `${dialogScope}input[type="text"]:visible`,
+  );
+  return findElement(strategies, { timeout: 2000 });
+}
+
+/**
+ * Navigate to a URL with redirect-loop handling, settle, dismiss dialogs,
+ * and verify login. Returns true if logged in.
+ */
+async function navigateAndCheck(url) {
+  await ensureBrowser();
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  } catch (err) {
+    // Handle redirect loops — check if we ended up on a valid page anyway
+    if (err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
+      // Try navigating to the base domain first, then the target
+      try {
+        await page.goto('https://www.linkedin.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(2000);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      } catch (_) {
+        // If still failing, try with waitUntil 'commit'
+        try {
+          await page.goto(url, { waitUntil: 'commit', timeout: 60000 });
+        } catch (_) {
+          throw err;
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
+  await settle();
+  await dismissDialogs();
+  return isLoggedIn();
+}
+
+/** Check if we're logged in by looking at the current URL. */
+function isLoggedIn() {
+  const url = page.url();
+  return (
+    url.includes('linkedin.com') &&
+    !url.includes('/login') &&
+    !url.includes('/checkpoint') &&
+    !url.includes('authwall')
+  );
+}
+
+/**
+ * Resolve the user's profile vanity URL from the feed page.
+ * This avoids the redirect loop on /in/me/ by finding the actual profile URL.
+ */
+async function resolveProfileUrl() {
+  await ensureBrowser();
+  // Navigate to feed first
+  try {
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  } catch (err) {
+    if (err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
+      await page.goto('https://www.linkedin.com/', { waitUntil: 'commit', timeout: 30000 });
+    } else {
+      throw err;
+    }
+  }
+  await settle();
+  await dismissDialogs();
+  if (!isLoggedIn()) return null;
+
+  // Method 1: Click the "View Profile" link or the profile avatar
+  try {
+    const profileLink = await findElement([
+      'a[href*="/in/"]',
+      'button[aria-label*="View Profile"]',
+      'a:has-text("View Profile")',
+    ], { timeout: 5000 });
+    if (profileLink) {
+      const href = await profileLink.getAttribute('href').catch(() => null);
+      if (href && href.includes('/in/')) {
+        return href.startsWith('http') ? href : 'https://www.linkedin.com' + href;
+      }
+      // Click it and read the URL
+      await profileLink.click().catch(() => {});
+      await page.waitForTimeout(3000);
+      if (page.url().includes('/in/')) {
+        return page.url();
+      }
+    }
+  } catch (_) {}
+
+  // Method 2: Navigate to /in/me/ with redirect handling
+  try {
+    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'commit', timeout: 30000 });
+    await page.waitForTimeout(5000);
+    await settle();
+    if (page.url().includes('/in/') && !page.url().includes('/in/me')) {
+      return page.url();
+    }
+  } catch (_) {}
+
+  // Method 3: Use the global nav profile dropdown
+  try {
+    const navProfile = await findElement([
+      'button[aria-label*="Profile"]',
+      'a[aria-label*="Profile"]',
+      'button[data-control-name="nav.settings_profile"]',
+    ], { timeout: 3000 });
+    if (navProfile) {
+      await navProfile.click().catch(() => {});
+      await page.waitForTimeout(3000);
+      if (page.url().includes('/in/')) {
+        return page.url();
+      }
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+/**
+ * Extract text from the page body, split into trimmed lines.
+ */
+async function getPageLines() {
+  const text = await page.innerText('body').catch(() => '');
+  return text.split('\n').map(l => l.trim()).filter(l => l);
+}
+
+// ── Session persistence ────────────────────────────────────────────────────
+
+const SESSION_FILE = process.env.SESSION_FILE || '/data/li-session.json';
+
+async function saveSession() {
+  try {
+    if (!context) return;
+    const state = await context.storageState();
+    const cookies = await context.cookies();
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({ storageState: state, cookies, savedAt: Date.now() }));
+  } catch (_) {}
+}
+
+async function loadSavedSession() {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return false;
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+    if (data.storageState) {
+      storageState = data.storageState;
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+async function exportCookies() {
+  if (!context) return {};
+  const cookies = await context.cookies();
+  const result = {};
+  for (const c of cookies) {
+    if (c.domain && c.domain.includes('linkedin.com')) {
+      result[c.name] = c.value;
+    }
+  }
+  return result;
+}
+
 // ── API: Session ───────────────────────────────────────────────────────────
 
 async function handleSetSession(req, res) {
-  const { storage_state } = req.body;
-  if (!storage_state) {
-    return res.status(400).json({ error: 'storage_state is required' });
+  const { storage_state, cookies } = req.body;
+  if (!storage_state && !cookies) {
+    return res.status(400).json({ error: 'storage_state or cookies is required' });
   }
-  storageState = storage_state;
+  // If cookies dict is provided, build a storage_state from it
+  if (cookies && !storage_state) {
+    const cookieList = Object.entries(cookies).map(([name, value]) => ({
+      name, value, domain: '.linkedin.com', path: '/',
+    }));
+    storageState = { cookies: cookieList, origins: [] };
+  } else {
+    storageState = storage_state;
+  }
   await closeBrowser();
   await ensureBrowser();
   try {
-    await navigate('https://www.linkedin.com/feed/');
-    const loggedIn = !page.url().includes('/login') && !page.url().includes('/checkpoint');
+    await navigateAndCheck('https://www.linkedin.com/feed/');
+    const loggedIn = isLoggedIn();
+    if (loggedIn) await saveSession();
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -186,8 +441,7 @@ async function handleSetSession(req, res) {
 async function handleCheckSession(req, res) {
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/feed/');
-    const loggedIn = !page.url().includes('/login') && !page.url().includes('/checkpoint');
+    const loggedIn = await navigateAndCheck('https://www.linkedin.com/feed/');
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -269,6 +523,7 @@ async function handleLogin(req, res) {
           await page.waitForTimeout(5000);
           if (!page.url().includes('/login') && !page.url().includes('/checkpoint')) {
             storageState = await context.storageState();
+            await saveSession();
             res.json({ status: 'ok', logged_in: true, storage_state: storageState });
           } else {
             res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA code rejected' });
@@ -285,6 +540,7 @@ async function handleLogin(req, res) {
     // Check if login succeeded
     if (!currentUrl.includes('/login') && !currentUrl.includes('/checkpoint')) {
       storageState = await context.storageState();
+      await saveSession();
       res.json({ status: 'ok', logged_in: true, storage_state: storageState });
     } else {
       let errorMsg = 'LinkedIn login failed';
@@ -306,66 +562,173 @@ async function handleLogin(req, res) {
 async function handleReadProfile(req, res) {
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
 
-    const result = { url: page.url(), name: null, headline: null, about: null, location: null, website: null };
+    // Fix redirect loop: resolve the actual profile URL instead of /in/me/
+    let profileUrl = null;
+    try {
+      profileUrl = await resolveProfileUrl();
+    } catch (_) {}
 
-    // Name: try h1 first, then h2 in top-card section
-    const nameH1 = page.locator('h1.text-heading-xlarge').first();
-    if (await nameH1.count() > 0) {
-      result.name = (await nameH1.innerText()).trim();
-    }
-    if (!result.name) {
-      const secs = page.locator('section:has(h2)');
-      for (let i = 0; i < (await secs.count()); i++) {
-        const sec = secs.nth(i);
-        const h2 = (await sec.locator('h2').first().innerText()).trim();
-        if (h2 && !h2.endsWith('notifications')) {
-          result.name = h2;
-          const lines = (await sec.innerText()).split('\n').map((l) => l.trim()).filter(Boolean);
-          for (let j = 0; j < lines.length; j++) {
-            if (lines[j] === h2 && j + 1 < lines.length) {
-              result.headline = lines[j + 1];
-              break;
-            }
-          }
-          break;
-        }
+    if (!profileUrl) {
+      // Fallback: try /in/me/ directly with redirect handling
+      try {
+        await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'commit', timeout: 30000 });
+        await page.waitForTimeout(5000);
+        await settle();
+        profileUrl = page.url();
+      } catch (err) {
+        return res.status(500).json({ error: `Could not resolve profile URL: ${err.message}` });
       }
     }
 
-    // Headline via .text-body-medium
-    if (!result.headline) {
-      const headlineEl = page.locator('.text-body-medium').first();
-      if (await headlineEl.count() > 0) {
-        result.headline = (await headlineEl.innerText()).trim();
-      }
+    if (!isLoggedIn()) {
+      return res.status(401).json({ error: 'Not logged in to LinkedIn', url: page.url() });
+    }
+
+    // Navigate to the profile page (already there from resolveProfileUrl)
+    if (page.url() !== profileUrl) {
+      await navigateAndCheck(profileUrl);
+    }
+
+    const result = {
+      url: page.url(),
+      name: null,
+      headline: null,
+      about: null,
+      location: null,
+      website: null,
+      experience: [],
+      education: [],
+      skills: [],
+    };
+
+    // Name: try multiple selectors
+    const nameEl = await findElement([
+      'h1.text-heading-xlarge',
+      'h1',
+      'section h2',
+    ], { timeout: 5000 });
+    if (nameEl) {
+      result.name = (await nameEl.innerText()).trim();
+    }
+
+    // Headline
+    const headlineEl = await findElement([
+      '.text-body-medium',
+      'div.text-body-medium',
+      'h2.text-body-medium',
+    ], { timeout: 3000 });
+    if (headlineEl) {
+      result.headline = (await headlineEl.innerText()).trim();
     }
 
     // Location
-    const locEl = page.locator('.text-body-small.inline.t-black--light.break-words').first();
-    if (await locEl.count() > 0) {
+    const locEl = await findElement([
+      '.text-body-small.inline.t-black--light.break-words',
+      '.text-body-small.t-black--light.break-words',
+      'span.text-body-small',
+    ], { timeout: 3000 });
+    if (locEl) {
       result.location = (await locEl.innerText()).trim();
     }
 
-    // About
+    // About section
     const aboutSection = page.locator("section:has(h2:has-text('About'))").first();
     if (await aboutSection.count() > 0) {
       const text = await aboutSection.innerText();
       const lines = text.split('\n');
       const start = lines.indexOf('About') + 1;
       let end = lines.length;
-      for (const marker of ['Featured', 'Activity', 'Experience']) {
+      for (const marker of ['Featured', 'Activity', 'Experience', 'Education', 'Skills']) {
         const idx = lines.indexOf(marker);
         if (idx > start) end = Math.min(end, idx);
       }
       result.about = lines.slice(start, end).join('\n').trim() || null;
     }
 
+    // Experience section
+    try {
+      const expSection = page.locator("section:has(h2:has-text('Experience'))").first();
+      if (await expSection.count() > 0) {
+        const expItems = await expSection.locator('div.display-flex.flex-column.full-width, li, [data-field="experience_item"]').all();
+        for (const item of expItems) {
+          const itemText = (await item.innerText().catch(() => '')).trim();
+          if (!itemText || itemText === 'Experience') continue;
+          const lines = itemText.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines.length < 2) continue;
+          // First line is usually the job title, second is the company
+          const exp = {
+            title: lines[0],
+            company: lines[1] || null,
+            date_range: null,
+            location: null,
+            description: null,
+          };
+          // Look for date patterns (e.g. "2023 - Present", "Jan 2020 - Dec 2022")
+          for (const line of lines) {
+            if (/\d{4}|Present|Current|·/.test(line) && !exp.date_range) {
+              exp.date_range = line;
+            }
+          }
+          // Description is usually the last multi-line block
+          if (lines.length > 3) {
+            exp.description = lines.slice(3).join(' ');
+          }
+          result.experience.push(exp);
+        }
+      }
+    } catch (_) {}
+
+    // Education section
+    try {
+      const eduSection = page.locator("section:has(h2:has-text('Education'))").first();
+      if (await eduSection.count() > 0) {
+        const eduItems = await eduSection.locator('div.display-flex.flex-column.full-width, li, [data-field="education_item"]').all();
+        for (const item of eduItems) {
+          const itemText = (await item.innerText().catch(() => '')).trim();
+          if (!itemText || itemText === 'Education') continue;
+          const lines = itemText.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines.length < 2) continue;
+          const edu = {
+            school: lines[0],
+            degree: lines[1] || null,
+            field_of_study: null,
+            date_range: null,
+          };
+          for (const line of lines) {
+            if (/\d{4}/.test(line) && !edu.date_range) {
+              edu.date_range = line;
+            }
+          }
+          if (lines.length > 2) {
+            edu.field_of_study = lines[2];
+          }
+          result.education.push(edu);
+        }
+      }
+    } catch (_) {}
+
+    // Skills section
+    try {
+      const skillSection = page.locator("section:has(h2:has-text('Skills'))").first();
+      if (await skillSection.count() > 0) {
+        const skillItems = await skillSection.locator('span[aria-hidden="true"], .pv-skill-category-entity__name-text, div.display-flex.align-items-center span').all();
+        for (const item of skillItems) {
+          const skillText = (await item.innerText().catch(() => '')).trim();
+          if (skillText && skillText.length < 80 && skillText !== 'Skills') {
+            result.skills.push(skillText);
+          }
+        }
+      }
+    } catch (_) {}
+
     // Website (from contact info)
     try {
-      const contactBtn = page.locator('a:has-text("Contact info"), button:has-text("Contact info")').first();
-      if (await contactBtn.isVisible().catch(() => false)) {
+      const contactBtn = await findElement([
+        'a:has-text("Contact info")',
+        'button:has-text("Contact info")',
+      ], { timeout: 3000 });
+      if (contactBtn) {
         await contactBtn.click();
         await page.waitForTimeout(2000);
         const websiteEl = page.locator('div[role="dialog"] a[href^="http"]').first();
@@ -390,7 +753,9 @@ async function handleUpdateHeadline(req, res) {
   if (!headline) return res.status(400).json({ error: 'headline is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     // Click the "Update headline" prompt or the edit intro pencil
     const updatePrompt = page.getByText('Update headline', { exact: true }).first();
@@ -457,7 +822,9 @@ async function handleUpdateAbout(req, res) {
   if (!about) return res.status(400).json({ error: 'about is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     const aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
     if (await aboutBtn.count() === 0) {
@@ -504,7 +871,9 @@ async function handleUploadCover(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     // Click the "Edit cover photo" or camera icon on the cover area
     const coverEdit = page.locator(
@@ -566,7 +935,9 @@ async function handleUploadPicture(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     // Click the profile photo edit button (camera icon / "Edit photo")
     const picEdit = page.locator(
@@ -631,7 +1002,9 @@ async function handleUpdateWebsite(req, res) {
   if (!website) return res.status(400).json({ error: 'website is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     // Open contact info dialog
     const contactBtn = page.locator('a:has-text("Contact info"), button:has-text("Contact info")').first();
@@ -679,7 +1052,9 @@ async function handleUpdateLocation(req, res) {
   if (!location) return res.status(400).json({ error: 'location is required' });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/');
+    const _profileUrl = await resolveProfileUrl();
+    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    await navigateAndCheck(_profileUrl);
 
     // Open the intro editor (same as headline)
     const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();

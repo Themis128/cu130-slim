@@ -31,12 +31,30 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
 BODY=$(python3 -c "
-import json
-d = {'content_text': '''$TEXT''', 'status': 'scheduled' if '''$SCHEDULED_AT''' else 'draft'}
-if '''$SCHEDULED_AT''':
-    d['scheduled_at'] = '''$SCHEDULED_AT'''
-if '''$PLATFORM''':
-    d['platforms'] = ['''$PLATFORM''']
+import json, urllib.request
+
+token = '''$TOKEN'''
+api = '''$API'''
+platform = '''$PLATFORM'''
+scheduled_at = '''$SCHEDULED_AT'''
+text = '''$TEXT'''
+
+d = {'content_text': text, 'status': 'scheduled' if scheduled_at else 'draft'}
+if scheduled_at:
+    d['scheduled_at'] = scheduled_at
+
+if platform:
+    # Resolve platform name to account IDs
+    req = urllib.request.Request(f'{api}/api/v1/accounts',
+        headers={'Authorization': f'Bearer {token}'})
+    accounts = json.loads(urllib.request.urlopen(req).read())
+    if isinstance(accounts, dict):
+        accounts = accounts.get('accounts', accounts.get('items', []))
+    ids = [a['id'] for a in accounts if a.get('platform') == platform and a.get('status') == 'active']
+    if not ids:
+        raise SystemExit(f'No active account found for platform: {platform}')
+    d['target_account_ids'] = ids
+
 print(json.dumps(d))
 ")
 
@@ -51,4 +69,5 @@ d = json.load(sys.stdin)
 print(f'Post ID: {d.get(\"id\",\"?\")}')
 print(f'Status: {d.get(\"status\",\"?\")}')
 print(f'Scheduled: {d.get(\"scheduled_at\",\"-\")}')
+print(f'Targets: {len(d.get(\"targets\",[]))}')
 "

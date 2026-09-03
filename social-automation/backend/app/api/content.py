@@ -252,8 +252,10 @@ async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: U
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if post.status not in [PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.REVIEW, PostStatus.APPROVED]:
+    if post.status not in [PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.REVIEW, PostStatus.APPROVED, PostStatus.PUBLISHING]:
         raise HTTPException(status_code=400, detail="Cannot edit published/failed post")
+    # Allow editing posts stuck in PUBLISHING — the user may need to add
+    # missing targets or fix content before retrying.
 
     update_data = post_data.model_dump(exclude_unset=True)
     target_account_ids = update_data.pop("target_account_ids", None)
@@ -293,8 +295,11 @@ async def delete_post(post_id: uuid.UUID, current_user: User = Depends(require_e
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if post.status in [PostStatus.PUBLISHED, PostStatus.PUBLISHING]:
+    if post.status == PostStatus.PUBLISHED:
         raise HTTPException(status_code=400, detail="Cannot delete published post")
+    # Allow deleting posts stuck in PUBLISHING — they haven't actually
+    # been published yet and may be stuck due to missing targets or
+    # worker errors.
 
     await log_action(db, user=current_user, action="delete", resource_type="post", resource_id=str(post_id), detail=(post.content_text or "")[:100])
     await db.delete(post)
@@ -367,19 +372,24 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
     except Exception:
         pass  # Compliance check is advisory only — never block publishing
 
+    account_ids = [str(t.social_account_id) for t in post.targets]
+    if not account_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot publish: no target accounts assigned. Add target_account_ids before publishing.",
+        )
+
     post.status = PostStatus.SCHEDULED
     post.scheduled_at = datetime.now(UTC)
     await log_action(db, user=current_user, action="publish", resource_type="post", resource_id=str(post_id))
     await db.commit()
     await db.refresh(post)
 
-    account_ids = [str(t.social_account_id) for t in post.targets]
-    if account_ids:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        pid_str = str(post_id)
-        loop.run_in_executor(None, lambda: publish_post_now.delay(pid_str, account_ids))
-        loop.run_in_executor(None, lambda: process_publish_queue.apply_async(countdown=2))
+    import asyncio
+    loop = asyncio.get_event_loop()
+    pid_str = str(post_id)
+    loop.run_in_executor(None, lambda: publish_post_now.delay(pid_str, account_ids))
+    loop.run_in_executor(None, lambda: process_publish_queue.apply_async(countdown=2))
 
     return await _post_to_response(post, db)
 

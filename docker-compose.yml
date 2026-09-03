@@ -577,6 +577,8 @@ services:
     - TIKTOK_BROWSER_SIDECAR_URL=http://tiktok-browser-sidecar:9224
     # LinkedIn Browser Automation sidecar (Playwright)
     - LINKEDIN_BROWSER_SIDECAR_URL=http://linkedin-browser-sidecar:9225
+    - LINKEDIN_MCP_SERVER_URL=http://linkedin-mcp-server:9227/mcp
+    - AIRBYTE_MCP_SERVER_URL=http://airbyte-mcp-server:9228/mcp
     # Facebook Browser Automation sidecar (Playwright)
     # Personal-profile posting + profile edits the Graph API does not support.
     - FACEBOOK_BROWSER_SIDECAR_URL=http://facebook-browser-sidecar:9226
@@ -930,6 +932,76 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── LinkedIn MCP Server (read/search/messaging) ───────────────────────────
+  # Complements the linkedin-browser-sidecar (which handles writes/posting).
+  # Uses stickerdaniel/linkedin-mcp-server with streamable-http transport.
+  # Session is stored in linkedin_mcp_data volume and shared with the sidecar.
+  linkedin-mcp-server:
+    image: stickerdaniel/linkedin-mcp-server:latest
+    container_name: linkedin-mcp-server
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "9227", "--path", "/mcp"]
+    ports:
+    - 9227:9227
+    environment:
+    - TRANSPORT=streamable-http
+    - HOST=0.0.0.0
+    - PORT=9227
+    - HTTP_PATH=/mcp
+    - TZ=Europe/Athens
+    - TOOL_TIMEOUT=300
+    - BROWSER_IDLE_TIMEOUT=0
+    - LINKEDIN_COOKIE=${LINKEDIN_COOKIE:-}
+    volumes:
+    - linkedin_mcp_data:/home/pwuser/.linkedin-mcp
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9227/mcp || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    <<: *public-dns
+
+  # ── Airbyte MCP Server (data connectors: FB Marketing, etc.) ──────────────
+  # Wraps the official airbyte-mcp with streamable-http transport.
+  # Provides tools to list/run Airbyte connectors (Facebook Marketing, Stripe,
+  # Postgres, etc.) from SocialAuto. Requires connector credentials in env.
+  airbyte-mcp-server:
+    build:
+      context: ./airbyte-mcp-server
+      dockerfile: Dockerfile
+    container_name: airbyte-mcp-server
+    ports:
+    - 9228:9228
+    - 9229:9229
+    environment:
+    - AIRBYTE_MCP_PORT=9228
+    - AIRBYTE_MCP_HEALTH_PORT=9229
+    - AIRBYTE_MCP_HOST=0.0.0.0
+    - AIRBYTE_PROJECT_DIR=/data
+    - AIRBYTE_MCP_SAFE_MODE=1
+    - AIRBYTE_CLOUD_MCP_READONLY_MODE=0
+    - TZ=Europe/Athens
+    - AIRBYTE_CLOUD_CLIENT_ID=${AIRBYTE_CLOUD_CLIENT_ID:-}
+    - AIRBYTE_CLOUD_CLIENT_SECRET=${AIRBYTE_CLOUD_CLIENT_SECRET:-}
+    - AIRBYTE_CLOUD_WORKSPACE_ID=${AIRBYTE_CLOUD_WORKSPACE_ID:-}
+    # Facebook Marketing connector credentials
+    - FB_MARKETING_ACCESS_TOKEN=${FB_MARKETING_ACCESS_TOKEN:-}
+    - FB_MARKETING_AD_ACCOUNT_ID=${FB_MARKETING_AD_ACCOUNT_ID:-}
+    - FB_MARKETING_APP_ID=${FB_MARKETING_APP_ID:-}
+    - FB_MARKETING_APP_SECRET=${FB_MARKETING_APP_SECRET:-}
+    volumes:
+    - airbyte_mcp_data:/data
+    - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9229/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    <<: *public-dns
+
   # ── Facebook Browser Automation sidecar (Playwright) ──────────────────────
   # RESTful HTTP wrapper around Playwright for Facebook personal-profile
   # operations that the official Graph API does not support: personal-profile
@@ -969,4 +1041,6 @@ volumes:
   warp_data: null
   tiktok_browser_data: null
   linkedin_browser_data: null
+  linkedin_mcp_data: null
   facebook_browser_data: null
+  airbyte_mcp_data: null

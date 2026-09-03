@@ -171,6 +171,15 @@ async def _check_scheduled_posts_async() -> None:
             )
             targets = post_targets_result.scalars().all()
 
+            # If there are no targets, fail the post immediately instead of
+            # setting it to PUBLISHING and leaving it stuck forever.
+            if not targets:
+                post.status = PostStatus.FAILED
+                post.failed_at = now
+                post.failure_reason = "No target accounts assigned to this post"
+                await db.commit()
+                continue
+
             for target in targets:
                 existing = await db.execute(
                     select(PublishQueue).where(
