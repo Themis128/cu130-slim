@@ -662,6 +662,7 @@ def test_free_cloud_providers_are_in_catalog():
 async def test_text_provider_chain_dmr_first_then_cloud(monkeypatch):
     monkeypatch.setattr(inference, "_ai_token", lambda: "cf-key")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account")
+    # Non-CF cloud keys are set but should NOT appear in the chain — only DMR + CF.
     monkeypatch.setattr(inference.settings, "GROQ_API_KEY", "groq-key")
     monkeypatch.setattr(inference.settings, "GEMINI_API_KEY", "gemini-key")
     monkeypatch.setattr(inference.settings, "MISTRAL_API_KEY", "mistral-key")
@@ -671,18 +672,9 @@ async def test_text_provider_chain_dmr_first_then_cloud(monkeypatch):
 
     chain = await inference._text_provider_chain("cloudflare", None, None)
 
-    # DMR is in the priority list (local, no key); cloudflare is the explicit
-    # provider so it's reordered to front; DMR follows.
-    assert chain == [
-        "cloudflare",
-        "dmr",
-        "groq",
-        "gemini",
-        "mistral",
-        "cohere",
-        "openrouter",
-        "nvidia",
-    ]
+    # Only DMR and Cloudflare are in the fallback chain.
+    # Cloudflare is the explicit provider so it's first; DMR follows.
+    assert chain == ["cloudflare", "dmr"]
 
 
 @pytest.mark.asyncio
