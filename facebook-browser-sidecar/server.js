@@ -310,7 +310,7 @@ async function handleReadProfile(req, res) {
     if (await nameEl.count() > 0) {
       result.name = (await nameEl.innerText()).trim();
     }
-    if (!result.name) {
+    if (!result.name || result.name === 'Notifications') {
       // Fallback: get name from the page title (e.g. "Themistoklis Baltzakis | Facebook")
       const titleName = await page.title().catch(() => '');
       if (titleName && titleName.includes('|')) {
@@ -326,6 +326,19 @@ async function handleReadProfile(req, res) {
         return meta ? meta.getAttribute('content') : null;
       }).catch(() => null);
       if (ogTitle) result.name = ogTitle;
+    }
+    if (!result.name || result.name === 'Notifications') {
+      // Last resort: extract from page text — look for a name-like string after the notifications count
+      const pageText = await page.innerText('body').catch(() => '');
+      const lines = pageText.split('\n').map(l => l.trim()).filter(l => l);
+      // The name usually appears right after "Edit cover photo" on the profile page
+      const editCoverIdx = lines.findIndex(l => l.toLowerCase().includes('edit cover photo'));
+      if (editCoverIdx >= 0 && editCoverIdx + 1 < lines.length) {
+        const candidate = lines[editCoverIdx + 1];
+        if (candidate && !candidate.includes('notifications') && !candidate.includes('Notifications') && candidate.length > 2) {
+          result.name = candidate;
+        }
+      }
     }
 
     // Profile picture
