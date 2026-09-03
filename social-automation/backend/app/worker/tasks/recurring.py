@@ -13,6 +13,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from celery import shared_task
 from sqlalchemy import select
@@ -53,8 +54,8 @@ def _next_recurrence_dt(pattern: RecurrencePattern, interval: int, base: datetim
     return base  # NONE — shouldn't reach here
 
 
-async def _process_recurring_posts_async() -> dict:
-    summary = {"cloned": 0, "skipped": 0, "errors": []}
+async def _process_recurring_posts_async() -> dict[str, Any]:
+    summary: dict[str, Any] = {"cloned": 0, "skipped": 0, "errors": []}
     now = datetime.now(UTC)
     async with _worker_db() as db:
         result = await db.execute(
