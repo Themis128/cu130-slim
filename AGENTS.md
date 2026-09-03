@@ -248,6 +248,28 @@ All content-generating endpoints now return additional quality metadata:
 
 In addition to generation-time quality checks, `publish_to_platform` in `app/services/publishing.py` spellchecks the final assembled post text (including platform-specific overrides, hashtags, and link URLs) via `auto_correct` before dispatching to social platforms. This is advisory — spellcheck failures never block publishing.
 
+### Ollama fallback for text quality steps
+
+All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel copy generation, AI title generation) use `allow_fallback=True`, so if Cloudflare Workers AI is unavailable or quota-exhausted, the inference chain falls back through Groq → Together → HF → **Ollama** (last resort). This ensures the quality pipeline never silently skips NLP/SEO improvement when CF is down.
+
+**What falls back to Ollama:**
+- `apply_quality_pipeline` NLP check/fix and auto-improve iterations.
+- `run_cloudless_carousel_pipeline` slide copy generation, NLP check/fix, and AI title generation.
+- `generate-carousel-pipeline` endpoint NLP check/fix.
+- `generate-content` and `improve-content` via `apply_quality_pipeline`.
+
+**What does NOT fall back (stays Cloudflare-only):**
+- Carousel **image** generation (`_call_cf_image_pipeline`, `_cf_generate_background`) — images must use Cloudflare Workers AI (FLUX schnell / SD img2img) per the product default. Image generation has no Ollama fallback.
+- `generate-carousel-pipeline` image pipeline calls (`allow_fallback=False` for image requests).
+
+**Ollama model**: `llama3.1:8b-gpu` (custom Modelfile, 100% GPU, 2048 ctx, q8_0 KV cache, `KEEP_ALIVE=-1` so it stays resident in VRAM permanently). Verify with `docker compose exec -T ollama ollama ps` — should show `llama3.1:8b-gpu, 4.9 GB, 100% GPU, 2048, Forever`.
+
+**Container tuning notes:**
+- Ollama and ComfyUI share the 8GB RTX 3070 Laptop GPU. Ollama uses ~5GB VRAM (model weights + KV cache); ComfyUI gets ~2GB free (enough for SD 1.5 fp16).
+- `OLLAMA_GPU_OVERHEAD=2147483648` (2GB) reserves VRAM for ComfyUI so Ollama doesn't monopolize the card.
+- After Ollama container restart, the model must be reloaded: `docker compose exec -T ollama ollama run llama3.1:8b-gpu "Say OK"` (forces VRAM load), or send any inference request.
+- LanguageTool (`languagetool` container, port 8010) handles spellcheck — `Java_Xmx=256m` heap limit. No GPU needed.
+
 ### Instagram-specific rules
 
 - Instagram captions do **not** include `link_url` (removed from `_LINK_IN_BODY` in `content_renderer.py`). Instagram has no clickable caption links, and the SEO scorer penalizes links in IG captions.

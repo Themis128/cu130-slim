@@ -67,12 +67,20 @@ Env (from `.env`, never print secrets):
 
 ## Hard rules
 
-- **Cloudflare Workers AI only** for this pipeline — do not route carousel gen through Ollama/ComfyUI.
+- **Cloudflare Workers AI only** for carousel **image** generation — do not route image gen through Ollama/ComfyUI. Text steps (copy gen, NLP fix, AI title, SEO improve) fall back to Ollama if CF is down.
 - Defaults use **free-tier eligible, low-neuron** models (`cf_models.py`). All models share the same 10k neurons/day.
 - Post as **organization** account, not personal profile.
 - FLUX schnell: do not send `width` / `height` / `guidance` / `num_steps`.
 - LinkedIn multi-image → PDF document via Documents API; document URN must be URL-encoded on status GET.
 - Never commit `.env` or API keys.
+
+## Fallback chain
+
+Text inference (copy gen, NLP, SEO improve, AI title): Cloudflare → Groq → Together → HF → **Ollama** (`llama3.1:8b-gpu`).
+
+Image inference (txt2img, img2img): **Cloudflare only** — no fallback. If CF image quota is exhausted, the pipeline fails rather than using a non-CF image provider.
+
+Ollama model stays resident in VRAM (`KEEP_ALIVE=-1`, 100% GPU, 2048 ctx). Verify: `docker compose exec -T ollama ollama ps`.
 
 ## Key files
 
