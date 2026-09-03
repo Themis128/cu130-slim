@@ -40,13 +40,16 @@ async def _check_http(url: str, timeout: float = 5.0) -> dict[str, Any]:
 
 def _parse_sse_response(text: str) -> dict[str, Any]:
     """Parse a Server-Sent Events response from an MCP server."""
+    import logging
+
+    log = logging.getLogger(__name__)
     for line in text.split("\n"):
         line = line.strip()
         if line.startswith("data: "):
             try:
                 return json.loads(line[6:])
             except Exception:
-                pass
+                log.debug("Failed to parse SSE data line: %s", line[:80])
     return {}
 
 
