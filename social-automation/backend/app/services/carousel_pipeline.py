@@ -847,6 +847,27 @@ async def run_cloudless_carousel_pipeline(
 
     full_caption = build_linkedin_caption(caption, hashtags)
 
+    # ── Spellcheck the final caption ───────────────────────────────────
+    try:
+        full_caption = await auto_correct(full_caption)
+    except Exception:
+        pass  # spellcheck is advisory
+
+    # ── SEO scoring on the final caption + hashtags ────────────────────
+    seo_score: dict | None = None
+    try:
+        from app.services import seo as _seo_service
+        seo_result = await _seo_service.analyze_seo(
+            text=full_caption,
+            platform=account.platform,
+            db=db,
+            team_id=team.id,
+        )
+        seo_score = seo_result.get("score", {})
+        print(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100", flush=True)
+    except Exception as exc:
+        print(f"[n8n-pipeline] SEO scoring failed (non-fatal): {exc}", flush=True)
+
     post = Post(
         team_id=team.id,
         user_id=user.id,
@@ -857,10 +878,11 @@ async def run_cloudless_carousel_pipeline(
         link_url="https://www.cloudless.gr",
         meta_data={
             "carousel": {
-                "pipeline": "n8n-cf-txt2img-nlp",
+                "pipeline": "n8n-cf-txt2img-nlp-spellcheck-seo",
                 "txt2img_model": txt2img_model,
                 "text_model": text_model,
                 "nlp": nlp_report.to_dict(),
+                "seo": seo_score,
                 "slides": slides,
                 "ai_title": ai_title,
                 "account": account.display_name,

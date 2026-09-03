@@ -63,6 +63,8 @@ class GenerateCarouselResponse(BaseModel):
     slides: list[CarouselSlide]
     suggested_caption: str
     hashtags: list[str]
+    seo_score: dict | None = None
+    nlp_report: dict | None = None
 
 
 class GenerateContentRequest(BaseModel):
@@ -82,6 +84,9 @@ class GenerateContentResponse(BaseModel):
     hashtags: list[str]
     suggested_media: str | None = None
     brand_compliance: dict | None = None
+    seo_score: dict | None = None
+    nlp_report: dict | None = None
+    quality: dict | None = None
 
 
 class SuggestHashtagsRequest(BaseModel):
@@ -135,6 +140,9 @@ class ImproveContentRequest(BaseModel):
 class ImproveContentResponse(BaseModel):
     improved_content: str
     changes: list[str]
+    seo_score: dict | None = None
+    nlp_report: dict | None = None
+    quality: dict | None = None
 
 
 class GenerateWorkflowRequest(BaseModel):
@@ -309,6 +317,8 @@ class AnalyzeContentResponse(BaseModel):
     engagement_prediction: str
     plain_english_issues: list[dict] = []
     average_sentence_words: float = 0.0
+    seo_score: dict | None = None
+    spellcheck_issues: list[dict] | None = None
 
 
 class SeoRequest(BaseModel):
@@ -458,6 +468,7 @@ async def auto_configure(
 async def analyze_content(
     request: AnalyzeContentRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     hashtag_count = request.content.count("#")
     char_count = len(request.content)
@@ -523,6 +534,42 @@ Return JSON with:
         else 0.0
     )
 
+    # ── SEO scoring + spellcheck issues ────────────────────────────────
+    from app.services import seo as _seo_service
+
+    seo_score = None
+    try:
+        team_result = await db.execute(
+            select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+        )
+        team = team_result.scalars().first()
+        seo_result = await _seo_service.analyze_seo(
+            text=request.content,
+            platform=request.platform,
+            db=db,
+            team_id=team.id if team else None,
+        )
+        seo_score = seo_result.get("score", {})
+    except Exception:
+        pass
+
+    spellcheck_issues = None
+    try:
+        import httpx as _httpx
+
+        from app.core.config import get_settings as _get_settings
+        _settings = _get_settings()
+        async with _httpx.AsyncClient(timeout=8.0) as _client:
+            _resp = await _client.post(
+                f"{_settings.LANGUAGETOOL_URL.rstrip('/')}/v2/check",
+                data={"text": request.content, "language": "en-US"},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            _resp.raise_for_status()
+            spellcheck_issues = _resp.json().get("matches", [])
+    except Exception:
+        pass
+
     return AnalyzeContentResponse(
         sentiment=result.get("sentiment", "neutral"),
         readability_score=float(result.get("readability_score", 7.0)),
@@ -532,6 +579,8 @@ Return JSON with:
         engagement_prediction=result.get("engagement_prediction", "medium"),
         plain_english_issues=plain_english_issues,
         average_sentence_words=round(avg_sentence_words, 1),
+        seo_score=seo_score,
+        spellcheck_issues=spellcheck_issues,
     )
 
 
@@ -1494,11 +1543,32 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         except Exception:
             pass  # non-fatal — compliance scoring is best-effort
 
-    return GenerateContentResponse(
+    # ── Quality pipeline: NLP + spellcheck + SEO + auto-improve ───────
+    from app.services.quality_pipeline import apply_quality_pipeline
+
+    raw_hashtags = result.get("hashtags", [])
+    quality = await apply_quality_pipeline(
         content=content,
-        hashtags=result.get("hashtags", []),
+        platform=request.platform,
+        hashtags=raw_hashtags,
+        db=db,
+        team_id=team.id if team else None,
+        provider_name=request.provider or "cloudflare",
+        model=request.model,
+        target_score=90,
+        max_iterations=2,
+        topic=request.prompt,
+        tone=request.tone,
+    )
+
+    return GenerateContentResponse(
+        content=quality.content,
+        hashtags=quality.hashtags,
         suggested_media=result.get("suggested_media"),
         brand_compliance=brand_compliance,
+        seo_score=quality.seo_score or None,
+        nlp_report=quality.nlp_report or None,
+        quality=quality.to_dict(),
     )
 
 
@@ -1796,6 +1866,7 @@ async def best_time_to_post(
 async def improve_content(
     request: ImproveContentRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     prompt = f"""Improve this {request.platform} post for {request.resolved_goal()}:
 
@@ -1816,10 +1887,33 @@ Return JSON with: improved_content (string), changes (array of strings describin
     }
 
     result = await call_ollama(prompt, schema=schema)
+    improved = result.get("improved_content", request.content)
+
+    # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
+    from app.services.quality_pipeline import apply_quality_pipeline
+
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+
+    quality = await apply_quality_pipeline(
+        content=improved,
+        platform=request.platform,
+        hashtags=[],
+        db=db,
+        team_id=team.id if team else None,
+        provider_name="cloudflare",
+        target_score=90,
+        max_iterations=2,
+    )
 
     return ImproveContentResponse(
-        improved_content=result.get("improved_content", request.content),
+        improved_content=quality.content,
         changes=result.get("changes", []),
+        seo_score=quality.seo_score or None,
+        nlp_report=quality.nlp_report or None,
+        quality=quality.to_dict() if quality.improved else None,
     )
 
 
@@ -2130,6 +2224,33 @@ Return JSON with:
         for s in cleaned_slides
     ]
 
+    # ── Spellcheck the caption + SEO scoring ───────────────────────────
+    from app.services import seo as _seo_service
+    from app.services.spellcheck import auto_correct as _auto_correct
+
+    raw_hashtags = result.get("hashtags", [])
+    try:
+        cleaned_caption = await _auto_correct(cleaned_caption)
+    except Exception:
+        pass  # spellcheck is advisory
+
+    # SEO scoring on caption + hashtags
+    seo_score = None
+    try:
+        full_text = cleaned_caption
+        if raw_hashtags:
+            tag_str = " ".join(f"#{h.lstrip('#')}" for h in raw_hashtags)
+            full_text = f"{full_text}\n\n{tag_str}"
+        seo_result = await _seo_service.analyze_seo(
+            text=full_text,
+            platform=request.platform,
+            db=db,
+            team_id=team_id,
+        )
+        seo_score = seo_result.get("score", {})
+    except Exception:
+        pass  # SEO is advisory
+
     # Index generated carousel content in chroma for future dedup
     if team and cleaned_slides:
         carousel_content = f"CAROUSEL:{request.platform}:{request.topic}:" + "|".join([s.get("title", "") for s in cleaned_slides])
@@ -2142,7 +2263,9 @@ Return JSON with:
     return GenerateCarouselResponse(
         slides=slides,
         suggested_caption=cleaned_caption,
-        hashtags=result.get("hashtags", []),
+        hashtags=raw_hashtags,
+        seo_score=seo_score,
+        nlp_report=_nlp_report.to_dict() if hasattr(_nlp_report, "to_dict") else None,
     )
 
 
@@ -2174,6 +2297,7 @@ class GenerateCarouselPipelineResponse(BaseModel):
     media_ids: list[uuid.UUID]
     models: dict
     nlp_report: dict = {}
+    seo_score: dict | None = None
 
 
 @router.post("/generate-carousel-pipeline", response_model=GenerateCarouselPipelineResponse)
@@ -2282,6 +2406,31 @@ async def generate_carousel_pipeline(
             )
         )
 
+    # ── Spellcheck the caption + SEO scoring ───────────────────────────
+    from app.services import seo as _seo_service
+    from app.services.spellcheck import auto_correct as _auto_correct
+
+    try:
+        cleaned_caption = await _auto_correct(cleaned_caption)
+    except Exception:
+        pass  # spellcheck is advisory
+
+    seo_score = None
+    try:
+        full_text = cleaned_caption
+        if copy.hashtags:
+            tag_str = " ".join(f"#{h.lstrip('#')}" for h in copy.hashtags)
+            full_text = f"{full_text}\n\n{tag_str}"
+        seo_result = await _seo_service.analyze_seo(
+            text=full_text,
+            platform=request.platform,
+            db=db,
+            team_id=team.id,
+        )
+        seo_score = seo_result.get("score", {})
+    except Exception:
+        pass  # SEO is advisory
+
     pipeline_response = GenerateCarouselPipelineResponse(
         slides=slide_results,
         suggested_caption=cleaned_caption,
@@ -2291,8 +2440,11 @@ async def generate_carousel_pipeline(
             "text": request.text_model,
             "txt2img": request.txt2img_model,
             "nlp": "plain-english-check-fix",
+            "spellcheck": "languagetool",
+            "seo": "platform-scored",
         },
         nlp_report=nlp_report.to_dict(),
+        seo_score=seo_score,
     )
 
     # Auto-save successful generation as a reusable workflow template

@@ -115,7 +115,35 @@ Posts can target any combination of connected accounts:
 
 - The `publish-now` endpoint queues the post via Celery; publishing happens
   asynchronously. Check status after a few seconds.
+- **Publishing-time spellcheck**: `publish_to_platform` in `app/services/publishing.py`
+  spellchecks the final assembled post text (including platform-specific overrides,
+  hashtags, and link URLs) via LanguageTool `auto_correct` before dispatching. This
+  is advisory — spellcheck failures never block publishing.
+- **Instagram link handling**: Instagram captions do **not** include `link_url`
+  (Instagram has no clickable caption links, and SEO scoring penalizes links in
+  IG captions). The `link_url` field is still stored on the post but is omitted
+  from the rendered Instagram caption.
+- **Instagram token resolution**: `_resolve_ig_user_token` in `publishing.py`
+  resolves the correct Facebook **user** token (not Page token) for Instagram
+  Graph API publishing by looking up the parent Facebook user account.
 - LinkedIn carousel posts use the Documents API (PDF upload).
 - TikTok requires video media for direct publishing.
 - Instagram requires a media asset (image or video) for publishing.
 - Never print or commit `.env` secrets.
+
+## Quality pipeline
+
+All AI content generation endpoints (`/api/v1/ai/generate-content`,
+`/api/v1/ai/improve-content`, `/api/v1/ai/generate-carousel`,
+`/api/v1/ai/generate-carousel-pipeline`, `/api/v1/ai/run-carousel-and-publish`,
+`/api/v1/ai/analyze-content`) enforce a three-step quality pipeline:
+
+1. **Spellcheck** — LanguageTool grammar + spelling correction
+2. **NLP** — plain-English check/fix (jargon detection + rewrite)
+3. **SEO** — platform-specific scoring (length, hashtags, readability, keywords, links)
+
+If the SEO score is below 90, the pipeline auto-improves the content by feeding
+recommendations back to the LLM and regenerating (up to 2 iterations).
+
+See `app/services/quality_pipeline.py` for the shared helper and
+`AGENTS.md` → "Quality pipeline" section for full documentation.

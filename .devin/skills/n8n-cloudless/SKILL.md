@@ -33,7 +33,7 @@ triggers:
 | JSON | `n8n-workflows/cloudless-carousel-pipeline.json` |
 | Prod webhook | `POST http://localhost:5678/webhook/cloudless-carousel` |
 | Schedule | every 2 days at **19:00 Europe/Athens** |
-| Calls | social-api login → `/api/v1/ai/run-carousel-and-publish` (`wait_for_publish=false`) |
+| Calls | social-api login → `/api/v1/ai/run-carousel-and-publish` (`wait_for_publish=false`) — server-side pipeline includes NLP plain-English check/fix, spellcheck (LanguageTool), and SEO scoring |
 
 | Workflow id | `socialauto-daily-slack-digest` |
 | Name | `SocialAuto Daily Digest → #socialauto` |

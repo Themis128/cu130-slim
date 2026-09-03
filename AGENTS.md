@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 275 tests).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 336 tests).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -202,13 +202,62 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 ## LinkedIn carousel pipeline
 
 - **Cloudflare Workers AI only** for carousel generation (text + image). No Ollama/ComfyUI fallback for this path.
-- The pipeline (`app/services/carousel_pipeline.py`) generates slide copy, runs NLP plain-English check/fix, generates background images via FLUX schnell, composes branded slides (dark navy + teal Cloudless brand), and combines all slides into a **single PDF** — one media library entry.
+- The pipeline (`app/services/carousel_pipeline.py`) generates slide copy, runs NLP plain-English check/fix, spellchecks each slide's title/body/highlight via LanguageTool, generates background images via FLUX schnell, composes branded slides (dark navy + teal Cloudless brand), spellchecks the final caption, runs SEO scoring on the caption+hashtags, and combines all slides into a **single PDF** — one media library entry.
 - An AI-generated title is produced for each carousel and stored in `MediaAsset.ai_caption`. The target platform and account are stored in `MediaAsset.tags` (e.g. `['carousel', 'linkedin', 'slides:7', 'cloudless.gr']`).
 - The `/api/v1/ai/run-carousel-and-publish` endpoint supports `custom_slides`, `custom_caption`, and `custom_hashtags` in the request body to override AI-generated copy with curated content. When custom slides are provided, AI copy generation and NLP dedup are skipped.
 - The `/api/v1/media/view` endpoint serves PDFs and audio files directly (browsers render them natively). The frontend `ImageViewerDialog` renders PDFs in an `<iframe>` and audio in an `<audio>` player.
 - Media library cards show a file icon for PDFs (with AI title and platform tags) and a music icon for audio files.
 - Post as the **cloudless.gr Company Page** account (`4a8d9440-47d2-4bda-bd11-3776fd9022ba`), not a personal profile.
 - Automate via n8n workflow `cloudless-cf-carousel-linkedin` (schedule or webhook).
+
+## Quality pipeline (NLP + spellcheck + SEO)
+
+All content-generating endpoints enforce a three-step quality pipeline before returning results. The shared helper is `app/services/quality_pipeline.py` (`apply_quality_pipeline`).
+
+### Quality steps
+
+1. **Spellcheck** — `auto_correct` via LanguageTool (grammar + spelling corrections).
+2. **NLP** — `run_nlp_check_and_fix` to flag jargon/hard sentences and rewrite to plain English.
+3. **SEO** — `analyze_seo` to score content against platform best practices (length, hashtags, readability, keywords, links, plain English).
+4. **Auto-improve** — if the SEO overall score is below the target (default 90), the pipeline feeds recommendations back to the LLM, regenerates the content, and re-checks. Up to 2 iterations.
+
+### Endpoint coverage
+
+| Endpoint | NLP | Spellcheck | SEO | Auto-improve |
+|----------|-----|------------|-----|--------------|
+| `POST /api/v1/ai/generate-content` | ✅ | ✅ | ✅ | ✅ (target 90) |
+| `POST /api/v1/ai/improve-content` | ✅ | ✅ | ✅ | ✅ (target 90) |
+| `POST /api/v1/ai/generate-carousel` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/generate-carousel-pipeline` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/run-carousel-and-publish` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/analyze-content` | ✅ | ✅ | ✅ | — |
+| Publishing worker (`publish_to_platform`) | — | ✅ | — | — |
+
+### Response fields
+
+All content-generating endpoints now return additional quality metadata:
+- `seo_score` — the full SEO score breakdown (overall, readability, keywords, hashtags, links, plain_english, length, recommendations).
+- `nlp_report` — the NLP plain-English check report (issues found, fields rewritten).
+- `quality` — full quality pipeline result (only present if auto-improvement ran).
+
+### Decorator
+
+`@with_quality(target_score=90)` can be applied to any endpoint that returns a Pydantic model with `content` and `hashtags` fields. It automatically extracts, quality-checks, and patches the response.
+
+### Publishing-time spellcheck
+
+In addition to generation-time quality checks, `publish_to_platform` in `app/services/publishing.py` spellchecks the final assembled post text (including platform-specific overrides, hashtags, and link URLs) via `auto_correct` before dispatching to social platforms. This is advisory — spellcheck failures never block publishing.
+
+### Instagram-specific rules
+
+- Instagram captions do **not** include `link_url` (removed from `_LINK_IN_BODY` in `content_renderer.py`). Instagram has no clickable caption links, and the SEO scorer penalizes links in IG captions.
+- `_resolve_ig_user_token` in `publishing.py` resolves the correct Facebook **user** token (not Page token) for Instagram Graph API publishing. It uses `getattr()` for `parent_account_id`/`team_id` (test-safe), uses `.limit(1).first()` for the fallback query (avoids `MultipleResultsFound`), and logs all failure paths.
+
+### Known lower-priority stubs (not blocking)
+
+- `_estimate_cost` in `inference.py` returns `0.0` (Phase 4.2 cost reporting — not wired up).
+- NVIDIA FLUX Kontext `example_id=0` placeholder (NVIDIA-specific enhancement path, not used by Cloudflare carousel).
+- Competitor snapshot in `brand_monitoring.py` stores zeroed metrics (competitor monitoring feature not wired up yet).
 
 ## Alembic migration chain
 
