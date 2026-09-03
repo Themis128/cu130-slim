@@ -270,6 +270,34 @@ All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel
 - After Ollama container restart, the model must be reloaded: `docker compose exec -T ollama ollama run llama3.1:8b-gpu "Say OK"` (forces VRAM load), or send any inference request.
 - LanguageTool (`languagetool` container, port 8010) handles spellcheck — `Java_Xmx=256m` heap limit. No GPU needed.
 
+### Container data-flow matrix
+
+Verified connectivity from `social-api` to all dependent services:
+
+| Service | Container | Port | Path | Status |
+|---------|-----------|------|------|--------|
+| LanguageTool (spellcheck) | `languagetool` | 8010 | `/v2/check` | OK (200) |
+| Chroma (dedup/vector) | `chroma` | 8000 | `/api/v2/` | OK (v2 API; v1 deprecated) |
+| Redis (celery/cache) | `redis` | 6379 | TCP | OK |
+| Postgres (primary DB) | `social-postgres` | 5432 | TCP | OK |
+| MinIO (storage) | `minio` | 9000 | `/minio/health/live` | OK (200) |
+| n8n (workflows) | `n8n` | 5678 | `/healthz` | OK (200) |
+| Ollama (fallback inference) | `ollama` | 11434 | `/api/tags` | OK (200, model in VRAM) |
+| Instagram Private API | `instagram-private-api` | 8000 | `/` | OK (307 redirect to /docs) |
+| LinkedIn Browser Sidecar | `linkedin-browser-sidecar` | 9225 | `/health` | OK (200) |
+| Facebook Browser Sidecar | `facebook-browser-sidecar` | 9226 | `/health` | OK (200) |
+| TikTok Browser Sidecar | `tiktok-browser-sidecar` | 9224 | `/health` | OK (200) |
+| Browser Bridge (noVNC) | `browser-novnc` | 9223 | `/` | OK (404 on root, server up) |
+| WARP Proxy | `warp-proxy` | 1080 | TCP (SOCKS5) | OK |
+| Cloudflared tunnel | `social-cloudflared` | — | Outbound tunnel (no HTTP health) | OK (container healthy) |
+
+### Known infrastructure issues
+
+- **Cloudflare API token expired**: `CLOUDFLARE_API_TOKEN` returns 401 "Invalid API Token" from `api.cloudflare.com`. D1, KV, and Vectorize are all in `postgres_only` fallback mode. The env vars (`D1_SOCIAL_AUTOMATION_ID`, `KV_CACHE_NAMESPACE`, `VECTORIZE_INDEX_NAME`) are correctly configured — only the token needs refreshing in `.env`. After refreshing, restart `social-api` and workers, then verify with `curl http://localhost:8083/api/v1/cf-db/health` (all three should return `true`).
+- **linkedin-mcp-server healthcheck**: Fixed — was using `curl` (not available in the container image). Now uses Python `socket` TCP check on port 9227. Container reports healthy.
+- **social-worker-default CPU**: Normal — runs `sync_all_analytics` Celery beat tasks which are CPU-intensive during analytics sync. Concurrency=2, max-tasks-per-child=200.
+- **Chroma API v1 deprecated**: Chroma client uses v2 API (`/api/v2/tenants/default_tenant/databases/default_database`). The v1 endpoint returns 410 Gone — this is expected and not a problem.
+
 ### Instagram-specific rules
 
 - Instagram captions do **not** include `link_url` (removed from `_LINK_IN_BODY` in `content_renderer.py`). Instagram has no clickable caption links, and the SEO scorer penalizes links in IG captions.
