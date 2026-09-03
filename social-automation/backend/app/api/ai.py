@@ -1941,27 +1941,26 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
             },
         })
 
-    # Add LLM processing node
-    if intent.get("needs_image") or True:
-        node_y += 100
-        nodes.append({
-            "name": "Process Content",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 1,
-            "position": [250, node_y],
-            "parameters": {
-                "url": f"{settings.OLLAMA_URL}/api/generate",
-                "method": "POST",
-                "jsonParameters": True,
-                "options": {
-                    "model": settings.OLLAMA_DEFAULT_MODEL,
-                    "prompt": "Process: {{ $json.content }}",
-                    "format": "json",
-                },
+    # Add LLM processing node (always needed — content generation is core)
+    node_y += 100
+    nodes.append({
+        "name": "Process Content",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [250, node_y],
+        "parameters": {
+            "url": f"{settings.OLLAMA_URL}/api/generate",
+            "method": "POST",
+            "jsonParameters": True,
+            "options": {
+                "model": settings.OLLAMA_DEFAULT_MODEL,
+                "prompt": "Process: {{ $json.content }}",
+                "format": "json",
             },
-        })
+        },
+    })
 
-    # Add ComfyUI image generation if needed
+    # Add image generation if needed (via social-api Cloudflare Workers AI)
     if intent.get("needs_image"):
         node_y += 100
         nodes.append({
@@ -1970,13 +1969,12 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
             "typeVersion": 1,
             "position": [250, node_y],
             "parameters": {
-                "url": f"{settings.COMFYUI_URL}/prompt",
+                "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
                 "method": "POST",
                 "jsonParameters": True,
                 "options": {
-                    "prompt": {
-                        # ComfyUI workflow would go here
-                    },
+                    "prompt": "{{ $json.prompt || $json.content }}",
+                    "provider": "cloudflare",
                 },
             },
         })

@@ -1,5 +1,6 @@
 """Unified inference service — routes to Ollama (local) or any OpenAI-compatible cloud API."""
 import json
+import logging
 import re
 import time
 import uuid
@@ -31,6 +32,7 @@ from app.services.cf_models import (
 )
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # ── Circuit breaker + neuron tracking (Phase 4) ──────────────────────────────
 # In-memory per-provider circuit breaker state (DB-backed AIProvider fields are
@@ -51,7 +53,7 @@ def _extract_cf_neurons(headers: httpx.Headers) -> int | None:
             try:
                 return int(float(val))
             except (ValueError, TypeError):
-                pass
+                logger.debug("Non-numeric neuron header %s=%r", hname, val)
     return None
 
 

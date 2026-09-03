@@ -1062,7 +1062,9 @@ async def _resolve_ig_user_token(
     if meta.get("login_type") == "business_login":
         return access_token
     # If the account has a parent FB user account, use that user's token
-    if account.parent_account_id and db:
+    parent_account_id = getattr(account, "parent_account_id", None)
+    team_id = getattr(account, "team_id", None)
+    if parent_account_id and db:
         result = await db.execute(
             select(SocialAccount).where(SocialAccount.id == account.parent_account_id)
         )
@@ -1084,7 +1086,7 @@ async def _resolve_ig_user_token(
     if db:
         result = await db.execute(
             select(SocialAccount).where(
-                SocialAccount.team_id == account.team_id,
+                SocialAccount.team_id == team_id,
                 SocialAccount.platform == "facebook",
                 SocialAccount.account_type == "user",
                 SocialAccount.status == "active",

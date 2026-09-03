@@ -238,9 +238,18 @@ async def test_provider(
 
     try:
         if name in IMAGE_GEN_PROVIDERS:
-            # For image generation, just verify the API key works with a minimal request
-            # Return success if provider is configured (actual generation tested via generate-image endpoint)
-            return {"ok": True, "response": "Image generation provider configured. Use generate-image endpoint to test."}
+            # Verify the image generation provider with a minimal 64x64 request
+            from app.services.cf_models import CF_TXT2IMG_FREE
+            from app.services.inference import _call_workers_ai_image
+            result = await _call_workers_ai_image(
+                prompt="test",
+                model=CF_TXT2IMG_FREE,
+                width=64,
+                height=64,
+                steps=1,
+            )
+            size = len(result.get("image_bytes", b"")) if isinstance(result, dict) else 0
+            return {"ok": True, "response": f"Image generation OK ({size} bytes)"}
 
         result = await call_inference(
             "Say hi.",
