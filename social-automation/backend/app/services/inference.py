@@ -270,7 +270,7 @@ PROVIDER_CATALOG = [
         "default_model": "@cf/meta/llama-3.2-3b-instruct",
         "requires_key": True,
         "in_fallback_chain": True,
-        "description": "Cloudflare Workers AI — LLMs (Llama/Qwen/GLM/GPT-OSS), Whisper/Nova STT, FLUX images. The ONLY cloud fallback for text and image inference.",
+        "description": "Cloudflare Workers AI — LLMs, Whisper/Nova STT, FLUX images. The ONLY cloud fallback for text and image inference.",  # noqa: E501
         "model_examples": [
             "@cf/meta/llama-3.2-1b-instruct",
             "@cf/meta/llama-3.2-3b-instruct",
