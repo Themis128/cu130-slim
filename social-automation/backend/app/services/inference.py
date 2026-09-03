@@ -269,7 +269,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
         "default_model": "@cf/meta/llama-3.2-3b-instruct",
         "requires_key": True,
-        "description": "Cloudflare Workers AI — LLMs (Llama/Qwen/GLM/GPT-OSS), Whisper/Nova STT, FLUX images. Full live catalog browsable in this panel.",
+        "in_fallback_chain": True,
+        "description": "Cloudflare Workers AI — LLMs (Llama/Qwen/GLM/GPT-OSS), Whisper/Nova STT, FLUX images. The ONLY cloud fallback for text and image inference.",
         "model_examples": [
             "@cf/meta/llama-3.2-1b-instruct",
             "@cf/meta/llama-3.2-3b-instruct",
