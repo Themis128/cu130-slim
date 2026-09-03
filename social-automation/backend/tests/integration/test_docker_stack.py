@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -30,7 +31,7 @@ pytestmark = [
     pytest.mark.skipif(not _has_docker(), reason="docker CLI not available (run on Docker host)"),
 ]
 
-COMPOSE_DIR = os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim")
+COMPOSE_DIR = os.environ.get("COMPOSE_DIR", str(Path(__file__).resolve().parents[4]))
 API_URL = os.environ.get("API_URL", "http://localhost:8083")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
 N8N_URL = os.environ.get("N8N_URL", "http://localhost:5678")
