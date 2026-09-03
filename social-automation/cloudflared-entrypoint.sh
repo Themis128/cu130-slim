@@ -8,8 +8,7 @@ if [ -n "$SOCIAL_TUNNEL_TOKEN" ]; then
   printf 'https://social.cloudless.gr' > /run/tunnel/url
   # http2 (TCP) instead of default QUIC: WSL2 NAT drops idle UDP flow state,
   # which killed all QUIC edge connections for ~3min (Cloudflare 1033).
-  # --grace-period gives social-api time to restart before cloudflared drops.
-  exec cloudflared tunnel --no-autoupdate run --protocol http2 --grace-period 30s --token "$SOCIAL_TUNNEL_TOKEN"
+  exec cloudflared tunnel --no-autoupdate run --protocol http2 --token "$SOCIAL_TUNNEL_TOKEN"
 else
   printf '[cloudflared] Starting quick tunnel (no SOCIAL_TUNNEL_TOKEN set)\n' >&2
   cloudflared tunnel --no-autoupdate --url http://social-api:8000 2>&1 | \

@@ -293,10 +293,19 @@ Verified connectivity from `social-api` to all dependent services:
 
 ### Known infrastructure issues
 
-- **Cloudflare API token expired**: `CLOUDFLARE_API_TOKEN` returns 401 "Invalid API Token" from `api.cloudflare.com`. D1, KV, and Vectorize are all in `postgres_only` fallback mode. The env vars (`D1_SOCIAL_AUTOMATION_ID`, `KV_CACHE_NAMESPACE`, `VECTORIZE_INDEX_NAME`) are correctly configured — only the token needs refreshing in `.env`. After refreshing, restart `social-api` and workers, then verify with `curl http://localhost:8083/api/v1/cf-db/health` (all three should return `true`).
+- **Cloudflare API token expired**: `CLOUDFLARE_API_TOKEN` returns 401 "Invalid API Token" from `api.cloudflare.com`. D1, KV, and Vectorize are all in `postgres_only` fallback mode. The env vars (`D1_SOCIAL_AUTOMATION_ID`, `KV_CACHE_NAMESPACE`, `VECTORIZE_INDEX_NAME`) are correctly configured — only the token needs refreshing in `.env`.
+  - **Token fallback**: D1/KV/Vectorize clients now try multiple tokens in order: `CLOUDFLARE_API_TOKEN` → `CLOUDFLARE_AI_API_TOKEN` → `CLOUDFLARE_EMAIL_API_TOKEN`. The AI token works for Workers AI but lacks D1/KV/Vectorize scopes, so a new API token is still needed.
+  - **Required token scopes**: Create a new Cloudflare API token at https://dash.cloudflare.com/profile/api-tokens with these permissions:
+    - D1: Edit (`Account > D1 > Edit`)
+    - Workers KV: Edit (`Account > Workers KV Storage > Edit`)
+    - Vectorize: Edit (`Account > Vectorize AI > Edit`)
+    - Workers AI: Edit (`Account > Workers AI > Edit`) — optional if using separate AI token
+  - **After refreshing**: Update `CLOUDFLARE_API_TOKEN` in `.env`, restart `social-api` + workers, then verify with `curl http://localhost:8083/api/v1/cf-db/health` — `d1`, `kv`, `vectorize` should all return `true`, and `tokens_available` should show the count.
+  - **Health endpoint diagnostics**: `/api/v1/cf-db/health` now returns `tokens_available`, `account_id_configured`, `d1_db_id_configured`, `kv_namespace_configured`, and `vectorize_index_configured` to help diagnose config vs token issues.
 - **linkedin-mcp-server healthcheck**: Fixed — was using `curl` (not available in the container image). Now uses Python `socket` TCP check on port 9227. Container reports healthy.
 - **social-worker-default CPU**: Normal — runs `sync_all_analytics` Celery beat tasks which are CPU-intensive during analytics sync. Concurrency=2, max-tasks-per-child=200.
 - **Chroma API v1 deprecated**: Chroma client uses v2 API (`/api/v2/tenants/default_tenant/databases/default_database`). The v1 endpoint returns 410 Gone — this is expected and not a problem.
+- **Cloudflared tunnel EOF during restarts**: Expected — when `social-api` restarts, cloudflared logs `Unable to reach the origin service: EOF`. It auto-reconnects within seconds (4 connections to Sofia edge). No action needed.
 
 ### Instagram-specific rules
 
