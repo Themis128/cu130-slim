@@ -103,3 +103,6 @@ social-automation/uploads/
 # Slack CLI local auth state (contains OAuth credentials)
 slack-apps/*/.slack/
 .playwright-data/
+
+# Local Diffusers model cache (downloaded HF weights, ~2GB)
+diffusers-server/models/

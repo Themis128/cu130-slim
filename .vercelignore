@@ -1,0 +1,23 @@
+# GPU-only services that cannot run on Vercel serverless
+diffusers-server/
+ollama/
+ops/comfyui/
+
+# Docker infrastructure
+docker-compose.yml
+docker-compose.override.yml
+
+# Local runtime data
+storage/
+n8n-data/
+metabase-data/
+ollama/models/
+diffusers-server/models/
+social-automation/uploads/
+
+# Dev tooling
+.devin/
+.cursor/
+.playwright-data/
+.playwright-mcp/
+.mimosa/
