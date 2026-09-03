@@ -207,14 +207,22 @@ async function handleLogin(req, res) {
     await settle();
     await dismissDialogs();
 
+    // Wait for the login form to render (LinkedIn uses JS to render inputs)
+    try {
+      await page.waitForSelector('input#username, input[name="session_key"]', { timeout: 15000 });
+    } catch (_) {
+      // Try alternative selectors
+      await page.waitForTimeout(3000);
+    }
+
     // Fill login form
-    const emailInput = page.locator('input#username, input[name="session_key"]').first();
+    const emailInput = page.locator('input#username, input[name="session_key"], input[type="text"], input[type="email"]').first();
     if (await emailInput.count() === 0) {
       return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
     }
     await emailInput.fill(username);
 
-    const passInput = page.locator('input#password, input[name="session_password"]').first();
+    const passInput = page.locator('input#password, input[name="session_password"], input[type="password"]').first();
     if (await passInput.count() === 0) {
       return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
     }
