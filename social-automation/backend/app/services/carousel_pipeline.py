@@ -690,7 +690,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "cloudflare",   # CF primary; Ollama is last resort
+    text_provider: str = "dmr",   # DMR local primary; CF cloud fallback
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
@@ -719,8 +719,10 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — use custom slides if provided, otherwise Cloudflare Workers AI
-    effective_provider = "cloudflare"
+    # 1) Copy — carousel structured JSON always uses CF; NLP/title use requested provider
+    # generate_carousel_copy enforces allow_fallback=False so it stays CF-only for quality.
+    # NLP rewrite and title generation use text_provider (DMR→CF fallback chain).
+    effective_provider = text_provider
     if custom_slides:
         slides = list(custom_slides)[:num_slides]
         caption = custom_caption or "cloudless.gr — Clear skies. Zero friction."
@@ -735,7 +737,7 @@ async def run_cloudless_carousel_pipeline(
             tone=tone,
             include_cta=include_cta,
             text_model=text_model,
-            text_provider=effective_provider,
+            text_provider="cloudflare",  # CF-only for structured JSON quality
             db=db,
             team_id=team.id,
         )

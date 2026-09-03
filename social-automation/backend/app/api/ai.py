@@ -74,7 +74,7 @@ class GenerateContentRequest(BaseModel):
     length: str = "medium"
     include_hashtags: bool = True
     include_emojis: bool = True
-    provider: str = "cloudflare"
+    provider: str = "dmr"  # DMR local primary; falls back to cloudflare
     model: str | None = None
     template_id: uuid.UUID | None = None
 

@@ -417,25 +417,25 @@
         ]
       ]
     },
-"Merge (Collect File Paths)": {
-  "parameters": {
-    "mode": "combine",
-    "keepOnlySet": true,
-    "set": [
-      {
-        "name": "slidesWithImages",
-        "value": "={{ $json.map(item => ({ title: item.title, subtitle: item.subtitle, overline: item.overline, stepNumber: item.stepNumber, body: item.body, imagePath: item.filePath })) }}"
-      }
-    ]
-  },
-  "name": "Merge (Collect File Paths)",
-  "type": "n8n-nodes-base.merge",
-  "typeVersion": 1,
-  "position": [
-    2500,
-    300
-  ]
-}
+    "Merge (Collect File Paths)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Payload for generate.js",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Payload for generate.js": {
+      "main": [
+        [
+          {
+            "node": "Execute Command (generate.js)",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -455,5 +455,5 @@
   "settings": {
     "executionTimeout": 5400
   },
-  "id": "1"
+  "id": "comfyui-carousel-generator"
 }

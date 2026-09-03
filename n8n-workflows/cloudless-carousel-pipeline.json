@@ -141,7 +141,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Cloudless Config').item.json.num_slides }},\n  \"tone\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.tone) }},\n  \"include_cta\": true,\n  \"text_model\": \"@cf/meta/llama-3.2-3b-instruct\",\n  \"txt2img_model\": \"@cf/black-forest-labs/flux-1-schnell\",\n  \"img2img_model\": \"@cf/runwayml/stable-diffusion-v1-5-img2img\",\n  \"strength\": 0.42,\n  \"target_account_id\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.target_account_id) }},\n  \"publish\": {{ $('Resolve Cloudless Config').item.json.publish }},\n  \"wait_for_publish\": {{ $('Resolve Cloudless Config').item.json.wait_for_publish }}\n}",
+        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Cloudless Config').item.json.num_slides }},\n  \"tone\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.tone) }},\n  \"include_cta\": true,\n  \"text_provider\": \"dmr\",\n  \"text_model\": \"@cf/meta/llama-3.2-3b-instruct\",\n  \"txt2img_model\": \"@cf/black-forest-labs/flux-1-schnell\",\n  \"img2img_model\": \"@cf/runwayml/stable-diffusion-v1-5-img2img\",\n  \"strength\": 0.42,\n  \"target_account_id\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.target_account_id) }},\n  \"publish\": {{ $('Resolve Cloudless Config').item.json.publish }},\n  \"wait_for_publish\": {{ $('Resolve Cloudless Config').item.json.wait_for_publish }}\n}",
         "options": {
           "timeout": 600000,
           "response": {
