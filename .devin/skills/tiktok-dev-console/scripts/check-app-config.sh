@@ -7,10 +7,12 @@ cd "$ROOT"
 echo "=== TikTok App Configuration ==="
 
 # Read env vars without exposing secrets
-source .env 2>/dev/null
+TIKTOK_CLIENT_KEY=$(grep -E '^TIKTOK_CLIENT_KEY=' .env 2>/dev/null | cut -d= -f2-)
+TIKTOK_CLIENT_SECRET_SET=$([ -n "$(grep -E '^TIKTOK_CLIENT_SECRET=' .env 2>/dev/null | cut -d= -f2-)" ] && echo yes || echo no)
+TIKTOK_REDIRECT_URI=$(grep -E '^TIKTOK_REDIRECT_URI=' .env 2>/dev/null | cut -d= -f2-)
 
 echo "Client key:        ${TIKTOK_CLIENT_KEY:-<not set>}"
-echo "Client secret:     $([ -n "${TIKTOK_CLIENT_SECRET:-}" ] && echo '<set>' || echo '<not set>')"
+echo "Client secret:     $([ "$TIKTOK_CLIENT_SECRET_SET" = "yes" ] && echo '<set>' || echo '<not set>')"
 echo "Redirect URI:      ${TIKTOK_REDIRECT_URI:-<not set>}"
 echo ""
 echo "App ID:            7630494700880906241"

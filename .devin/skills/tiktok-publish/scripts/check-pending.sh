@@ -47,8 +47,8 @@ UPLOAD_IDS=$(docker compose logs social-worker-publishing 2>&1 | grep -oP 'uploa
 if [ -z "$UPLOAD_IDS" ]; then
     echo "No upload_ids found in logs."
 else
-    echo "$UPLOAD_IDS" | while read -r UID; do
-        echo "  upload_id=$UID  (publish_id=v_inbox_file~v2.$UID)"
+    echo "$UPLOAD_IDS" | while read -r UPID; do
+        echo "  upload_id=$UPID  (publish_id=v_inbox_file~v2.$UPID)"
     done
     echo ""
     echo "To cancel: .devin/skills/tiktok-publish/scripts/cancel-upload.sh v_inbox_file~v2.<upload_id>"
