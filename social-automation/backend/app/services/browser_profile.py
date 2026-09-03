@@ -89,6 +89,9 @@ class BrowserProfileService:
         context = await browser.new_context(
             storage_state=storage_state,
             viewport={"width": 1280, "height": 720},
+            # Force English UI: profile-edit selectors below match English
+            # text ("About", "Save"), which localised pages translate.
+            locale="en-US",
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -286,12 +289,28 @@ class BrowserProfileService:
         try:
             page = session.page
             await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-            # LinkedIn renders the login form with JS; wait for the username input.
-            await page.wait_for_selector('input[name="session_key"]', timeout=30000)
-            await page.fill('input[name="session_key"]', username)
-            await page.fill('input[name="session_password"]', password)
-            await page.click('button[type="submit"]')
-
+            # LinkedIn renders the login form with JS. The legacy form uses
+            # input[name="session_key"]; the newer auth page uses a plain
+            # input[type="email"] with randomized ids/classes (and no
+            # type=submit button), so match the first visible pair and submit
+            # via Enter, falling back to the "Sign in" button.
+            await page.wait_for_selector(
+                'input[name="session_key"]:visible, input[type="email"]:visible', timeout=30000
+            )
+            user_input = page.locator(
+                'input[name="session_key"]:visible, input[type="email"]:visible'
+            ).first
+            await user_input.fill(username)
+            pw_input = page.locator(
+                'input[name="session_password"]:visible, input[type="password"]:visible'
+            ).first
+            await pw_input.fill(password)
+            await pw_input.press("Enter")
+            await page.wait_for_timeout(3000)
+            if page.url.rstrip("/").endswith("/login"):
+                sign_in = page.get_by_role("button", name="Sign in", exact=True)
+                if await sign_in.count() > 0:
+                    await sign_in.first.click()
             await page.wait_for_load_state("networkidle")
 
             # Check for 2FA / challenge
