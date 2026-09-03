@@ -99,6 +99,20 @@ class SuggestHashtagsResponse(BaseModel):
     hashtags: list[str]
 
 
+class HashtagTier(BaseModel):
+    """A single hashtag with its tier classification."""
+    tag: str
+    tier: str  # safe, rising, niche
+    estimated_reach: str  # broad, mid, low
+
+
+class SuggestHashtagsTieredResponse(BaseModel):
+    """Three-tier hashtag strategy response (safe/rising/niche)."""
+    hashtags: list[str]  # flat list for backwards compatibility
+    tiers: dict[str, list[HashtagTier]]  # {"safe": [...], "rising": [...], "niche": [...]}
+    strategy: str  # description of the strategy used
+
+
 class BestTimeRequest(BaseModel):
     account_id: uuid.UUID
 
@@ -1552,6 +1566,116 @@ Return JSON with: hashtags (array of strings without #)"""
 
     hashtags = [str(h).lstrip("#").strip() for h in result.get("hashtags") or [] if str(h).strip()]
     return SuggestHashtagsResponse(hashtags=hashtags[:count])
+
+
+@router.post("/suggest-hashtags-tiered", response_model=SuggestHashtagsTieredResponse)
+async def suggest_hashtags_tiered(
+    request: SuggestHashtagsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Suggest hashtags with three-tier strategy: safe, rising, niche.
+
+    Inspired by PulseTag's three-tier approach:
+    - **Safe**: high-volume, broad tags for baseline visibility
+    - **Rising**: trending, mid-volume tags for current relevance
+    - **Niche**: specific, low-competition tags for high-intent audiences
+
+    Returns both a flat ``hashtags`` list (backwards compatible) and a
+    ``tiers`` dict with classified tags.
+    """
+    platform_caps: dict[str, int] = {
+        "linkedin": 5,
+        "twitter": 2,
+        "instagram": 5,
+        "facebook": 3,
+        "threads": 2,
+        "tiktok": 5,
+    }
+    platform = (request.platform or "linkedin").lower()
+    cap = platform_caps.get(platform, 5)
+    count = min(request.resolved_max(), cap)
+
+    prompt = f"""Suggest {count} hashtags for this {platform} post, classified into three tiers.
+
+THREE-TIER HASHTAG STRATEGY:
+- "safe": 1-2 high-volume, broad hashtags (1M+ posts) for baseline visibility
+- "rising": 1-2 trending, mid-volume hashtags (100K-1M posts) for current relevance
+- "niche": 1-2 specific, low-competition hashtags (<100K posts) for high-intent audiences
+
+Rules:
+- Hashtags must be semantically relevant to the post content
+- Include one branded hashtag (e.g. cloudless) in the niche tier when relevant
+- No generic spam tags (e.g. #motivation, #love, #follow)
+- Total hashtags must not exceed {count}
+
+Post content:
+"{request.content}"
+
+Return JSON with:
+- "safe": array of {{"tag": "hashtag_without_#", "estimated_reach": "broad"}}
+- "rising": array of {{"tag": "hashtag_without_#", "estimated_reach": "mid"}}
+- "niche": array of {{"tag": "hashtag_without_#", "estimated_reach": "low"}}"""
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "safe": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tag": {"type": "string"},
+                        "estimated_reach": {"type": "string"},
+                    },
+                    "required": ["tag", "estimated_reach"],
+                },
+            },
+            "rising": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tag": {"type": "string"},
+                        "estimated_reach": {"type": "string"},
+                    },
+                    "required": ["tag", "estimated_reach"],
+                },
+            },
+            "niche": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tag": {"type": "string"},
+                        "estimated_reach": {"type": "string"},
+                    },
+                    "required": ["tag", "estimated_reach"],
+                },
+            },
+        },
+        "required": ["safe", "rising", "niche"],
+    }
+
+    result = await call_inference(prompt, provider_name="cloudflare", db=db, schema=schema)
+
+    tiers: dict[str, list[HashtagTier]] = {"safe": [], "rising": [], "niche": []}
+    flat: list[str] = []
+
+    for tier_name in ("safe", "rising", "niche"):
+        for item in result.get(tier_name) or []:
+            tag = str(item.get("tag", "")).lstrip("#").strip()
+            if not tag:
+                continue
+            reach = str(item.get("estimated_reach", "")).strip()
+            tiers[tier_name].append(HashtagTier(tag=tag, tier=tier_name, estimated_reach=reach))
+            flat.append(tag)
+
+    return SuggestHashtagsTieredResponse(
+        hashtags=flat[:count],
+        tiers=tiers,
+        strategy=f"Three-tier: {len(tiers['safe'])} safe + {len(tiers['rising'])} rising + {len(tiers['niche'])} niche",
+    )
 
 
 @router.post("/best-time-to-post", response_model=BestTimeResponse)

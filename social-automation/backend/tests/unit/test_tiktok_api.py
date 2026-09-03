@@ -347,3 +347,114 @@ async def test_check_publish_status_5xx_maps_to_502(client):
 async def test_check_publish_status_invalid_publish_id(client):
     with pytest.raises(ValueError, match="publish_id"):
         await client.check_publish_status("   ")
+
+
+# ── dry_run mode tests ───────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_init_video_post_dry_run_sets_flag(client):
+    """dry_run=True should add post_info.dry_run=True to the payload."""
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": {"publish_id": "dry-run-123"}})
+    )
+    with _patch_client(fake):
+        result = await client.init_video_post(
+            source="PULL_FROM_URL",
+            video_url="https://example.com/video.mp4",
+            title="Test",
+            privacy_level="PUBLIC",
+            dry_run=True,
+        )
+
+    assert result["data"]["publish_id"] == "dry-run-123"
+    payload = fake.calls[0]["json"]
+    assert payload["post_info"]["dry_run"] is True
+
+
+@pytest.mark.asyncio
+async def test_init_video_post_no_dry_run_omits_flag(client):
+    """dry_run=False (default) should not add the dry_run flag."""
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": {"publish_id": "real-123"}})
+    )
+    with _patch_client(fake):
+        await client.init_video_post(
+            source="PULL_FROM_URL",
+            video_url="https://example.com/video.mp4",
+            title="Test",
+        )
+
+    payload = fake.calls[0]["json"]
+    assert "dry_run" not in payload["post_info"]
+
+
+# ── Display API: list_videos & query_video tests ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_videos_success(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {
+            "data": {
+                "videos": [
+                    {"id": "v1", "title": "First", "view_count": 100, "like_count": 10},
+                    {"id": "v2", "title": "Second", "view_count": 200, "like_count": 20},
+                ],
+                "cursor": 2,
+                "has_more": True,
+            }
+        })
+    )
+    with _patch_client(fake):
+        result = await client.list_videos(cursor=0, max_count=20)
+
+    videos = result["data"]["videos"]
+    assert len(videos) == 2
+    assert videos[0]["id"] == "v1"
+    assert videos[1]["view_count"] == 200
+    assert fake.calls[0]["method"] == "POST"
+    assert fake.calls[0]["url"] == "https://open.tiktokapis.com/v2/video/list/"
+    assert fake.calls[0]["json"]["cursor"] == 0
+    assert fake.calls[0]["json"]["max_count"] == 20
+
+
+@pytest.mark.asyncio
+async def test_list_videos_invalid_max_count(client):
+    with pytest.raises(ValueError, match="max_count must be between 1 and 100"):
+        await client.list_videos(max_count=0)
+    with pytest.raises(ValueError, match="max_count must be between 1 and 100"):
+        await client.list_videos(max_count=101)
+
+
+@pytest.mark.asyncio
+async def test_query_video_success(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {
+            "data": {
+                "videos": [
+                    {"id": "v1", "view_count": 500, "like_count": 50},
+                ]
+            }
+        })
+    )
+    with _patch_client(fake):
+        result = await client.query_video(video_ids=["v1"])
+
+    videos = result["data"]["videos"]
+    assert len(videos) == 1
+    assert videos[0]["view_count"] == 500
+    assert fake.calls[0]["url"] == "https://open.tiktokapis.com/v2/video/query/"
+    assert fake.calls[0]["json"]["video_ids"] == ["v1"]
+
+
+@pytest.mark.asyncio
+async def test_query_video_empty_ids(client):
+    with pytest.raises(ValueError, match="At least one video_id is required"):
+        await client.query_video(video_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_query_video_too_many_ids(client):
+    with pytest.raises(ValueError, match="Cannot query more than 100"):
+        await client.query_video(video_ids=["v"] * 101)

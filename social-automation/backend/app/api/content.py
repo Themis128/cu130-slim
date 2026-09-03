@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
 from app.db.session import get_db
-from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget
+from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.content_renderer import render_post_text
@@ -33,6 +33,11 @@ class PostCreate(BaseModel):
     music_asset_id: uuid.UUID | None = None
     pillar_id: uuid.UUID | None = None
     content_brief_id: uuid.UUID | None = None
+    # Recurring post fields
+    is_recurring: bool = False
+    recurrence_pattern: RecurrencePattern = RecurrencePattern.NONE
+    recurrence_interval: int = 0  # N days/weeks/months
+    recurrence_max: int = 0  # 0 = unlimited
 
 class PostUpdate(BaseModel):
     content_text: str | None = None
@@ -48,6 +53,11 @@ class PostUpdate(BaseModel):
     music_asset_id: uuid.UUID | None = None
     pillar_id: uuid.UUID | None = None
     content_brief_id: uuid.UUID | None = None
+    # Recurring post fields
+    is_recurring: bool | None = None
+    recurrence_pattern: RecurrencePattern | None = None
+    recurrence_interval: int | None = None
+    recurrence_max: int | None = None
 
 
 class PostResponse(BaseModel):
@@ -72,6 +82,14 @@ class PostResponse(BaseModel):
     music_asset_id: uuid.UUID | None = None
     pillar_id: uuid.UUID | None = None
     content_brief_id: uuid.UUID | None = None
+    # Recurring post fields
+    is_recurring: bool = False
+    recurrence_pattern: RecurrencePattern = RecurrencePattern.NONE
+    recurrence_interval: int = 0
+    recurrence_count: int = 0
+    recurrence_max: int = 0
+    recurrence_parent_id: uuid.UUID | None = None
+    next_recurrence_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     targets: list[dict] = []
@@ -116,6 +134,10 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
         music_asset_id=post_data.music_asset_id,
         pillar_id=post_data.pillar_id,
         content_brief_id=post_data.content_brief_id,
+        is_recurring=post_data.is_recurring,
+        recurrence_pattern=post_data.recurrence_pattern,
+        recurrence_interval=post_data.recurrence_interval,
+        recurrence_max=post_data.recurrence_max,
     )
     db.add(post)
     await db.flush()
@@ -520,6 +542,13 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         music_asset_id=post.music_asset_id,
         pillar_id=post.pillar_id,
         content_brief_id=post.content_brief_id,
+        is_recurring=post.is_recurring,
+        recurrence_pattern=post.recurrence_pattern,
+        recurrence_interval=post.recurrence_interval,
+        recurrence_count=post.recurrence_count,
+        recurrence_max=post.recurrence_max,
+        recurrence_parent_id=post.recurrence_parent_id,
+        next_recurrence_at=post.next_recurrence_at,
         created_at=post.created_at,
         updated_at=post.updated_at,
         targets=[

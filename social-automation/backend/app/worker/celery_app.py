@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
         "app.worker.tasks.token_refresh",
+        "app.worker.tasks.recurring",
     ],
 )
 
@@ -66,6 +67,10 @@ celery_app.conf.update(
             "soft_time_limit": 300,
             "time_limit": 600,
         },
+        "app.worker.tasks.recurring.process_recurring_posts": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         # ── media queue: CPU-heavy, allow up to 40 min ───────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {
             "soft_time_limit": 120,
@@ -115,6 +120,7 @@ celery_app.conf.update(
         "app.worker.tasks.workflows.execute_workflow": {"queue": "default"},
         "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
+        "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -141,6 +147,12 @@ celery_app.conf.update(
         "refresh-expiring-tokens": {
             "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
             "schedule": crontab(minute=15),  # at :15 past every hour
+        },
+        # Check for due recurring posts every 5 minutes — clones published
+        # posts flagged as recurring into new scheduled posts.
+        "process-recurring-posts": {
+            "task": "app.worker.tasks.recurring.process_recurring_posts",
+            "schedule": 300.0,
         },
     },
 )

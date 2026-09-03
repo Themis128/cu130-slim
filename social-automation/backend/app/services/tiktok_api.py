@@ -195,12 +195,19 @@ class TikTokAPIClient:
         video_size: int | None = None,
         chunk_size: int | None = None,
         total_chunk_count: int = 1,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         """Initialize a video post and return the publish info.
 
         For ``PULL_FROM_URL`` the ``video_url`` must be a publicly accessible
         URL. For ``FILE_UPLOAD`` the response contains an ``upload_url`` that
         the caller must ``PUT`` the video bytes to.
+
+        When ``dry_run`` is True, TikTok validates the request (title,
+        privacy level, source) without consuming a pending-share slot or
+        uploading any media.  Useful for pre-flight checks before the real
+        publish attempt, especially when the account is near TikTok's
+        5-per-24h pending-share spam limit.
         """
         if source not in ("PULL_FROM_URL", "FILE_UPLOAD"):
             raise ValueError("source must be 'PULL_FROM_URL' or 'FILE_UPLOAD'")
@@ -234,10 +241,12 @@ class TikTokAPIClient:
                 }
             )
 
-        payload = {
+        payload: dict[str, Any] = {
             "post_info": post_info,
             "source_info": source_info,
         }
+        if dry_run:
+            payload["post_info"]["dry_run"] = True
 
         url = f"{self._base_url}/post/publish/video/init/"
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -419,6 +428,53 @@ class TikTokAPIClient:
         publish_id = _validate_id(publish_id, "publish_id")
         url = f"{self._base_url}/post/publish/status/fetch/"
         payload = {"publish_id": publish_id}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    # ── Display API: video listing & per-video analytics ──────────────────
+
+    async def list_videos(
+        self,
+        fields: str = "id,create_time,title,share_url,view_count,like_count,comment_count,share_count",
+        cursor: int = 0,
+        max_count: int = 20,
+    ) -> dict[str, Any]:
+        """List the creator's videos via the TikTok Display API.
+
+        Requires the ``video.list`` scope. Returns video metadata including
+        view/like/comment/share counts. Paginated via ``cursor``.
+        """
+        if max_count < 1 or max_count > 100:
+            raise ValueError("max_count must be between 1 and 100")
+        url = f"{self._base_url}/video/list/"
+        payload = {"fields": fields, "cursor": cursor, "max_count": max_count}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def query_video(
+        self,
+        video_ids: list[str],
+        fields: str = "id,create_time,title,share_url,view_count,like_count,comment_count,share_count",
+    ) -> dict[str, Any]:
+        """Query specific videos by ID via the TikTok Display API.
+
+        Requires the ``video.list`` scope. Returns per-video metadata
+        including engagement metrics.
+        """
+        if not video_ids:
+            raise ValueError("At least one video_id is required")
+        if len(video_ids) > 100:
+            raise ValueError("Cannot query more than 100 videos at once")
+        url = f"{self._base_url}/video/query/"
+        payload = {"fields": fields, "video_ids": video_ids}
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
             self._raise_for_status(resp, url)

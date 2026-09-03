@@ -1027,3 +1027,83 @@ async def list_analytics_snapshots(
         q = q.where(PostAnalyticsSnapshot.post_id == post_id)
     rows = (await db.execute(q)).scalars().all()
     return rows
+
+
+# ── TikTok Display API: video listing & per-video analytics ──────────────────
+
+
+class TikTokVideoOut(BaseModel):
+    """A single TikTok video with engagement metrics from the Display API."""
+    id: str
+    create_time: int | None = None
+    title: str | None = None
+    share_url: str | None = None
+    view_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
+    share_count: int = 0
+
+
+class TikTokVideoListOut(BaseModel):
+    videos: list[TikTokVideoOut]
+    cursor: int = 0
+    has_more: bool = False
+
+
+@router.get("/tiktok/videos", response_model=TikTokVideoListOut)
+async def list_tiktok_videos(
+    account_id: uuid.UUID = Query(..., description="TikTok social account ID"),
+    cursor: int = Query(0, ge=0),
+    max_count: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List the TikTok creator's videos with engagement metrics via Display API.
+
+    Requires the ``video.list`` scope on the connected TikTok account.
+    Returns view/like/comment/share counts for each video.
+    """
+    from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
+
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    acct = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.id == account_id,
+                SocialAccount.team_id == team.id,
+                SocialAccount.platform == "tiktok",
+            )
+        )
+    ).scalar_one_or_none()
+    if not acct:
+        raise HTTPException(status_code=404, detail="TikTok account not found")
+
+    token = decrypt_token(acct.access_token_enc)
+    client = TikTokAPIClient(access_token=token, open_id=acct.account_id)
+    try:
+        data = await client.list_videos(cursor=cursor, max_count=max_count)
+    except TikTokAPIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+    videos: list[TikTokVideoOut] = []
+    for v in (data.get("data") or {}).get("videos") or []:
+        videos.append(
+            TikTokVideoOut(
+                id=str(v.get("id", "")),
+                create_time=v.get("create_time"),
+                title=v.get("title"),
+                share_url=v.get("share_url"),
+                view_count=int(v.get("view_count", 0) or 0),
+                like_count=int(v.get("like_count", 0) or 0),
+                comment_count=int(v.get("comment_count", 0) or 0),
+                share_count=int(v.get("share_count", 0) or 0),
+            )
+        )
+    return TikTokVideoListOut(
+        videos=videos,
+        cursor=int((data.get("data") or {}).get("cursor", cursor) or cursor),
+        has_more=bool((data.get("data") or {}).get("has_more", False)),
+    )
