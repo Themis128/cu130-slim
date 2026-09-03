@@ -139,10 +139,12 @@ async def test_smart_crop_async_uses_detected_subject():
 
 @pytest.mark.asyncio
 async def test_detect_subject_position_no_credentials():
-    """Subject detection returns None when Cloudflare credentials are absent."""
+    """Subject detection returns None when DMR and Cloudflare both fail."""
     image_bytes = _make_image()
-    with patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", ""), patch.object(
-        image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", ""
+    with (
+        patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
+        patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", ""),
+        patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", ""),
     ):
         result = await detect_subject_position(image_bytes)
     assert result is None
@@ -150,7 +152,7 @@ async def test_detect_subject_position_no_credentials():
 
 @pytest.mark.asyncio
 async def test_generate_alt_text_cloudflare_success():
-    """generate_alt_text returns alt text from Cloudflare vision model."""
+    """generate_alt_text returns alt text from Cloudflare when DMR returns None."""
     image_bytes = _make_image()
 
     class FakeResp:
@@ -165,6 +167,7 @@ async def test_generate_alt_text_cloudflare_success():
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with (
+        patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
         patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc-123"),
         patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok-123"),
         patch("app.services.image_enhance.httpx.AsyncClient", return_value=mock_client),
@@ -175,7 +178,7 @@ async def test_generate_alt_text_cloudflare_success():
 
 @pytest.mark.asyncio
 async def test_generate_alt_text_ollama_fallback():
-    """generate_alt_text falls back to Ollama when Cloudflare fails."""
+    """generate_alt_text falls back to Ollama when DMR and Cloudflare both fail."""
     image_bytes = _make_image()
 
     class CfFail:
@@ -197,6 +200,7 @@ async def test_generate_alt_text_ollama_fallback():
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with (
+        patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
         patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc-123"),
         patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok-123"),
         patch.object(image_enhance.settings, "OLLAMA_URL", "http://ollama:11434"),
@@ -208,10 +212,14 @@ async def test_generate_alt_text_ollama_fallback():
 
 @pytest.mark.asyncio
 async def test_generate_alt_text_no_credentials():
-    """generate_alt_text returns None when no AI credentials are configured."""
+    """generate_alt_text returns None when DMR, CF, and Ollama all fail."""
     image_bytes = _make_image()
-    with patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", ""), patch.object(
-        image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", ""
+    with (
+        patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
+        patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", ""),
+        patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", ""),
+        patch.object(image_enhance.settings, "OLLAMA_URL", "http://ollama:11434"),
+        patch("app.services.image_enhance.httpx.AsyncClient", side_effect=Exception("no ollama")),
     ):
         alt = await generate_alt_text(image_bytes)
     assert alt is None

@@ -1,11 +1,17 @@
-"""AI auto-tagging for media assets using Cloudflare Workers AI vision models.
+"""AI auto-tagging for media assets using vision models.
 
-Cloudflare-first, free-tier:
-- `@cf/meta/llama-4-scout-17b-16e-instruct` (primary, 0.6 neurons) — multimodal,
+DMR-first (local, free):
+- `ai/qwen3-vl` (primary, local Docker Model Runner) — multimodal vision model,
+  runs on local GPU via llama.cpp, no API key needed.
+
+Cloudflare failover:
+- `@cf/meta/llama-4-scout-17b-16e-instruct` (primary CF, 0.6 neurons) — multimodal,
   function calling, 40x cheaper than moondream.
-- `@cf/moondream/moondream3.1-9B-A2B` (fallback, 24 neurons) — dedicated vision
+- `@cf/moondream/moondream3.1-9B-A2B` (fallback CF, 24 neurons) — dedicated vision
   model with caption/query/point/detect tasks.
-- Ollama `llava` is used as a last-resort fallback if Cloudflare is unavailable.
+
+Last resort:
+- Ollama `llava` is used if both DMR and Cloudflare are unavailable.
 
 The service is best-effort: failures are logged and do not block uploads.
 """
@@ -217,14 +223,62 @@ async def _call_ollama_vision(image_b64: str, prompt: str) -> dict:
     return resp.json()
 
 
+async def _call_dmr_vision(image_b64: str, prompt: str, max_tokens: int = 512) -> str | None:
+    """Call Docker Model Runner (qwen3-vl, local) for vision tasks.
+
+    Uses the OpenAI-compatible chat completions API with image_url content.
+    Returns the text response, or None on failure.
+    """
+    data_uri = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+    payload = {
+        "model": settings.DMR_VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                ],
+            },
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    # DMR may need 300s for cold-start (model load from disk to VRAM).
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        try:
+            resp = await client.post(
+                f"{settings.DMR_URL}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code == 200:
+                msg = resp.json()["choices"][0]["message"]
+                return msg.get("content") or msg.get("reasoning_content") or ""
+            logger.warning("DMR vision returned %s", resp.status_code)
+        except Exception as exc:
+            logger.warning("DMR vision failed: %s", exc)
+    return None
+
+
 async def _caption_image(image_b64: str) -> str | None:
-    """Generate a one-sentence caption."""
+    """Generate a one-sentence caption. DMR first, then Cloudflare, then Ollama."""
+    # --- DMR (local, free) ---
+    try:
+        text = await _call_dmr_vision(image_b64, "Generate a concise one-sentence caption for this image.")
+        if text:
+            return text
+    except Exception as exc:
+        logger.warning("DMR caption failed: %s", exc)
+
+    # --- Cloudflare ---
     try:
         result = await _call_cloudflare_vision(image_b64, "caption", "Generate a concise caption for this image")
         return _extract_caption(result)
     except Exception as exc:
         logger.warning("Cloudflare caption failed: %s", exc)
 
+    # --- Ollama (last resort) ---
     try:
         result = await _call_ollama_vision(image_b64, "Describe this image in one sentence")
         return result.get("response")
@@ -234,18 +288,28 @@ async def _caption_image(image_b64: str) -> str | None:
 
 
 async def _tag_image(image_b64: str) -> list[str]:
-    """Generate a comma-separated list of keywords/tags."""
+    """Generate a comma-separated list of keywords/tags. DMR first, then CF, then Ollama."""
     prompt = (
         "List 5 to 10 relevant keywords for this image as a comma-separated list. "
         "Use only single words or short phrases."
     )
-    try:
-        result = await _call_cloudflare_vision(image_b64, "query", prompt)
-        text = _extract_query_text(result) or ""
-    except Exception as exc:
-        logger.warning("Cloudflare tag query failed: %s", exc)
-        text = ""
 
+    # --- DMR (local, free) ---
+    text = ""
+    try:
+        text = await _call_dmr_vision(image_b64, prompt, max_tokens=200) or ""
+    except Exception as exc:
+        logger.warning("DMR tag query failed: %s", exc)
+
+    # --- Cloudflare ---
+    if not text:
+        try:
+            result = await _call_cloudflare_vision(image_b64, "query", prompt)
+            text = _extract_query_text(result) or ""
+        except Exception as exc:
+            logger.warning("Cloudflare tag query failed: %s", exc)
+
+    # --- Ollama (last resort) ---
     if not text:
         try:
             result = await _call_ollama_vision(image_b64, prompt)

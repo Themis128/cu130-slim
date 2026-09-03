@@ -1,17 +1,17 @@
 """AI-powered image enhancement service.
 
-Cloudflare-first, free-tier:
+DMR-first (local, free), Cloudflare failover:
 - Background removal: Cloudflare Images transform `cf.image segment: "foreground"`
   (BiRefNet) when available, or local Pillow with rembg as fallback.
 - Upscaling: Pillow LANCZOS for 2x/4x (local, free, unlimited).
   Real-ESRGAN via Workers AI when available.
-- Smart crop: Cloudflare Workers AI vision model (llama-4-scout) detects subject
-  position, then Pillow crops to target aspect ratio centered on subject.
+- Smart crop: DMR qwen3-vl (local) detects subject position first, then CF
+  llama-4-scout as failover. Pillow crops to target aspect ratio centered on subject.
 - Quality scoring: Local Pillow computation (Laplacian variance, histogram
   analysis) — no AI inference needed.
-- Alt text: Cloudflare Workers AI vision model with accessibility-focused prompt.
+- Alt text: DMR qwen3-vl (local) first, then CF llama-4-scout, then Ollama llava.
 
-All AI operations fall back to Ollama llava if Cloudflare is unavailable.
+All AI operations fall back to Cloudflare then Ollama if DMR is unavailable.
 """
 from __future__ import annotations
 
@@ -252,18 +252,41 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
 
 # ── Smart Crop (AI subject detection + Pillow crop) ───────────────────────────
 
-async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
-    """Detect the main subject position in an image using CF vision model.
+async def _dmr_vision_query(data_uri: str, prompt: str, max_tokens: int = 60) -> str | None:
+    """Call DMR qwen3-vl (local) for a vision query. Returns text or None."""
+    payload = {
+        "model": settings.DMR_VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                ],
+            },
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    # DMR may need 300s for cold-start (model load from disk to VRAM).
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        try:
+            resp = await client.post(
+                f"{settings.DMR_URL}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code == 200:
+                msg = resp.json()["choices"][0]["message"]
+                return msg.get("content") or msg.get("reasoning_content") or ""
+            logger.warning("DMR vision returned %s", resp.status_code)
+        except Exception as exc:
+            logger.warning("DMR vision failed: %s", exc)
+    return None
 
-    Returns (x, y) center coordinates as percentages (0-100) of image dimensions,
-    or None if detection fails.
-    """
-    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    token = (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
-    if not account_id or not token:
-        return None
 
-    # Resize for vision model
+def _prepare_image_for_vision(image_bytes: bytes) -> str:
+    """Resize and base64-encode an image for vision model input. Returns data URI."""
     img = Image.open(io.BytesIO(image_bytes))
     if img.mode != "RGB":
         img = img.convert("RGB")
@@ -272,11 +295,47 @@ async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
     if max(w, h) > max_edge:
         scale = max_edge / float(max(w, h))
         img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
-
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    data_uri = f"data:image/jpeg;base64,{image_b64}"
+    return f"data:image/jpeg;base64,{image_b64}"
+
+
+async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
+    """Detect the main subject position in an image using vision models.
+
+    DMR qwen3-vl (local) first, then Cloudflare llama-4-scout as failover.
+    Returns (x, y) center coordinates as percentages (0-100) of image dimensions,
+    or None if detection fails.
+    """
+    import re
+
+    data_uri = _prepare_image_for_vision(image_bytes)
+    subject_prompt = (
+        "Look at this image. Where is the main subject located? "
+        "Reply with ONLY two numbers separated by a comma: the "
+        "approximate X and Y position as percentages (0-100) of "
+        "the image width and height. For example: 50,50 for center, "
+        "25,30 for upper-left area."
+    )
+
+    # --- DMR (local, free) ---
+    try:
+        response = await _dmr_vision_query(data_uri, subject_prompt, max_tokens=20)
+        if response:
+            match = re.search(r"(\d+)\s*,\s*(\d+)", response)
+            if match:
+                x, y = int(match.group(1)), int(match.group(2))
+                if 0 <= x <= 100 and 0 <= y <= 100:
+                    return (x, y)
+    except Exception as exc:
+        logger.warning("DMR subject detection failed: %s", exc)
+
+    # --- Cloudflare (failover) ---
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    token = (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    if not account_id or not token:
+        return None
 
     model = quote("@cf/meta/llama-4-scout-17b-16e-instruct", safe="@/")
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
@@ -286,13 +345,7 @@ async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": (
-                        "Look at this image. Where is the main subject located? "
-                        "Reply with ONLY two numbers separated by a comma: the "
-                        "approximate X and Y position as percentages (0-100) of "
-                        "the image width and height. For example: 50,50 for center, "
-                        "25,30 for upper-left area."
-                    )},
+                    {"type": "text", "text": subject_prompt},
                     {"type": "image_url", "image_url": {"url": data_uri}},
                 ],
             },
@@ -311,8 +364,6 @@ async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
         if resp.status_code == 200:
             data = resp.json()
             response = data.get("result", {}).get("response", "")
-            # Parse "x,y" from response
-            import re
             match = re.search(r"(\d+)\s*,\s*(\d+)", response)
             if match:
                 x = int(match.group(1))
@@ -320,7 +371,7 @@ async def detect_subject_position(image_bytes: bytes) -> tuple[int, int] | None:
                 if 0 <= x <= 100 and 0 <= y <= 100:
                     return (x, y)
     except Exception as exc:
-        logger.warning("Subject detection failed: %s", exc)
+        logger.warning("CF subject detection failed: %s", exc)
 
     return None
 
@@ -394,73 +445,67 @@ async def smart_crop_async(
 async def generate_alt_text(image_bytes: bytes) -> str | None:
     """Generate accessibility-focused alt text for screen readers.
 
-    Uses Cloudflare Workers AI vision model with a prompt designed to produce
-    concise, descriptive alt text under 125 characters (WCAG recommendation).
+    DMR qwen3-vl (local) first, then Cloudflare llama-4-scout, then Ollama llava.
+    Produces concise, descriptive alt text under 125 characters (WCAG recommendation).
     """
-    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
-    token = (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
-    if not account_id or not token:
-        return None
+    data_uri = _prepare_image_for_vision(image_bytes)
+    image_b64 = data_uri.split(",", 1)[-1]
 
-    # Resize for vision model
-    img = Image.open(io.BytesIO(image_bytes))
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    max_edge = 768
-    w, h = img.size
-    if max(w, h) > max_edge:
-        scale = max_edge / float(max(w, h))
-        img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+    alt_prompt = (
+        "Write alt text for this image for accessibility purposes. "
+        "The alt text should: 1) Be under 125 characters. "
+        "2) Describe what the image conveys, not what it looks like. "
+        "3) Be concise and meaningful for screen reader users. "
+        "4) Not start with 'Image of' or 'Picture of'. "
+        "Reply with ONLY the alt text, nothing else."
+    )
 
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    data_uri = f"data:image/jpeg;base64,{image_b64}"
-
-    model = quote("@cf/meta/llama-4-scout-17b-16e-instruct", safe="@/")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
-
-    payload = {
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": (
-                        "Write alt text for this image for accessibility purposes. "
-                        "The alt text should: 1) Be under 125 characters. "
-                        "2) Describe what the image conveys, not what it looks like. "
-                        "3) Be concise and meaningful for screen reader users. "
-                        "4) Not start with 'Image of' or 'Picture of'. "
-                        "Reply with ONLY the alt text, nothing else."
-                    )},
-                    {"type": "image_url", "image_url": {"url": data_uri}},
-                ],
-            },
-        ],
-        "max_tokens": 60,
-        "stream": False,
-    }
-
+    # --- DMR (local, free) ---
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json=payload,
-            )
-        if resp.status_code == 200:
-            data = resp.json()
-            response = data.get("result", {}).get("response", "")
-            # Clean up response
+        response = await _dmr_vision_query(data_uri, alt_prompt, max_tokens=60)
+        if response:
             alt_text = response.strip().strip('"').strip("'")
-            if alt_text and len(alt_text) <= 200:
-                return alt_text
-            elif alt_text:
+            if alt_text:
                 return alt_text[:125]
     except Exception as exc:
-        logger.warning("Alt text generation failed: %s", exc)
+        logger.warning("DMR alt text generation failed: %s", exc)
 
-    # Fallback to Ollama
+    # --- Cloudflare (failover) ---
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    token = (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    if account_id and token:
+        model = quote("@cf/meta/llama-4-scout-17b-16e-instruct", safe="@/")
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": alt_prompt},
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ],
+                },
+            ],
+            "max_tokens": 60,
+            "stream": False,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json=payload,
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                response = data.get("result", {}).get("response", "")
+                alt_text = response.strip().strip('"').strip("'")
+                if alt_text:
+                    return alt_text[:125]
+        except Exception as exc:
+            logger.warning("CF alt text generation failed: %s", exc)
+
+    # --- Ollama (last resort) ---
     try:
         ollama_url = f"{settings.OLLAMA_URL}/api/generate"
         async with httpx.AsyncClient(timeout=60.0) as client:

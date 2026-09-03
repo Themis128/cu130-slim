@@ -1,4 +1,4 @@
-"""Unit tests for ChromaDB client embedding fallback (Cloudflare BGE-M3 → Ollama)."""
+"""Unit tests for ChromaDB client embedding fallback (DMR → Cloudflare BGE-M3 → Ollama)."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -46,8 +46,9 @@ async def test_cf_embedding_no_credentials():
 
 @pytest.mark.asyncio
 async def test_get_embedding_cf_primary_ollama_fallback():
-    """_get_embedding tries Cloudflare first, then Ollama."""
+    """_get_embedding tries DMR first, then Cloudflare, then Ollama."""
     with (
+        patch.object(chroma_client, "_dmr_embedding", new=AsyncMock(return_value=[])),
         patch.object(chroma_client, "_cf_embedding", new=AsyncMock(return_value=[])),
         patch.object(chroma_client, "_ollama_embedding", new=AsyncMock(return_value=[0.4, 0.5])),
     ):
@@ -57,8 +58,9 @@ async def test_get_embedding_cf_primary_ollama_fallback():
 
 @pytest.mark.asyncio
 async def test_get_embedding_cf_success_no_ollama():
-    """When Cloudflare succeeds, Ollama is not called."""
+    """When DMR fails but Cloudflare succeeds, Ollama is not called."""
     with (
+        patch.object(chroma_client, "_dmr_embedding", new=AsyncMock(return_value=[])),
         patch.object(chroma_client, "_cf_embedding", new=AsyncMock(return_value=[0.1, 0.2])),
         patch.object(chroma_client, "_ollama_embedding", new=AsyncMock(side_effect=AssertionError("should not be called"))),
     ):
