@@ -108,7 +108,8 @@ PROVIDER_CATALOG = [
         "base_url": "",  # filled from env at runtime
         "default_model": "ai/qwen3:8b-q4_K_M",
         "requires_key": False,
-        "description": "Local Docker Model Runner (llama.cpp) — no API key needed, GPU-accelerated",
+        "in_fallback_chain": True,
+        "description": "Local Docker Model Runner (llama.cpp) — no API key needed, GPU-accelerated. Primary text inference provider.",
         "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm2"],
     },
     {
@@ -258,7 +259,8 @@ PROVIDER_CATALOG = [
         "base_url": "",  # filled from env at runtime
         "default_model": "stable-diffusion-v1-5/stable-diffusion-v1-5",
         "requires_key": False,
-        "description": "Local Stable Diffusion 1.5 via HuggingFace Diffusers (GPU, no API key needed)",
+        "in_fallback_chain": True,
+        "description": "Local Stable Diffusion 1.5 via HuggingFace Diffusers (GPU, no API key needed). Primary image generation provider.",
         "model_examples": ["stable-diffusion-v1-5/stable-diffusion-v1-5"],
     },
     {
