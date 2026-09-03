@@ -1570,6 +1570,33 @@ app.get('/debug/page-text', async (req, res) => {
   }
 });
 
+// Debug: form HTML
+app.get('/debug/form-html', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const html = await page.evaluate(() => {
+      const form = document.querySelector('form');
+      if (!form) return 'No form found';
+      // Get all inputs
+      const inputs = Array.from(form.querySelectorAll('input, button')).map(el => ({
+        tag: el.tagName,
+        type: el.type,
+        id: el.id,
+        name: el.name,
+        value: el.value ? el.value.substring(0, 20) : '',
+        visible: el.offsetParent !== null,
+        className: el.className.substring(0, 50),
+        autocomplete: el.autocomplete,
+      }));
+      return JSON.stringify(inputs, null, 2);
+    });
+    const url = page.url();
+    res.json({ url, form: html });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   await closeBrowser();
