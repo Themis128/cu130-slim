@@ -571,32 +571,58 @@ async function handleUpdateBio(req, res) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
-    // Strategy 1: Look for "Edit bio" button on the about page
-    // Strategy 2: Look for "About you" button (the section header that's clickable)
-    // Strategy 3: Look for "Add bio" button (when no bio exists yet)
-    // Strategy 4: Look for "Edit details" button
-    const clicked = await findAndClick([
-      '[role="button"]:has-text("Edit bio")',
-      '[role="button"]:has-text("Add bio")',
-      '[role="button"]:has-text("About you")',
-      '[role="button"]:has-text("Edit details")',
-      'a:has-text("Edit bio")',
-      'a:has-text("Add bio")',
-    ], { retries: 2, settleMs: 3000 });
+    // Facebook's about page has a "Bio" section with an icon-only edit button
+    // (no text, no aria-label). We need to find it by DOM structure:
+    // the edit button is a sibling of the "Bio" h2 heading.
+    //
+    // Strategy 1: Find the h2 containing "Bio" and click the next role=button sibling
+    // Strategy 2: Look for text buttons "Edit bio" / "Add bio" (older layout)
+    // Strategy 3: Look for "About you" button (some layouts)
+
+    // Strategy 1: DOM-structural approach — find Bio heading, click nearby button
+    const clicked = await page.evaluate(() => {
+      // Find the h2/span containing "Bio"
+      const headings = document.querySelectorAll('h2, span');
+      for (const h of headings) {
+        if (h.textContent && h.textContent.trim() === 'Bio') {
+          // Walk up to find the section container, then find the edit button
+          let container = h.parentElement;
+          for (let i = 0; i < 4 && container; i++) {
+            // Look for a role=button that is NOT the "About you" button
+            const btns = container.querySelectorAll('[role="button"]');
+            for (const btn of btns) {
+              // Skip the "About you" button (it opens notifications)
+              const btnText = (btn.innerText || '').trim();
+              if (btnText === 'About you' || btnText === 'Notifications') continue;
+              // Check it's visible
+              if (btn.offsetParent !== null && !btnText) {
+                // Icon-only button — this is the edit button
+                btn.click();
+                return 'icon-button';
+              }
+            }
+            container = container.parentElement;
+          }
+        }
+      }
+      return null;
+    });
 
     if (!clicked) {
-      // Fallback: try finding the button by scanning page text
-      const lines = await getPageLines();
-      const editIdx = lines.findIndex(l => l === 'Edit bio' || l === 'Add bio');
-      if (editIdx >= 0) {
-        const text = lines[editIdx];
-        await findAndClick([`[role="button"]:has-text("${text}")`, `a:has-text("${text}")`]);
+      // Strategy 2: text-based buttons
+      const textClicked = await findAndClick([
+        '[role="button"]:has-text("Edit bio")',
+        '[role="button"]:has-text("Add bio")',
+        'a:has-text("Edit bio")',
+        'a:has-text("Add bio")',
+      ], { retries: 1, settleMs: 3000 });
+
+      if (!textClicked) {
+        return res.status(404).json({ error: 'Could not find the bio edit button. Facebook layout may have changed — use /debug/screenshot to inspect.' });
       }
     }
 
-    if (!clicked) {
-      return res.status(404).json({ error: 'Could not find the bio edit button on the about page' });
-    }
+    await page.waitForTimeout(3000);
 
     // Find the bio textarea in the dialog
     const bioInput = await findTextInput({ scope: 'dialog', label: 'Bio' });
@@ -1841,6 +1867,19 @@ app.post('/debug/navigate', async (req, res) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
     res.json({ status: 'ok', url: page.url(), loggedIn: isLoggedIn() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: evaluate JavaScript in the page
+app.post('/debug/eval', async (req, res) => {
+  try {
+    const { script } = req.body;
+    if (!script) return res.status(400).json({ error: 'script is required' });
+    await ensureBrowser();
+    const result = await page.evaluate(script);
+    res.json({ status: 'ok', result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
