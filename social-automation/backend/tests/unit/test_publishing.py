@@ -369,7 +369,8 @@ async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post,
     assert result.platform_post_id == "album-111"
     assert len(fake.calls) == 1
     assert fake.calls[0]["url"].endswith("/album/upload")
-    assert "files" in fake.calls[0]["files"]
+    # files is a list of (field_name, (filename, file_obj, content_type)) tuples
+    assert len(fake.calls[0]["files"]) == 3
 
 
 @pytest.mark.asyncio
