@@ -117,7 +117,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://integrate.api.nvidia.com/v1",
         "default_model": "nvidia/nemotron-3-nano-30b-a3b",
         "requires_key": True,
-        "description": "NVIDIA's cloud inference — free tier 1000 req/month",
+        "in_fallback_chain": False,
+        "description": "NVIDIA's cloud inference — free tier 1000 req/month (manual selection only, not in auto fallback chain)",
         "model_examples": [
             "meta/llama-3.1-70b-instruct",
             "meta/llama-3.1-405b-instruct",
@@ -132,7 +133,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://router.huggingface.co/v1",
         "default_model": "meta-llama/Llama-3.1-70B-Instruct",
         "requires_key": True,
-        "description": "HuggingFace Serverless Inference API",
+        "in_fallback_chain": False,
+        "description": "HuggingFace Serverless Inference API (manual selection only, not in auto fallback chain)",
         "model_examples": [
             "meta-llama/Llama-3.1-70B-Instruct",
             "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -146,7 +148,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
         "requires_key": True,
-        "description": "OpenAI GPT-4o, o1",
+        "in_fallback_chain": False,
+        "description": "OpenAI GPT-4o, o1 (manual selection only, not in auto fallback chain)",
         "model_examples": ["gpt-4o", "gpt-4o-mini", "o1-mini", "o1"],
     },
     {
@@ -155,7 +158,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.groq.com/openai/v1",
         "default_model": "qwen/qwen3.6-27b",
         "requires_key": True,
-        "description": "Ultra-fast inference — best Ollama drop-in for speed",
+        "in_fallback_chain": False,
+        "description": "Ultra-fast inference (manual selection only, not in auto fallback chain)",
         "model_examples": [
             "qwen/qwen3.6-27b",
             "groq/compound",
@@ -169,7 +173,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.together.xyz/v1",
         "default_model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "requires_key": True,
-        "description": "Together AI — pay-per-token open model hosting",
+        "in_fallback_chain": False,
+        "description": "Together AI — pay-per-token open model hosting (manual selection only, not in auto fallback chain)",
         "model_examples": [
             "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             "meta-llama/Llama-3.1-70B-Instruct-Turbo",
@@ -183,7 +188,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "default_model": "gemini-2.5-flash",
         "requires_key": True,
-        "description": "Google Gemini API — multimodal models with a recurring free tier",
+        "in_fallback_chain": False,
+        "description": "Google Gemini API (manual selection only, not in auto fallback chain)",
         "model_examples": ["gemini-3.6-flash", "gemini-3-flash-preview"],
     },
     {
@@ -192,7 +198,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://openrouter.ai/api/v1",
         "default_model": "openrouter/free",
         "requires_key": True,
-        "description": "OpenRouter — automatic routing across currently available free models",
+        "in_fallback_chain": False,
+        "description": "OpenRouter — automatic routing across free models (manual selection only, not in auto fallback chain)",
         "model_examples": ["openrouter/free", "meta-llama/llama-3.2-3b-instruct:free"],
     },
     {
@@ -201,7 +208,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.sambanova.ai/v1",
         "default_model": "gpt-oss-120b",
         "requires_key": True,
-        "description": "SambaNova Cloud — fast OpenAI-compatible inference with a free tier",
+        "in_fallback_chain": False,
+        "description": "SambaNova Cloud (manual selection only, not in auto fallback chain)",
         "model_examples": ["gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.2"],
     },
     {
@@ -210,7 +218,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.mistral.ai/v1",
         "default_model": "mistral-small-latest",
         "requires_key": True,
-        "description": "Mistral AI Free Mode — experimentation and prototyping inference",
+        "in_fallback_chain": False,
+        "description": "Mistral AI (manual selection only, not in auto fallback chain)",
         "model_examples": ["mistral-small-latest", "mistral-medium-latest", "codestral-latest"],
     },
     {
@@ -219,7 +228,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://api.cohere.ai/compatibility/v1",
         "default_model": "command-r7b-12-2024",
         "requires_key": True,
-        "description": "Cohere evaluation API — free limited chat, embeddings, and reranking",
+        "in_fallback_chain": False,
+        "description": "Cohere evaluation API (manual selection only, not in auto fallback chain)",
         "model_examples": ["command-a-03-2025", "command-r-plus-08-2024", "command-r7b-12-2024"],
     },
     {
@@ -228,7 +238,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev",
         "default_model": "flux.1-kontext-dev",
         "requires_key": True,
-        "description": "NVIDIA hosted FLUX.1-Kontext-dev image-to-image editing (no local GPU needed)",
+        "in_fallback_chain": False,
+        "description": "NVIDIA hosted FLUX.1-Kontext-dev image-to-image editing (manual selection only, not in auto fallback chain)",
         "model_examples": ["flux.1-kontext-dev"],
     },
     {
@@ -237,7 +248,8 @@ PROVIDER_CATALOG = [
         "base_url": "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev",
         "default_model": "flux.1-dev",
         "requires_key": True,
-        "description": "NVIDIA hosted FLUX.1-dev text-to-image generation (no local GPU needed)",
+        "in_fallback_chain": False,
+        "description": "NVIDIA hosted FLUX.1-dev text-to-image generation (manual selection only, not in auto fallback chain)",
         "model_examples": ["flux.1-dev"],
     },
     {
@@ -960,11 +972,8 @@ async def _call_cf_image_pipeline(
         "professional LinkedIn carousel background, no readable text, no logos"
     )
 
-    pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
-    together_key = (settings.TOGETHER_API_KEY or "").strip()
-    hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-
     # Try local Diffusers first (free, local GPU)
+    # Cloudflare Workers AI is the ONLY cloud fallback.
     draft = None
     try:
         draft = await _call_local_diffusers_txt2img(
@@ -976,7 +985,7 @@ async def _call_cf_image_pipeline(
     except HTTPException:
         draft = None
 
-    # Fall back to Cloudflare Workers AI
+    # Fall back to Cloudflare Workers AI (the ONLY cloud fallback)
     if draft is None:
         try:
             draft = await _call_workers_ai_image(
@@ -990,30 +999,11 @@ async def _call_cf_image_pipeline(
                 raise
             if not allow_fallback:
                 raise
-            draft = None
-            if pixazo_key:
-                print("[cf-pipeline] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
-                try:
-                    draft = await _call_pixazo_txt2img(prompt=prompt, api_key=pixazo_key, width=1024, height=1024)
-                except HTTPException:
-                    print("[cf-pipeline] Pixazo also failed", flush=True)
-            if draft is None and together_key:
-                print(f"[cf-pipeline] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
-                try:
-                    draft = await _call_together_txt2img(
-                        prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
-                        width=1024, height=1024, steps=txt2img_steps,
-                    )
-                except HTTPException:
-                    print("[cf-pipeline] Together txt2img also failed", flush=True)
-            if draft is None and hf_key:
-                print(f"[cf-pipeline] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
-                draft = await _call_hf_txt2img(
-                    prompt=prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
-                    width=1024, height=1024, steps=txt2img_steps,
-                )
-            if draft is None:
-                raise
+            # No more fallbacks — local Diffusers + CF are the only providers
+            raise HTTPException(
+                status_code=502,
+                detail="Image generation failed: local Diffusers unavailable and Cloudflare quota exhausted (no other cloud fallback configured)",
+            ) from exc
     assert draft is not None
     draft_bytes = base64.b64decode(draft["image_base64"])
 
@@ -1600,17 +1590,14 @@ async def _text_provider_chain(
     db: AsyncSession | None,
 ) -> list[str]:
     # DMR (local Docker Model Runner) is always first — no API key, no cost.
-    # Cloudflare is the primary cloud failover. Ollama remains the last resort.
-    priority = ["dmr", "cloudflare", "groq", "gemini", "mistral", "cohere", "openrouter", "nvidia"]
+    # Cloudflare Workers AI is the ONLY cloud fallback.
+    # Other cloud providers (Groq, Gemini, Mistral, Cohere, OpenRouter, NVIDIA)
+    # are kept in PROVIDER_CATALOG for manual selection but are NOT in the
+    # automatic fallback chain.
+    priority = ["dmr", "cloudflare"]
     credentials = {
         "dmr": bool(settings.DMR_URL),
         "cloudflare": bool(_ai_token() and settings.CLOUDFLARE_ACCOUNT_ID),
-        "groq": bool(settings.GROQ_API_KEY),
-        "gemini": bool(settings.GEMINI_API_KEY),
-        "mistral": bool(settings.MISTRAL_API_KEY),
-        "cohere": bool(settings.COHERE_API_KEY),
-        "openrouter": bool(settings.OPENROUTER_API_KEY),
-        "nvidia": bool(settings.NVIDIA_API_KEY),
     }
     enabled = set(priority)
     if db and team_id:

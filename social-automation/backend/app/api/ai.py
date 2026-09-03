@@ -702,15 +702,8 @@ async def generate_image(
             print(f"[ai/generate-image] Local Diffusers failed ({exc.status_code}: {exc.detail[:80]}), falling back to Cloudflare", flush=True)
 
         if result is None:
-            # Fall back to Cloudflare Workers AI
+            # Fall back to Cloudflare Workers AI (the ONLY cloud fallback)
             from app.services.cf_models import CF_TXT2IMG_FREE
-            from app.services.inference import (
-                HF_TXT2IMG_FALLBACK,
-                TOGETHER_TXT2IMG_FALLBACK,
-                _call_hf_txt2img,
-                _call_pixazo_txt2img,
-                _call_together_txt2img,
-            )
 
             _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
             model = request.model or model or CF_TXT2IMG_FREE
@@ -734,63 +727,18 @@ async def generate_image(
                     cfg_scale=request.cfg_scale,
                 )
             except HTTPException as exc:
-                print(f"[ai/generate-image] CF also failed ({exc.status_code}), trying fallbacks", flush=True)
+                print(f"[ai/generate-image] CF also failed ({exc.status_code})", flush=True)
 
             if result is None:
-                from app.core.config import settings
-                pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
-                together_key = (settings.TOGETHER_API_KEY or "").strip()
-                hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-
-                if pixazo_key:
-                    print("[ai/generate-image] Trying Pixazo", flush=True)
-                    try:
-                        result = await _call_pixazo_txt2img(
-                            prompt=enhanced_prompt, api_key=pixazo_key,
-                            width=request.width, height=request.height,
-                        )
-                    except HTTPException:
-                        print("[ai/generate-image] Pixazo failed", flush=True)
-
-                if result is None and together_key:
-                    print(f"[ai/generate-image] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
-                    try:
-                        result = await _call_together_txt2img(
-                            prompt=enhanced_prompt, model=TOGETHER_TXT2IMG_FALLBACK,
-                            api_key=together_key, width=request.width, height=request.height,
-                            steps=request.steps,
-                        )
-                    except HTTPException:
-                        print("[ai/generate-image] Together failed", flush=True)
-
-                if result is None and hf_key:
-                    print(f"[ai/generate-image] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
-                    try:
-                        result = await _call_hf_txt2img(
-                            prompt=enhanced_prompt, model=HF_TXT2IMG_FALLBACK,
-                            api_key=hf_key, width=request.width, height=request.height,
-                            steps=request.steps,
-                        )
-                    except HTTPException:
-                        print("[ai/generate-image] HF also failed", flush=True)
-
-                if result is None:
-                    raise HTTPException(
-                        status_code=502,
-                        detail="All image generation providers exhausted (local Diffusers + CF quota + fallbacks failed)",
-                    )
+                raise HTTPException(
+                    status_code=502,
+                    detail="All image generation providers exhausted (local Diffusers + Cloudflare failed)",
+                )
 
         image_base64 = result["image_base64"]
     elif provider_name == "cloudflare":
         # Cloudflare Workers AI text-to-image (SDXL / FLUX models).
         from app.services.cf_models import CF_TXT2IMG_FREE
-        from app.services.inference import (
-            HF_TXT2IMG_FALLBACK,
-            TOGETHER_TXT2IMG_FALLBACK,
-            _call_hf_txt2img,
-            _call_pixazo_txt2img,
-            _call_together_txt2img,
-        )
 
         _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
         model = request.model or model or CF_TXT2IMG_FREE
@@ -815,51 +763,13 @@ async def generate_image(
                 cfg_scale=request.cfg_scale,
             )
         except HTTPException as exc:
-            print(f"[ai/generate-image] CF failed ({exc.status_code}), trying fallbacks", flush=True)
+            print(f"[ai/generate-image] CF failed ({exc.status_code})", flush=True)
 
         if result is None:
-            from app.core.config import settings
-            pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
-            together_key = (settings.TOGETHER_API_KEY or "").strip()
-            hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-
-            if pixazo_key:
-                print("[ai/generate-image] Trying Pixazo", flush=True)
-                try:
-                    result = await _call_pixazo_txt2img(
-                        prompt=enhanced_prompt, api_key=pixazo_key,
-                        width=request.width, height=request.height,
-                    )
-                except HTTPException:
-                    print("[ai/generate-image] Pixazo failed", flush=True)
-
-            if result is None and together_key:
-                print(f"[ai/generate-image] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
-                try:
-                    result = await _call_together_txt2img(
-                        prompt=enhanced_prompt, model=TOGETHER_TXT2IMG_FALLBACK,
-                        api_key=together_key, width=request.width, height=request.height,
-                        steps=request.steps,
-                    )
-                except HTTPException:
-                    print("[ai/generate-image] Together failed", flush=True)
-
-            if result is None and hf_key:
-                print(f"[ai/generate-image] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
-                try:
-                    result = await _call_hf_txt2img(
-                        prompt=enhanced_prompt, model=HF_TXT2IMG_FALLBACK,
-                        api_key=hf_key, width=request.width, height=request.height,
-                        steps=request.steps,
-                    )
-                except HTTPException:
-                    print("[ai/generate-image] HF also failed", flush=True)
-
-            if result is None:
-                raise HTTPException(
-                    status_code=502,
-                    detail="All image generation providers exhausted (CF quota + fallbacks failed)",
-                )
+            raise HTTPException(
+                status_code=502,
+                detail="Cloudflare image generation failed (no fallback configured — local Diffusers is the primary, CF is the only cloud fallback)",
+            )
 
         image_base64 = result["image_base64"]
     else:
