@@ -51,6 +51,11 @@ let activePageId = null; // set when switched to a Page profile
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
 
+  // Try to load a saved session if we don't have one in memory
+  if (!storageState) {
+    await loadSavedSession();
+  }
+
   browser = await chromium.launch({
     headless: true,
     args: [
@@ -148,14 +153,179 @@ async function closeDialogs() {
   }
 }
 
+// ── Robust selector framework ──────────────────────────────────────────────
+
+/**
+ * Try multiple selector strategies in order and return the first visible element.
+ * Each strategy is a Playwright selector string. This makes the sidecar
+ * resilient to Facebook layout changes.
+ *
+ * @param {string[]} selectors - Ordered list of CSS/Playwright selectors to try
+ * @param {object} opts - { timeout: ms per selector, visible: require visibility }
+ * @returns {Promise<Locator|null>} - The first matching visible locator, or null
+ */
+async function findElement(selectors, opts = {}) {
+  const { timeout = 3000, visible = true } = opts;
+  for (const sel of selectors) {
+    try {
+      const loc = page.locator(sel).first();
+      if (visible) {
+        if (await loc.isVisible({ timeout }).catch(() => false)) {
+          return loc;
+        }
+      } else {
+        if ((await loc.count()) > 0) {
+          return loc;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Find and click the first visible element from a list of selectors.
+ * Includes retry logic — tries each selector, then waits and retries up to
+ * `retries` times.
+ */
+async function findAndClick(selectors, opts = {}) {
+  const { retries = 2, settleMs = 1500 } = opts;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const el = await findElement(selectors, { timeout: 3000 });
+    if (el) {
+      await el.click().catch(() => {});
+      await page.waitForTimeout(settleMs);
+      return true;
+    }
+    if (attempt < retries) await page.waitForTimeout(2000);
+  }
+  return false;
+}
+
+/**
+ * Find a textarea or contenteditable input inside a dialog or page.
+ * Tries multiple strategies: aria-label, placeholder, dialog-scoped, any visible.
+ */
+async function findTextInput(opts = {}) {
+  const { scope = 'any', label = null } = opts;
+  const dialogScope = scope === 'dialog' ? 'div[role="dialog"] ' : '';
+  const strategies = [];
+  if (label) {
+    strategies.push(
+      `${dialogScope}textarea[aria-label*="${label}"]:visible`,
+      `${dialogScope}textarea[placeholder*="${label}"]:visible`,
+      `${dialogScope}input[aria-label*="${label}"]:visible`,
+      `${dialogScope}input[placeholder*="${label}"]:visible`,
+    );
+  }
+  strategies.push(
+    `${dialogScope}textarea:visible`,
+    `${dialogScope}[contenteditable="true"]:visible`,
+    `${dialogScope}input[type="text"]:visible`,
+  );
+  return findElement(strategies, { timeout: 2000 });
+}
+
+/**
+ * Navigate to a URL, settle, dismiss dialogs, and verify login.
+ * Returns true if logged in, false otherwise.
+ */
+async function navigateAndCheck(url) {
+  await ensureBrowser();
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await settle();
+  await closeDialogs();
+  return isLoggedIn();
+}
+
+/**
+ * Extract text from the page body, split into trimmed lines.
+ * Useful for finding elements by text context when selectors fail.
+ */
+async function getPageLines() {
+  const text = await page.innerText('body').catch(() => '');
+  return text.split('\n').map(l => l.trim()).filter(l => l);
+}
+
+/**
+ * Find a clickable element near a text label by scanning the DOM tree.
+ * Returns the locator or null.
+ */
+async function findButtonNearText(text, maxLevels = 5) {
+  return page.evaluate(({ text, maxLevels }) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.textContent && node.textContent.trim() === text) {
+        let el = node.parentElement;
+        for (let i = 0; i < maxLevels && el; i++) {
+          const btn = el.querySelector('[role="button"], button, a[href]');
+          if (btn && btn.offsetParent !== null) {
+            // Return a CSS path to this element
+            return el.getAttribute('data-testid') ||
+              `[role="button"]:has-text("${text}")`;
+          }
+          el = el.parentElement;
+        }
+      }
+    }
+    return null;
+  }, { text, maxLevels });
+}
+
+// ── Session persistence ────────────────────────────────────────────────────
+
+const SESSION_FILE = process.env.SESSION_FILE || '/data/fb-session.json';
+
+async function saveSession() {
+  try {
+    if (!context) return;
+    const state = await context.storageState();
+    const cookies = await context.cookies();
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({ storageState: state, cookies, savedAt: Date.now() }));
+  } catch (_) {}
+}
+
+async function loadSavedSession() {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return false;
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+    if (data.storageState) {
+      storageState = data.storageState;
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+async function exportCookies() {
+  if (!context) return {};
+  const cookies = await context.cookies();
+  const result = {};
+  for (const c of cookies) {
+    if (c.domain && c.domain.includes('facebook.com')) {
+      result[c.name] = c.value;
+    }
+  }
+  return result;
+}
+
 // ── API: Session ───────────────────────────────────────────────────────────
 
 async function handleSetSession(req, res) {
-  const { storage_state } = req.body;
-  if (!storage_state) {
-    return res.status(400).json({ error: 'storage_state is required' });
+  const { storage_state, cookies } = req.body;
+  if (!storage_state && !cookies) {
+    return res.status(400).json({ error: 'storage_state or cookies is required' });
   }
-  storageState = storage_state;
+  // If cookies dict is provided, build a storage_state from it
+  if (cookies && !storage_state) {
+    const cookieList = Object.entries(cookies).map(([name, value]) => ({
+      name, value, domain: '.facebook.com', path: '/',
+    }));
+    storageState = { cookies: cookieList, origins: [] };
+  } else {
+    storageState = storage_state;
+  }
   activePageId = null;
   await closeBrowser();
   await ensureBrowser();
@@ -163,6 +333,7 @@ async function handleSetSession(req, res) {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
     const loggedIn = isLoggedIn();
+    if (loggedIn) await saveSession();
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -212,6 +383,7 @@ async function handleLogin(req, res) {
           await page.waitForTimeout(5000);
           if (isLoggedIn()) {
             storageState = await context.storageState();
+            await saveSession();
             res.json({ status: 'ok', logged_in: true, storage_state: storageState });
           } else {
             res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA code rejected' });
@@ -228,6 +400,7 @@ async function handleLogin(req, res) {
     // Check if login succeeded
     if (isLoggedIn()) {
       storageState = await context.storageState();
+      await saveSession();
       res.json({ status: 'ok', logged_in: true, storage_state: storageState });
     } else {
       // Check for error message
