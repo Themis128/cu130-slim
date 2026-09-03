@@ -572,14 +572,15 @@ async function handleUpdateBio(req, res) {
     }
 
     // Facebook's about page has a "Bio" section with an icon-only edit button
-    // (no text, no aria-label). We need to find it by DOM structure:
-    // the edit button is a sibling of the "Bio" h2 heading.
+    // that has aria-label="Edit" and no text. We need to find it by:
+    // 1. Finding the h2 containing "Bio"
+    // 2. Walking up the DOM to find the section container
+    // 3. Finding a [role="button"] with aria-label="Edit" inside that section
     //
-    // Strategy 1: Find the h2 containing "Bio" and click the next role=button sibling
+    // Strategy 1: DOM-structural approach — find Bio heading, click the Edit button
     // Strategy 2: Look for text buttons "Edit bio" / "Add bio" (older layout)
-    // Strategy 3: Look for "About you" button (some layouts)
 
-    // Strategy 1: DOM-structural approach — find Bio heading, click nearby button
+    // Strategy 1: DOM-structural approach
     const clicked = await page.evaluate(() => {
       // Find the h2/span containing "Bio"
       const headings = document.querySelectorAll('h2, span');
@@ -587,18 +588,18 @@ async function handleUpdateBio(req, res) {
         if (h.textContent && h.textContent.trim() === 'Bio') {
           // Walk up to find the section container, then find the edit button
           let container = h.parentElement;
-          for (let i = 0; i < 4 && container; i++) {
-            // Look for a role=button that is NOT the "About you" button
+          for (let i = 0; i < 6 && container; i++) {
+            // Look for a role=button with aria-label="Edit" or an icon-only button
             const btns = container.querySelectorAll('[role="button"]');
             for (const btn of btns) {
-              // Skip the "About you" button (it opens notifications)
               const btnText = (btn.innerText || '').trim();
+              const ariaLabel = btn.getAttribute('aria-label') || '';
+              // Skip the "About you" button (it opens notifications)
               if (btnText === 'About you' || btnText === 'Notifications') continue;
-              // Check it's visible
-              if (btn.offsetParent !== null && !btnText) {
-                // Icon-only button — this is the edit button
+              // The edit button has aria-label="Edit" and is icon-only
+              if (btn.offsetParent !== null && (ariaLabel === 'Edit' || ariaLabel === 'Add')) {
                 btn.click();
-                return 'icon-button';
+                return 'edit-button';
               }
             }
             container = container.parentElement;
