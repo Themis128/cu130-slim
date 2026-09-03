@@ -14,6 +14,7 @@ import base64
 import io
 import logging
 import os
+import threading
 import time
 
 import torch
@@ -37,7 +38,7 @@ DTYPE = _dtype_map.get(TORCH_DTYPE, torch.float16)
 
 app = FastAPI(title="Local Diffusers Image API", version="1.0.0")
 _pipeline = None
-_load_lock = torch.Lock() if hasattr(torch, "Lock") else None
+_load_lock = threading.Lock()
 
 
 def _load_pipeline():
@@ -46,25 +47,29 @@ def _load_pipeline():
     if _pipeline is not None:
         return _pipeline
 
-    from diffusers import AutoPipelineForText2Image
+    with _load_lock:
+        if _pipeline is not None:
+            return _pipeline
 
-    logger.info("Loading model %s on %s with %s...", MODEL_ID, DEVICE, TORCH_DTYPE)
-    t0 = time.time()
-    kwargs = {
-        "torch_dtype": DTYPE,
-        "safety_checker": None,
-        "requires_safety_checker": False,
-    }
-    if HF_TOKEN:
-        kwargs["token"] = HF_TOKEN
+        from diffusers import AutoPipelineForText2Image
 
-    _pipeline = AutoPipelineForText2Image.from_pretrained(MODEL_ID, **kwargs)
-    _pipeline = _pipeline.to(DEVICE)
-    # Reduce VRAM fragmentation
-    if hasattr(_pipeline, "enable_vae_slicing"):
-        _pipeline.enable_vae_slicing()
-    elapsed = time.time() - t0
-    logger.info("Model loaded in %.1fs — VRAM: %s", elapsed, _vram_info())
+        logger.info("Loading model %s on %s with %s...", MODEL_ID, DEVICE, TORCH_DTYPE)
+        t0 = time.time()
+        kwargs = {
+            "torch_dtype": DTYPE,
+            "safety_checker": None,
+            "requires_safety_checker": False,
+        }
+        if HF_TOKEN:
+            kwargs["token"] = HF_TOKEN
+
+        _pipeline = AutoPipelineForText2Image.from_pretrained(MODEL_ID, **kwargs)
+        _pipeline = _pipeline.to(DEVICE)
+        # Reduce VRAM fragmentation
+        if hasattr(_pipeline, "enable_vae_slicing"):
+            _pipeline.enable_vae_slicing()
+        elapsed = time.time() - t0
+        logger.info("Model loaded in %.1fs — VRAM: %s", elapsed, _vram_info())
     return _pipeline
 
 

@@ -488,7 +488,7 @@ services:
     - CHROMA_URL=http://chroma:8000
     - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
     - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
-    - LINKEDIN_REDIRECT_URI=http://localhost:8083/api/v1/auth/oauth/linkedin/callback
+    - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback}
     - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
     - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
     - TWITTER_REDIRECT_URI=${TWITTER_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback}
