@@ -1179,6 +1179,18 @@ app.get('/screenshot', async (req, res) => {
   }
 });
 
+// Debug: page text
+app.get('/debug/page-text', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const text = await page.innerText('body');
+    const url = page.url();
+    res.json({ url, text: text.substring(0, 2000) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   await closeBrowser();
