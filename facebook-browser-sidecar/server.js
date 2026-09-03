@@ -821,6 +821,271 @@ async function handleUpdateWebsite(req, res) {
   }
 }
 
+// ── API: Update work experience ────────────────────────────────────────────
+
+async function handleUpdateWork(req, res) {
+  const { company, position, description, start_year, end_year } = req.body;
+  if (!company) return res.status(400).json({ error: 'company is required' });
+  try {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_work');
+    if (!loggedIn) return res.status(401).json({ error: 'Not logged in to Facebook' });
+
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Add a workplace")',
+      '[role="button"]:has-text("Edit workplace")',
+      '[role="button"]:has-text("Add workplace")',
+      'a:has-text("Add a workplace")',
+      '[role="button"]:has-text("Add work")',
+    ], { retries: 2, settleMs: 3000 });
+
+    if (!clicked) {
+      return res.status(404).json({ error: 'Could not find the "Add workplace" button' });
+    }
+
+    // Company input
+    const companyInput = await findTextInput({ scope: 'dialog', label: 'Company' });
+    if (companyInput) {
+      await companyInput.click();
+      await page.keyboard.type(company);
+      await page.waitForTimeout(2000);
+      // Click the first suggestion or press Enter
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1000);
+    }
+
+    // Position input
+    if (position) {
+      const positionInput = await findTextInput({ scope: 'dialog', label: 'Position' });
+      if (positionInput) {
+        await positionInput.click();
+        await page.keyboard.type(position);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    await clickSave();
+    await saveSession();
+    res.json({ status: 'ok', updated: ['work'] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Update education ──────────────────────────────────────────────────
+
+async function handleUpdateEducation(req, res) {
+  const { school, degree, start_year, end_year } = req.body;
+  if (!school) return res.status(400).json({ error: 'school is required' });
+  try {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_education');
+    if (!loggedIn) return res.status(401).json({ error: 'Not logged in to Facebook' });
+
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Add a school")',
+      '[role="button"]:has-text("Add school")',
+      '[role="button"]:has-text("Edit school")',
+      'a:has-text("Add a school")',
+    ], { retries: 2, settleMs: 3000 });
+
+    if (!clicked) {
+      return res.status(404).json({ error: 'Could not find the "Add school" button' });
+    }
+
+    const schoolInput = await findTextInput({ scope: 'dialog', label: 'School' });
+    if (schoolInput) {
+      await schoolInput.click();
+      await page.keyboard.type(school);
+      await page.waitForTimeout(2000);
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1000);
+    }
+
+    if (degree) {
+      const degreeInput = await findTextInput({ scope: 'dialog', label: 'Degree' });
+      if (degreeInput) {
+        await degreeInput.click();
+        await page.keyboard.type(degree);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    await clickSave();
+    await saveSession();
+    res.json({ status: 'ok', updated: ['education'] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Update location (current city / hometown) ─────────────────────────
+
+async function handleUpdateLocation(req, res) {
+  const { current_city, hometown } = req.body;
+  if (!current_city && !hometown) {
+    return res.status(400).json({ error: 'current_city or hometown is required' });
+  }
+  try {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_places');
+    if (!loggedIn) return res.status(401).json({ error: 'Not logged in to Facebook' });
+
+    const updated = [];
+    if (current_city) {
+      const clicked = await findAndClick([
+        '[role="button"]:has-text("Add current city")',
+        '[role="button"]:has-text("Edit current city")',
+        'a:has-text("Add current city")',
+      ], { retries: 1, settleMs: 3000 });
+      if (clicked) {
+        const input = await findTextInput({ scope: 'dialog', label: 'Current city' });
+        if (input) {
+          await input.click();
+          await page.keyboard.type(current_city);
+          await page.waitForTimeout(2000);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(1000);
+          await clickSave();
+          updated.push('current_city');
+        }
+      }
+    }
+    if (hometown) {
+      const clicked = await findAndClick([
+        '[role="button"]:has-text("Add hometown")',
+        '[role="button"]:has-text("Edit hometown")',
+        'a:has-text("Add hometown")',
+      ], { retries: 1, settleMs: 3000 });
+      if (clicked) {
+        const input = await findTextInput({ scope: 'dialog', label: 'Hometown' });
+        if (input) {
+          await input.click();
+          await page.keyboard.type(hometown);
+          await page.waitForTimeout(2000);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(1000);
+          await clickSave();
+          updated.push('hometown');
+        }
+      }
+    }
+    await saveSession();
+    res.json({ status: 'ok', updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Update quotes (favorite quotes section) ───────────────────────────
+
+async function handleUpdateQuotes(req, res) {
+  const { quotes } = req.body;
+  if (!quotes) return res.status(400).json({ error: 'quotes is required' });
+  try {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_details');
+    if (!loggedIn) return res.status(401).json({ error: 'Not logged in to Facebook' });
+
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Add quotes")',
+      '[role="button"]:has-text("Edit quotes")',
+      'a:has-text("Add quotes")',
+    ], { retries: 2, settleMs: 3000 });
+
+    if (!clicked) {
+      return res.status(404).json({ error: 'Could not find the quotes edit button' });
+    }
+
+    const input = await findTextInput({ scope: 'dialog', label: 'Quotes' });
+    if (!input) {
+      return res.status(404).json({ error: 'Could not locate the quotes textarea' });
+    }
+    await input.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await page.keyboard.type(quotes);
+    await page.waitForTimeout(500);
+    await clickSave();
+    await saveSession();
+    res.json({ status: 'ok', updated: ['quotes'] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Update contact info (email, phone) ────────────────────────────────
+
+async function handleUpdateContact(req, res) {
+  const { email, phone } = req.body;
+  if (!email && !phone) {
+    return res.status(400).json({ error: 'email or phone is required' });
+  }
+  try {
+    const loggedIn = await navigateAndCheck('https://www.facebook.com/profile.php?sk=about_contact');
+    if (!loggedIn) return res.status(401).json({ error: 'Not logged in to Facebook' });
+
+    const clicked = await findAndClick([
+      '[role="button"]:has-text("Edit Details")',
+      '[role="button"]:has-text("Edit details")',
+      'a:has-text("Edit Details")',
+      '[role="button"]:has-text("Edit")',
+    ], { retries: 2, settleMs: 3000 });
+
+    if (!clicked) {
+      return res.status(404).json({ error: 'Could not find the contact info "Edit" button' });
+    }
+
+    const updated = [];
+    if (email) {
+      const emailInput = await findElement([
+        'div[role="dialog"] input[aria-label*="Email"]:visible',
+        'div[role="dialog"] input[placeholder*="Email"]:visible',
+        'div[role="dialog"] input[type="email"]:visible',
+      ], { timeout: 2000 });
+      if (emailInput) {
+        await emailInput.click();
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+        await page.keyboard.type(email);
+        updated.push('email');
+      }
+    }
+    if (phone) {
+      const phoneInput = await findElement([
+        'div[role="dialog"] input[aria-label*="Phone"]:visible',
+        'div[role="dialog"] input[placeholder*="Phone"]:visible',
+        'div[role="dialog"] input[type="tel"]:visible',
+      ], { timeout: 2000 });
+      if (phoneInput) {
+        await phoneInput.click();
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+        await page.keyboard.type(phone);
+        updated.push('phone');
+      }
+    }
+    await clickSave();
+    await saveSession();
+    res.json({ status: 'ok', updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Export cookies ────────────────────────────────────────────────────
+
+async function handleExportCookies(req, res) {
+  try {
+    await ensureBrowser();
+    const cookies = await exportCookies();
+    const loggedIn = isLoggedIn();
+    res.json({ status: 'ok', logged_in: loggedIn, cookies });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ── API: Personal posting — text status ────────────────────────────────────
 
 async function handlePostText(req, res) {
@@ -1370,6 +1635,12 @@ app.post('/profile/bio', handleUpdateBio);
 app.post('/profile/picture', handleUploadPicture);
 app.post('/profile/cover', handleUploadCover);
 app.post('/profile/website', handleUpdateWebsite);
+app.post('/profile/work', handleUpdateWork);
+app.post('/profile/education', handleUpdateEducation);
+app.post('/profile/location', handleUpdateLocation);
+app.post('/profile/quotes', handleUpdateQuotes);
+app.post('/profile/contact', handleUpdateContact);
+app.get('/profile/cookies', handleExportCookies);
 
 // Personal posting
 app.post('/post/text', handlePostText);
