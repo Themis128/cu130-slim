@@ -89,6 +89,7 @@ export interface MediaAsset {
   id: string
   team_id: string
   user_id: string | null
+  collection_id: string | null
   filename: string | null
   mime_type: string | null
   size_bytes: number | null

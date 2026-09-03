@@ -268,6 +268,7 @@ async def list_media(
     source: str | None = Query(None, description="Filter by exact source (e.g. 'upload', 'comfyui', 'ai-generated')"),
     sort: str | None = Query(None, description="Sort: 'newest' | 'oldest' | 'largest' | 'smallest' | 'name_asc' | 'name_desc'"),
     search: str | None = Query(None, description="Search filename, alt_text, and generation_prompt"),
+    collection_id: uuid.UUID | None = Query(None, description="Filter to assets belonging to a specific collection"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -289,6 +290,9 @@ async def list_media(
         query = query.where(MediaAsset.mime_type.like("video/%"))
     elif type in ("generated", "ai-generated"):
         query = query.where(MediaAsset.source.in_(["ai-generated", "comfyui"]))
+
+    if collection_id is not None:
+        query = query.where(MediaAsset.collection_id == collection_id)
 
     if search:
         pattern = f"%{search}%"

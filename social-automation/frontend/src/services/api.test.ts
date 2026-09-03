@@ -845,6 +845,7 @@ describe('API Service', () => {
       
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/analytics/reports/export', {
         params: { format: 'csv', days: 30 },
+        responseType: 'blob',
       })
       expect(result.data).toBe(blob)
     })

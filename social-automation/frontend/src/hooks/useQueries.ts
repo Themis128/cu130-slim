@@ -204,7 +204,7 @@ export function useDeleteBrief() {
 }
 
 // Media hooks
-export function useMedia(params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string }) {
+export function useMedia(params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string; collection_id?: string }) {
   return useQuery({
     queryKey: ['media', params],
     queryFn: () => mediaApi.list(params),

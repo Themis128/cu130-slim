@@ -283,11 +283,12 @@ export const contentApi = {
 
 // Media endpoints
 export const mediaApi = {
-  list: (params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string }) => {
-    const p = { ...params }
+  list: (params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string; collection_id?: string }) => {
+    const p: Record<string, unknown> = { ...params }
     if (!p.type) delete p.type
     if (!p.sort) delete p.sort
     if (!p.search) delete p.search
+    if (!p.collection_id) delete p.collection_id
     return api.get('/media/assets', { params: p })
   },
   bulkDelete: (ids: string[]) => api.post('/media/assets/bulk-delete', { ids }),
