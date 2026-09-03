@@ -2357,7 +2357,7 @@ async def generate_carousel_pipeline(
         db=db,
         team_id=team.id,
         force_fix=True,
-        allow_fallback=False,
+        allow_fallback=True,
     )
     print(f"[carousel-pipeline] nlp {nlp_report.to_dict()}", flush=True)
 

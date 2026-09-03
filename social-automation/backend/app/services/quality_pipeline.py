@@ -124,7 +124,7 @@ async def apply_quality_pipeline(
                 db=db,
                 team_id=team_id,
                 force_fix=True,
-                allow_fallback=False,
+                allow_fallback=True,
             )
             if fixed_caption and fixed_caption.strip():
                 result.content = fixed_caption

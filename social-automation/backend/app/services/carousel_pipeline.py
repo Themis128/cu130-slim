@@ -676,7 +676,7 @@ Return JSON only:
         team_id=team_id,
         schema=schema,
         model_override=text_model,
-        allow_fallback=False,
+        allow_fallback=True,
     )
 
 
@@ -753,7 +753,7 @@ async def run_cloudless_carousel_pipeline(
             db=db,
             team_id=team.id,
             force_fix=True,
-            allow_fallback=False,
+            allow_fallback=True,
         )
         slides = _dedupe_slide_copy(slides)
     # Skip dedupe for custom slides — they are intentionally curated
@@ -810,7 +810,7 @@ async def run_cloudless_carousel_pipeline(
             team_id=team.id,
             schema=title_schema,
             model_override=text_model,
-            allow_fallback=False,
+            allow_fallback=True,
         )
         ai_title = (title_result.get("title") or topic)[:80]
     except Exception:
