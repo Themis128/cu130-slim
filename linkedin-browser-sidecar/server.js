@@ -215,39 +215,31 @@ async function handleLogin(req, res) {
       await page.waitForTimeout(3000);
     }
 
-    // Fill login form — LinkedIn uses React, so we need to type into the inputs
-    // The inputs may be visually hidden but still functional — use focus + type
-    const emailInput = page.locator('input#username, input[name="session_key"], input[type="text"], input[type="email"]').first();
-    if (await emailInput.count() === 0) {
+    // Fill login form — LinkedIn renders duplicate inputs (hidden + visible)
+    // The visible inputs are always the second set, so use nth(1)
+    const emailInputs = page.locator('input[type="email"]');
+    const emailCount = await emailInputs.count();
+    const emailInput = emailCount >= 2 ? emailInputs.nth(1) : emailInputs.first();
+    if (emailCount === 0) {
       return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
     }
-    // Click the input first to make it visible/focused, then type
-    try {
-      await emailInput.click({ timeout: 5000 });
-      await emailInput.fill(username, { timeout: 5000 });
-    } catch (_) {
-      // If click fails, try scroll into view + type
-      await emailInput.scrollIntoViewIfNeeded().catch(() => {});
-      await emailInput.evaluate((el) => { el.focus(); });
-      await page.keyboard.type(username, { delay: 50 });
-    }
+    await emailInput.click({ timeout: 5000 });
+    await emailInput.fill(username, { timeout: 5000 });
 
-    const passInput = page.locator('input#password, input[name="session_password"], input[type="password"]').first();
-    if (await passInput.count() === 0) {
+    const passInputs = page.locator('input[type="password"]');
+    const passCount = await passInputs.count();
+    const passInput = passCount >= 2 ? passInputs.nth(1) : passInputs.first();
+    if (passCount === 0) {
       return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
     }
-    try {
-      await passInput.click({ timeout: 5000 });
-      await passInput.fill(password, { timeout: 5000 });
-    } catch (_) {
-      await passInput.scrollIntoViewIfNeeded().catch(() => {});
-      await passInput.evaluate((el) => { el.focus(); });
-      await page.keyboard.type(password, { delay: 50 });
-    }
+    await passInput.click({ timeout: 5000 });
+    await passInput.fill(password, { timeout: 5000 });
 
-    // Submit — try multiple selectors including localized text
-    const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion"), button[data-tracking-control-name="homepage-basic_sign-in-submit"]').first();
-    if (await submitBtn.count() > 0) {
+    // Submit — find the visible "Sign in" button (LinkedIn renders duplicates)
+    const submitBtns = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion")');
+    const submitCount = await submitBtns.count();
+    const submitBtn = submitCount >= 2 ? submitBtns.nth(submitCount - 1) : submitBtns.first();
+    if (submitCount > 0) {
       try {
         await submitBtn.click({ timeout: 5000 });
       } catch (_) {
