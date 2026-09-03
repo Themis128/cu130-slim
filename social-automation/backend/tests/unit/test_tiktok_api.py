@@ -257,8 +257,20 @@ async def test_upload_video_file_sets_range_headers(client):
 
 @pytest.mark.asyncio
 async def test_upload_video_file_rejects_non_tiktok_host(client):
-    with pytest.raises(ValueError, match="TikTok upload host"):
+    with pytest.raises(ValueError, match="tiktokapis.com"):
         await client.upload_video_file("https://example.com/upload", b"video")
+
+
+@pytest.mark.asyncio
+async def test_upload_video_file_accepts_regional_tiktok_host(client):
+    """Regional upload hosts like open-upload-i18n.tiktokapis.com should be accepted."""
+    fake = _FakeAsyncClient(_FakeResponse(201, {}))
+    with _patch_client(fake):
+        await client.upload_video_file(
+            "https://open-upload-i18n.tiktokapis.com/upload?upload_id=123",
+            b"video",
+        )
+    assert len(fake.calls) == 1
 
 
 @pytest.mark.asyncio

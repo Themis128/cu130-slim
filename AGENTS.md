@@ -155,6 +155,18 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - **Env vars**: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
 - **Connected account**: `cloudless.gr` TikTok account (sandbox: `cloudless-dev`, target user `user3113682023385`).
 
+### TikTok Content Posting API
+
+- **Publish modes**: `MEDIA_UPLOAD` (sends to TikTok inbox for manual posting) and `DIRECT_POST` (posts directly — requires app audit). Use `MEDIA_UPLOAD` until the app passes TikTok's audit review.
+- **Media transfer**: `FILE_UPLOAD` (upload video bytes directly — no domain verification needed) and `PULL_FROM_URL` (TikTok downloads from URL — requires domain verification in dev console). SocialAuto's `_publish_tiktok` in `app/services/publishing.py` automatically uses `FILE_UPLOAD` when a local video file is available.
+- **Photo posts**: Only support `PULL_FROM_URL` — domain verification is mandatory for photo carousels.
+- **Spam protection**: TikTok limits API uploads to **5 pending shares per 24-hour period**. Error: `spam_risk_too_many_pending_share`. Clear pending uploads from the TikTok mobile app or via the cancel API (`/v2/post/publish/cancel/`).
+- **Publish ID format**: FILE_UPLOAD IDs use `v_inbox_file~v2.<numeric_id>` (includes `~` and `.`). The `_ID_RE` regex in `app/services/tiktok_api.py` accepts these.
+- **Upload URL hosts**: TikTok returns regional hosts (e.g. `open-upload-i18n.tiktokapis.com`). The `upload_video_file` method accepts any `*.tiktokapis.com` host.
+- **App details**: App name "Cloudless", App ID `7630494700880906241`, currently under Individual ownership (needs transfer to organization `cloudless.gr` / `7630331010873377809`).
+- **Domain verification**: Verify `cloudless.gr` in the TikTok dev console (URL properties) by adding a DNS TXT record in Cloudflare. Covers all subdomains including `social.cloudless.gr`.
+- **Skills**: `.devin/skills/tiktok-publish/` (publishing, spam management, slideshow builder) and `.devin/skills/tiktok-dev-console/` (domain verification, app/org transfer, audit).
+
 ## Brand identity system
 
 - One Brand per team, stored in the `brands` table (migration `h4c5d6e7f8a9`).
