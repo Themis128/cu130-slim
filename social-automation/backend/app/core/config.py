@@ -247,6 +247,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = "resend"
     SMTP_PASSWORD: str = ""
     SMTP_USE_TLS: bool = True
+    SMTP_SSL_VERIFY: bool = True
     SMTP_FROM: str = "noreply@cloudless.gr"
     DIGEST_EMAIL_TO: str = "tbaltzakis@cloudless.gr"
     DIGEST_EMAIL_ISSUES_ONLY: bool = False

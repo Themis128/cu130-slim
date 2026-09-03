@@ -179,6 +179,9 @@ def send_email_smtp(
         msg.add_alternative(html_body, subtype="html")
 
     context = ssl.create_default_context()
+    if not getattr(settings, "SMTP_SSL_VERIFY", True):
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
     if port == 465:
         with smtplib.SMTP_SSL(host, port, timeout=45, context=context) as smtp:
             if user:
