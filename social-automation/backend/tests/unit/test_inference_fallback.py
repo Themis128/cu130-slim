@@ -146,13 +146,23 @@ class TestTextProviderChain:
 
     @pytest.mark.asyncio
     async def test_no_dmr_url_cf_creds_present(self, monkeypatch):
-        """No DMR URL set → DMR prepended anyway (call will fail at runtime if reached)."""
+        """No DMR URL set → DMR excluded from chain (no wasted round-trip)."""
         monkeypatch.setattr(inference.settings, "DMR_URL", "")
         _cf_settings(monkeypatch)
         chain = await inference._text_provider_chain("cloudflare", None, None)
-        # DMR always prepended — actual health check happens at call time
         assert "cloudflare" in chain
-        assert "dmr" in chain
+        assert "dmr" not in chain
+
+    @pytest.mark.asyncio
+    async def test_no_dmr_url_custom_fallbacks(self, monkeypatch):
+        """No DMR URL + custom fallbacks → DMR not appended as implicit fallback."""
+        monkeypatch.setattr(inference.settings, "DMR_URL", "")
+        _cf_settings(monkeypatch)
+        chain = await inference._text_provider_chain(
+            "cloudflare", None, ["cloudflare"],
+        )
+        assert "cloudflare" in chain
+        assert "dmr" not in chain
 
     @pytest.mark.asyncio
     async def test_non_chain_provider_requested(self, monkeypatch):

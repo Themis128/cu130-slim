@@ -1631,7 +1631,7 @@ async def _text_provider_chain(
         for fb in custom_fallbacks:
             if fb not in ordered and (fb == "dmr" or (credentials.get(fb, False) and fb in enabled)):
                 ordered.append(fb)
-        if "dmr" not in ordered:
+        if "dmr" not in ordered and credentials.get("dmr"):
             ordered.append("dmr")
         return ordered
     if provider_name != "dmr" and provider_name not in cloud:
@@ -1639,8 +1639,9 @@ async def _text_provider_chain(
     elif provider_name in cloud:
         cloud.remove(provider_name)
         cloud.insert(0, provider_name)
-    # DMR is always available (no key) — prepend if not already present
-    local = ["dmr"] if "dmr" not in cloud else []
+    # Prepend DMR only when its URL is configured — otherwise it wastes
+    # a round-trip and opens its circuit breaker before the real provider.
+    local = ["dmr"] if "dmr" not in cloud and credentials.get("dmr") else []
     return [*local, *cloud]
 
 
