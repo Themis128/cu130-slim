@@ -676,7 +676,7 @@ Return JSON only:
         team_id=team_id,
         schema=schema,
         model_override=text_model,
-        allow_fallback=True,
+        allow_fallback=False,  # CF-only per product rule — no DMR fallback for carousel
     )
 
 
