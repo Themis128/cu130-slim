@@ -101,6 +101,59 @@ class FacebookSidecarClient:
     async def update_website(self, website: str) -> dict[str, Any]:
         return await self._post("/profile/website", {"website": website})
 
+    async def update_work(
+        self,
+        company: str,
+        position: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"company": company}
+        if position:
+            payload["position"] = position
+        if description:
+            payload["description"] = description
+        return await self._post("/profile/work", payload)
+
+    async def update_education(
+        self,
+        school: str,
+        degree: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"school": school}
+        if degree:
+            payload["degree"] = degree
+        return await self._post("/profile/education", payload)
+
+    async def update_location(
+        self,
+        current_city: str | None = None,
+        hometown: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if current_city:
+            payload["current_city"] = current_city
+        if hometown:
+            payload["hometown"] = hometown
+        return await self._post("/profile/location", payload)
+
+    async def update_quotes(self, quotes: str) -> dict[str, Any]:
+        return await self._post("/profile/quotes", {"quotes": quotes})
+
+    async def update_contact(
+        self,
+        email: str | None = None,
+        phone: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if email:
+            payload["email"] = email
+        if phone:
+            payload["phone"] = phone
+        return await self._post("/profile/contact", payload)
+
+    async def export_cookies(self) -> dict[str, Any]:
+        return await self._get("/profile/cookies")
+
     # ── Personal posting ──────────────────────────────────────────────────
 
     async def post_text(self, message: str, privacy: str | None = None) -> dict[str, Any]:

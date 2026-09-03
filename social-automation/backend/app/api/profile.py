@@ -804,10 +804,37 @@ async def _update_facebook_user_profile(
         if updates.website is not None:
             await client.update_website(updates.website)
             updated.append("website")
+        if updates.quotes is not None:
+            await client.update_quotes(updates.quotes)
+            updated.append("quotes")
+        if updates.location is not None:
+            await client.update_location(current_city=updates.location)
+            updated.append("location")
+        if updates.phone is not None or updates.email is not None:
+            await client.update_contact(email=updates.email, phone=updates.phone)
+            if updates.phone is not None:
+                updated.append("phone")
+            if updates.email is not None:
+                updated.append("email")
+        if updates.work is not None:
+            for w in updates.work:
+                await client.update_work(
+                    company=w.company,
+                    position=w.position,
+                    description=w.summary,
+                )
+            updated.append("work")
+        if updates.education is not None:
+            for e in updates.education:
+                await client.update_education(
+                    school=e.school,
+                    degree=e.degree,
+                )
+            updated.append("education")
     except FacebookSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-    for field in ["headline", "biography", "full_name", "location", "phone", "email", "quotes", "work", "education"]:
+    for field in ["headline", "biography", "full_name"]:
         if getattr(updates, field, None) is not None:
             ignored.append(field)
 
