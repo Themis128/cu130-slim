@@ -317,6 +317,41 @@ def test_is_workers_ai_image_model(model, expected):
 
 
 @pytest.mark.asyncio
+async def test_call_local_diffusers_txt2img_success(monkeypatch):
+    """_call_local_diffusers_txt2img calls the local Diffusers API and returns base64."""
+    fake = _FakeAsyncClient(200, {"data": [{"b64_json": "iVBORw0KGgo=="}]})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+    monkeypatch.setattr(inference.settings, "LOCAL_DIFFUSERS_URL", "http://local-diffusers:7860")
+    monkeypatch.setattr(inference.settings, "LOCAL_DIFFUSERS_MODEL", "stable-diffusion-v1-5/stable-diffusion-v1-5")
+
+    result = await inference._call_local_diffusers_txt2img(
+        "A red apple on a table",
+        width=512,
+        height=512,
+        steps=20,
+    )
+
+    assert result["image_base64"] == "iVBORw0KGgo=="
+    assert result["model"] == "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    assert fake.last_url == "http://local-diffusers:7860/v1/images/generations"
+    assert fake.last_json["prompt"] == "A red apple on a table"
+    assert fake.last_json["size"] == "512x512"
+    assert fake.last_json["steps"] == 20
+
+
+@pytest.mark.asyncio
+async def test_call_local_diffusers_txt2img_error(monkeypatch):
+    """_call_local_diffusers_txt2img raises HTTPException on non-200 response."""
+    fake = _FakeAsyncClient(503, {"detail": "model not loaded"})
+    monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
+    monkeypatch.setattr(inference.settings, "LOCAL_DIFFUSERS_URL", "http://local-diffusers:7860")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await inference._call_local_diffusers_txt2img("test prompt")
+    assert exc_info.value.status_code == 502
+
+
+@pytest.mark.asyncio
 async def test_call_workers_ai_image_success(monkeypatch, cf_settings):
     """_call_workers_ai_image sends a prompt payload and returns base64 image."""
     fake = _FakeAsyncClient(200, {"result": {"image": "iVBORw0KGgo=="}, "success": True})

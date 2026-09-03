@@ -26,6 +26,8 @@ x-worker-env: &worker-env
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
   - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm2}
+  - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
+  - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
   - LANGUAGETOOL_URL=http://languagetool:8010
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
@@ -287,6 +289,37 @@ services:
       retries: 10
       start_period: 60s
     restart: unless-stopped
+  local-diffusers:
+    build:
+      context: ./diffusers-server
+      dockerfile: Dockerfile
+    container_name: local-diffusers
+    environment:
+    - MODEL_ID=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
+    - HF_TOKEN=${HF_TOKEN}
+    - LOAD_ON_STARTUP=true
+    - TORCH_DTYPE=float16
+    - DEVICE=cuda
+    - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+    <<: *public-dns
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+    volumes:
+    - ./diffusers-server/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7860/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    restart: unless-stopped
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
@@ -450,6 +483,8 @@ services:
     - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
     - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
     - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm2}
+    - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
+    - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
     - CHROMA_URL=http://chroma:8000
     - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
     - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}

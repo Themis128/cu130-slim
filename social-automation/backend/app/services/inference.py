@@ -241,13 +241,13 @@ PROVIDER_CATALOG = [
         "model_examples": ["flux.1-dev"],
     },
     {
-        "name": "local-sd35",
-        "display_name": "Local Stable Diffusion 3.5",
-        "base_url": "",  # Will be set from environment variable
-        "default_model": "stable-diffusion-3.5-large",
+        "name": "local-diffusers",
+        "display_name": "Local Diffusers (SD 1.5)",
+        "base_url": "",  # filled from env at runtime
+        "default_model": "stable-diffusion-v1-5/stable-diffusion-v1-5",
         "requires_key": False,
-        "description": "Local NVIDIA NIM for Stable Diffusion 3.5 (requires local GPU)",
-        "model_examples": ["stable-diffusion-3.5-large"],
+        "description": "Local Stable Diffusion 1.5 via HuggingFace Diffusers (GPU, no API key needed)",
+        "model_examples": ["stable-diffusion-v1-5/stable-diffusion-v1-5"],
     },
     {
         "name": "cloudflare",
@@ -280,10 +280,8 @@ async def _get_provider_config(
     if provider_name == "dmr":
         return settings.DMR_URL, settings.DMR_TEXT_MODEL, None
 
-    if provider_name == "local-sd35":
-        # Use environment variable for local NIM URL
-        local_nim_url = getattr(settings, 'LOCAL_NIM_URL', 'http://host.docker.internal:8000/v1/infer')
-        return local_nim_url, "stable-diffusion-3.5-large", None
+    if provider_name == "local-diffusers":
+        return settings.LOCAL_DIFFUSERS_URL, settings.LOCAL_DIFFUSERS_MODEL, None
 
     db_base_url: str | None = None
     db_model: str | None = None
@@ -606,6 +604,46 @@ def _is_workers_ai_image_model(model: str) -> bool:
     return any(kw in normalized for kw in _WORKERS_AI_IMAGE_KEYWORDS)
 
 
+async def _call_local_diffusers_txt2img(
+    prompt: str,
+    model: str | None = None,
+    negative_prompt: str = "",
+    width: int = 512,
+    height: int = 512,
+    steps: int = 20,
+    cfg_scale: float = 7.5,
+    seed: int = 0,
+) -> dict:
+    """Generate an image via the local Diffusers container (SD 1.5, GPU).
+
+    OpenAI-compatible /v1/images/generations endpoint.
+    Returns {"image_base64": ..., "model": ...} matching _call_workers_ai_image shape.
+    """
+    url = f"{settings.LOCAL_DIFFUSERS_URL}/v1/images/generations"
+    payload: dict = {
+        "model": model or settings.LOCAL_DIFFUSERS_MODEL,
+        "prompt": prompt,
+        "size": f"{width}x{height}",
+        "steps": max(1, min(steps, 80)),
+        "negative_prompt": negative_prompt,
+        "guidance_scale": cfg_scale,
+        "response_format": "b64_json",
+    }
+    if seed:
+        payload["seed"] = seed
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        resp = await client.post(url, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Local Diffusers error {resp.status_code}: {resp.text[:400]}",
+            )
+    data = resp.json()
+    b64 = data["data"][0]["b64_json"]
+    return {"image_base64": b64, "model": payload["model"]}
+
+
 async def _call_workers_ai_image(
     prompt: str,
     model: str,
@@ -917,42 +955,57 @@ async def _call_cf_image_pipeline(
     pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
     together_key = (settings.TOGETHER_API_KEY or "").strip()
     hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+
+    # Try local Diffusers first (free, local GPU)
+    draft = None
     try:
-        draft = await _call_workers_ai_image(
+        draft = await _call_local_diffusers_txt2img(
             prompt=prompt,
-            model=txt2img_model,
-            api_key=api_key,
-            steps=txt2img_steps,
+            width=1024,
+            height=1024,
+            steps=max(15, txt2img_steps * 3),  # SD 1.5 needs more steps than FLUX
         )
-    except HTTPException as exc:
-        if not _is_cf_quota_error(exc):
-            raise
-        if not allow_fallback:
-            raise
+    except HTTPException:
         draft = None
-        if pixazo_key:
-            print("[cf-pipeline] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
-            try:
-                draft = await _call_pixazo_txt2img(prompt=prompt, api_key=pixazo_key, width=1024, height=1024)
-            except HTTPException:
-                print("[cf-pipeline] Pixazo also failed", flush=True)
-        if draft is None and together_key:
-            print(f"[cf-pipeline] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
-            try:
-                draft = await _call_together_txt2img(
-                    prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
+
+    # Fall back to Cloudflare Workers AI
+    if draft is None:
+        try:
+            draft = await _call_workers_ai_image(
+                prompt=prompt,
+                model=txt2img_model,
+                api_key=api_key,
+                steps=txt2img_steps,
+            )
+        except HTTPException as exc:
+            if not _is_cf_quota_error(exc):
+                raise
+            if not allow_fallback:
+                raise
+            draft = None
+            if pixazo_key:
+                print("[cf-pipeline] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
+                try:
+                    draft = await _call_pixazo_txt2img(prompt=prompt, api_key=pixazo_key, width=1024, height=1024)
+                except HTTPException:
+                    print("[cf-pipeline] Pixazo also failed", flush=True)
+            if draft is None and together_key:
+                print(f"[cf-pipeline] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+                try:
+                    draft = await _call_together_txt2img(
+                        prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
+                        width=1024, height=1024, steps=txt2img_steps,
+                    )
+                except HTTPException:
+                    print("[cf-pipeline] Together txt2img also failed", flush=True)
+            if draft is None and hf_key:
+                print(f"[cf-pipeline] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
+                draft = await _call_hf_txt2img(
+                    prompt=prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
                     width=1024, height=1024, steps=txt2img_steps,
                 )
-            except HTTPException:
-                print("[cf-pipeline] Together txt2img also failed", flush=True)
-        if draft is None and hf_key:
-            print(f"[cf-pipeline] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
-            draft = await _call_hf_txt2img(
-                prompt=prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
-                width=1024, height=1024, steps=txt2img_steps,
-            )
-        if draft is None:
-            raise
+            if draft is None:
+                raise
     assert draft is not None
     draft_bytes = base64.b64decode(draft["image_base64"])
 
@@ -1451,7 +1504,7 @@ async def _do_call_inference(
     # _call_workers_ai_chat already falls back to the env var and validates it,
     # so we must not reject a missing per-team key here for Cloudflare (same
     # pattern as local-sd35).
-    if not api_key and provider_name not in ("local-sd35", "cloudflare", "dmr"):
+    if not api_key and provider_name not in ("local-diffusers", "cloudflare", "dmr"):
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
@@ -1641,7 +1694,7 @@ async def call_inference(
     is_image_request = provider_name in {
         "nvidia-flux",
         "nvidia-flux-dev",
-        "local-sd35",
+        "local-diffusers",
         "nvidia-flux-pipeline",
     } or (provider_name == "cloudflare" and _is_workers_ai_image_model(model_override or ""))
     attempt_providers = [provider_name]

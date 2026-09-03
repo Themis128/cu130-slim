@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
 
+    # Local Diffusers text-to-image (SD 1.5, GPU container)
+    LOCAL_DIFFUSERS_URL: str = "http://local-diffusers:7860"
+    LOCAL_DIFFUSERS_MODEL: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
     # Cloud AI Provider API Keys
     GROQ_API_KEY: str = ""
     TOGETHER_API_KEY: str = ""
