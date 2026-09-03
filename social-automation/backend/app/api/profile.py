@@ -42,11 +42,11 @@ from app.models.user import Team, TeamMember
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
-from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
 )
+from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.secret_store import secret_store
 from app.services.tiktok_browser import TikTokBrowserError, TikTokBrowserService
 from app.services.tiktok_profile import TikTokProfileError, TikTokProfileService
