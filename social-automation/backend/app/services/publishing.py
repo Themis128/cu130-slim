@@ -1054,6 +1054,9 @@ async def _resolve_ig_user_token(
     page token.  In that case, look up the parent Facebook user account
     and use its token instead.
     """
+    import logging
+
+    log = logging.getLogger(__name__)
     meta = account.meta_data or {}
     # If connected via Instagram Business Login, the token is already a user token
     if meta.get("login_type") == "business_login":
@@ -1067,9 +1070,17 @@ async def _resolve_ig_user_token(
         if parent and parent.platform == "facebook" and parent.account_type == "user":
             try:
                 return decrypt_token(parent.access_token_enc)
-            except Exception:
-                pass
-    # If no parent, try to find any active FB user account on the same team
+            except Exception as exc:
+                log.warning("Failed to decrypt parent FB user token: %s", exc)
+        elif parent and parent.platform != "facebook":
+            log.warning(
+                "IG account parent is %s/%s, not a Facebook user — token may lack instagram_content_publish scope",
+                parent.platform,
+                parent.account_type,
+            )
+    # If no parent, try to find any active FB user account on the same team.
+    # Use .first() instead of .scalar_one_or_none() to avoid MultipleResultsFound
+    # if the team has multiple FB user accounts.
     if db:
         result = await db.execute(
             select(SocialAccount).where(
@@ -1077,15 +1088,16 @@ async def _resolve_ig_user_token(
                 SocialAccount.platform == "facebook",
                 SocialAccount.account_type == "user",
                 SocialAccount.status == "active",
-            )
+            ).limit(1)
         )
-        fb_user = result.scalar_one_or_none()
+        fb_user = result.scalars().first()
         if fb_user:
             try:
                 return decrypt_token(fb_user.access_token_enc)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Failed to decrypt fallback FB user token: %s", exc)
     # Fall back to the original token (may fail with permission error)
+    log.warning("No FB user token found for IG account — falling back to stored token (may lack instagram_content_publish scope)")
     return access_token
 
 
