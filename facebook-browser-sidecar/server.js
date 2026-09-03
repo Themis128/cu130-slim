@@ -1215,6 +1215,77 @@ app.get('/debug/page-text', async (req, res) => {
   }
 });
 
+// Debug: inspect HTML around a text label
+app.get('/debug/inspect', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const searchText = req.query.text || 'Bio';
+    const html = await page.evaluate((searchText) => {
+      const results = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.textContent && node.textContent.trim() === searchText) {
+          // Walk up to find a container with edit controls
+          let el = node.parentElement;
+          for (let i = 0; i < 5 && el; i++) {
+            const editBtns = el.querySelectorAll('[role="button"], button, a[href]');
+            if (editBtns.length > 0) {
+              results.push({
+                level: i,
+                tag: el.tagName,
+                class: (el.className || '').toString().substring(0, 100),
+                role: el.getAttribute('role'),
+                html: el.outerHTML.substring(0, 800),
+                buttons: Array.from(editBtns).map(b => ({
+                  tag: b.tagName,
+                  text: (b.innerText || '').substring(0, 50),
+                  role: b.getAttribute('role'),
+                  ariaLabel: b.getAttribute('aria-label'),
+                  href: b.getAttribute('href'),
+                })),
+              });
+              break;
+            }
+            el = el.parentElement;
+          }
+        }
+      }
+      return results;
+    }, searchText);
+    res.json({ url: page.url(), searchText, results: html });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: list all textareas and contenteditable elements
+app.get('/debug/inputs', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const inputs = await page.evaluate(() => {
+      const results = [];
+      document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"]').forEach(el => {
+        results.push({
+          tag: el.tagName,
+          type: el.getAttribute('type'),
+          ariaLabel: el.getAttribute('aria-label'),
+          placeholder: el.getAttribute('placeholder'),
+          name: el.getAttribute('name'),
+          id: el.id,
+          className: (el.className || '').toString().substring(0, 80),
+          visible: el.offsetParent !== null,
+          text: (el.innerText || el.value || '').substring(0, 50),
+        });
+      });
+      return results;
+    });
+    res.json({ url: page.url(), inputs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   await closeBrowser();
