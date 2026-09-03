@@ -77,7 +77,6 @@ class TestContainersRunning:
         "n8n",
         "chroma",
         "minio",
-        "ollama",
         "languagetool",
     ]
 

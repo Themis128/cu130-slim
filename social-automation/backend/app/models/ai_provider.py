@@ -16,9 +16,9 @@ class AIProvider(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)           # nvidia | huggingface | openai | groq | together | ollama
+    name: Mapped[str] = mapped_column(String(50), nullable=False)           # nvidia | huggingface | openai | groq | together | dmr
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    api_key_enc: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)  # null for local ollama
+    api_key_enc: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)  # null for local dmr
     base_url: Mapped[str] = mapped_column(String(300), nullable=False)
     default_model: Mapped[str] = mapped_column(String(200), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

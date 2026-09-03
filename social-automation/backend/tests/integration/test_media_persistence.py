@@ -329,8 +329,8 @@ async def test_auto_tag_and_similar_assets(client, db):
         return {"description": "coastline, water, sky, beach, rocks"}
 
     with (
+        patch.object(media_ai, "_call_dmr_vision", new=AsyncMock(return_value=None)),
         patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(side_effect=_fake_caption)),
-        patch.object(media_ai, "_call_ollama_vision", new=AsyncMock()),
         patch("app.services.chroma_client.add_content", new=AsyncMock()) as mock_add,
     ):
         await media_ai.auto_tag_asset(asset_id)

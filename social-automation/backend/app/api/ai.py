@@ -157,8 +157,8 @@ class GenerateWorkflowResponse(BaseModel):
 
 
 async def call_ollama(prompt: str, model: str | None = None, schema: dict | None = None) -> dict:
-    """Backwards-compatible shim — delegates to Cloudflare Workers AI (70B fp8)."""
-    return await call_inference(prompt, provider_name="cloudflare", schema=schema, model_override=model)
+    """Backwards-compatible shim — delegates to DMR (local Docker Model Runner)."""
+    return await call_inference(prompt, provider_name="dmr", schema=schema, model_override=model)
 
 
 class TranscribeResponse(BaseModel):
@@ -2043,11 +2043,11 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
         "typeVersion": 1,
         "position": [250, node_y],
         "parameters": {
-            "url": f"{settings.OLLAMA_URL}/api/generate",
+            "url": f"{settings.DMR_URL}/chat/completions",
             "method": "POST",
             "jsonParameters": True,
             "options": {
-                "model": settings.OLLAMA_DEFAULT_MODEL,
+                "model": settings.DMR_TEXT_MODEL,
                 "prompt": "Process: {{ $json.content }}",
                 "format": "json",
             },
@@ -2482,7 +2482,7 @@ class RunCarouselAndPublishRequest(BaseModel):
     tone: str = "clear and friendly"
     include_cta: bool = True
     text_model: str = CF_TEXT_FREE
-    text_provider: str = "cloudflare"  # use CF daily free neurons; falls back to ollama on 429
+    text_provider: str = "dmr"  # DMR (local) primary; falls back to cloudflare on failure
     txt2img_model: str = CF_TXT2IMG_FREE
     target_account_id: str | None = None
     publish: bool = True

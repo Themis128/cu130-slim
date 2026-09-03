@@ -177,25 +177,18 @@ async def test_generate_alt_text_cloudflare_success():
 
 
 @pytest.mark.asyncio
-async def test_generate_alt_text_ollama_fallback():
-    """generate_alt_text falls back to Ollama when DMR and Cloudflare both fail."""
+async def test_generate_alt_text_cf_fallback():
+    """generate_alt_text falls back to Cloudflare when DMR returns None."""
     image_bytes = _make_image()
 
-    class CfFail:
-        status_code = 401
-        text = "unauthorized"
-
-        def json(self):
-            return {}
-
-    class OllamaOk:
+    class CfOk:
         status_code = 200
 
         def json(self):
-            return {"response": "Ollama alt text"}
+            return {"result": {"response": "CF alt text"}}
 
     mock_client = AsyncMock()
-    mock_client.post = AsyncMock(side_effect=[CfFail(), OllamaOk()])
+    mock_client.post = AsyncMock(return_value=CfOk())
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -203,23 +196,20 @@ async def test_generate_alt_text_ollama_fallback():
         patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
         patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc-123"),
         patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok-123"),
-        patch.object(image_enhance.settings, "OLLAMA_URL", "http://ollama:11434"),
         patch("app.services.image_enhance.httpx.AsyncClient", return_value=mock_client),
     ):
         alt = await generate_alt_text(image_bytes)
-    assert alt == "Ollama alt text"
+    assert alt == "CF alt text"
 
 
 @pytest.mark.asyncio
 async def test_generate_alt_text_no_credentials():
-    """generate_alt_text returns None when DMR, CF, and Ollama all fail."""
+    """generate_alt_text returns None when DMR and CF both fail."""
     image_bytes = _make_image()
     with (
         patch.object(image_enhance, "_dmr_vision_query", new=AsyncMock(return_value=None)),
         patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", ""),
         patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", ""),
-        patch.object(image_enhance.settings, "OLLAMA_URL", "http://ollama:11434"),
-        patch("app.services.image_enhance.httpx.AsyncClient", side_effect=Exception("no ollama")),
     ):
         alt = await generate_alt_text(image_bytes)
     assert alt is None

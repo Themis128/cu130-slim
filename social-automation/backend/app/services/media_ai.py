@@ -10,9 +10,6 @@ Cloudflare failover:
 - `@cf/moondream/moondream3.1-9B-A2B` (fallback CF, 24 neurons) — dedicated vision
   model with caption/query/point/detect tasks.
 
-Last resort:
-- Ollama `llava` is used if both DMR and Cloudflare are unavailable.
-
 The service is best-effort: failures are logged and do not block uploads.
 """
 from __future__ import annotations
@@ -43,7 +40,6 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 CF_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 # Fallback vision model: moondream (24 neurons, dedicated vision tasks)
 CF_VISION_FALLBACK_MODEL = "@cf/moondream/moondream3.1-9B-A2B"
-OLLAMA_VISION_MODEL = "llava"
 
 
 def _data_uri(image_bytes: bytes, mime_type: str = "image/png") -> str:
@@ -206,23 +202,6 @@ def _extract_query_text(result: dict) -> str | None:
     )
 
 
-async def _call_ollama_vision(image_b64: str, prompt: str) -> dict:
-    """Ollama last-resort fallback for vision tasks."""
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"{settings.OLLAMA_URL}/api/generate",
-            json={
-                "model": OLLAMA_VISION_MODEL,
-                "prompt": prompt,
-                "images": [image_b64.split(",", 1)[-1]],
-                "stream": False,
-            },
-        )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Ollama vision error {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
-
-
 async def _call_dmr_vision(image_b64: str, prompt: str, max_tokens: int = 512) -> str | None:
     """Call Docker Model Runner (qwen3-vl, local) for vision tasks.
 
@@ -262,7 +241,7 @@ async def _call_dmr_vision(image_b64: str, prompt: str, max_tokens: int = 512) -
 
 
 async def _caption_image(image_b64: str) -> str | None:
-    """Generate a one-sentence caption. DMR first, then Cloudflare, then Ollama."""
+    """Generate a one-sentence caption. DMR first, then Cloudflare."""
     # --- DMR (local, free) ---
     try:
         text = await _call_dmr_vision(image_b64, "Generate a concise one-sentence caption for this image.")
@@ -277,18 +256,11 @@ async def _caption_image(image_b64: str) -> str | None:
         return _extract_caption(result)
     except Exception as exc:
         logger.warning("Cloudflare caption failed: %s", exc)
-
-    # --- Ollama (last resort) ---
-    try:
-        result = await _call_ollama_vision(image_b64, "Describe this image in one sentence")
-        return result.get("response")
-    except Exception as exc:
-        logger.warning("Ollama vision caption failed: %s", exc)
     return None
 
 
 async def _tag_image(image_b64: str) -> list[str]:
-    """Generate a comma-separated list of keywords/tags. DMR first, then CF, then Ollama."""
+    """Generate a comma-separated list of keywords/tags. DMR first, then CF."""
     prompt = (
         "List 5 to 10 relevant keywords for this image as a comma-separated list. "
         "Use only single words or short phrases."
@@ -308,14 +280,6 @@ async def _tag_image(image_b64: str) -> list[str]:
             text = _extract_query_text(result) or ""
         except Exception as exc:
             logger.warning("Cloudflare tag query failed: %s", exc)
-
-    # --- Ollama (last resort) ---
-    if not text:
-        try:
-            result = await _call_ollama_vision(image_b64, prompt)
-            text = result.get("response") or ""
-        except Exception as exc:
-            logger.warning("Ollama tag query failed: %s", exc)
 
     if not text:
         return []

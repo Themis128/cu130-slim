@@ -112,15 +112,6 @@ PROVIDER_CATALOG = [
         "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm2"],
     },
     {
-        "name": "ollama",
-        "display_name": "Local (Ollama)",
-        "base_url": "",  # filled from env at runtime
-        "default_model": "llama3",
-        "requires_key": False,
-        "description": "Local GPU inference — no API key needed",
-        "model_examples": ["llama3", "llama3.1", "mistral", "phi3", "gemma2"],
-    },
-    {
         "name": "nvidia",
         "display_name": "NVIDIA Build",
         "base_url": "https://integrate.api.nvidia.com/v1",
@@ -286,9 +277,6 @@ async def _get_provider_config(
     db: AsyncSession | None,
 ) -> tuple[str, str, str | None]:
     """Return (base_url, model, api_key) for the requested provider."""
-    if provider_name == "ollama":
-        return settings.OLLAMA_URL, settings.OLLAMA_DEFAULT_MODEL, None
-
     if provider_name == "dmr":
         return settings.DMR_URL, settings.DMR_TEXT_MODEL, None
 
@@ -1442,9 +1430,6 @@ async def _do_call_inference(
     allow_fallback: bool = True,
 ) -> dict:
     """Call the requested inference provider and return parsed JSON or text dict."""
-    if provider_name == "ollama":
-        return await _call_ollama(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
-
     if provider_name == "dmr":
         return await _call_dmr_chat(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
 
@@ -1466,7 +1451,7 @@ async def _do_call_inference(
     # _call_workers_ai_chat already falls back to the env var and validates it,
     # so we must not reject a missing per-team key here for Cloudflare (same
     # pattern as local-sd35).
-    if not api_key and provider_name not in ("local-sd35", "cloudflare", "dmr", "ollama"):
+    if not api_key and provider_name not in ("local-sd35", "cloudflare", "dmr"):
         raise HTTPException(
             status_code=400,
             detail=f"No API key configured for provider '{provider_name}'. Add it in Settings → AI Providers.",
@@ -1579,7 +1564,7 @@ async def _text_provider_chain(
     cloud = [name for name in priority if credentials[name] and name in enabled]
     # Phase 4.1: respect per-provider fallbacks list from DB if configured
     custom_fallbacks: list[str] = []
-    if db and team_id and provider_name != "ollama":
+    if db and team_id and provider_name != "dmr":
         fb_row = await db.execute(
             select(AIProvider.fallbacks).where(
                 AIProvider.team_id == team_id,
@@ -1591,21 +1576,21 @@ async def _text_provider_chain(
             custom_fallbacks = [f.strip() for f in fb_str.split(",") if f.strip()]
     if custom_fallbacks:
         # Use the configured fallbacks (still filtered by credentials + enabled)
-        ordered = [provider_name] if provider_name not in ("ollama", "dmr") else []
+        ordered = [provider_name] if provider_name != "dmr" else []
         for fb in custom_fallbacks:
-            if fb not in ordered and (fb in ("ollama", "dmr") or (credentials.get(fb, False) and fb in enabled)):
+            if fb not in ordered and (fb == "dmr" or (credentials.get(fb, False) and fb in enabled)):
                 ordered.append(fb)
-        if "ollama" not in ordered:
-            ordered.append("ollama")
+        if "dmr" not in ordered:
+            ordered.append("dmr")
         return ordered
-    if provider_name not in ("ollama", "dmr") and provider_name not in cloud:
+    if provider_name != "dmr" and provider_name not in cloud:
         cloud.insert(0, provider_name)
     elif provider_name in cloud:
         cloud.remove(provider_name)
         cloud.insert(0, provider_name)
     # DMR is always available (no key) — prepend if not already present
     local = ["dmr"] if "dmr" not in cloud else []
-    return [*local, *cloud, "ollama"]
+    return [*local, *cloud]
 
 
 async def call_inference(
@@ -1800,30 +1785,6 @@ async def _call_dmr_embedding(text: str, model_override: str | None = None) -> l
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"DMR embedding error {resp.status_code}: {resp.text[:400]}")
     return resp.json()["data"][0]["embedding"]
-
-
-async def _call_ollama(prompt: str, schema: dict | None = None, model_override: str | None = None, max_tokens: int | None = None) -> dict:
-    model = model_override or settings.OLLAMA_DEFAULT_MODEL
-    payload: dict = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_predict": max_tokens or 4096},
-    }
-    if schema:
-        # Ollama 0.3.4+ accepts the JSON schema directly as the format value
-        # for constrained/structured generation
-        payload["format"] = schema
-
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        resp = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
-
-    response_text = resp.json().get("response", "")
-    if schema:
-        return _parse_json_response(response_text)
-    return {"text": response_text}
 
 
 async def _call_openai_compat(

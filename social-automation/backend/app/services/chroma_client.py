@@ -1,8 +1,7 @@
 """Thin async client for ChromaDB's HTTP API (v2).
 
 Embeddings use Docker Model Runner (Qwen3-Embedding-8B, local) as the primary
-provider, Cloudflare Workers AI BGE-M3 as cloud failover, and Ollama as the
-last-resort fallback.
+provider with Cloudflare Workers AI BGE-M3 as cloud failover.
 """
 import httpx
 
@@ -53,21 +52,6 @@ async def _cf_embedding(text: str) -> list[float]:
     return []
 
 
-async def _ollama_embedding(text: str) -> list[float]:
-    """Call Ollama for embeddings (last-resort fallback). Returns [] on failure."""
-    async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
-        try:
-            resp = await client.post(
-                f"{settings.OLLAMA_URL}/api/embeddings",
-                json={"model": settings.OLLAMA_EMBEDDING_MODEL, "prompt": text},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("embedding", [])
-        except Exception:
-            pass
-    return []
-
-
 async def _dmr_embedding(text: str) -> list[float]:
     """Call Docker Model Runner (Qwen3-Embedding-8B, local) for embeddings. Returns [] on failure."""
     async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
@@ -85,14 +69,11 @@ async def _dmr_embedding(text: str) -> list[float]:
 
 
 async def _get_embedding(text: str) -> list[float]:
-    """Embed text via DMR (local) first, then Cloudflare BGE-M3, then Ollama as fallback."""
+    """Embed text via DMR (local) first, then Cloudflare BGE-M3 as failover."""
     embedding = await _dmr_embedding(text)
     if embedding:
         return embedding
-    embedding = await _cf_embedding(text)
-    if embedding:
-        return embedding
-    return await _ollama_embedding(text)
+    return await _cf_embedding(text)
 
 
 def _collection_name(team_id: str) -> str:

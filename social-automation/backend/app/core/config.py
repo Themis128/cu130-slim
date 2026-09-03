@@ -58,11 +58,6 @@ class Settings(BaseSettings):
     # ChromaDB
     CHROMA_URL: str = "http://chromadb:8000"
 
-    # Ollama — default to the GPU-optimized tag (all layers on VRAM, q8_0 KV cache)
-    OLLAMA_URL: str = "http://ollama:11434"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b-gpu"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
-
     # Docker Model Runner — local llama.cpp backend on the host (OpenAI-compatible API)
     # Reachable from containers via host.docker.internal:12434
     # Models are pulled via `docker model pull ai/<name>` and loaded on demand.

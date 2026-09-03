@@ -9,9 +9,9 @@ DMR-first (local, free), Cloudflare failover:
   llama-4-scout as failover. Pillow crops to target aspect ratio centered on subject.
 - Quality scoring: Local Pillow computation (Laplacian variance, histogram
   analysis) — no AI inference needed.
-- Alt text: DMR qwen3-vl (local) first, then CF llama-4-scout, then Ollama llava.
+- Alt text: DMR qwen3-vl (local) first, then CF llama-4-scout.
 
-All AI operations fall back to Cloudflare then Ollama if DMR is unavailable.
+All AI operations fall back to Cloudflare if DMR is unavailable.
 """
 from __future__ import annotations
 
@@ -449,7 +449,6 @@ async def generate_alt_text(image_bytes: bytes) -> str | None:
     Produces concise, descriptive alt text under 125 characters (WCAG recommendation).
     """
     data_uri = _prepare_image_for_vision(image_bytes)
-    image_b64 = data_uri.split(",", 1)[-1]
 
     alt_prompt = (
         "Write alt text for this image for accessibility purposes. "
@@ -504,29 +503,5 @@ async def generate_alt_text(image_bytes: bytes) -> str | None:
                     return alt_text[:125]
         except Exception as exc:
             logger.warning("CF alt text generation failed: %s", exc)
-
-    # --- Ollama (last resort) ---
-    try:
-        ollama_url = f"{settings.OLLAMA_URL}/api/generate"
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                ollama_url,
-                json={
-                    "model": "llava",
-                    "prompt": (
-                        "Write alt text for this image for accessibility. "
-                        "Keep it under 125 characters. Do not start with "
-                        "'Image of'. Reply with ONLY the alt text."
-                    ),
-                    "images": [image_b64],
-                    "stream": False,
-                },
-            )
-        if resp.status_code == 200:
-            text = resp.json().get("response", "").strip()
-            if text:
-                return text[:125]
-    except Exception as exc:
-        logger.warning("Ollama alt text fallback failed: %s", exc)
 
     return None

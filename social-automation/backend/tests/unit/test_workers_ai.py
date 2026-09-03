@@ -624,7 +624,7 @@ def test_free_cloud_providers_are_in_catalog():
 
 
 @pytest.mark.asyncio
-async def test_text_provider_chain_keeps_ollama_last(monkeypatch):
+async def test_text_provider_chain_dmr_first_then_cloud(monkeypatch):
     monkeypatch.setattr(inference, "_ai_token", lambda: "cf-key")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account")
     monkeypatch.setattr(inference.settings, "GROQ_API_KEY", "groq-key")
@@ -637,7 +637,7 @@ async def test_text_provider_chain_keeps_ollama_last(monkeypatch):
     chain = await inference._text_provider_chain("cloudflare", None, None)
 
     # DMR is in the priority list (local, no key); cloudflare is the explicit
-    # provider so it's reordered to front; ollama stays last.
+    # provider so it's reordered to front; DMR follows.
     assert chain == [
         "cloudflare",
         "dmr",
@@ -647,12 +647,11 @@ async def test_text_provider_chain_keeps_ollama_last(monkeypatch):
         "cohere",
         "openrouter",
         "nvidia",
-        "ollama",
     ]
 
 
 @pytest.mark.asyncio
-async def test_text_provider_chain_reorders_explicit_ollama(monkeypatch):
+async def test_text_provider_chain_dmr_only_when_no_cloud(monkeypatch):
     monkeypatch.setattr(inference, "_ai_token", lambda: "cf-key")
     monkeypatch.setattr(inference.settings, "CLOUDFLARE_ACCOUNT_ID", "account")
     for setting_name in (
@@ -665,8 +664,7 @@ async def test_text_provider_chain_reorders_explicit_ollama(monkeypatch):
     ):
         monkeypatch.setattr(inference.settings, setting_name, "")
 
-    chain = await inference._text_provider_chain("ollama", None, None)
+    chain = await inference._text_provider_chain("dmr", None, None)
 
-    # DMR is always first (local); cloudflare has creds; ollama is the explicit
-    # provider but since it's a local provider it's not prepended — DMR + CF + ollama.
-    assert chain == ["dmr", "cloudflare", "ollama"]
+    # DMR is the explicit provider; cloudflare has creds; no other cloud providers.
+    assert chain == ["dmr", "cloudflare"]

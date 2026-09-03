@@ -112,7 +112,7 @@ async def upsert_provider(
 
     # Look up catalog defaults
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == name), None)
-    if not catalog and name not in ("ollama",):
+    if not catalog and name not in ("dmr",):
         raise HTTPException(status_code=400, detail=f"Unknown provider: {name}")
 
     result = await db.execute(

@@ -9,19 +9,19 @@ from app.services import media_ai
 
 
 @pytest.mark.asyncio
-async def test_caption_image_cloudflare_success():
+async def test_caption_image_dmr_success():
     with patch.object(
-        media_ai, "_call_cloudflare_vision", new=AsyncMock(return_value={"description": "A sunset over mountains"})
+        media_ai, "_call_dmr_vision", new=AsyncMock(return_value="A sunset over mountains")
     ):
         caption = await media_ai._caption_image("data:image/png;base64,abc")
     assert caption == "A sunset over mountains"
 
 
 @pytest.mark.asyncio
-async def test_caption_image_cloudflare_fallback_to_ollama():
+async def test_caption_image_dmr_fails_cf_fallback():
     with (
-        patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(side_effect=RuntimeError("quota"))),
-        patch.object(media_ai, "_call_ollama_vision", new=AsyncMock(return_value={"response": "A lake in the woods"})),
+        patch.object(media_ai, "_call_dmr_vision", new=AsyncMock(return_value=None)),
+        patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(return_value={"description": "A lake in the woods"})),
     ):
         caption = await media_ai._caption_image("data:image/png;base64,abc")
     assert caption == "A lake in the woods"

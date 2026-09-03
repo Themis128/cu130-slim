@@ -45,24 +45,22 @@ async def test_cf_embedding_no_credentials():
 
 
 @pytest.mark.asyncio
-async def test_get_embedding_cf_primary_ollama_fallback():
-    """_get_embedding tries DMR first, then Cloudflare, then Ollama."""
+async def test_get_embedding_dmr_fails_cf_fallback():
+    """_get_embedding tries DMR first, then Cloudflare when DMR fails."""
     with (
         patch.object(chroma_client, "_dmr_embedding", new=AsyncMock(return_value=[])),
-        patch.object(chroma_client, "_cf_embedding", new=AsyncMock(return_value=[])),
-        patch.object(chroma_client, "_ollama_embedding", new=AsyncMock(return_value=[0.4, 0.5])),
+        patch.object(chroma_client, "_cf_embedding", new=AsyncMock(return_value=[0.4, 0.5])),
     ):
         result = await chroma_client._get_embedding("test")
     assert result == [0.4, 0.5]
 
 
 @pytest.mark.asyncio
-async def test_get_embedding_cf_success_no_ollama():
-    """When DMR fails but Cloudflare succeeds, Ollama is not called."""
+async def test_get_embedding_dmr_success_no_cf():
+    """When DMR succeeds, Cloudflare is not called."""
     with (
-        patch.object(chroma_client, "_dmr_embedding", new=AsyncMock(return_value=[])),
-        patch.object(chroma_client, "_cf_embedding", new=AsyncMock(return_value=[0.1, 0.2])),
-        patch.object(chroma_client, "_ollama_embedding", new=AsyncMock(side_effect=AssertionError("should not be called"))),
+        patch.object(chroma_client, "_dmr_embedding", new=AsyncMock(return_value=[0.1, 0.2])),
+        patch.object(chroma_client, "_cf_embedding", new=AsyncMock(side_effect=AssertionError("should not be called"))),
     ):
         result = await chroma_client._get_embedding("test")
     assert result == [0.1, 0.2]
