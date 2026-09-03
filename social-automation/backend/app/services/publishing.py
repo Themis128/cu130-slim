@@ -74,6 +74,13 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"Token decrypt failed: {exc}")
 
     text = _build_post_text(post, account.platform)
+    # Spellcheck the final assembled text (including hashtags, links, platform overrides)
+    try:
+        corrected = await auto_correct(text)
+        if corrected:
+            text = corrected
+    except Exception:
+        pass  # spellcheck is advisory — never block publishing
     media_paths = await _resolve_media_paths(post, db)
     storage_paths = await _resolve_media_storage_paths(post, db)
 

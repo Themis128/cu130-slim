@@ -400,17 +400,24 @@ class InstagramPrivateAPIClient:
         data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
-        files = {"file": (filename, open(file_path, "rb"), "application/octet-stream")}
-        if thumbnail:
-            files["thumbnail"] = (os.path.basename(thumbnail), open(thumbnail, "rb"), "application/octet-stream")
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/video/upload",
-                data=data,
-                files=files,
-                headers=self._headers(session_id),
-            )
-            return self._raise_for_status(resp)
+        file_obj = open(file_path, "rb")
+        thumb_obj = open(thumbnail, "rb") if thumbnail else None
+        try:
+            files = {"file": (filename, file_obj, "application/octet-stream")}
+            if thumb_obj:
+                files["thumbnail"] = (os.path.basename(thumbnail), thumb_obj, "application/octet-stream")
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/video/upload",
+                    data=data,
+                    files=files,
+                    headers=self._headers(session_id),
+                )
+                return self._raise_for_status(resp)
+        finally:
+            file_obj.close()
+            if thumb_obj:
+                thumb_obj.close()
 
     async def upload_video_by_url(
         self,
@@ -447,17 +454,23 @@ class InstagramPrivateAPIClient:
         data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
-        files = []
-        for fp in file_paths:
-            files.append(("files", (os.path.basename(fp), open(fp, "rb"), "application/octet-stream")))
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/album/upload",
-                data=data,
-                files=files,
-                headers=self._headers(session_id),
-            )
-            return self._raise_for_status(resp)
+        file_objs = [open(fp, "rb") for fp in file_paths]
+        try:
+            files = [
+                ("files", (os.path.basename(fp), fobj, "application/octet-stream"))
+                for fp, fobj in zip(file_paths, file_objs)
+            ]
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/album/upload",
+                    data=data,
+                    files=files,
+                    headers=self._headers(session_id),
+                )
+                return self._raise_for_status(resp)
+        finally:
+            for fobj in file_objs:
+                fobj.close()
 
     async def upload_story(
         self,

@@ -11,7 +11,9 @@ from app.models.content import Post
 from app.services.seo import _PLATFORM_HINTS
 
 # Platforms where link URLs should be appended to the body text.
-_LINK_IN_BODY = {"linkedin", "facebook", "instagram"}
+# Instagram and TikTok captions do not support clickable links, and the
+# project's own SEO scoring penalises links in IG/TikTok captions.
+_LINK_IN_BODY = {"linkedin", "facebook"}
 
 # Platforms where hashtags are appended to the body text (vs. omitted or
 # placed in a separate field).
