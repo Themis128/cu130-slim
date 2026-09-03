@@ -954,7 +954,7 @@ services:
     volumes:
     - linkedin_mcp_data:/home/pwuser/.linkedin-mcp
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9227/mcp || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1',9227)); s.close()\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
