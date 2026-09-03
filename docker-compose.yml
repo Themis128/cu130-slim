@@ -787,6 +787,9 @@ services:
   # volume so Instagram login survives container restarts.
   instagram-private-api:
     image: subzeroid/aiograpi-rest:latest
+    build:
+      context: ./instagram-private-api
+      dockerfile: Dockerfile
     container_name: instagram-private-api
     ports:
     - 8011:8000
