@@ -305,18 +305,27 @@ async function handleReadProfile(req, res) {
     };
 
     // Name — Facebook shows the user's name in the profile header
-    const nameEl = page.locator('h1').first();
+    // Avoid picking up "Notifications" or other nav bar h1 elements
+    const nameEl = page.locator('[data-pagelet="ProfileName"] h1, h1[data-test-id="profile-name"], section h1, [role="main"] h1').first();
     if (await nameEl.count() > 0) {
       result.name = (await nameEl.innerText()).trim();
     }
     if (!result.name) {
-      // Try the profile name in the title or meta
+      // Fallback: get name from the page title (e.g. "Themistoklis Baltzakis | Facebook")
       const titleName = await page.title().catch(() => '');
       if (titleName && titleName.includes('|')) {
         result.name = titleName.split('|')[0].trim();
-      } else if (titleName && !titleName.includes('Facebook')) {
+      } else if (titleName && !titleName.includes('Facebook') && !titleName.includes('Notifications')) {
         result.name = titleName.trim();
       }
+    }
+    if (!result.name || result.name === 'Notifications') {
+      // Try the og:title meta tag
+      const ogTitle = await page.evaluate(() => {
+        const meta = document.querySelector('meta[property="og:title"]');
+        return meta ? meta.getAttribute('content') : null;
+      }).catch(() => null);
+      if (ogTitle) result.name = ogTitle;
     }
 
     // Profile picture
