@@ -577,6 +577,9 @@ services:
     - TIKTOK_BROWSER_SIDECAR_URL=http://tiktok-browser-sidecar:9224
     # LinkedIn Browser Automation sidecar (Playwright)
     - LINKEDIN_BROWSER_SIDECAR_URL=http://linkedin-browser-sidecar:9225
+    # Facebook Browser Automation sidecar (Playwright)
+    # Personal-profile posting + profile edits the Graph API does not support.
+    - FACEBOOK_BROWSER_SIDECAR_URL=http://facebook-browser-sidecar:9226
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -924,6 +927,33 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── Facebook Browser Automation sidecar (Playwright) ──────────────────────
+  # RESTful HTTP wrapper around Playwright for Facebook personal-profile
+  # operations that the official Graph API does not support: personal-profile
+  # posting (text/photo/link/video), bio edits, profile picture, cover photo,
+  # and website.  Also supports Page-mode posting via /page/* endpoints.
+  # Browser session is injected via POST /session with storage_state.
+  facebook-browser-sidecar:
+    build:
+      context: ./facebook-browser-sidecar
+      dockerfile: Dockerfile
+    container_name: facebook-browser-sidecar
+    ports:
+    - 9226:9226
+    environment:
+    - FACEBOOK_SIDECAR_PORT=9226
+    - TZ=Europe/Athens
+    volumes:
+    - facebook_browser_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9226/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    <<: *public-dns
+
 volumes:
   portainer_data: null
   postgres_data: null
@@ -936,3 +966,4 @@ volumes:
   warp_data: null
   tiktok_browser_data: null
   linkedin_browser_data: null
+  facebook_browser_data: null

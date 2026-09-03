@@ -42,6 +42,7 @@ from app.models.user import Team, TeamMember
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.browser_profile import BrowserProfileError, BrowserProfileService
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
+from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
@@ -849,22 +850,35 @@ def _get_linkedin_browser_storage(account: SocialAccount) -> dict:
     return storage
 
 
-async def _get_linkedin_profile(account: SocialAccount) -> ProfileResponse:
+async def _get_linkedin_sidecar(account: SocialAccount) -> LinkedInSidecarClient:
+    """Build a LinkedInSidecarClient and inject the browser storage state."""
     storage = _get_linkedin_browser_storage(account)
-    service = BrowserProfileService()
+    client = LinkedInSidecarClient()
     try:
-        data = await service.get_linkedin_profile(storage)
-    except BrowserProfileError as e:
+        await client.set_session(storage)
+    except LinkedInSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return client
+
+
+async def _get_linkedin_profile(account: SocialAccount) -> ProfileResponse:
+    client = await _get_linkedin_sidecar(account)
+    try:
+        result = await client.get_profile()
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    profile = result.get("profile", {})
     return ProfileResponse(
         platform="linkedin",
         account_id=account.account_id,
-        username=data.get("name"),
-        full_name=data.get("name"),
-        headline=data.get("headline"),
-        about=data.get("about"),
-        profile_pic_url=data.get("profile_pic_url"),
-        raw=data,
+        username=profile.get("name"),
+        full_name=profile.get("name"),
+        headline=profile.get("headline"),
+        about=profile.get("about"),
+        website=profile.get("website"),
+        location=profile.get("location"),
+        profile_pic_url=profile.get("profile_pic_url"),
+        raw=profile,
     )
 
 
@@ -872,22 +886,46 @@ async def _update_linkedin_profile(
     account: SocialAccount,
     updates: ProfileUpdateRequest,
 ) -> ProfileUpdateResponse:
-    storage = _get_linkedin_browser_storage(account)
-    service = BrowserProfileService()
+    client = await _get_linkedin_sidecar(account)
     updated: list[str] = []
     ignored: list[str] = []
 
     try:
         if updates.headline is not None:
-            await service.update_linkedin_headline(storage, updates.headline)
+            await client.update_headline(updates.headline)
             updated.append("headline")
         if updates.about is not None:
-            await service.update_linkedin_about(storage, updates.about)
+            await client.update_about(updates.about)
             updated.append("about")
-    except BrowserProfileError as e:
+        if updates.website is not None:
+            await client.update_website(updates.website)
+            updated.append("website")
+        if updates.location is not None:
+            await client.update_location(updates.location)
+            updated.append("location")
+        if updates.work is not None:
+            for entry in updates.work:
+                await client.add_experience(
+                    title=entry.position,
+                    company=entry.employer,
+                    start_date=entry.start_date,
+                    end_date=entry.end_date,
+                    description=entry.description,
+                )
+            updated.append("work")
+        if updates.education is not None:
+            for entry in updates.education:
+                await client.add_education(
+                    school=entry.school,
+                    degree=entry.degree,
+                    start_date=entry.start_year,
+                    end_date=entry.end_year,
+                )
+            updated.append("education")
+    except LinkedInSidecarError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-    for field in ["biography", "full_name", "website", "location", "phone", "email", "quotes", "work", "education"]:
+    for field in ["biography", "full_name", "phone", "email", "quotes"]:
         if getattr(updates, field, None) is not None:
             ignored.append(field)
 
@@ -910,9 +948,15 @@ async def _upload_linkedin_picture(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="LinkedIn profile picture upload is not yet implemented.",
+    client = await _get_linkedin_sidecar(account)
+    try:
+        await client.upload_picture(image_bytes)
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="LinkedIn profile picture updated",
     )
 
 
@@ -920,9 +964,15 @@ async def _upload_linkedin_cover(
     account: SocialAccount,
     image_bytes: bytes,
 ) -> ProfileUpdateResponse:
-    raise HTTPException(
-        status_code=501,
-        detail="LinkedIn cover photo upload is not yet implemented.",
+    client = await _get_linkedin_sidecar(account)
+    try:
+        await client.upload_cover(image_bytes)
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["cover"],
+        message="LinkedIn cover photo updated",
     )
 
 
