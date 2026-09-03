@@ -99,6 +99,38 @@ async function settle(timeout = 20000) {
   await page.waitForTimeout(1500);
 }
 
+/** Dismiss cookie consent / auth wall dialogs if present. */
+async function dismissDialogs() {
+  // LinkedIn cookie consent dialog
+  for (const sel of [
+    'button#artdeco-global-toast-action-primary',
+    'button[data-tracking-control-name="public_profile_contextual-sign-in"]',
+    'button:has-text("Accept")',
+    'button:has-text("Reject")',
+    'button:has-text("Got it")',
+    'button:has-text("Sign in")',
+    'div[role="dialog"] button:has-text("Accept cookies")',
+    'div[role="dialog"] button:has-text("Reject all")',
+    'div[role="dialog"] button:has-text("Allow all")',
+    'div[role="dialog"] button[data-tracking-control-name="public_profile_contextual-sign-in"]',
+  ]) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 2000 })) {
+        await btn.click();
+        await page.waitForTimeout(1500);
+      }
+    } catch (_) {}
+  }
+}
+
+/** Navigate, settle, and dismiss any blocking dialogs. */
+async function navigate(url, timeout = 60000) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+  await settle();
+  await dismissDialogs();
+}
+
 /** Save a Buffer to a temp file and return the path. */
 function bufferToTempFile(buffer, filename) {
   const ext = path.extname(filename) || '.jpg';
@@ -143,8 +175,7 @@ async function handleSetSession(req, res) {
   await closeBrowser();
   await ensureBrowser();
   try {
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/feed/');
     const loggedIn = !page.url().includes('/login') && !page.url().includes('/checkpoint');
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
@@ -155,8 +186,7 @@ async function handleSetSession(req, res) {
 async function handleCheckSession(req, res) {
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/feed/');
     const loggedIn = !page.url().includes('/login') && !page.url().includes('/checkpoint');
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
@@ -169,10 +199,9 @@ async function handleCheckSession(req, res) {
 async function handleReadProfile(req, res) {
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
-    const result = { url: page.url, name: null, headline: null, about: null, location: null, website: null };
+    const result = { url: page.url(), name: null, headline: null, about: null, location: null, website: null };
 
     // Name: try h1 first, then h2 in top-card section
     const nameH1 = page.locator('h1.text-heading-xlarge').first();
@@ -183,7 +212,7 @@ async function handleReadProfile(req, res) {
       const secs = page.locator('section:has(h2)');
       for (let i = 0; i < (await secs.count()); i++) {
         const sec = secs.nth(i);
-        const h2 = (await sec.locator('h2').first.innerText()).trim();
+        const h2 = (await sec.locator('h2').first().innerText()).trim();
         if (h2 && !h2.endsWith('notifications')) {
           result.name = h2;
           const lines = (await sec.innerText()).split('\n').map((l) => l.trim()).filter(Boolean);
@@ -254,8 +283,7 @@ async function handleUpdateHeadline(req, res) {
   if (!headline) return res.status(400).json({ error: 'headline is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     // Click the "Update headline" prompt or the edit intro pencil
     const updatePrompt = page.getByText('Update headline', { exact: true }).first();
@@ -322,8 +350,7 @@ async function handleUpdateAbout(req, res) {
   if (!about) return res.status(400).json({ error: 'about is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     const aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
     if (await aboutBtn.count() === 0) {
@@ -370,8 +397,7 @@ async function handleUploadCover(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     // Click the "Edit cover photo" or camera icon on the cover area
     const coverEdit = page.locator(
@@ -433,8 +459,7 @@ async function handleUploadPicture(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     // Click the profile photo edit button (camera icon / "Edit photo")
     const picEdit = page.locator(
@@ -499,8 +524,7 @@ async function handleUpdateWebsite(req, res) {
   if (!website) return res.status(400).json({ error: 'website is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     // Open contact info dialog
     const contactBtn = page.locator('a:has-text("Contact info"), button:has-text("Contact info")').first();
@@ -548,8 +572,7 @@ async function handleUpdateLocation(req, res) {
   if (!location) return res.status(400).json({ error: 'location is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/');
 
     // Open the intro editor (same as headline)
     const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();
@@ -602,8 +625,7 @@ async function handleAddExperience(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/edit/experience/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/edit/experience/');
 
     // Click "Add experience" button
     const addBtn = page.locator('button:has-text("Add experience"), button[aria-label*="Add experience"]').first();
@@ -676,8 +698,7 @@ async function handleAddEducation(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/edit/education/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/edit/education/');
 
     const addBtn = page.locator('button:has-text("Add education"), button[aria-label*="Add education"]').first();
     if (await addBtn.count() === 0) {
@@ -736,8 +757,7 @@ async function handleAddSkill(req, res) {
   if (!skill) return res.status(400).json({ error: 'skill is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/in/me/edit/skills/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/in/me/edit/skills/');
 
     // Click "Add a new skill" button
     const addBtn = page.locator('button:has-text("Add a new skill"), button[aria-label*="Add skill"], button:has-text("Add skill")').first();
@@ -774,8 +794,7 @@ async function handleReadCompany(req, res) {
   const { vanity } = req.params;
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     const result = { vanity, url: page.url(), name: null, about: null, website: null, industry: null, specialties: null, logo_url: null, cover_url: null };
 
@@ -831,8 +850,7 @@ async function handleUpdateCompanyAbout(req, res) {
   if (!about) return res.status(400).json({ error: 'about is required' });
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     // Click the "Edit" button in the About section
     const editBtn = page.locator('button[aria-label*="Edit about"], button[aria-label*="edit about"], button:has-text("Edit overview"), a:has-text("Edit overview"), button:has-text("Edit about")').first();
@@ -873,8 +891,7 @@ async function handleUpdateCompanyWebsite(req, res) {
   if (!website) return res.status(400).json({ error: 'website is required' });
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     // Click "Edit" in the details section
     const editBtn = page.locator('button[aria-label*="Edit details"], button:has-text("Edit details"), button[aria-label*="Edit info"]').first();
@@ -915,8 +932,7 @@ async function handleUpdateCompanySpecialties(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     const editBtn = page.locator('button[aria-label*="Edit details"], button:has-text("Edit details"), button[aria-label*="Edit info"], button:has-text("Edit overview")').first();
     if (await editBtn.count() === 0) {
@@ -952,8 +968,7 @@ async function handleUploadCompanyLogo(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     // Click the logo edit button
     const logoEdit = page.locator('button[aria-label*="logo"], button[aria-label*="Logo"], button[aria-label*="Edit logo"], .org-top-card-primary-content__logo button, button:has-text("Edit logo")').first();
@@ -1003,8 +1018,7 @@ async function handleUploadCompanyCover(req, res) {
   if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/about/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     const coverEdit = page.locator('button[aria-label*="cover"], button[aria-label*="Cover"], button[aria-label*="background"], button:has-text("Edit cover")').first();
     if (await coverEdit.count() === 0) {
@@ -1052,8 +1066,7 @@ async function handlePostText(req, res) {
   if (!message) return res.status(400).json({ error: 'message is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/feed/');
 
     // Click the "Start a post" button
     const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
@@ -1122,8 +1135,7 @@ async function handlePostImage(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/feed/');
 
     const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
     if (await startPost.count() === 0) {
@@ -1201,8 +1213,7 @@ async function handlePostLink(req, res) {
   if (!url) return res.status(400).json({ error: 'url is required' });
   try {
     await ensureBrowser();
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate('https://www.linkedin.com/feed/');
 
     const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
     if (await startPost.count() === 0) {
@@ -1259,8 +1270,7 @@ async function handleCompanyPostText(req, res) {
   if (!message) return res.status(400).json({ error: 'message is required' });
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/feed/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/feed/`);
 
     const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
     if (await startPost.count() === 0) {
@@ -1310,8 +1320,7 @@ async function handleCompanyPostImage(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto(`https://www.linkedin.com/company/${vanity}/feed/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle();
+    await navigate(`https://www.linkedin.com/company/${vanity}/feed/`);
 
     const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
     if (await startPost.count() === 0) {
