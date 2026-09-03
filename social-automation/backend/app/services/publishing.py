@@ -880,6 +880,8 @@ async def _publish_tiktok(
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
     import asyncio as _asyncio
+    import os
+
     # Resolve public URLs for media using storage_paths (works with R2/MinIO)
     public_urls: list[str] = []
     for sp in (storage_paths or []):
@@ -887,14 +889,18 @@ async def _publish_tiktok(
         if url:
             public_urls.append(url)
 
-    if not public_urls:
-        return PublishResult(
-            success=False,
-            error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
-        )
-
     client = TikTokAPIClient(access_token=access_token, open_id=account.account_id)
-    is_video = len(public_urls) == 1 and media_paths[0].lower().endswith((".mp4", ".mov", ".webm"))
+
+    # Detect video: single media file with a video extension.
+    # Prefer FILE_UPLOAD when a local file is available (avoids TikTok
+    # domain-verification requirement for PULL_FROM_URL).
+    local_video_path: str | None = None
+    if len(media_paths) == 1 and media_paths[0].lower().endswith((".mp4", ".mov", ".webm")):
+        if os.path.exists(media_paths[0]):
+            local_video_path = media_paths[0]
+    is_video = local_video_path is not None or (
+        len(public_urls) == 1 and media_paths and media_paths[0].lower().endswith((".mp4", ".mov", ".webm"))
+    )
 
     tiktok_options = (post.platform_specific or {}).get("tiktok", {})
     publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
@@ -911,8 +917,32 @@ async def _publish_tiktok(
                 error=f"TikTok privacy_level must be one of: {', '.join(privacy_options)}",
             )
 
+    # Photo posts always require PULL_FROM_URL (TikTok has no photo file upload).
+    if not is_video and not public_urls:
+        return PublishResult(
+            success=False,
+            error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
+        )
+
     # 1) Initialize the post
-    if is_video and publish_mode == "MEDIA_UPLOAD":
+    upload_url: str | None = None
+    if is_video and local_video_path:
+        # FILE_UPLOAD path — read the video bytes and upload directly
+        video_size = os.path.getsize(local_video_path)
+        if publish_mode == "MEDIA_UPLOAD":
+            init = await client.init_video_upload(
+                source="FILE_UPLOAD",
+                video_size=video_size,
+            )
+        else:
+            init = await client.init_video_post(
+                source="FILE_UPLOAD",
+                title=text[:2200],
+                privacy_level=privacy_level,
+                video_size=video_size,
+            )
+        upload_url = init.get("data", {}).get("upload_url")
+    elif is_video and publish_mode == "MEDIA_UPLOAD":
         init = await client.init_video_upload(
             source="PULL_FROM_URL",
             video_url=public_urls[0],
@@ -941,6 +971,19 @@ async def _publish_tiktok(
     if not publish_id:
         error = init.get("error", {})
         return PublishResult(success=False, error=f"TikTok init failed: {error}")
+
+    # 1b) Upload video bytes if using FILE_UPLOAD
+    if upload_url and local_video_path:
+        content_type_map = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
+        ext = os.path.splitext(local_video_path)[1].lower()
+        content_type = content_type_map.get(ext, "video/mp4")
+        with open(local_video_path, "rb") as fh:
+            video_bytes = fh.read()
+        await client.upload_video_file(
+            upload_url=upload_url,
+            video_bytes=video_bytes,
+            content_type=content_type,
+        )
 
     # 2) Poll for publish status (up to 90s)
     for _ in range(18):

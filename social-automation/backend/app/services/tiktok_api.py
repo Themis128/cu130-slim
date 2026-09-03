@@ -50,7 +50,9 @@ def _video_chunk_plan(video_size: int) -> tuple[int, int]:
     return chunk_size, total_chunk_count
 
 # TikTok publish IDs and open IDs are alphanumeric with hyphens.
-_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
+# FILE_UPLOAD publish IDs use a format like "v_inbox_file~v2.7681096048080848918"
+# which includes ~ and . characters.
+_ID_RE = re.compile(r"^[a-zA-Z0-9_\-~.]+$")
 
 
 def _sanitize_log_text(text: str, max_len: int = 400) -> str:
@@ -299,8 +301,10 @@ class TikTokAPIClient:
         from urllib.parse import urlparse
 
         parsed = urlparse(upload_url)
-        if parsed.scheme != "https" or parsed.hostname != "open-upload.tiktokapis.com":
-            raise ValueError("upload_url must use the TikTok upload host")
+        # TikTok returns regional upload hosts (e.g. upload.us.tiktokapis.com,
+        # open-upload.tiktokapis.com). Accept any *.tiktokapis.com host.
+        if parsed.scheme != "https" or not (parsed.hostname or "").endswith(".tiktokapis.com"):
+            raise ValueError("upload_url must use a *.tiktokapis.com host")
         if not video_bytes:
             raise ValueError("video_bytes cannot be empty")
         if content_type not in ("video/mp4", "video/quicktime", "video/webm"):
