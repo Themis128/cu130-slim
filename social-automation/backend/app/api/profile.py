@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
@@ -387,6 +388,9 @@ async def platform_login(
             except Exception:
                 pass
             account.meta_data = meta
+            # meta is the same object loaded from the JSONB column — without
+            # flag_modified SQLAlchemy sees no change and persists nothing.
+            flag_modified(account, "meta_data")
             await db.commit()
 
         return LoginResponse(
@@ -459,6 +463,9 @@ async def platform_login(
             meta = _get_meta(account)
             meta["browser_storage_state"] = storage_state
             account.meta_data = meta
+            # meta is the same object loaded from the JSONB column — without
+            # flag_modified SQLAlchemy sees no change and persists nothing.
+            flag_modified(account, "meta_data")
             await db.commit()
 
         return LoginResponse(

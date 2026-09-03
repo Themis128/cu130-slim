@@ -375,20 +375,52 @@ class BrowserProfileService:
 
             result: dict[str, Any] = {"url": page.url, "name": None, "headline": None, "about": None}
 
-            # Try to read headline
-            headline = page.locator("h1.text-heading-xlarge").first
-            if await headline.count() > 0:
-                result["name"] = await headline.inner_text()
+            # Legacy layout: name in h1.text-heading-xlarge, headline in
+            # .text-body-medium. New layout (2026): the name is an h2 inside
+            # the top-card section and the headline is the next text line.
+            name_h1 = page.locator("h1.text-heading-xlarge").first
+            if await name_h1.count() > 0:
+                result["name"] = (await name_h1.inner_text()).strip()
 
-            # Try to read the top-of-profile headline text
-            top_card_headline = page.locator(".text-body-medium").first
-            if await top_card_headline.count() > 0:
-                result["headline"] = await top_card_headline.inner_text()
+            if not result["name"]:
+                secs = page.locator("section:has(h2)")
+                for i in range(await secs.count()):
+                    sec = secs.nth(i)
+                    h2 = (await sec.locator("h2").first.inner_text()).strip()
+                    if h2 and not h2.endswith("notifications"):
+                        result["name"] = h2
+                        lines = [
+                            ln.strip()
+                            for ln in (await sec.inner_text()).splitlines()
+                            if ln.strip()
+                        ]
+                        for j, ln in enumerate(lines):
+                            if ln == h2 and j + 1 < len(lines):
+                                result["headline"] = lines[j + 1]
+                                break
+                        break
 
-            # Try to read about section
+            # About: legacy used .pv-shared-text-with-see-more; new layout is
+            # a section with an h2 "About" whose body text follows the header.
             about_section = page.locator("section:has(h2:has-text('About')) .pv-shared-text-with-see-more").first
             if await about_section.count() > 0:
                 result["about"] = await about_section.inner_text()
+            else:
+                about_sec = page.locator("section:has(h2:has-text('About'))").first
+                if await about_sec.count() > 0:
+                    text = await about_sec.inner_text()
+                    lines = [ln for ln in text.splitlines()]
+                    # Keep only lines between the "About" header and the next
+                    # section header — the section element wraps neighbouring
+                    # content on the new layout.
+                    start = lines.index("About") + 1 if "About" in lines else 0
+                    end = len(lines)
+                    for marker in ("Featured", "Activity", "Experience"):
+                        if marker in lines:
+                            end = min(end, lines.index(marker))
+                    about = "\n".join(lines[start:end]).strip()
+                    if about:
+                        result["about"] = about
 
             return result
         finally:
@@ -402,17 +434,37 @@ class BrowserProfileService:
             await page.goto("https://www.linkedin.com/in/me/edit/intro/")
             await self._settle(page)
 
-            # Wait for the headline input and fill it
-            headline_input = page.locator("input[aria-label='Headline']").first
-            if await headline_input.count() == 0:
-                headline_input = page.locator("input#headline").first
-            if await headline_input.count() == 0:
-                raise BrowserProfileError(501, "Could not locate the LinkedIn headline input")
+            # The intro page no longer renders a headline input; it shows an
+            # "Update headline" prompt whose clickable ancestor opens the
+            # editor (regular Playwright clicks time out on it).
+            span = page.get_by_text("Update headline", exact=True).first
+            if await span.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn 'Update headline' prompt")
+            handle = await span.evaluate_handle(
+                "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement"
+            )
+            await page.evaluate("el => el.click()", handle)
+            await page.wait_for_timeout(4000)
 
-            await headline_input.fill(headline)
+            editor = None
+            for sel in (
+                "div[role='dialog'] textarea:visible",
+                "textarea:visible",
+                "div[role='dialog'] input:visible",
+                '[contenteditable="true"]:visible',
+            ):
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    editor = loc.first
+                    break
+            if editor is None:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn headline editor")
 
-            # Save
-            save_btn = page.locator("button:has-text('Save')").first
+            await editor.fill(headline)
+
+            save_btn = page.get_by_role("button", name="Save", exact=True).first
+            if await save_btn.count() == 0:
+                save_btn = page.locator("button:has-text('Save')").first
             await save_btn.click()
             await self._settle(page)
 
@@ -425,18 +477,28 @@ class BrowserProfileService:
         session = await self._launch_context(storage_state)
         try:
             page = session.page
-            await page.goto("https://www.linkedin.com/in/me/edit/about/")
+            # /edit/about and /editforms/about are dead URLs now; the working
+            # path is the "Edit about" pencil on the profile, which opens the
+            # summary edit form with a rich-text contenteditable editor.
+            await page.goto("https://www.linkedin.com/in/me/")
             await self._settle(page)
 
-            about_input = page.locator("textarea[aria-label='About']").first
-            if await about_input.count() == 0:
-                about_input = page.locator("textarea").first
-            if await about_input.count() == 0:
-                raise BrowserProfileError(501, "Could not locate the LinkedIn About textarea")
+            about_btn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first
+            if await about_btn.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn 'Edit about' button")
+            await about_btn.click()
+            await page.wait_for_timeout(5000)
 
-            await about_input.fill(text)
+            editor = page.locator('[contenteditable="true"]').first
+            if await editor.count() == 0:
+                raise BrowserProfileError(501, "Could not locate the LinkedIn About editor")
 
-            save_btn = page.locator("button:has-text('Save')").first
+            await editor.click()
+            await editor.fill(text)
+
+            save_btn = page.get_by_role("button", name="Save", exact=True).first
+            if await save_btn.count() == 0:
+                save_btn = page.locator("button:has-text('Save')").first
             await save_btn.click()
             await self._settle(page)
 
