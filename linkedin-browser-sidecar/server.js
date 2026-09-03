@@ -1575,18 +1575,19 @@ app.get('/debug/form-html', async (req, res) => {
   try {
     await ensureBrowser();
     const html = await page.evaluate(() => {
-      const form = document.querySelector('form');
-      if (!form) return 'No form found';
-      // Get all inputs
-      const inputs = Array.from(form.querySelectorAll('input, button')).map(el => ({
+      // Get ALL inputs on the page, not just inside forms
+      const inputs = Array.from(document.querySelectorAll('input, button[type="submit"], button')).map(el => ({
         tag: el.tagName,
-        type: el.type,
-        id: el.id,
-        name: el.name,
+        type: el.type || '',
+        id: el.id || '',
+        name: el.name || '',
         value: el.value ? el.value.substring(0, 20) : '',
         visible: el.offsetParent !== null,
-        className: el.className.substring(0, 50),
-        autocomplete: el.autocomplete,
+        display: window.getComputedStyle(el).display,
+        className: (el.className || '').substring(0, 50),
+        autocomplete: el.autocomplete || '',
+        ariaLabel: el.getAttribute('aria-label') || '',
+        text: el.innerText ? el.innerText.substring(0, 30) : '',
       }));
       return JSON.stringify(inputs, null, 2);
     });
