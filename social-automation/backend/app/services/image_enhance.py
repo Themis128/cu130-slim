@@ -497,7 +497,7 @@ async def generate_alt_text(image_bytes: bytes) -> str | None:
                 )
             if resp.status_code == 200:
                 data = resp.json()
-                response = data.get("result", {}).get("response", "")
+                response = data.get("result", {}).get("response", "") or ""
                 alt_text = response.strip().strip('"').strip("'")
                 if alt_text:
                     return alt_text[:125]

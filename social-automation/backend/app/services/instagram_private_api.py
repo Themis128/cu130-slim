@@ -404,7 +404,7 @@ class InstagramPrivateAPIClient:
         thumb_obj = open(thumbnail, "rb") if thumbnail else None
         try:
             files = {"file": (filename, file_obj, "application/octet-stream")}
-            if thumb_obj:
+            if thumb_obj and thumbnail:
                 files["thumbnail"] = (os.path.basename(thumbnail), thumb_obj, "application/octet-stream")
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(

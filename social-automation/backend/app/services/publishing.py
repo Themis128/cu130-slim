@@ -26,6 +26,7 @@ import os
 import secrets
 import time
 import urllib.parse
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -93,7 +94,7 @@ async def publish_to_platform(
             if mixed != vpath:
                 media_paths[0] = mixed
 
-    dispatch = {
+    dispatch: dict[str, Any] = {
         "twitter": _publish_twitter,
         "linkedin": _publish_linkedin,
         "facebook": _publish_facebook,

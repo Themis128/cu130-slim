@@ -863,7 +863,7 @@ async def run_cloudless_carousel_pipeline(
             db=db,
             team_id=team.id,
         )
-        seo_score = seo_result.get("score", {})
+        seo_score = (seo_result or {}).get("score", {}) or {}
         print(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100", flush=True)
     except Exception as exc:
         print(f"[n8n-pipeline] SEO scoring failed (non-fatal): {exc}", flush=True)
