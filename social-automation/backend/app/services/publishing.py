@@ -44,6 +44,7 @@ from app.services.instagram_private_api import (
 )
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.spellcheck import auto_correct
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
@@ -98,6 +99,8 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"Unsupported platform: {account.platform}")
 
     try:
+        if account.platform == "instagram":
+            return await fn(access_token, text, account, post, media_paths, storage_paths, db)
         return await fn(access_token, text, account, post, media_paths, storage_paths)
     except httpx.HTTPStatusError as exc:
         return PublishResult(success=False, error=f"HTTP {exc.response.status_code}: {exc.response.text[:400]}")
@@ -992,6 +995,7 @@ async def _publish_instagram(
     post: Post,
     media_paths: list[str],
     storage_paths: list[str] | None = None,
+    db: AsyncSession | None = None,
 ) -> PublishResult:
     """Publish to Instagram.
 
@@ -1009,22 +1013,73 @@ async def _publish_instagram(
         # If sidecar fails with a non-session error, try Graph API as fallback
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
             # Sidecar failed for a non-session reason — still try Graph API
+            graph_token = await _resolve_ig_user_token(access_token, account, db)
             graph_result = await _publish_instagram_via_graph(
-                access_token, text, account, post, media_paths, storage_paths,
+                graph_token, text, account, post, media_paths, storage_paths,
             )
             if graph_result.success:
                 return graph_result
             # Both failed — return the sidecar error (more likely actionable)
             return result
         # Session expired — try Graph API
+        graph_token = await _resolve_ig_user_token(access_token, account, db)
         return await _publish_instagram_via_graph(
-            access_token, text, account, post, media_paths, storage_paths,
+            graph_token, text, account, post, media_paths, storage_paths,
         )
 
     # No sidecar session — use Graph API directly
+    graph_token = await _resolve_ig_user_token(access_token, account, db)
     return await _publish_instagram_via_graph(
-        access_token, text, account, post, media_paths, storage_paths,
+        graph_token, text, account, post, media_paths, storage_paths,
     )
+
+
+async def _resolve_ig_user_token(
+    access_token: str,
+    account: SocialAccount,
+    db: AsyncSession | None,
+) -> str:
+    """Resolve the correct user token for Instagram Graph API publishing.
+
+    The Instagram Content Publishing API requires a **user** access token
+    with ``instagram_content_publish`` scope, not a page token.  When an
+    IG account was connected via Facebook OAuth, the stored token may be a
+    page token.  In that case, look up the parent Facebook user account
+    and use its token instead.
+    """
+    meta = account.meta_data or {}
+    # If connected via Instagram Business Login, the token is already a user token
+    if meta.get("login_type") == "business_login":
+        return access_token
+    # If the account has a parent FB user account, use that user's token
+    if account.parent_account_id and db:
+        result = await db.execute(
+            select(SocialAccount).where(SocialAccount.id == account.parent_account_id)
+        )
+        parent = result.scalar_one_or_none()
+        if parent and parent.platform == "facebook" and parent.account_type == "user":
+            try:
+                return decrypt_token(parent.access_token_enc)
+            except Exception:
+                pass
+    # If no parent, try to find any active FB user account on the same team
+    if db:
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == account.team_id,
+                SocialAccount.platform == "facebook",
+                SocialAccount.account_type == "user",
+                SocialAccount.status == "active",
+            )
+        )
+        fb_user = result.scalar_one_or_none()
+        if fb_user:
+            try:
+                return decrypt_token(fb_user.access_token_enc)
+            except Exception:
+                pass
+    # Fall back to the original token (may fail with permission error)
+    return access_token
 
 
 async def _publish_tiktok(
