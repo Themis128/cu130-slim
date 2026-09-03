@@ -219,3 +219,62 @@ class LinkedInSidecarClient:
             if r.status_code >= 400:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
+
+    # ── Posting — personal feed ───────────────────────────────────────────
+
+    async def post_text(self, message: str, visibility: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"message": message}
+        if visibility:
+            payload["visibility"] = visibility
+        async with self._client as c:
+            r = await c.post("/post/text", json=payload)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def post_image(
+        self, images: list[dict[str, str]], message: str | None = None, visibility: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"images": images}
+        if message:
+            payload["message"] = message
+        if visibility:
+            payload["visibility"] = visibility
+        async with self._client as c:
+            r = await c.post("/post/image", json=payload)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def post_link(self, url: str, message: str | None = None, visibility: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"url": url}
+        if message:
+            payload["message"] = message
+        if visibility:
+            payload["visibility"] = visibility
+        async with self._client as c:
+            r = await c.post("/post/link", json=payload)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    # ── Posting — company page ────────────────────────────────────────────
+
+    async def company_post_text(self, vanity: str, message: str) -> dict[str, Any]:
+        async with self._client as c:
+            r = await c.post(f"/company/{vanity}/post/text", json={"message": message})
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def company_post_image(
+        self, vanity: str, images: list[dict[str, str]], message: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"images": images}
+        if message:
+            payload["message"] = message
+        async with self._client as c:
+            r = await c.post(f"/company/{vanity}/post/image", json=payload)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()

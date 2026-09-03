@@ -1045,6 +1045,339 @@ async function handleUploadCompanyCover(req, res) {
   }
 }
 
+// ── API: Post text to personal feed ────────────────────────────────────────
+
+async function handlePostText(req, res) {
+  const { message, visibility } = req.body;
+  if (!message) return res.status(400).json({ error: 'message is required' });
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+
+    // Click the "Start a post" button
+    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
+    if (await startPost.count() === 0) {
+      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    }
+    await startPost.click();
+    await page.waitForTimeout(3000);
+
+    // Find the contenteditable editor in the dialog
+    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+    if (await editor.count() === 0) {
+      return res.status(404).json({ error: 'Could not locate the post editor' });
+    }
+    await editor.click();
+    await page.keyboard.type(message);
+    await page.waitForTimeout(1000);
+
+    // Set visibility if specified (public/connections)
+    if (visibility) {
+      const visBtn = page.locator('div[role="dialog"] button[aria-label*="Share with"], div[role="dialog"] button:has-text("Anyone"), div[role="dialog"] button:has-text("Connections only")').first();
+      if (await visBtn.isVisible().catch(() => false)) {
+        await visBtn.click();
+        await page.waitForTimeout(1000);
+        const option = page.locator(`div[role="menu"] div:has-text("${visibility === 'public' ? 'Anyone' : 'Connections only'}")`).first();
+        if (await option.isVisible().catch(() => false)) {
+          await option.click();
+          await page.waitForTimeout(500);
+        }
+      }
+    }
+
+    // Click Post button
+    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
+    if (await postBtn.count() === 0) {
+      return res.status(404).json({ error: 'Could not find the Post button' });
+    }
+    await postBtn.click();
+    await settle();
+
+    // Try to extract the post URL from the feed
+    let postUrl = null;
+    try {
+      await page.waitForTimeout(3000);
+      const postLink = page.locator('a[href*="/feed/update/"]').first();
+      if (await postLink.count() > 0) {
+        postUrl = await postLink.getAttribute('href');
+        if (postUrl && !postUrl.startsWith('http')) {
+          postUrl = 'https://www.linkedin.com' + postUrl;
+        }
+      }
+    } catch (_) {}
+
+    res.json({ status: 'ok', posted: true, url: postUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Post image(s) to personal feed ────────────────────────────────────
+
+async function handlePostImage(req, res) {
+  const { message, images, visibility } = req.body;
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'images must be a non-empty array' });
+  }
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+
+    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
+    if (await startPost.count() === 0) {
+      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    }
+    await startPost.click();
+    await page.waitForTimeout(3000);
+
+    // Upload images via file input
+    const tmpPaths = [];
+    for (const img of images) {
+      const buffer = Buffer.from(img.image_base64, 'base64');
+      const tmp = bufferToTempFile(buffer, img.filename || 'image.jpg');
+      tmpPaths.push(tmp);
+    }
+
+    try {
+      const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
+      if (await fileInput.count() === 0) {
+        // Try the media icon button
+        const mediaBtn = page.locator('div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]').first();
+        if (await mediaBtn.count() > 0) {
+          await mediaBtn.click();
+          await page.waitForTimeout(1000);
+        }
+      }
+      await fileInput.setInputFiles(tmpPaths);
+      await page.waitForTimeout(5000);
+
+      // Add caption
+      if (message) {
+        const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+        if (await editor.count() > 0) {
+          await editor.click();
+          await page.keyboard.type(message);
+          await page.waitForTimeout(1000);
+        }
+      }
+
+      // Click Post
+      const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
+      if (await postBtn.count() === 0) {
+        return res.status(404).json({ error: 'Could not find the Post button' });
+      }
+      await postBtn.click();
+      await settle();
+
+      let postUrl = null;
+      try {
+        await page.waitForTimeout(3000);
+        const postLink = page.locator('a[href*="/feed/update/"]').first();
+        if (await postLink.count() > 0) {
+          postUrl = await postLink.getAttribute('href');
+          if (postUrl && !postUrl.startsWith('http')) {
+            postUrl = 'https://www.linkedin.com' + postUrl;
+          }
+        }
+      } catch (_) {}
+
+      res.json({ status: 'ok', posted: true, url: postUrl });
+    } finally {
+      for (const p of tmpPaths) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Post link/article to personal feed ────────────────────────────────
+
+async function handlePostLink(req, res) {
+  const { url, message, visibility } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required' });
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+
+    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
+    if (await startPost.count() === 0) {
+      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    }
+    await startPost.click();
+    await page.waitForTimeout(3000);
+
+    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+    if (await editor.count() === 0) {
+      return res.status(404).json({ error: 'Could not locate the post editor' });
+    }
+    await editor.click();
+
+    if (message) {
+      await page.keyboard.type(message + '\n');
+    }
+    await page.keyboard.type(url);
+    await page.waitForTimeout(3000);
+
+    // Wait for link preview to generate
+    await page.waitForTimeout(3000);
+
+    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
+    if (await postBtn.count() === 0) {
+      return res.status(404).json({ error: 'Could not find the Post button' });
+    }
+    await postBtn.click();
+    await settle();
+
+    let postUrl = null;
+    try {
+      await page.waitForTimeout(3000);
+      const postLink = page.locator('a[href*="/feed/update/"]').first();
+      if (await postLink.count() > 0) {
+        postUrl = await postLink.getAttribute('href');
+        if (postUrl && !postUrl.startsWith('http')) {
+          postUrl = 'https://www.linkedin.com' + postUrl;
+        }
+      }
+    } catch (_) {}
+
+    res.json({ status: 'ok', posted: true, url: postUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── API: Post to Company page ──────────────────────────────────────────────
+
+async function handleCompanyPostText(req, res) {
+  const { vanity } = req.params;
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message is required' });
+  try {
+    await ensureBrowser();
+    await page.goto(`https://www.linkedin.com/company/${vanity}/feed/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+
+    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
+    if (await startPost.count() === 0) {
+      return res.status(404).json({ error: 'Could not find "Start a post" button on company page' });
+    }
+    await startPost.click();
+    await page.waitForTimeout(3000);
+
+    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+    if (await editor.count() === 0) {
+      return res.status(404).json({ error: 'Could not locate the post editor' });
+    }
+    await editor.click();
+    await page.keyboard.type(message);
+    await page.waitForTimeout(1000);
+
+    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
+    if (await postBtn.count() === 0) {
+      return res.status(404).json({ error: 'Could not find the Post button' });
+    }
+    await postBtn.click();
+    await settle();
+
+    let postUrl = null;
+    try {
+      await page.waitForTimeout(3000);
+      const postLink = page.locator('a[href*="/feed/update/"]').first();
+      if (await postLink.count() > 0) {
+        postUrl = await postLink.getAttribute('href');
+        if (postUrl && !postUrl.startsWith('http')) {
+          postUrl = 'https://www.linkedin.com' + postUrl;
+        }
+      }
+    } catch (_) {}
+
+    res.json({ status: 'ok', posted: true, vanity, url: postUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleCompanyPostImage(req, res) {
+  const { vanity } = req.params;
+  const { message, images } = req.body;
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'images must be a non-empty array' });
+  }
+  try {
+    await ensureBrowser();
+    await page.goto(`https://www.linkedin.com/company/${vanity}/feed/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+
+    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
+    if (await startPost.count() === 0) {
+      return res.status(404).json({ error: 'Could not find "Start a post" button on company page' });
+    }
+    await startPost.click();
+    await page.waitForTimeout(3000);
+
+    const tmpPaths = [];
+    for (const img of images) {
+      const buffer = Buffer.from(img.image_base64, 'base64');
+      const tmp = bufferToTempFile(buffer, img.filename || 'image.jpg');
+      tmpPaths.push(tmp);
+    }
+
+    try {
+      const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
+      if (await fileInput.count() === 0) {
+        const mediaBtn = page.locator('div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]').first();
+        if (await mediaBtn.count() > 0) {
+          await mediaBtn.click();
+          await page.waitForTimeout(1000);
+        }
+      }
+      await fileInput.setInputFiles(tmpPaths);
+      await page.waitForTimeout(5000);
+
+      if (message) {
+        const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
+        if (await editor.count() > 0) {
+          await editor.click();
+          await page.keyboard.type(message);
+          await page.waitForTimeout(1000);
+        }
+      }
+
+      const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
+      if (await postBtn.count() === 0) {
+        return res.status(404).json({ error: 'Could not find the Post button' });
+      }
+      await postBtn.click();
+      await settle();
+
+      let postUrl = null;
+      try {
+        await page.waitForTimeout(3000);
+        const postLink = page.locator('a[href*="/feed/update/"]').first();
+        if (await postLink.count() > 0) {
+          postUrl = await postLink.getAttribute('href');
+          if (postUrl && !postUrl.startsWith('http')) {
+            postUrl = 'https://www.linkedin.com' + postUrl;
+          }
+        }
+      } catch (_) {}
+
+      res.json({ status: 'ok', posted: true, vanity, url: postUrl });
+    } finally {
+      for (const p of tmpPaths) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ── Server setup ───────────────────────────────────────────────────────────
 
 const app = express();
@@ -1078,6 +1411,15 @@ app.post('/company/:vanity/website', handleUpdateCompanyWebsite);
 app.post('/company/:vanity/specialties', handleUpdateCompanySpecialties);
 app.post('/company/:vanity/logo', handleUploadCompanyLogo);
 app.post('/company/:vanity/cover', handleUploadCompanyCover);
+
+// Posting — personal feed
+app.post('/post/text', handlePostText);
+app.post('/post/image', handlePostImage);
+app.post('/post/link', handlePostLink);
+
+// Posting — company page
+app.post('/company/:vanity/post/text', handleCompanyPostText);
+app.post('/company/:vanity/post/image', handleCompanyPostImage);
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

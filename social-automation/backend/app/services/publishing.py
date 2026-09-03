@@ -36,12 +36,14 @@ from app.core.security import decrypt_token
 from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
 from app.services.facebook_api import FacebookAPIClient
+from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
 )
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
+from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
@@ -445,6 +447,80 @@ def _linkedin_author_urn(account: SocialAccount, client: LinkedInAPIClient) -> s
     return client._author_urn(account.account_id, account_type)
 
 
+def _has_linkedin_browser_session(account: SocialAccount) -> bool:
+    """Check if the account has a browser storage state for the sidecar."""
+    meta = account.meta_data or {}
+    return bool(meta.get("browser_storage_state"))
+
+
+async def _publish_linkedin_via_sidecar(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish to a personal LinkedIn profile or Company Page via the browser sidecar.
+
+    Supports text, image (single or multi), and link posts.
+    Falls back to the official LinkedIn API if the sidecar fails.
+    """
+    meta = account.meta_data or {}
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        return PublishResult(
+            success=False,
+            error="LinkedIn browser session not found. Call POST /login first.",
+        )
+
+    client = LinkedInSidecarClient()
+    try:
+        await client.set_session(storage)
+    except LinkedInSidecarError as e:
+        return PublishResult(success=False, error=e.detail)
+
+    try:
+        image_paths = [p for p in media_paths if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+
+        # Company page: use company post endpoints
+        if account.account_type == "organization":
+            vanity = (meta.get("vanity_name") or account.username or "").replace("_", "-")
+            if not vanity:
+                return PublishResult(success=False, error="Company vanity name not found in account metadata")
+
+            if image_paths:
+                images = []
+                for p in image_paths[:9]:
+                    with open(p, "rb") as fh:
+                        img_b64 = base64.b64encode(fh.read()).decode()
+                    images.append({"image_base64": img_b64, "filename": os.path.basename(p)})
+                result = await client.company_post_image(vanity=vanity, images=images, message=text)
+            else:
+                result = await client.company_post_text(vanity=vanity, message=text)
+        else:
+            # Personal profile
+            if image_paths:
+                images = []
+                for p in image_paths[:9]:
+                    with open(p, "rb") as fh:
+                        img_b64 = base64.b64encode(fh.read()).decode()
+                    images.append({"image_base64": img_b64, "filename": os.path.basename(p)})
+                result = await client.post_image(images=images, message=text)
+            elif post.link_url:
+                result = await client.post_link(url=post.link_url, message=text)
+            else:
+                result = await client.post_text(message=text)
+
+        post_url = result.get("url")
+        post_id = result.get("post_id") or (post_url.split("/")[-1] if post_url else None)
+        return PublishResult(
+            success=True,
+            platform_post_id=post_id,
+            platform_url=post_url,
+        )
+    except LinkedInSidecarError as e:
+        return PublishResult(success=False, error=e.detail)
+
+
 async def _publish_linkedin(
     access_token: str,
     text: str,
@@ -453,6 +529,13 @@ async def _publish_linkedin(
     media_paths: list[str],
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
+    # If we have a browser session, try the sidecar first (supports personal + company)
+    if _has_linkedin_browser_session(account):
+        result = await _publish_linkedin_via_sidecar(account, text, post, media_paths)
+        if result.success:
+            return result
+        # If sidecar fails, fall through to official API below
+
     client = LinkedInAPIClient(access_token=access_token)
     author_urn = _linkedin_author_urn(account, client)
     post_title = (post.content_text or "Carousel")[:80]
@@ -529,6 +612,73 @@ async def _facebook_page_token(user_token: str, page_id: str) -> str:
     return user_token
 
 
+def _has_facebook_browser_session(account: SocialAccount) -> bool:
+    """Check if the account has a browser storage state for the sidecar."""
+    meta = account.meta_data or {}
+    return bool(meta.get("browser_storage_state"))
+
+
+async def _publish_facebook_via_sidecar(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish to a personal Facebook profile via the browser sidecar.
+
+    Supports text, photo (single or multi), link, and video posts.
+    Falls back to PublishResult with an error if the sidecar fails.
+    """
+    meta = account.meta_data or {}
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        return PublishResult(
+            success=False,
+            error="Facebook browser session not found. Call POST /login first.",
+        )
+
+    client = FacebookSidecarClient()
+    try:
+        await client.set_session(storage)
+    except FacebookSidecarError as e:
+        return PublishResult(success=False, error=e.detail)
+
+    try:
+        # Determine post type
+        image_paths = [p for p in media_paths if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+        video_paths = [p for p in media_paths if p.lower().endswith((".mp4", ".mov", ".webm", ".avi"))]
+
+        if video_paths:
+            # Video post
+            with open(video_paths[0], "rb") as fh:
+                video_bytes = fh.read()
+            result = await client.post_video(video_bytes, message=text)
+        elif image_paths:
+            # Photo post (single or multi)
+            images = []
+            for p in image_paths[:10]:
+                with open(p, "rb") as fh:
+                    img_b64 = base64.b64encode(fh.read()).decode()
+                images.append({"image_base64": img_b64, "filename": os.path.basename(p)})
+            result = await client.post_photo(images=images, message=text)
+        elif post.link_url:
+            # Link post
+            result = await client.post_link(url=post.link_url, message=text)
+        else:
+            # Text-only post
+            result = await client.post_text(message=text)
+
+        post_url = result.get("url")
+        post_id = result.get("post_id") or (post_url.split("/")[-1] if post_url else None)
+        return PublishResult(
+            success=True,
+            platform_post_id=post_id,
+            platform_url=post_url,
+        )
+    except FacebookSidecarError as e:
+        return PublishResult(success=False, error=e.detail)
+
+
 async def _publish_facebook(
     access_token: str,
     text: str,
@@ -537,6 +687,13 @@ async def _publish_facebook(
     media_paths: list[str],
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
+    # Personal profile (type=user) with a browser session → use sidecar
+    if account.account_type == "user" and _has_facebook_browser_session(account):
+        result = await _publish_facebook_via_sidecar(account, text, post, media_paths)
+        if result.success:
+            return result
+        # If sidecar fails, fall through to Graph API below
+
     page_id = account.account_id
     # access_token is stored as the page token from OAuth callback.
     # Fall back to dynamic lookup for accounts connected before this fix.
