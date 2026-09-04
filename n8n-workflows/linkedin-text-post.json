@@ -1,6 +1,6 @@
 {
   "id": "linkedin-text-post",
-  "name": "LinkedIn Text Post (DMR→CF)",
+  "name": "LinkedIn Text Post (DMR\u2192CF)",
   "active": true,
   "nodes": [
     {
@@ -14,18 +14,24 @@
       "name": "Manual Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "linkedin-text-post"
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || $env.CLOUDLESS_CAROUSEL_TOPIC || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '4a8d9440-47d2-4bda-bd11-3776fd9022ba';\nconst tone = body.tone || 'professional';\nconst platform = 'linkedin';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, platform, publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || $env.CLOUDLESS_CAROUSEL_TOPIC || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '9c4451bb-e820-489f-8676-76ddbc788ffe';\nconst tone = body.tone || 'professional';\nconst platform = 'linkedin';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, platform, publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -35,29 +41,47 @@
         "contentType": "form-urlencoded",
         "bodyParameters": {
           "parameters": [
-            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
-            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" }
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            }
           ]
         },
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "login",
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "has-token",
               "leftValue": "={{ $json.access_token }}",
               "rightValue": "",
-              "operator": { "type": "string", "operation": "notEmpty" }
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
             }
           ],
           "combinator": "and"
@@ -68,7 +92,10 @@
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [720, 0]
+      "position": [
+        720,
+        0
+      ]
     },
     {
       "parameters": {
@@ -77,60 +104,121 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"linkedin\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false,\n  \"provider\": \"dmr\"\n}",
-        "options": { "timeout": 120000, "response": { "response": { "neverError": true } } }
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"linkedin\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false,\n  \"provider\": \"dmr\",\n  \"model\": \"ai/smollm2\"\n}",
+        "options": {
+          "timeout": 120000
+        }
       },
       "id": "generate-content",
       "name": "Generate Content (DMR)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [960, -80],
+      "position": [
+        960,
+        -80
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/publishing/queue' }}",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content) }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags || []) }},\n  \"platform\": \"linkedin\",\n  \"account_id\": {{ JSON.stringify($('Resolve Config').item.json.account_id) }},\n  \"publish_now\": {{ $('Resolve Config').item.json.publish }}\n}",
-        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }}\n}",
+        "options": {
+          "timeout": 60000
+        }
       },
-      "id": "queue-post",
-      "name": "Queue LinkedIn Post",
+      "id": "create-post",
+      "name": "Create Post",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1200, -80],
+      "position": [
+        1200,
+        -80
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $('Resolve Config').item.json;\nconst raw = $json;\nconst ok = !!(raw && (raw.id || raw.post_id));\nreturn [{\n  json: {\n    ok,\n    platform: 'linkedin',\n    post_id: raw.id || raw.post_id || null,\n    status: raw.status || (ok ? 'queued' : 'failed'),\n    topic: cfg.topic,\n    error: ok ? null : (raw.detail || raw.message || 'queue_failed'),\n  }\n}];"
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-now",
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        -80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'linkedin', post_type: 'text', post_id: raw.id || null, status: raw.status || (ok ? 'scheduled' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
       },
       "id": "normalize",
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, -80]
+      "position": [
+        1680,
+        -80
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "ok", "name": "ok", "value": false, "type": "boolean" },
-            { "id": "error", "name": "error", "value": "social_api_login_failed", "type": "string" },
-            { "id": "platform", "name": "platform", "value": "linkedin", "type": "string" }
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "linkedin",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -139,30 +227,96 @@
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [960, 120]
+      "position": [
+        960,
+        120
+      ]
     }
   ],
   "connections": {
     "Manual Webhook": {
-      "main": [[{ "node": "Resolve Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Resolve Config": {
-      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Login Social API": {
-      "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Login OK?": {
       "main": [
-        [{ "node": "Generate Content (DMR)", "type": "main", "index": 0 }],
-        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Generate Content (DMR)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generate Content (DMR)": {
-      "main": [[{ "node": "Queue LinkedIn Post", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Queue LinkedIn Post": {
-      "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]]
+    "Create Post": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -174,6 +328,16 @@
     "saveDataSuccessExecution": "all"
   },
   "staticData": null,
-  "tags": [{ "name": "linkedin" }, { "name": "text" }, { "name": "dmr" }],
+  "tags": [
+    {
+      "name": "linkedin"
+    },
+    {
+      "name": "text"
+    },
+    {
+      "name": "dmr"
+    }
+  ],
   "pinData": {}
 }

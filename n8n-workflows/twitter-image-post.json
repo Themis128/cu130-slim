@@ -14,18 +14,24 @@
       "name": "Manual Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "twitter-image-post"
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || null;\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, image_prompt: imagePrompt, platform: 'twitter', publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, image_prompt: imagePrompt, platform: 'twitter', publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -35,24 +41,49 @@
         "contentType": "form-urlencoded",
         "bodyParameters": {
           "parameters": [
-            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
-            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" }
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            }
           ]
         },
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "login",
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [{ "id": "has-token", "leftValue": "={{ $json.access_token }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
@@ -61,24 +92,39 @@
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [720, 0]
+      "position": [
+        720,
+        0
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"twitter\",\n  \"tone\": \"concise\",\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true,\n  \"provider\": \"dmr\"\n}",
-        "options": { "timeout": 120000, "response": { "response": { "neverError": true } } }
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"twitter\",\n  \"tone\": \"concise\",\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true,\n  \"provider\": \"dmr\",\n  \"model\": \"ai/smollm2\"\n}",
+        "options": {
+          "timeout": 120000
+        }
       },
       "id": "generate-tweet",
       "name": "Generate Tweet (DMR)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [960, -100],
+      "position": [
+        960,
+        -100
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -86,17 +132,29 @@
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
-        "options": { "timeout": 180000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 180000
+        }
       },
       "id": "generate-image",
       "name": "Generate Image (CF FLUX)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1200, -100],
+      "position": [
+        1200,
+        -100
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -107,60 +165,244 @@
       "name": "Merge Tweet + Image",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, -100]
+      "position": [
+        1440,
+        -100
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/publishing/queue' }}",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content_text) }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags) }},\n  \"platform\": \"twitter\",\n  \"account_id\": {{ JSON.stringify($json.account_id) }},\n  \"media_asset_ids\": {{ $json.asset_id ? JSON.stringify([$json.asset_id]) : '[]' }},\n  \"publish_now\": {{ $json.publish }}\n}",
-        "options": { "timeout": 60000, "response": { "response": { "neverError": true } } }
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content_text) }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags) }},\n  \"target_account_ids\": {{ JSON.stringify([$json.account_id]) }},\n  \"media_ids\": {{ $json.asset_id ? JSON.stringify([$json.asset_id]) : '[]' }}\n}",
+        "options": {
+          "timeout": 60000
+        }
       },
-      "id": "queue-post",
-      "name": "Queue Twitter Post",
+      "id": "create-post",
+      "name": "Create Post",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1680, -100],
+      "position": [
+        1680,
+        -100
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const raw = $json;\nconst ok = !!(raw && (raw.id || raw.post_id));\nreturn [{ json: { ok, platform: 'twitter', post_type: 'image', post_id: raw.id || raw.post_id || null, status: raw.status || (ok ? 'queued' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'queue_failed') } }];"
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-now",
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'twitter', post_type: 'image', post_id: raw.id || null, status: raw.status || (ok ? 'scheduled' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
       },
       "id": "normalize",
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1920, -100]
+      "position": [
+        2160,
+        -100
+      ]
     },
     {
       "parameters": {
-        "assignments": { "assignments": [{ "id": "ok", "name": "ok", "value": false, "type": "boolean" }, { "id": "error", "name": "error", "value": "social_api_login_failed", "type": "string" }, { "id": "platform", "name": "platform", "value": "twitter", "type": "string" }] },
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "twitter",
+              "type": "string"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "login-failed",
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [960, 120]
+      "position": [
+        960,
+        120
+      ]
     }
   ],
   "connections": {
-    "Manual Webhook": { "main": [[{ "node": "Resolve Config", "type": "main", "index": 0 }]] },
-    "Resolve Config": { "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]] },
-    "Login Social API": { "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]] },
-    "Login OK?": { "main": [[{ "node": "Generate Tweet (DMR)", "type": "main", "index": 0 }], [{ "node": "Login Failed", "type": "main", "index": 0 }]] },
-    "Generate Tweet (DMR)": { "main": [[{ "node": "Generate Image (CF FLUX)", "type": "main", "index": 0 }]] },
-    "Generate Image (CF FLUX)": { "main": [[{ "node": "Merge Tweet + Image", "type": "main", "index": 0 }]] },
-    "Merge Tweet + Image": { "main": [[{ "node": "Queue Twitter Post", "type": "main", "index": 0 }]] },
-    "Queue Twitter Post": { "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]] }
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Config": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Generate Tweet (DMR)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Tweet (DMR)": {
+      "main": [
+        [
+          {
+            "node": "Generate Image (CF FLUX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [
+        [
+          {
+            "node": "Merge Tweet + Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Tweet + Image": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "timezone": "Europe/Athens", "executionTimeout": 600, "saveManualExecutions": true, "saveDataErrorExecution": "all", "saveDataSuccessExecution": "all" },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "executionTimeout": 600,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
   "staticData": null,
-  "tags": [{ "name": "twitter" }, { "name": "image" }, { "name": "dmr" }],
+  "tags": [
+    {
+      "name": "twitter"
+    },
+    {
+      "name": "image"
+    },
+    {
+      "name": "dmr"
+    }
+  ],
   "pinData": {}
 }
