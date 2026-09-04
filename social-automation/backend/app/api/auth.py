@@ -1429,7 +1429,7 @@ async def instagram2_authorize(
     state = json.dumps({"t": str(team_id)})
     state_b64 = base64.urlsafe_b64encode(state.encode()).rstrip(b"=").decode()
 
-    scope = "user_profile,user_media"
+    scope = "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages"
     auth_url = (
         f"https://www.instagram.com/oauth/authorize"
         f"?client_id={settings.INSTAGRAM2_CLIENT_ID}"
@@ -1505,7 +1505,12 @@ async def instagram2_callback(
     account_id = str(ig_user_id)
     username = profile.get("username", "")
     display_name = profile.get("username", "")
-    scopes = ["user_profile", "user_media"]
+    scopes = [
+        "instagram_business_basic",
+        "instagram_business_content_publish",
+        "instagram_business_manage_comments",
+        "instagram_business_manage_messages",
+    ]
 
     # Compute expiry
     token_expires_at = None

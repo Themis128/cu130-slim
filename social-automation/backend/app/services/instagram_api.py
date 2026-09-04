@@ -26,6 +26,7 @@ import httpx
 
 INSTAGRAM_DEFAULT_API_VERSION = "v25.0"
 INSTAGRAM_API_BASE = "https://graph.facebook.com"
+INSTAGRAM_BUSINESS_LOGIN_API_BASE = "https://graph.instagram.com"
 MAX_CAPTION_CHARS = 2200
 
 logger = logging.getLogger(__name__)
@@ -86,13 +87,15 @@ class InstagramAPIClient:
         access_token: str,
         ig_user_id: str,
         api_version: str = INSTAGRAM_DEFAULT_API_VERSION,
+        use_business_login_api: bool = False,
     ):
         if not access_token:
             raise ValueError("Instagram access token is required")
         self.access_token = access_token
         self.ig_user_id = _validate_id(ig_user_id, "ig_user_id")
         self.api_version = api_version
-        self.base_url = f"{INSTAGRAM_API_BASE}/{api_version}"
+        api_base = INSTAGRAM_BUSINESS_LOGIN_API_BASE if use_business_login_api else INSTAGRAM_API_BASE
+        self.base_url = f"{api_base}/{api_version}"
 
     def _params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return base query params including the access token."""

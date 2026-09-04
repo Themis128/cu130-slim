@@ -982,7 +982,12 @@ async def _publish_instagram_via_graph(
             error="Instagram requires at least one image. Set an image on the post.",
         )
 
-    client = InstagramAPIClient(access_token=access_token, ig_user_id=ig_user_id)
+    is_business_login = (account.meta_data or {}).get("login_type") == "business_login"
+    client = InstagramAPIClient(
+        access_token=access_token,
+        ig_user_id=ig_user_id,
+        use_business_login_api=is_business_login,
+    )
     try:
         if len(image_urls) == 1:
             creation_id = await client.create_image_container(
