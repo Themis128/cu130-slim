@@ -10,6 +10,7 @@ from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
@@ -81,6 +82,7 @@ class MediaAssetResponse(BaseModel):
     is_favorite: bool
     is_archived: bool
     usage_count: int
+    meta_data: dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -93,6 +95,59 @@ class MediaListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------------------------------------------------------------------------
+# Image quality gate
+# ---------------------------------------------------------------------------
+
+async def _score_and_store_quality(
+    asset: MediaAsset,
+    image_bytes: bytes,
+    db: AsyncSession,
+) -> None:
+    """Score image quality and store the result in ``asset.meta_data``.
+
+    - Images with sharpness below ``MIN_IMAGE_SHARPNESS`` are marked
+      ``quality_failed=True`` (blurry/broken).
+    - Images with overall score below ``MIN_IMAGE_QUALITY_SCORE`` are also
+      flagged, but still stored — the flag is informational so the UI can
+      surface a warning badge.
+    - The full score breakdown is stored under ``meta_data.quality_score``.
+    """
+    from app.services.image_enhance import score_image_quality
+
+    try:
+        score = score_image_quality(image_bytes)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[media/quality] scoring failed for {asset.id}: {exc}", flush=True)
+        return
+
+    if asset.meta_data is None:
+        asset.meta_data = {}
+    asset.meta_data["quality_score"] = {
+        "overall": score.overall,
+        "sharpness": score.sharpness,
+        "brightness": score.brightness,
+        "contrast": score.contrast,
+        "blur_detected": score.blur_detected,
+        "too_dark": score.too_dark,
+        "too_bright": score.too_bright,
+        "issues": score.issues,
+    }
+
+    min_sharp = settings.MIN_IMAGE_SHARPNESS
+    min_overall = settings.MIN_IMAGE_QUALITY_SCORE
+    asset.meta_data["quality_failed"] = (
+        score.sharpness < min_sharp or score.overall < min_overall
+    )
+    asset.meta_data["quality_threshold"] = {
+        "min_overall": min_overall,
+        "min_sharpness": min_sharp,
+    }
+
+    flag_modified(asset, "meta_data")
+    await db.commit()
 
 
 @router.post("/upload", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
@@ -137,6 +192,11 @@ async def upload_media(
         width=width,
         height=height,
     )
+
+    # Quality gate: score images and store the result in meta_data.
+    if mime and mime.startswith("image/"):
+        await _score_and_store_quality(asset, content, db)
+
     return asset
 
 
@@ -464,16 +524,17 @@ async def generate_image(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate an image via Cloudflare Workers AI (FLUX schnell) with fallback chain."""
+    """Generate an image via Local Diffusers (primary) with Cloudflare Workers AI fallback.
+
+    Fallback chain (first success wins):
+        1. Local Diffusers (SD 1.5, GPU) — local, free, no quota
+        2. Cloudflare Workers AI (FLUX schnell) — cloud, the ONLY fallback
+    """
     import base64
 
     from app.services.cf_models import CF_TXT2IMG_FREE
     from app.services.inference import (
-        HF_TXT2IMG_FALLBACK,
-        TOGETHER_TXT2IMG_FALLBACK,
-        _call_hf_txt2img,
-        _call_pixazo_txt2img,
-        _call_together_txt2img,
+        _call_local_diffusers_txt2img,
         _call_workers_ai_image,
     )
     result = await db.execute(
@@ -487,74 +548,62 @@ async def generate_image(
     prompt = await correct_text(body.prompt) or body.prompt
     opts = body.options or MediaGenerateOptions()
     opts.negative_prompt = await correct_text(opts.negative_prompt) or opts.negative_prompt
-    model = opts.model or CF_TXT2IMG_FREE
-    if model and not model.startswith("@cf/"):
-        model = f"@cf/stabilityai/{model}" if "stable-diffusion" in model else CF_TXT2IMG_FREE
 
     width = opts.width or 1024
     height = opts.height or 1024
     steps = opts.steps or 4
+    negative_prompt = opts.negative_prompt or ""
+    cfg_scale = opts.cfg_scale or 7.5
 
     generated = None
+
+    # 1. Local Diffusers (SD 1.5) — PRIMARY
     try:
-        generated = await _call_workers_ai_image(
+        print("[media/generate] Trying Local Diffusers (SD 1.5)", flush=True)
+        generated = await _call_local_diffusers_txt2img(
             prompt=prompt,
-            model=model,
-            negative_prompt=opts.negative_prompt or "",
+            negative_prompt=negative_prompt,
             width=width,
             height=height,
-            steps=steps,
-            cfg_scale=opts.cfg_scale or 3.5,
+            steps=max(1, min(steps, 50)),
+            cfg_scale=cfg_scale,
         )
-    except HTTPException as exc:
-        print(f"[media/generate] CF failed ({exc.status_code}), trying fallbacks", flush=True)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Image generation failed: {exc}") from exc
+        print(f"[media/generate] Local Diffusers failed: {exc}", flush=True)
+
+    # 2. Cloudflare Workers AI — ONLY cloud fallback
+    if generated is None:
+        cf_model = opts.model or CF_TXT2IMG_FREE
+        if cf_model and not cf_model.startswith("@cf/"):
+            cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
+        try:
+            print(f"[media/generate] Trying Cloudflare Workers AI ({cf_model})", flush=True)
+            generated = await _call_workers_ai_image(
+                prompt=prompt,
+                model=cf_model,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=opts.cfg_scale or 3.5,
+            )
+        except HTTPException as exc:
+            print(f"[media/generate] CF failed ({exc.status_code})", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[media/generate] CF failed: {exc}", flush=True)
 
     if generated is None:
-        pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
-        together_key = (settings.TOGETHER_API_KEY or "").strip()
-        hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
-
-        if pixazo_key:
-            print("[media/generate] Trying Pixazo FLUX Schnell", flush=True)
-            try:
-                generated = await _call_pixazo_txt2img(
-                    prompt=prompt, api_key=pixazo_key,
-                    width=width, height=height,
-                )
-            except HTTPException:
-                print("[media/generate] Pixazo failed", flush=True)
-
-        if generated is None and together_key:
-            print(f"[media/generate] Trying Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
-            try:
-                generated = await _call_together_txt2img(
-                    prompt=prompt, model=TOGETHER_TXT2IMG_FALLBACK,
-                    api_key=together_key, width=width, height=height, steps=steps,
-                )
-            except HTTPException:
-                print("[media/generate] Together failed", flush=True)
-
-        if generated is None and hf_key:
-            print(f"[media/generate] Trying HF {HF_TXT2IMG_FALLBACK}", flush=True)
-            try:
-                generated = await _call_hf_txt2img(
-                    prompt=prompt, model=HF_TXT2IMG_FALLBACK,
-                    api_key=hf_key, width=width, height=height, steps=steps,
-                )
-            except HTTPException:
-                print("[media/generate] HF also failed", flush=True)
-
-        if generated is None:
-            raise HTTPException(
-                status_code=502,
-                detail="All image generation providers exhausted (CF quota + fallbacks failed)",
-            )
+        raise HTTPException(
+            status_code=502,
+            detail="Image generation failed: Local Diffusers and Cloudflare Workers AI both unavailable.",
+        )
 
     image_b64 = generated.get("image_base64") or ""
     if not image_b64:
         raise HTTPException(status_code=502, detail="Image generation returned empty payload")
+
+    # Record which provider generated this image
+    gen_model = generated.get("model", "")
 
     asset = await persist_generated_image(
         db,
@@ -564,6 +613,18 @@ async def generate_image(
         prompt=prompt,
         source="ai-generated",
     )
+
+    # Store the provider info in meta_data for provenance tracking
+    if asset.meta_data is None:
+        asset.meta_data = {}
+    asset.meta_data["inference_provider"] = "local-diffusers" if "stable-diffusion" in gen_model else "cloudflare"
+    asset.meta_data["inference_model"] = gen_model
+    flag_modified(asset, "meta_data")
+    await db.commit()
+
+    # Quality gate: score the generated image and store the result.
+    await _score_and_store_quality(asset, base64.b64decode(image_b64), db)
+
     return asset
 
 

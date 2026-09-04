@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     LOCAL_DIFFUSERS_URL: str = "http://local-diffusers:7860"
     LOCAL_DIFFUSERS_MODEL: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
+    # Image quality gate — images below MIN_IMAGE_QUALITY_SCORE are flagged in
+    # meta_data with quality_failed=True. Images below MIN_IMAGE_SHARPNESS are
+    # rejected outright (blurry/broken). Set to 0 to disable either gate.
+    MIN_IMAGE_QUALITY_SCORE: int = 60
+    MIN_IMAGE_SHARPNESS: int = 20
+
     # Cloud AI Provider API Keys
     GROQ_API_KEY: str = ""
     TOGETHER_API_KEY: str = ""

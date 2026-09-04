@@ -22,11 +22,14 @@ import dataclasses
 import hashlib
 import hmac
 import io
+import logging
 import os
 import secrets
 import time
 import urllib.parse
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from sqlalchemy import select
@@ -43,6 +46,7 @@ from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
 )
+from app.services.instagrapi_client import InstagrapiClient, InstagrapiError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.spellcheck import auto_correct
@@ -1207,6 +1211,57 @@ async def _publish_instagram_via_graph(
     )
 
 
+async def _publish_instagram_via_instagrapi(
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish via instagrapi (direct Python private mobile API).
+
+    Uses INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD from settings.  Session is
+    cached on the uploads volume; re-login happens automatically when the
+    cached session expires.  This path works for any account type (personal,
+    creator, business) without Meta App Review.
+    """
+    username = (_settings.INSTAGRAM_USERNAME or "").strip()
+    password = (_settings.INSTAGRAM_PASSWORD or "").strip()
+    if not username or not password:
+        return PublishResult(
+            success=False,
+            error="INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are not set.",
+        )
+
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            error="Instagram requires at least one image or video.",
+        )
+
+    proxy = (_settings.INSTAGRAM_PROXY or "").strip() or None
+    client = InstagrapiClient(username=username, password=password, proxy=proxy)
+    caption = text[:2200]
+
+    try:
+        if len(media_paths) == 1:
+            fp = media_paths[0]
+            if fp.lower().endswith((".mp4", ".mov", ".webm", ".avi")):
+                result = await client.upload_video(fp, caption)
+            else:
+                result = await client.upload_photo(fp, caption)
+        else:
+            result = await client.upload_album(media_paths[:10], caption)
+    except InstagrapiError as exc:
+        return PublishResult(success=False, error=f"Instagram (instagrapi) publish failed: {exc}")
+
+    media_id = str(result.get("id") or result.get("pk") or "")
+    code = result.get("code") or ""
+    return PublishResult(
+        success=True,
+        platform_post_id=media_id,
+        platform_url=f"https://www.instagram.com/p/{code}/" if code else None,
+    )
+
+
 async def _publish_instagram(
     access_token: str,
     text: str,
@@ -1219,57 +1274,61 @@ async def _publish_instagram(
     """Publish to Instagram.
 
     Publishing priority (first success wins):
-        1. **Web API** (rupload_igphoto) — primary path. Uses browser
-           sessionid cookie directly against www.instagram.com. Supports
-           single photos and carousels. Requires private_api_session_id,
+        1. **instagrapi** — direct Python private mobile API. Requires
+           INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD in env. Works for any
+           account type without Meta App Review.
+        2. **Web API** (rupload_igphoto) — uses browser sessionid cookie
+           directly against www.instagram.com. Requires private_api_session_id,
            private_api_csrf_token, private_api_ds_user_id in meta_data.
-        2. **Sidecar** (aiograpi-rest private mobile API) — fallback for
-           video uploads or when web API session is unavailable.
-        3. **Graph API** — last resort fallback (requires Meta App Review
-           for instagram_content_publish permission).
+        3. **Sidecar** (aiograpi-rest private mobile API) — fallback for
+           video uploads or when the above paths are unavailable.
+        4. **Graph API** — last resort (requires Meta App Review for
+           instagram_content_publish permission).
     """
     meta = account.meta_data or {}
+
+    # 1. instagrapi (direct Python) — primary path when credentials are set
+    if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
+        ig_result = await _publish_instagram_via_instagrapi(text, post, media_paths)
+        if ig_result.success:
+            return ig_result
+        logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
+
     has_web_session = bool(
         meta.get("private_api_session_id")
         and meta.get("private_api_csrf_token")
         and meta.get("private_api_ds_user_id")
     )
     has_sidecar_session = bool(meta.get("private_api_session_id"))
+    web_result: PublishResult | None = None
 
-    # Prefer the web API (rupload_igphoto) when a browser sessionid is
-    # available — it bypasses the private mobile API which often rejects
-    # browser sessions with login_required.
+    # 2. Web API (rupload_igphoto)
     if has_web_session:
         web_result = await _publish_instagram_via_web(account, text, post, media_paths)
         if web_result.success:
             return web_result
-        # Web API failed (e.g. session expired or unsupported media type) —
-        # fall through to sidecar / Graph API.
 
+    # 3. Sidecar (aiograpi-rest)
     if has_sidecar_session:
         result = await _publish_instagram_via_sidecar(account, text, post, media_paths)
         if result.success:
             return result
-        # If sidecar fails with a non-session error, try Graph API as fallback
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
-            # Sidecar failed for a non-session reason — still try Graph API
             graph_token = await _resolve_ig_user_token(access_token, account, db)
             graph_result = await _publish_instagram_via_graph(
                 graph_token, text, account, post, media_paths, storage_paths,
             )
             if graph_result.success:
                 return graph_result
-            # Both failed — return the web API error if we tried it, else sidecar
-            if has_web_session and not web_result.success:
+            if web_result is not None and not web_result.success:
                 return web_result
             return result
-        # Session expired — try Graph API
         graph_token = await _resolve_ig_user_token(access_token, account, db)
         return await _publish_instagram_via_graph(
             graph_token, text, account, post, media_paths, storage_paths,
         )
 
-    # No sidecar session — use Graph API directly
+    # 4. Graph API (last resort)
     graph_token = await _resolve_ig_user_token(access_token, account, db)
     return await _publish_instagram_via_graph(
         graph_token, text, account, post, media_paths, storage_paths,

@@ -78,6 +78,11 @@ x-worker-env: &worker-env
   - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
   - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
   - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback}
+  # Instagram private API credentials (instagrapi direct path)
+  - INSTAGRAM_PRIVATE_API_URL=http://instagram-private-api:8000
+  - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME:-}
+  - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD:-}
+  - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://warp-proxy:1080}
 
 # Shared volumes for all worker containers.
 x-worker-volumes: &worker-volumes
