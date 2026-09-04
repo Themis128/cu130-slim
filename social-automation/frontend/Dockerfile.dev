@@ -4,9 +4,13 @@ WORKDIR /app
 
 RUN apk update && apk upgrade --available
 
-# Install deps from package.json only — source is volume-mounted at runtime
+# Install deps from package.json only — source is volume-mounted at runtime.
+# Include TypeScript + types (devDeps) so Next.js dev mode doesn't try to
+# auto-install them at runtime (npm is removed below).
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps --omit=dev
+RUN npm ci --legacy-peer-deps --omit=dev && \
+    npm install --legacy-peer-deps --no-save \
+        typescript@^5.3.3 @types/react@^18.2.43 @types/node@^20.10.0
 
 # Remove bundled npm/corepack; they are not needed at runtime and carry
 # CVE-heavy packages such as tar and sigstore.

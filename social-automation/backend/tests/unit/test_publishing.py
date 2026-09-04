@@ -312,7 +312,12 @@ async def test_publish_instagram_sidecar_photo(ig_account_with_session, ig_post,
     """Sidecar path: single photo upload via private API."""
     img = tmp_path / "img.jpg"
     img.write_bytes(b"\xff\xd8\xff\xe0")
-    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "123456", "pk": 123456, "code": "Cabc123"}))
+    # 1st response: login_by_sessionid (best-effort session restore)
+    # 2nd response: photo upload
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"ok": True}),
+        _FakeResponse(200, {"id": "123456", "pk": 123456, "code": "Cabc123"}),
+    ])
 
     with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
         result = await pub._publish_instagram(
@@ -323,10 +328,11 @@ async def test_publish_instagram_sidecar_photo(ig_account_with_session, ig_post,
     assert result.success is True
     assert result.platform_post_id == "123456"
     assert result.platform_url == "https://www.instagram.com/p/Cabc123/"
-    assert len(fake.calls) == 1
-    assert fake.calls[0]["url"].endswith("/photo/upload")
-    assert fake.calls[0]["data"]["caption"] == "Nice photo!"
-    assert "file" in fake.calls[0]["files"]
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[1]["url"].endswith("/photo/upload")
+    assert fake.calls[1]["data"]["caption"] == "Nice photo!"
+    assert "file" in fake.calls[1]["files"]
 
 
 @pytest.mark.asyncio
@@ -334,7 +340,12 @@ async def test_publish_instagram_sidecar_video(ig_account_with_session, ig_post,
     """Sidecar path: single video upload via private API."""
     vid = tmp_path / "clip.mp4"
     vid.write_bytes(b"\x00\x00\x00\x18ftyp")
-    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "vid-789", "pk": 789, "code": "Cvid456"}))
+    # 1st response: login_by_sessionid (best-effort session restore)
+    # 2nd response: video upload
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"ok": True}),
+        _FakeResponse(200, {"id": "vid-789", "pk": 789, "code": "Cvid456"}),
+    ])
 
     with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
         result = await pub._publish_instagram(
@@ -344,9 +355,10 @@ async def test_publish_instagram_sidecar_video(ig_account_with_session, ig_post,
 
     assert result.success is True
     assert result.platform_post_id == "vid-789"
-    assert len(fake.calls) == 1
-    assert fake.calls[0]["url"].endswith("/video/upload")
-    assert "file" in fake.calls[0]["files"]
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[1]["url"].endswith("/video/upload")
+    assert "file" in fake.calls[1]["files"]
 
 
 @pytest.mark.asyncio
@@ -357,7 +369,12 @@ async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post,
         p = tmp_path / name
         p.write_bytes(b"\xff\xd8\xff\xe0")
         paths.append(str(p))
-    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "album-111", "pk": 111, "code": "Calb222"}))
+    # 1st response: login_by_sessionid (best-effort session restore)
+    # 2nd response: album upload
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"ok": True}),
+        _FakeResponse(200, {"id": "album-111", "pk": 111, "code": "Calb222"}),
+    ])
 
     with patch("app.services.instagram_private_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
         result = await pub._publish_instagram(
@@ -367,10 +384,11 @@ async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post,
 
     assert result.success is True
     assert result.platform_post_id == "album-111"
-    assert len(fake.calls) == 1
-    assert fake.calls[0]["url"].endswith("/album/upload")
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[1]["url"].endswith("/album/upload")
     # files is a list of (field_name, (filename, file_obj, content_type)) tuples
-    assert len(fake.calls[0]["files"]) == 3
+    assert len(fake.calls[1]["files"]) == 3
 
 
 @pytest.mark.asyncio
@@ -418,7 +436,12 @@ async def test_publish_instagram_sidecar_session_expired(ig_account_with_session
     }
     img = tmp_path / "img.jpg"
     img.write_bytes(b"\xff\xd8\xff\xe0")
-    fake_sidecar = _FakeAsyncClient(_FakeResponse(401, {"detail": "login_required"}))
+    # 1st sidecar response: login_by_sessionid (best-effort, fails with 401)
+    # 2nd sidecar response: upload → 401 login_required (session expired)
+    fake_sidecar = _FakeAsyncClient([
+        _FakeResponse(401, {"detail": "login_required"}),
+        _FakeResponse(401, {"detail": "login_required"}),
+    ])
 
     # Graph API mock for fallback (numeric IDs required by _validate_id)
     fake_graph = _FakeAsyncClient([
@@ -456,7 +479,12 @@ async def test_publish_instagram_sidecar_error_no_fallback(ig_account_with_sessi
     }
     img = tmp_path / "img.jpg"
     img.write_bytes(b"\xff\xd8\xff\xe0")
-    fake_sidecar = _FakeAsyncClient(_FakeResponse(400, {"detail": "Invalid media format"}))
+    # 1st sidecar response: login_by_sessionid (best-effort, succeeds)
+    # 2nd sidecar response: upload → 400 "Invalid media format" (non-session error)
+    fake_sidecar = _FakeAsyncClient([
+        _FakeResponse(200, {"ok": True}),
+        _FakeResponse(400, {"detail": "Invalid media format"}),
+    ])
     fake_graph = _FakeAsyncClient(_FakeResponse(400, {"error": {"message": "Graph also failed"}}))
 
     import app.services.instagram_api as graph_mod
