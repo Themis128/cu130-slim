@@ -1777,3 +1777,152 @@ async def import_instagram_session_from_browser(
         "session_id": sidecar_session_id[:20] + "...",
         "message": "Instagram session imported into sidecar and saved to database.",
     }
+
+
+# ── Instagram Web Session management ─────────────────────────────────────────
+# The web API path (rupload_igphoto) is the primary publishing method for
+# Instagram. It uses browser cookies directly against www.instagram.com,
+# bypassing the private mobile API which often rejects browser sessions.
+# These endpoints let the user manage the web session from the SocialAuto UI.
+
+
+class InstagramWebSessionRequest(BaseModel):
+    """Request body for setting the Instagram web session cookies."""
+
+    sessionid: str
+    csrftoken: str
+    ds_user_id: str
+
+
+@router.post("/instagram/web-session")
+async def set_instagram_web_session(
+    body: InstagramWebSessionRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the Instagram web session cookies (sessionid, csrftoken, ds_user_id).
+
+    These cookies are obtained from the browser's DevTools → Application →
+    Cookies → instagram.com. They are used by the web API publishing path
+    (rupload_igphoto) which is the primary Instagram publishing method.
+
+    The sessionid is invalidated by Instagram after each API upload, so this
+    endpoint should be called before each publishing session.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="No Instagram account found.")
+
+    meta = dict(account.meta_data or {})
+    meta["private_api_session_id"] = body.sessionid
+    meta["private_api_csrf_token"] = body.csrftoken
+    meta["private_api_ds_user_id"] = body.ds_user_id
+    meta["private_api_login_type"] = "web_session"
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Instagram web session saved. Ready to publish via web API.",
+        "ds_user_id": body.ds_user_id,
+    }
+
+
+@router.get("/instagram/web-session")
+async def get_instagram_web_session_status(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if the Instagram web session is configured and valid.
+
+    Returns the session status without exposing the actual cookie values.
+    Performs a lightweight check against the Instagram web API to verify
+    the sessionid is still accepted.
+    """
+    import httpx
+
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="No Instagram account found.")
+
+    meta = dict(account.meta_data or {})
+    sessionid = meta.get("private_api_session_id")
+    csrftoken = meta.get("private_api_csrf_token")
+    ds_user_id = meta.get("private_api_ds_user_id")
+
+    if not sessionid or not csrftoken or not ds_user_id:
+        return {
+            "configured": False,
+            "valid": False,
+            "message": "Web session not configured. Set sessionid, csrftoken, and ds_user_id.",
+        }
+
+    # Validate the session by hitting a lightweight endpoint
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "X-IG-App-ID": "1217981644879628",
+        "x-csrftoken": csrftoken,
+        "Cookie": f"sessionid={sessionid}; csrftoken={csrftoken}; ds_user_id={ds_user_id}",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://www.instagram.com/api/v1/users/{ds_user_id}/info/",
+                headers=headers,
+                follow_redirects=False,
+            )
+    except httpx.HTTPError as exc:
+        return {
+            "configured": True,
+            "valid": False,
+            "message": f"Session check failed: {exc}",
+        }
+
+    # Instagram returns 302 redirect to login when sessionid is invalid,
+    # and sets "sessionid=deleted" in the Set-Cookie header.
+    set_cookie = resp.headers.get("set-cookie", "")
+    if resp.status_code == 302 or "deleted" in set_cookie:
+        return {
+            "configured": True,
+            "valid": False,
+            "message": "Session expired. Get a fresh sessionid from your browser.",
+        }
+
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+            user = data.get("user", {})
+            return {
+                "configured": True,
+                "valid": True,
+                "username": user.get("username"),
+                "ds_user_id": ds_user_id,
+                "message": "Session is valid.",
+            }
+        except Exception:
+            # 200 with HTML (not JSON) means the session is valid but the
+            # endpoint returned the web page — still valid.
+            return {
+                "configured": True,
+                "valid": True,
+                "ds_user_id": ds_user_id,
+                "message": "Session is valid.",
+            }
+
+    return {
+        "configured": True,
+        "valid": False,
+        "message": f"Unexpected response (HTTP {resp.status_code}). Session may be invalid.",
+    }

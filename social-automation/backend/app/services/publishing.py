@@ -848,15 +848,20 @@ async def _publish_instagram_via_web(
 ) -> PublishResult:
     """Publish to Instagram via the **web API** (rupload_igphoto).
 
-    This path uses the browser ``sessionid`` cookie directly against
-    ``www.instagram.com`` endpoints — the same flow the Instagram web
-    app uses. It bypasses the private mobile API (``i.instagram.com``)
-    which often rejects browser sessions with ``login_required``.
+    This is the **primary** Instagram publishing path. It uses the browser
+    ``sessionid`` cookie directly against ``www.instagram.com`` endpoints —
+    the same flow the Instagram web app uses. It bypasses the private mobile
+    API (``i.instagram.com``) which often rejects browser sessions with
+    ``login_required``.
 
     Requires ``private_api_session_id``, ``private_api_csrf_token``,
     and ``private_api_ds_user_id`` in the account's meta_data.
     Uses local file paths (worker reads files from the shared uploads volume).
-    Only single-photo posts are supported in this path (no carousels yet).
+
+    Supports:
+        - Single photo posts
+        - Carousel (multi-photo) posts up to 10 images
+    Videos are not yet supported via this path.
     """
     meta = account.meta_data or {}
     session_id = meta.get("private_api_session_id")
@@ -874,36 +879,18 @@ async def _publish_instagram_via_web(
             error="Instagram requires at least one image or video. Set media on the post.",
         )
 
-    # Only single photo supported via web API for now
-    fp = media_paths[0]
-    lower = fp.lower()
-    if lower.endswith((".mp4", ".mov", ".webm", ".avi")):
-        return PublishResult(
-            success=False,
-            error="Video upload via Instagram web API is not yet supported. Use sidecar or Graph API.",
-        )
-    if len(media_paths) > 1:
-        return PublishResult(
-            success=False,
-            error="Carousel upload via Instagram web API is not yet supported. Use sidecar or Graph API.",
-        )
+    # Filter to image files only (videos not yet supported via web API)
+    image_paths = []
+    for fp in media_paths[:10]:
+        lower = fp.lower()
+        if lower.endswith((".mp4", ".mov", ".webm", ".avi")):
+            return PublishResult(
+                success=False,
+                error="Video upload via Instagram web API is not yet supported. Use sidecar or Graph API.",
+            )
+        image_paths.append(fp)
 
-    # Read the image file and determine dimensions
-    try:
-        from PIL import Image
-        img = Image.open(fp)
-        width, height = img.size
-    except Exception as exc:
-        return PublishResult(
-            success=False,
-            error=f"Failed to read image for web API upload: {exc}",
-        )
-
-    with open(fp, "rb") as f:
-        photo_bytes = f.read()
-
-    upload_id = str(int(time.time() * 1000))
-    entity_name = f"fb_uploader_{upload_id}"
+    is_carousel = len(image_paths) > 1
 
     cookie_header = (
         f"sessionid={session_id}; csrftoken={csrf_token}; ds_user_id={ds_user_id}"
@@ -918,54 +905,71 @@ async def _publish_instagram_via_web(
         "x-csrftoken": csrf_token,
         "Cookie": cookie_header,
     }
-
-    rupload_headers = {
-        **base_headers,
-        "X-Entity-Name": entity_name,
-        "X-Entity-Length": str(len(photo_bytes)),
-        "X-Entity-Type": "image/jpeg",
-        "Offset": "0",
-        "X-Instagram-Rupload-Params": (
-            '{"media_type":1,"upload_id":"' + upload_id + '",'
-            '"upload_media_height":' + str(height) + ','
-            '"upload_media_width":' + str(width) + '}'
-        ),
-        "Content-Type": "application/octet-stream",
-    }
-
-    rupload_url = f"https://www.instagram.com/rupload_igphoto/{entity_name}"
     caption = text[:2200]
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # Step 1: Upload the photo bytes
-        try:
-            resp = await client.post(rupload_url, content=photo_bytes, headers=rupload_headers)
-        except httpx.HTTPError as exc:
-            return PublishResult(success=False, error=f"Web API upload request failed: {exc}")
+        # Step 1: Upload each photo via rupload_igphoto
+        upload_ids: list[str] = []
+        for idx, fp in enumerate(image_paths):
+            try:
+                from PIL import Image
+                img = Image.open(fp)
+                width, height = img.size
+            except Exception as exc:
+                return PublishResult(
+                    success=False,
+                    error=f"Failed to read image {idx + 1} for web API upload: {exc}",
+                )
 
-        if resp.status_code != 200:
-            detail = resp.text[:300]
-            return PublishResult(
-                success=False,
-                error=f"Instagram web API rupload failed (HTTP {resp.status_code}): {detail}",
-            )
+            with open(fp, "rb") as f:
+                photo_bytes = f.read()
 
-        upload_resp = resp.json()
-        if upload_resp.get("status") != "ok":
-            return PublishResult(
-                success=False,
-                error=f"Instagram web API rupload status not ok: {upload_resp}",
-            )
+            upload_id = str(int(time.time() * 1000)) + str(idx)
+            entity_name = f"fb_uploader_{upload_id}"
+
+            rupload_params = {
+                "media_type": 1,
+                "upload_id": upload_id,
+                "upload_media_height": height,
+                "upload_media_width": width,
+            }
+            if is_carousel:
+                rupload_params["is_sidecar"] = "1"
+
+            rupload_headers = {
+                **base_headers,
+                "X-Entity-Name": entity_name,
+                "X-Entity-Length": str(len(photo_bytes)),
+                "X-Entity-Type": "image/jpeg",
+                "Offset": "0",
+                "X-Instagram-Rupload-Params": json.dumps(rupload_params),
+                "Content-Type": "application/octet-stream",
+            }
+
+            rupload_url = f"https://www.instagram.com/rupload_igphoto/{entity_name}"
+
+            try:
+                resp = await client.post(rupload_url, content=photo_bytes, headers=rupload_headers)
+            except httpx.HTTPError as exc:
+                return PublishResult(success=False, error=f"Web API upload {idx + 1} failed: {exc}")
+
+            if resp.status_code != 200:
+                detail = resp.text[:300]
+                return PublishResult(
+                    success=False,
+                    error=f"Instagram web API rupload {idx + 1} failed (HTTP {resp.status_code}): {detail}",
+                )
+
+            upload_resp = resp.json()
+            if upload_resp.get("status") != "ok":
+                return PublishResult(
+                    success=False,
+                    error=f"Instagram web API rupload {idx + 1} status not ok: {upload_resp}",
+                )
+
+            upload_ids.append(upload_id)
 
         # Step 2: Configure the media (create the post)
-        configure_data = {
-            "caption": caption,
-            "upload_id": upload_id,
-            "use_custom_tags": "1",
-            "manual_timestamp": "0",
-            "source_type": "1",
-            "device_id": "android-e021b636049dc0e9",
-        }
         configure_headers = {
             **base_headers,
             "Content-Type": "application/x-www-form-urlencoded",
@@ -973,9 +977,33 @@ async def _publish_instagram_via_web(
             "Origin": "https://www.instagram.com",
         }
 
+        if is_carousel:
+            # Carousel: configure with children_metadata
+            children_metadata = json.dumps([
+                {"upload_id": uid} for uid in upload_ids
+            ])
+            configure_data = {
+                "caption": caption,
+                "children_metadata": children_metadata,
+                "source_type": "1",
+                "device_id": "android-e021b636049dc0e9",
+            }
+            configure_url = "https://www.instagram.com/create/configure_sidecar/"
+        else:
+            # Single photo
+            configure_data = {
+                "caption": caption,
+                "upload_id": upload_ids[0],
+                "use_custom_tags": "1",
+                "manual_timestamp": "0",
+                "source_type": "1",
+                "device_id": "android-e021b636049dc0e9",
+            }
+            configure_url = "https://www.instagram.com/create/configure/"
+
         try:
             resp2 = await client.post(
-                "https://www.instagram.com/create/configure/",
+                configure_url,
                 data=configure_data,
                 headers=configure_headers,
             )
@@ -1190,9 +1218,15 @@ async def _publish_instagram(
 ) -> PublishResult:
     """Publish to Instagram.
 
-    Primary path: aiograpi-rest private API sidecar (supports all account
-    types, local files, no public URL needed). Falls back to the Graph API
-    if no sidecar session is available.
+    Publishing priority (first success wins):
+        1. **Web API** (rupload_igphoto) — primary path. Uses browser
+           sessionid cookie directly against www.instagram.com. Supports
+           single photos and carousels. Requires private_api_session_id,
+           private_api_csrf_token, private_api_ds_user_id in meta_data.
+        2. **Sidecar** (aiograpi-rest private mobile API) — fallback for
+           video uploads or when web API session is unavailable.
+        3. **Graph API** — last resort fallback (requires Meta App Review
+           for instagram_content_publish permission).
     """
     meta = account.meta_data or {}
     has_web_session = bool(
