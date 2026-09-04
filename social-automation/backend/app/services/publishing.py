@@ -277,8 +277,10 @@ def _images_to_pdf(image_paths: list[str], title: str = "Carousel") -> bytes:
 def _media_public_url(storage_path: str) -> str | None:
     """Build a publicly reachable URL for a local upload path.
 
-    Uses MEDIA_PUBLIC_BASE_URL from settings, or reads /run/tunnel/url written
-    by the cloudflared sidecar (auto-updated on each tunnel restart).
+    Priority:
+    1. MEDIA_PUBLIC_BASE_URL + /api/v1/media/view?path=...
+    2. /run/tunnel/url (Cloudflare tunnel) + /api/v1/media/view?path=...
+    3. R2_PUBLIC_URL + storage_path (for R2-backed assets with relative keys)
     """
     base = (_settings.MEDIA_PUBLIC_BASE_URL or "").rstrip("/")
     if not base:
@@ -286,10 +288,14 @@ def _media_public_url(storage_path: str) -> str | None:
             with open("/run/tunnel/url") as _f:
                 base = _f.read().strip().rstrip("/")
         except OSError:
-            return None
-    if not base:
-        return None
-    return f"{base}/api/v1/media/view?path={urllib.parse.quote(storage_path)}"
+            pass
+    if base:
+        return f"{base}/api/v1/media/view?path={urllib.parse.quote(storage_path)}"
+    # Fall back to R2 public URL for assets stored as relative R2 keys
+    r2_base = (_settings.R2_PUBLIC_URL or "").rstrip("/")
+    if r2_base and storage_path and not storage_path.startswith("/"):
+        return f"{r2_base}/{storage_path}"
+    return None
 
 
 # ── Twitter ───────────────────────────────────────────────────────────────────
@@ -868,6 +874,15 @@ async def _publish_instagram_via_sidecar(
             error="Instagram requires at least one image or video. Set media on the post.",
         )
 
+    # Re-establish the session in the sidecar with the configured proxy so
+    # aiograpi routes Instagram traffic through WARP (fixes DNS failures after
+    # container restarts that clear in-memory session state).
+    proxy = (_settings.INSTAGRAM_PROXY or "").strip() or None
+    try:
+        await client.login_by_sessionid(session_id=session_id, proxy=proxy)
+    except Exception:
+        pass  # best-effort; proceed with upload anyway
+
     # The upload_photo/upload_video methods now send file bytes via
     # multipart, so we pass the worker-container paths directly (the
     # files are on the shared uploads volume).
@@ -895,8 +910,9 @@ async def _publish_instagram_via_sidecar(
                 caption=caption,
             )
     except InstagramPrivateAPIError as exc:
-        # If session expired, hint at re-login
-        if exc.status_code == 401 or "login_required" in exc.detail.lower():
+        # 500 from sidecar usually means LoginRequired / session expired
+        detail_lower = (exc.detail or "").lower()
+        if exc.status_code in (401, 500) or "login_required" in detail_lower or "loginrequired" in detail_lower:
             return PublishResult(
                 success=False,
                 error=(
