@@ -108,7 +108,8 @@ docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.ll
 - **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
 - **Inference fallback chain (text)**: DMR (local Docker Model Runner) → Cloudflare Workers AI (the ONLY cloud fallback). Other cloud providers (Groq, Gemini, Mistral, Cohere, OpenRouter, NVIDIA, HuggingFace, OpenAI, SambaNova) are kept in PROVIDER_CATALOG for manual selection but are NOT in the automatic fallback chain.
 - **Inference fallback chain (images)**: Local Diffusers (SD 1.5, GPU) → Cloudflare Workers AI (the ONLY cloud fallback). Other image providers (Pixazo, Together, HuggingFace, NVIDIA FLUX) are manual-selection-only.
-- **Docker Model Runner (DMR)**: Primary local text inference. API at `http://localhost:12434` (host) or `http://host.docker.internal:12434` (containers). OpenAI-compatible (`/engines/v1/chat/completions`), Anthropic-compatible (`/anthropic/v1/messages`), and Ollama-compatible (`/api/chat`) APIs. Models: `ai/qwen3:8b-q4_K_M` (text), `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny). Config via `docker model configure --context-size N`. Skill: `.devin/skills/docker-model-runner/`. MCP server: `dmr` in `.devin/mcp_config.json` (8 tools: status, list, chat, embed, pull, inspect, configure, generate_image).
+- **Docker Model Runner (DMR)**: Primary local text inference. API at `http://localhost:12434` (host) or `http://host.docker.internal:12434` (containers). OpenAI-compatible (`/engines/v1/chat/completions`), Anthropic-compatible (`/anthropic/v1/messages`), and Ollama-compatible (`/api/chat`) APIs. Models: `ai/qwen3:8b-q4_K_M` (text), `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny), `ai/stable-diffusion` (SDXL image, pulled but Diffusers engine not available on WSL2). Config via `docker model configure --context-size N`. Skill: `.devin/skills/docker-model-runner/`. MCP server: `dmr` in `.devin/mcp_config.json` (8 tools: status, list, chat, embed, pull, inspect, configure, generate_image).
+  - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
 - **Ollama default model**: `llama3.1:8b-gpu` (custom Modelfile with `num_gpu=99`, `num_ctx=2048`). All layers on GPU, q8_0 KV cache, 2048-token context. See GPU & VRAM section below.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
@@ -191,6 +192,28 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - **Batch processing**: Celery task `batch_enhance_task` in `app/worker/tasks/media_enhance.py` — supports resize, convert, compress, upscale, remove_bg, smart_crop, alt_text on up to 50 assets.
 - **Frontend**: AI Enhancement Studio at `/media/enhance/[id]` with before/after preview, platform preset selector, quality score display, and all operation buttons. Wand icon on media library cards links to the studio.
 - See `docs/superpowers/plans/media-ai-enhancement-plan.md` for the full plan.
+
+## Image generation pipeline
+
+- **Endpoint**: `POST /api/v1/media/generate-image` — generates an image from a text prompt and stores it in the media library.
+- **Fallback chain (first success wins)**:
+  1. **Local Diffusers (SD 1.5, GPU)** — primary. Uses the `local-diffusers` container's OpenAI-compatible `/v1/images/generations` endpoint. Free, local, no quota. Supports `prompt`, `negative_prompt`, `width`, `height`, `steps`, `cfg_scale`, `seed`.
+  2. **Cloudflare Workers AI (FLUX schnell)** — the ONLY cloud fallback. Used when Local Diffusers is unavailable or fails. Model: `@cf/black-forest-labs/flux-1-schnell`.
+- **Removed from automatic path**: Pixazo, Together AI, HuggingFace, NVIDIA FLUX — these are manual-selection-only via the AI Providers settings page.
+- **Provider provenance**: Each generated image records `meta_data.inference_provider` (`local-diffusers` or `cloudflare`) and `meta_data.inference_model` for tracking which path produced the asset.
+- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) is pulled into Docker Model Runner, but the Diffusers engine is **not available on Docker Desktop/WSL2** — it requires native Linux with NVIDIA CUDA. On WSL2, Local Diffusers (SD 1.5) is the working local GPU path. See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
+
+## Image quality gate
+
+- **Automatic scoring**: Every image uploaded via `POST /api/v1/media/upload` or generated via `POST /api/v1/media/generate-image` is automatically quality-scored using `score_image_quality()` in `app/services/image_enhance.py`. The score is stored in `meta_data.quality_score`.
+- **Score breakdown**: `overall` (0-100, weighted), `sharpness` (Laplacian variance, 0-100), `brightness` (mean histogram, 0-100), `contrast` (stddev, 0-100), `blur_detected` (bool), `too_dark` (bool), `too_bright` (bool), `issues` (list of actionable strings).
+- **Thresholds** (configurable in `app/core/config.py`):
+  - `MIN_IMAGE_QUALITY_SCORE = 60` — images below this overall score get `meta_data.quality_failed = True`.
+  - `MIN_IMAGE_SHARPNESS = 20` — blurry/broken images (sharpness below this) also get flagged.
+  - Set either to `0` to disable that gate.
+- **Soft flag**: Flagged images are still stored — `quality_failed` is informational so the UI can show a warning badge. No uploads are blocked.
+- **API access**: `GET /api/v1/media/enhance/assets/{asset_id}/quality` returns the score for any image. `MediaAssetResponse` now includes `meta_data` so quality scores and provider info are visible in list/detail responses.
+- **Dark-theme note**: The scoring uses mean brightness for `too_dark` detection (threshold < 50/255). Brand designs with intentional dark navy backgrounds (#0b1220) will trigger `too_dark=True` — this is expected and does not mean the image is bad. Use `sharpness` and `contrast` as the primary quality indicators for dark-themed content.
 
 ## Music / audio track support
 
@@ -441,4 +464,8 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Ollama 
 | Ollama model weights | ~4.9GB | llama3.1:8b Q4, all 32 layers on GPU |
 | Ollama KV cache | ~0.1GB | q8_0 at 2048 ctx |
 | ComfyUI (idle) | ~0.5GB | PyTorch + CUDA context |
-| **Free for ComfyUI models** | **~2GB** | Enough for SD 1.5 at fp16; SDXL needs careful management |
+| Local Diffusers (SD 1.5) | ~2.0GB | Allocated when generating; unloaded when idle |
+| **Free for models** | **~2GB** | Enough for SD 1.5 at fp16; SDXL needs careful management |
+
+- **DMR SDXL on disk**: The `ai/stable-diffusion` model (6.94 GB DDUF) is cached locally but cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
+- **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so Ollama/ComfyUI can use the VRAM.
