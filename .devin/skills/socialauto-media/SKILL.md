@@ -26,9 +26,9 @@ Manage media assets for social posts through the SocialAuto API.
 - Upload an image/video/PDF/audio file
 - View or download a media asset
 - Delete a media asset
-- Generate an AI image (Cloudflare Workers AI / FLUX schnell)
+- Generate an AI image (Local Diffusers SD 1.5 primary, Cloudflare Workers AI fallback)
 - AI-enhance an image (resize, upscale, remove background, smart crop, alt text)
-- Get media asset details (dimensions, MIME type, tags, AI caption)
+- Get media asset details (dimensions, MIME type, tags, AI caption, quality score)
 
 ## API base
 
@@ -56,10 +56,68 @@ by reading `.env` for `SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWORD`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| POST | `/media/generate-image` | Generate image (Local Diffusers primary, CF fallback) + save to library |
 | POST | `/ai/generate-image` | Generate an image via Cloudflare Workers AI |
 | POST | `/ai/generate-image-pipeline` | Generate + save to media library |
 | POST | `/ai/generate-image-flux` | Generate via FLUX schnell |
 | GET | `/ai/generate-image/{job_id}` | Check async generation status |
+
+### Image generation fallback chain
+
+`POST /media/generate-image` uses this priority (first success wins):
+
+1. **Local Diffusers (SD 1.5, GPU)** — primary. Local, free, no quota. Uses the `local-diffusers` container's OpenAI-compatible API at `http://local-diffusers:7860/v1/images/generations`. Supports `prompt`, `negative_prompt`, `width`, `height`, `steps` (max 50), `cfg_scale`, `seed`.
+2. **Cloudflare Workers AI (FLUX schnell)** — the ONLY cloud fallback. Model: `@cf/black-forest-labs/flux-1-schnell`. Used when Local Diffusers is unavailable or fails.
+
+**Provider provenance**: Each generated image records `meta_data.inference_provider` (`local-diffusers` or `cloudflare`) and `meta_data.inference_model`.
+
+**Request body**:
+```json
+{
+  "prompt": "abstract cloud computing, dark navy, teal network lines",
+  "options": {
+    "width": 1024,
+    "height": 1024,
+    "steps": 25,
+    "negative_prompt": "people, text, blurry",
+    "cfg_scale": 7.5,
+    "model": "@cf/black-forest-labs/flux-1-schnell"
+  }
+}
+```
+
+## Image quality gate
+
+Every image uploaded or generated is automatically quality-scored. The score is stored in `meta_data.quality_score`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/media/enhance/assets/{id}/quality` | Get quality score (blur/brightness/contrast) |
+| GET | `/media/enhance/assets/{id}/info` | Get image dimensions, mode, format |
+
+### Score fields (stored in `meta_data.quality_score`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `overall` | int 0-100 | Weighted: sharpness×0.4 + brightness×0.3 + contrast×0.3 |
+| `sharpness` | int 0-100 | Laplacian variance (blur detection) |
+| `brightness` | int 0-100 | Mean histogram brightness |
+| `contrast` | int 0-100 | Standard deviation of histogram |
+| `blur_detected` | bool | True if sharpness < 100 Laplacian variance |
+| `too_dark` | bool | True if mean brightness < 50/255 |
+| `too_bright` | bool | True if mean brightness > 210/255 |
+| `issues` | list[str] | Actionable warning messages |
+
+### Quality thresholds (configurable in `app/core/config.py`)
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MIN_IMAGE_QUALITY_SCORE` | 60 | Images below this overall score get `meta_data.quality_failed = True` |
+| `MIN_IMAGE_SHARPNESS` | 20 | Blurry images (sharpness below this) also get flagged |
+
+- **Soft flag**: Flagged images are still stored — `quality_failed` is informational for the UI.
+- **Dark-theme note**: Brand designs with intentional dark navy backgrounds (#0b1220) will trigger `too_dark=True` — this is expected. Use `sharpness` and `contrast` as primary quality indicators for dark-themed content.
+- `MediaAssetResponse` includes `meta_data` so quality scores and provider info are visible in API responses.
 
 ## AI enhancement endpoints
 
