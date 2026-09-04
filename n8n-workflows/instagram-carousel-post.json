@@ -1,6 +1,6 @@
 {
   "id": "instagram-carousel-post",
-  "name": "Instagram Carousel Post (DMR→CF)",
+  "name": "Instagram Carousel Post (DMR\u2192CF)",
   "active": true,
   "nodes": [
     {
@@ -14,7 +14,10 @@
       "name": "Manual Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "instagram-carousel-post"
     },
     {
@@ -25,7 +28,10 @@
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -35,24 +41,49 @@
         "contentType": "form-urlencoded",
         "bodyParameters": {
           "parameters": [
-            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
-            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" }
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            }
           ]
         },
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "login",
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [{ "id": "has-token", "leftValue": "={{ $json.access_token }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
@@ -61,24 +92,39 @@
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [720, 0]
+      "position": [
+        720,
+        0
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/run-pipeline' }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Config').item.json.num_slides }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"text_provider\": \"dmr\",\n  \"account_id\": {{ JSON.stringify($('Resolve Config').item.json.account_id) }},\n  \"publish_now\": {{ $('Resolve Config').item.json.publish }}\n}",
-        "options": { "timeout": 300000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 300000
+        }
       },
       "id": "run-pipeline",
-      "name": "Run Carousel Pipeline (DMR→CF)",
+      "name": "Run Carousel Pipeline (DMR\u2192CF)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [960, -80],
+      "position": [
+        960,
+        -80
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -89,29 +135,130 @@
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1200, -80]
+      "position": [
+        1200,
+        -80
+      ]
     },
     {
       "parameters": {
-        "assignments": { "assignments": [{ "id": "ok", "name": "ok", "value": false, "type": "boolean" }, { "id": "error", "name": "error", "value": "social_api_login_failed", "type": "string" }, { "id": "platform", "name": "platform", "value": "instagram", "type": "string" }] },
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "instagram",
+              "type": "string"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "login-failed",
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [960, 120]
+      "position": [
+        960,
+        120
+      ]
     }
   ],
   "connections": {
-    "Manual Webhook": { "main": [[{ "node": "Resolve Config", "type": "main", "index": 0 }]] },
-    "Resolve Config": { "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]] },
-    "Login Social API": { "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]] },
-    "Login OK?": { "main": [[{ "node": "Run Carousel Pipeline (DMR→CF)", "type": "main", "index": 0 }], [{ "node": "Login Failed", "type": "main", "index": 0 }]] },
-    "Run Carousel Pipeline (DMR→CF)": { "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]] }
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Config": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Run Carousel Pipeline (DMR\u2192CF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Carousel Pipeline (DMR\u2192CF)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "timezone": "Europe/Athens", "executionTimeout": 600, "saveManualExecutions": true, "saveDataErrorExecution": "all", "saveDataSuccessExecution": "all" },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "executionTimeout": 600,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
   "staticData": null,
-  "tags": [{ "name": "instagram" }, { "name": "carousel" }, { "name": "dmr" }],
+  "tags": [
+    {
+      "name": "instagram"
+    },
+    {
+      "name": "carousel"
+    },
+    {
+      "name": "dmr"
+    }
+  ],
   "pinData": {}
 }

@@ -1,6 +1,6 @@
 {
   "id": "cloudless-cf-carousel-linkedin",
-  "name": "Cloudless CF Carousel → LinkedIn Company",
+  "name": "Cloudless CF Carousel \u2192 LinkedIn Company",
   "active": true,
   "nodes": [
     {
@@ -20,7 +20,10 @@
       "name": "Every 2 Days 19:00 Athens",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -37,7 +40,10 @@
       "name": "Once 28 Aug 03:15 Athens (CF reset)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 140]
+      "position": [
+        0,
+        140
+      ]
     },
     {
       "parameters": {
@@ -50,18 +56,24 @@
       "name": "Manual Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 280],
+      "position": [
+        0,
+        280
+      ],
       "webhookId": "cloudless-carousel"
     },
     {
       "parameters": {
-        "jsCode": "const envTopic = $env.CLOUDLESS_CAROUSEL_TOPIC;\nconst body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topics = [\n  'How cloudless.gr helps teams ship serverless apps without managing servers',\n  'Clear skies for your stack: Cloudflare Workers with cloudless.gr',\n  'Stop babysitting servers — ship on the edge with cloudless.gr',\n  'From idea to production on Cloudflare, guided by cloudless.gr',\n  'Plain-English cloud: what cloudless.gr builds for Greek and EU teams',\n  'Workers, R2, and AI on Cloudflare — without the ops headache (cloudless.gr)',\n  'A practical path to serverless for SMEs with cloudless.gr',\n];\nconst dayBucket = Math.floor(Date.now() / 86400000);\nconst rotated = topics[dayBucket % topics.length];\nconst topic = body.topic || envTopic || rotated;\nconst numSlides = Number(body.num_slides || $env.CLOUDLESS_CAROUSEL_SLIDES || 7);\nconst publish = body.publish === false ? false : true;\nconst waitForPublish = body.wait_for_publish === true;\nconst accountId = body.target_account_id\n  || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID\n  || '4a8d9440-47d2-4bda-bd11-3776fd9022ba';\nreturn [{\n  json: {\n    topic,\n    num_slides: Math.max(3, Math.min(10, numSlides || 7)),\n    publish,\n    wait_for_publish: waitForPublish,\n    target_account_id: accountId,\n    tone: body.tone || 'clear and friendly',\n    brand: 'cloudless.gr',\n    pipeline: 'cf-txt2img-img2img-nlp-spellcheck-seo',\n  }\n}];"
+        "jsCode": "const envTopic = $env.CLOUDLESS_CAROUSEL_TOPIC;\nconst body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topics = [\n  'How cloudless.gr helps teams ship serverless apps without managing servers',\n  'Clear skies for your stack: Cloudflare Workers with cloudless.gr',\n  'Stop babysitting servers \u2014 ship on the edge with cloudless.gr',\n  'From idea to production on Cloudflare, guided by cloudless.gr',\n  'Plain-English cloud: what cloudless.gr builds for Greek and EU teams',\n  'Workers, R2, and AI on Cloudflare \u2014 without the ops headache (cloudless.gr)',\n  'A practical path to serverless for SMEs with cloudless.gr',\n];\nconst dayBucket = Math.floor(Date.now() / 86400000);\nconst rotated = topics[dayBucket % topics.length];\nconst topic = body.topic || envTopic || rotated;\nconst numSlides = Number(body.num_slides || $env.CLOUDLESS_CAROUSEL_SLIDES || 7);\nconst publish = body.publish === false ? false : true;\nconst waitForPublish = body.wait_for_publish === true;\nconst accountId = body.target_account_id\n  || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID\n  || '4a8d9440-47d2-4bda-bd11-3776fd9022ba';\nreturn [{\n  json: {\n    topic,\n    num_slides: Math.max(3, Math.min(10, numSlides || 7)),\n    publish,\n    wait_for_publish: waitForPublish,\n    target_account_id: accountId,\n    tone: body.tone || 'clear and friendly',\n    brand: 'cloudless.gr',\n    pipeline: 'cf-txt2img-img2img-nlp-spellcheck-seo',\n  }\n}];"
       },
       "id": "resolve-config",
       "name": "Resolve Cloudless Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 140]
+      "position": [
+        280,
+        140
+      ]
     },
     {
       "parameters": {
@@ -82,19 +94,17 @@
           ]
         },
         "options": {
-          "timeout": 60000,
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
+          "timeout": 60000
         }
       },
       "id": "login-social",
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [520, 140],
+      "position": [
+        520,
+        140
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -124,7 +134,10 @@
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [740, 140]
+      "position": [
+        740,
+        140
+      ]
     },
     {
       "parameters": {
@@ -143,19 +156,17 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Cloudless Config').item.json.num_slides }},\n  \"tone\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.tone) }},\n  \"include_cta\": true,\n  \"text_provider\": \"dmr\",\n  \"text_model\": \"@cf/meta/llama-3.2-3b-instruct\",\n  \"txt2img_model\": \"@cf/black-forest-labs/flux-1-schnell\",\n  \"img2img_model\": \"@cf/runwayml/stable-diffusion-v1-5-img2img\",\n  \"strength\": 0.42,\n  \"target_account_id\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.target_account_id) }},\n  \"publish\": {{ $('Resolve Cloudless Config').item.json.publish }},\n  \"wait_for_publish\": {{ $('Resolve Cloudless Config').item.json.wait_for_publish }}\n}",
         "options": {
-          "timeout": 600000,
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
+          "timeout": 600000
         }
       },
       "id": "run-pipeline",
       "name": "Run CF Carousel + Publish",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [980, 40],
+      "position": [
+        980,
+        40
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -166,7 +177,10 @@
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1220, 40]
+      "position": [
+        1220,
+        40
+      ]
     },
     {
       "parameters": {
@@ -204,33 +218,96 @@
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [980, 260]
+      "position": [
+        980,
+        260
+      ]
     }
   ],
   "connections": {
     "Every 2 Days 19:00 Athens": {
-      "main": [[{ "node": "Resolve Cloudless Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Once 28 Aug 03:15 Athens (CF reset)": {
-      "main": [[{ "node": "Resolve Cloudless Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Manual Webhook": {
-      "main": [[{ "node": "Resolve Cloudless Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Resolve Cloudless Config": {
-      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Login Social API": {
-      "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Login OK?": {
       "main": [
-        [{ "node": "Run CF Carousel + Publish", "type": "main", "index": 0 }],
-        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Run CF Carousel + Publish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Run CF Carousel + Publish": {
-      "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -244,9 +321,15 @@
   },
   "staticData": null,
   "tags": [
-    { "name": "cloudless" },
-    { "name": "linkedin" },
-    { "name": "carousel" }
+    {
+      "name": "cloudless"
+    },
+    {
+      "name": "linkedin"
+    },
+    {
+      "name": "carousel"
+    }
   ],
   "pinData": {}
 }

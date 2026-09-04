@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || 'f216ddec-1953-48b1-8eda-50bbfb34c4e6';\nconst tone = body.tone || 'conversational';\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || 'cb5e6e8b-b153-44e5-a6cf-e525723f2213';\nconst tone = body.tone || 'conversational';\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",

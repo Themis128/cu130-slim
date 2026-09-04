@@ -1,6 +1,6 @@
 {
   "id": "socialauto-daily-slack-digest",
-  "name": "SocialAuto Daily Digest → #socialauto",
+  "name": "SocialAuto Daily Digest \u2192 #socialauto",
   "active": true,
   "nodes": [
     {
@@ -18,7 +18,10 @@
       "name": "Daily 09:00 Athens",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -31,7 +34,10 @@
       "name": "Manual Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 200],
+      "position": [
+        0,
+        200
+      ],
       "webhookId": "socialauto-daily-digest"
     },
     {
@@ -42,7 +48,10 @@
       "name": "Resolve Digest Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [260, 100]
+      "position": [
+        260,
+        100
+      ]
     },
     {
       "parameters": {
@@ -68,7 +77,10 @@
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [500, 100]
+      "position": [
+        500,
+        100
+      ]
     },
     {
       "parameters": {
@@ -84,19 +96,17 @@
           ]
         },
         "options": {
-          "timeout": 120000,
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
+          "timeout": 120000
         }
       },
       "id": "call-daily-digest",
       "name": "Run Daily Digest",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [740, 100],
+      "position": [
+        740,
+        100
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -107,24 +117,67 @@
       "name": "Summarize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [980, 100]
+      "position": [
+        980,
+        100
+      ]
     }
   ],
   "connections": {
     "Daily 09:00 Athens": {
-      "main": [[{ "node": "Resolve Digest Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Digest Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Manual Webhook": {
-      "main": [[{ "node": "Resolve Digest Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve Digest Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Resolve Digest Config": {
-      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Login Social API": {
-      "main": [[{ "node": "Run Daily Digest", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Run Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Run Daily Digest": {
-      "main": [[{ "node": "Summarize Result", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Summarize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -135,8 +188,14 @@
     "templateCredsSetupCompleted": true
   },
   "tags": [
-    { "name": "cloudless" },
-    { "name": "socialauto" },
-    { "name": "slack" }
+    {
+      "name": "cloudless"
+    },
+    {
+      "name": "socialauto"
+    },
+    {
+      "name": "slack"
+    }
   ]
 }
