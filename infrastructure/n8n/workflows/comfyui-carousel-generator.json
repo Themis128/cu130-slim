@@ -453,7 +453,8 @@
   },
   "active": false,
   "settings": {
-    "executionTimeout": 5400
+    "executionTimeout": 5400,
+    "executionOrder": "v1"
   },
   "id": "comfyui-carousel-generator"
 }
