@@ -455,6 +455,8 @@ services:
   social-postgres:
     image: postgres:16-alpine
     container_name: social-postgres
+    networks:
+    - db
     environment:
     - POSTGRES_DB=${SOCIAL_POSTGRES_DB}
     - POSTGRES_USER=${SOCIAL_POSTGRES_USER}
@@ -473,6 +475,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    networks:
+    - db
     ports:
     - 6379:6379
     environment:
@@ -494,6 +498,9 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
     container_name: social-api
+    networks:
+    - backend
+    - db
     ports:
     - 8083:8000
     environment:
@@ -655,6 +662,9 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
     container_name: social-worker-publishing
+    networks:
+    - backend
+    - db
     environment: *worker-env
     volumes: *worker-volumes
     extra_hosts:
@@ -681,6 +691,9 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
     container_name: social-worker-media
+    networks:
+    - backend
+    - db
     environment: *worker-env
     volumes: *worker-volumes
     extra_hosts:
@@ -1071,6 +1084,8 @@ networks:
   backend:
     driver: bridge
   db:
+    driver: bridge
+  frontend:
     driver: bridge
   gpu:
     driver: bridge
