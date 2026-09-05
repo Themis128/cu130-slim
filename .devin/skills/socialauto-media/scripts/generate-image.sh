@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Generate an AI image and save to media library.
-# Usage: generate-image.sh "prompt text" [--model "@cf/black-forest-labs/flux-1-schnell"]
+# Uses the app's fallback chain: Local Diffusers (SD 1.5, GPU) → Cloudflare Workers AI.
+# Usage: generate-image.sh "prompt text" [--steps N] [--width W] [--height H] [--negative "..."]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$ROOT"
 
-PROMPT="${1:?Usage: generate-image.sh \"prompt\" [--model ...]}"
+PROMPT="${1:?Usage: generate-image.sh \"prompt\" [--steps N] [--width W] [--height H] [--negative \"...\"]}"
 shift
-MODEL="@cf/black-forest-labs/flux-1-schnell"
+
+STEPS=25
+WIDTH=1024
+HEIGHT=1024
+NEGATIVE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --model) MODEL="$2"; shift 2 ;;
+    --steps) STEPS="$2"; shift 2 ;;
+    --width) WIDTH="$2"; shift 2 ;;
+    --height) HEIGHT="$2"; shift 2 ;;
+    --negative) NEGATIVE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -29,18 +37,28 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
 
 BODY=$(python3 -c "
 import json
-print(json.dumps({'prompt': '''$PROMPT''', 'options': {'provider': 'cloudflare', 'model': '''$MODEL''', 'steps': 4}}))
+opts = {'width': $WIDTH, 'height': $HEIGHT, 'steps': $STEPS, 'cfg_scale': 7.5}
+if '''$NEGATIVE''':
+    opts['negative_prompt'] = '''$NEGATIVE'''
+print(json.dumps({'prompt': '''$PROMPT''', 'options': opts}))
 ")
 
-echo "Generating image: $PROMPT"
-curl -sf -X POST "$API/api/v1/ai/generate-image-pipeline" \
+echo "Generating image (Local Diffusers primary, CF fallback): $PROMPT"
+curl -sf -X POST "$API/api/v1/media/generate-image" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$BODY" \
   | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-print(f'Media ID: {d.get(\"media_id\", d.get(\"id\",\"?\"))}')
-print(f'URL: {d.get(\"url\",\"-\")}')
-print(f'Status: {d.get(\"status\",\"?\")}')
+print(f'Media ID: {d.get(\"id\",\"?\")}')
+print(f'Filename: {d.get(\"filename\",\"?\")}')
+md = d.get('meta_data') or {}
+print(f'Provider: {md.get(\"inference_provider\",\"?\")}')
+print(f'Model: {md.get(\"inference_model\",\"?\")}')
+qs = md.get('quality_score') or {}
+if qs:
+    print(f'Quality: overall={qs.get(\"overall\")}/100 sharp={qs.get(\"sharpness\")} bright={qs.get(\"brightness\")} contrast={qs.get(\"contrast\")}')
+    if md.get('quality_failed'):
+        print(f'Quality: FLAGGED (below threshold)')
 "

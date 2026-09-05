@@ -18,12 +18,13 @@ fallback.
 │  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
 │  │   ├── ai/qwen3-embedding   (embeddings)                 │
 │  │   └── ai/smollm2           (tiny/fast, 360M)            │
-│  └── Diffusers engine (image gen, requires NVIDIA GPU)     │
-│      └── stable-diffusion models (via /engines/diffusers)  │
+│  └── Diffusers engine (NOT AVAILABLE on WSL2/Docker Desktop)│
+│      └── ai/stable-diffusion (SDXL, 6.94GB DDUF, pulled)   │
+│      └── Requires native Linux x86_64 + NVIDIA CUDA        │
 │                                                             │
 │  Local Diffusers container (separate, port 7860)           │
 │  └── stable-diffusion-v1-5/stable-diffusion-v1-5           │
-│      (primary image gen, ~2GB VRAM, fp16)                  │
+│      (primary image gen, ~2GB VRAM, fp16, WORKS on WSL2)   │
 └─────────────────────────────────────────────────────────────┘
          │
          ▼
@@ -74,6 +75,16 @@ fallback.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/engines/diffusers/v1/images/generations` | POST | Generate image from prompt |
+
+> **WSL2/Docker Desktop limitation**: The Diffusers engine is **not available** on
+> Docker Desktop/WSL2. `docker model status` shows `diffusers: Not Installed`.
+> The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) can be pulled and cached
+> but cannot run — requests return `503: diffusers is not available on this platform`.
+> The Diffusers engine requires **native Linux x86_64 with NVIDIA CUDA**.
+>
+> **For local GPU image generation on WSL2**, use the `local-diffusers` container
+> (SD 1.5) at `http://local-diffusers:7860/v1/images/generations` instead. This
+> is the working primary image generation path in SocialAuto.
 
 ### DMR native (model management)
 
@@ -183,19 +194,25 @@ The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
 | qwen3-vl | ~5GB |
 | qwen3-embedding | ~1GB |
 | smollm2 | ~256MB |
-| Local Diffusers SD 1.5 | ~2GB |
+| stable-diffusion (SDXL) | ~6GB (cannot run on WSL2) |
+| Local Diffusers SD 1.5 | ~2GB (works on WSL2) |
 
 **Important**: DMR models share GPU with the local-diffusers container. When
 qwen3:8b and SD 1.5 are both loaded, total VRAM usage is ~7GB (fits in 8GB).
 DMR auto-unloads models after idle, so simultaneous loading is rare.
 
+**SDXL note**: The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and
+cached on disk but cannot load into VRAM on WSL2/Docker Desktop — the Diffusers
+engine is not installed. It would require ~6GB VRAM if it could run on native
+Linux. On WSL2, Local Diffusers (SD 1.5, ~2GB) is the working image gen path.
+
 ## Inference engines
 
-| Engine | Best for | Model format | GPU |
-|--------|----------|--------------|-----|
-| llama.cpp | Local dev, resource efficiency | GGUF (quantized) | All platforms |
-| vLLM | Production, high throughput | Safetensors | NVIDIA (Linux/WSL2) |
-| Diffusers | Image generation (Stable Diffusion) | Safetensors | NVIDIA (Linux) |
+| Engine | Best for | Model format | GPU | WSL2? |
+|--------|----------|--------------|-----|-------|
+| llama.cpp | Local dev, resource efficiency | GGUF (quantized) | All platforms | Yes |
+| vLLM | Production, high throughput | Safetensors | NVIDIA (Linux/WSL2) | Yes (Docker Desktop 4.54+) |
+| Diffusers | Image generation (Stable Diffusion) | DDUF | NVIDIA (Linux only) | **No** |
 
 ## Fallback chain
 

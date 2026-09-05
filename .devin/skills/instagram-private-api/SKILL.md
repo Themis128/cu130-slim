@@ -1,12 +1,12 @@
 ---
 name: instagram-private-api
 description: >-
-  Manage Instagram publishing via the web API (rupload_igphoto, primary),
-  private API sidecar (fallback), and profile writes through the
-  aiograpi-rest Docker sidecar. Use when posting to Instagram, logging in,
-  resolving 2FA/challenge, importing a sessionid cookie, saving/restoring
-  settings, or writing profile fields (bio, picture, name, website) that
-  the Graph API does not support.
+  Manage Instagram publishing via instagrapi (primary, direct Python private
+  mobile API), web API (rupload_igphoto, fallback), private API sidecar
+  (aiograpi-rest, fallback), and Graph API (last resort). Use when posting
+  to Instagram, logging in, resolving 2FA/challenge, importing a sessionid
+  cookie, saving/restoring settings, or writing profile fields (bio, picture,
+  name, website) that the Graph API does not support.
 allowed-tools:
   - read
   - exec
@@ -21,18 +21,52 @@ triggers:
 
 ## Overview
 
-Instagram publishing in SocialAuto uses a **three-tier fallback chain**:
+Instagram publishing in SocialAuto uses a **four-tier fallback chain**
+(first success wins, in `app/services/publishing.py` → `_publish_instagram`):
 
-1. **Web API (rupload_igphoto)** — **PRIMARY**. Uses browser `sessionid`
+1. **instagrapi** (`app/services/instagrapi_client.py`) — **PRIMARY**. Direct
+   Python private mobile API using `instagrapi` library. Requires
+   `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` env vars. Works for any
+   account type (personal, creator, business) without Meta App Review.
+   Session is cached as JSON on the uploads volume
+   (`/app/uploads/.instagrapi/{username}.json`) with a 6-day TTL.
+   Supports single photos, videos, and carousels up to 10.
+   All blocking calls are dispatched via `asyncio.to_thread`.
+2. **Web API (rupload_igphoto)** — fallback. Uses browser `sessionid`
    cookie directly against `www.instagram.com`. Supports single photos
-   and carousels (up to 10 images). Bypasses the private mobile API which
-   often rejects browser sessions with `login_required`.
-2. **Sidecar (aiograpi-rest)** — fallback for video uploads or when web
+   and carousels (up to 10 images). Sessions are short-lived and may be
+   invalidated after API use.
+3. **Sidecar (aiograpi-rest)** — fallback for video uploads or when web
    API session is unavailable. Uses the private mobile API (`i.instagram.com`).
-3. **Graph API** — last resort. Requires Meta App Review for
+4. **Graph API** — last resort. Requires Meta App Review for
    `instagram_content_publish` permission.
 
-## Web API publishing (PRIMARY)
+## instagrapi publishing (PRIMARY)
+
+### How it works
+
+The `InstagrapiClient` in `app/services/instagrapi_client.py` wraps the
+`instagrapi` Python library:
+
+1. Creates a `Client()` with optional proxy (`INSTAGRAM_PROXY` env var,
+   defaults to `socks5://warp-proxy:1080`).
+2. Logs in with username/password and caches the session as JSON.
+3. On subsequent calls, loads the cached session instead of re-logging in.
+4. Session auto-refreshes after 6 days (well before IG's ~90-day limit).
+
+### Required env vars
+
+- `INSTAGRAM_USERNAME` — Instagram account username
+- `INSTAGRAM_PASSWORD` — Instagram account password
+- `INSTAGRAM_PROXY` (optional) — SOCKS5/HTTP proxy URL
+
+### Supported operations
+
+- `upload_photo(path, caption)` — single photo post
+- `upload_video(path, caption)` — single video post
+- `upload_album(media_paths[:10], caption)` — carousel (up to 10 items)
+
+## Web API publishing (FALLBACK)
 
 ### How it works
 

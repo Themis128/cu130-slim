@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 336 tests).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 338 tests).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -336,6 +336,14 @@ Verified connectivity from `social-api` to all dependent services:
 
 - Instagram captions do **not** include `link_url` (removed from `_LINK_IN_BODY` in `content_renderer.py`). Instagram has no clickable caption links, and the SEO scorer penalizes links in IG captions.
 - `_resolve_ig_user_token` in `publishing.py` resolves the correct Facebook **user** token (not Page token) for Instagram Graph API publishing. It uses `getattr()` for `parent_account_id`/`team_id` (test-safe), uses `.limit(1).first()` for the fallback query (avoids `MultipleResultsFound`), and logs all failure paths.
+- **Instagram publishing priority** (first success wins, in `app/services/publishing.py` → `_publish_instagram`):
+  1. **instagrapi** (`app/services/instagrapi_client.py`) — direct Python private mobile API. Requires `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` env vars. Works for any account type (personal, creator, business) without Meta App Review. Session is cached as JSON on the uploads volume (`/app/uploads/.instagrapi/{username}.json`) with a 6-day TTL. Supports single photos, videos, and carousels up to 10. All blocking calls are dispatched via `asyncio.to_thread`.
+  2. **Web API** (`rupload_igphoto`) — uses browser `sessionid` cookie directly against `www.instagram.com`. Requires `private_api_session_id`, `private_api_csrf_token`, `private_api_ds_user_id` in `SocialAccount.meta_data`. Supports single photos and carousels. Sessions are short-lived and may be invalidated after API use.
+  3. **Sidecar** (`aiograpi-rest` private mobile API) — fallback for video uploads or when the above paths are unavailable. Uses the `instagram-private-api` Docker sidecar at `http://instagram-private-api:8000`.
+  4. **Graph API** — last resort. Requires Meta App Review for `instagram_content_publish` permission.
+- **Profile endpoints** for web session management:
+  - `POST /api/v1/profile/instagram/web-session` — stores `sessionid`, `csrftoken`, `ds_user_id` in `SocialAccount.meta_data`.
+  - `GET /api/v1/profile/instagram/web-session` — validates the session against Instagram's web API.
 
 ### Known lower-priority stubs (not blocking)
 
