@@ -29,8 +29,6 @@ import time
 import urllib.parse
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +51,8 @@ from app.services.spellcheck import auto_correct
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
