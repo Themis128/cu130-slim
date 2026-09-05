@@ -92,21 +92,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Pull pre-built ${{ matrix.service }} image
+      - name: Build ${{ matrix.service }} image
         run: |
-          docker pull "baltzakist/cu130-slim-${{ matrix.service }}:latest"
+          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache "${{ matrix.service }}"
 
       - name: Resolve image ref
         id: image
         run: |
-          echo "ref=baltzakist/cu130-slim-${{ matrix.service }}:latest" >> "$GITHUB_OUTPUT"
-          echo "Scanning image: baltzakist/cu130-slim-${{ matrix.service }}:latest"
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services["${{ matrix.service }}"].image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="cu130-slim-${{ matrix.service }}:latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Scanning image: $REF"
           docker images
 
       - name: Run Trivy vulnerability scanner (Docker image)
@@ -179,21 +181,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Pull pre-built ComfyUI image
+      - name: Build ComfyUI image
         run: |
-          docker pull baltzakist/cu130-slim-comfyui:latest
+          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+
+      - name: Resolve ComfyUI image ref
+        id: image
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="cu130-slim-comfyui:latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'baltzakist/cu130-slim-comfyui:latest'
+          image-ref: ${{ steps.image.outputs.ref }}
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
           scanners: 'vuln'
@@ -203,7 +212,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: 'baltzakist/cu130-slim-comfyui:latest'
+          image-ref: ${{ steps.image.outputs.ref }}
           format: 'spdx-json'
           output: 'sbom-spdx.json'
           scanners: 'vuln'

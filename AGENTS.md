@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 338 tests).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 380 tests, 1 skipped).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.

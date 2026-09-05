@@ -153,6 +153,9 @@ services:
   n8n:
     image: n8nio/n8n:2.19.5
     container_name: n8n
+    networks:
+    - backend
+    - db
     ports:
     - 5678:5678
     volumes:
@@ -233,6 +236,8 @@ services:
   n8n-sandbox:
     image: n8nio/n8n-sandbox-service-sandbox:latest
     container_name: n8n-sandbox
+    networks:
+    - backend
     environment:
     - N8N_SANDBOX_HOST=0.0.0.0
     - N8N_SANDBOX_PORT=8081
@@ -247,6 +252,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: postgres
+    networks:
+    - db
     environment:
     - POSTGRES_DB=${METABASE_DB_DBNAME}
     - POSTGRES_USER=${METABASE_DB_USER}
@@ -263,6 +270,9 @@ services:
   metabase:
     image: metabase/metabase:v0.63.14.1
     container_name: metabase
+    networks:
+    - backend
+    - db
     ports:
     - 3000:3000
     volumes:
@@ -300,6 +310,9 @@ services:
       context: ./diffusers-server
       dockerfile: Dockerfile
     container_name: local-diffusers
+    networks:
+    - backend
+    - gpu
     environment:
     - MODEL_ID=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
     - HF_TOKEN=${HF_TOKEN}
@@ -329,6 +342,8 @@ services:
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
+    networks:
+    - backend
     ports:
     - 8001:8000
     volumes:
@@ -350,6 +365,8 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
+    networks:
+    - backend
     ports:
     - 9100:9000
     - 9101:9001
@@ -369,6 +386,8 @@ services:
   languagetool:
     image: erikvl87/languagetool
     container_name: languagetool
+    networks:
+    - backend
     ports:
     - 8010:8010
     environment:
@@ -380,6 +399,8 @@ services:
   portainer:
     image: portainer/portainer-ce:2.39.6
     container_name: portainer
+    networks:
+    - backend
     ports:
     - 9000:9000
     volumes:
@@ -393,6 +414,8 @@ services:
       context: ./env-manager/backend
       dockerfile: Dockerfile
     container_name: env-manager-backend
+    networks:
+    - backend
     ports:
     - 8081:8081
     volumes:
@@ -414,6 +437,9 @@ services:
       context: ./env-manager/frontend
       dockerfile: Dockerfile
     container_name: env-manager-frontend
+    networks:
+    - backend
+    - frontend
     ports:
     - 8080:8080
     depends_on:
@@ -1040,3 +1066,11 @@ volumes:
   linkedin_mcp_data: null
   facebook_browser_data: null
   airbyte_mcp_data: null
+
+networks:
+  backend:
+    driver: bridge
+  db:
+    driver: bridge
+  gpu:
+    driver: bridge

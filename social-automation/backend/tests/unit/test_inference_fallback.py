@@ -9,16 +9,16 @@ Covers:
   - PROVIDER_CATALOG integrity: in_fallback_chain flags
   - generate_carousel_copy: CF-only enforcement (allow_fallback=False)
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
 from app.services import inference
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

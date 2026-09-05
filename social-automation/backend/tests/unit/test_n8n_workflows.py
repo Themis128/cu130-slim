@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+
 def _find_repo_root() -> Path:
     p = Path(__file__).resolve()
     for parent in p.parents:
@@ -28,7 +29,7 @@ def _find_repo_root() -> Path:
     env = os.environ.get("REPO_ROOT") or os.environ.get("COMPOSE_DIR")
     if env:
         return Path(env)
-    pytest.skip("Cannot locate repo root with n8n-workflows/")
+    pytest.skip("Cannot locate repo root with n8n-workflows/", allow_module_level=True)
     return Path(".")  # unreachable
 
 
