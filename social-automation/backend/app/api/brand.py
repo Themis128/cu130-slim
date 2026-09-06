@@ -974,7 +974,7 @@ async def get_brand_health(
     posts_result = await db.execute(
         select(func.count(Post.id))
         .where(
-            Post.team_id == current_user.team_id,
+            Post.team_id == brand.team_id,
             Post.status == PostStatus.PUBLISHED,
             Post.created_at >= thirty_days_ago,
         )

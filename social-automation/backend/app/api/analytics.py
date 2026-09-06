@@ -620,20 +620,18 @@ async def get_engagement_trends(
     since = datetime.now(UTC) - timedelta(days=days)
     day_expr = _athens_day_expr()
 
-    query = (
-        select(
-            day_expr.label("day"),
-            AnalyticsEvent.event_type,
-            func.coalesce(func.sum(_event_count_expr()), 0).label("cnt"),
-        )
-        .where(AnalyticsEvent.team_id == team.id, AnalyticsEvent.occurred_at >= since)
-        .group_by("day", AnalyticsEvent.event_type)
-        .order_by("day")
-    )
+    query = select(
+        day_expr.label("day"),
+        AnalyticsEvent.event_type,
+        func.coalesce(func.sum(_event_count_expr()), 0).label("cnt"),
+    ).where(AnalyticsEvent.team_id == team.id, AnalyticsEvent.occurred_at >= since)
+
     if platform:
         query = query.join(
             SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id
         ).where(SocialAccount.platform == platform)
+
+    query = query.group_by("day", AnalyticsEvent.event_type).order_by("day")
 
     rows = await db.execute(query)
     by_day: dict[str, dict[str, int]] = {}
@@ -754,7 +752,7 @@ async def get_platform_metrics(
         select(
             SocialAccount.platform,
             Post.status,
-            func.count(PostTarget.post_id),
+            func.count(Post.id.distinct()),
         )
         .join(PostTarget, PostTarget.social_account_id == SocialAccount.id)
         .join(Post, Post.id == PostTarget.post_id)
@@ -856,7 +854,9 @@ async def export_report(
         .outerjoin(
             AnalyticsEvent,
             (AnalyticsEvent.post_id == Post.id)
-            & (AnalyticsEvent.social_account_id == PostTarget.social_account_id),
+            & (AnalyticsEvent.social_account_id == PostTarget.social_account_id)
+            & (AnalyticsEvent.occurred_at >= since)
+            & (AnalyticsEvent.occurred_at <= until),
         )
         .where(Post.team_id == team.id, Post.created_at >= since, Post.created_at <= until)
     )
