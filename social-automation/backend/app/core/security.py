@@ -1,4 +1,7 @@
 import base64
+import hashlib
+import hmac
+import json
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -78,3 +81,72 @@ def create_reset_token(data: dict, expires_delta: timedelta | None = None) -> st
     expire = datetime.now(UTC) + (expires_delta or timedelta(hours=1))
     to_encode.update({"exp": expire, "type": "reset"})
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+# ── OAuth state signing ──────────────────────────────────────────────────────
+
+
+def sign_oauth_state(payload: dict) -> str:
+    """Create a signed OAuth state parameter.
+
+    The state is a base64url-encoded JSON blob containing the caller's
+    payload plus an HMAC-SHA256 signature. This prevents CSRF and
+    tampering with the team_id / code_verifier values.
+    """
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    key = settings.JWT_SECRET_KEY.encode()
+    sig = hmac.new(key, raw, hashlib.sha256).hexdigest()
+    envelope = {"p": payload, "s": sig}
+    return base64.urlsafe_b64encode(
+        json.dumps(envelope, separators=(",", ":")).encode()
+    ).rstrip(b"=").decode()
+
+
+def verify_oauth_state(state: str) -> dict | None:
+    """Verify a signed OAuth state parameter and return the payload.
+
+    Returns ``None`` if the state is malformed or the signature does not
+    match.
+    """
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        envelope = json.loads(base64.urlsafe_b64decode(padded).decode())
+        payload = envelope["p"]
+        sig = envelope["s"]
+        key = settings.JWT_SECRET_KEY.encode()
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        expected = hmac.new(key, raw, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+# ── Encrypted field helpers ──────────────────────────────────────────────────
+
+
+def encrypt_field(value: str) -> str:
+    """Encrypt a sensitive string for storage in a JSONB column.
+
+    Returns a ``"enc:"``-prefixed Fernet token so callers can distinguish
+    encrypted from legacy plaintext values.
+    """
+    return "enc:" + encrypt_token(value).decode()
+
+
+def decrypt_field(stored: str | None) -> str | None:
+    """Decrypt a value stored by :func:`encrypt_field`.
+
+    Returns ``None`` if *stored* is ``None``. Transparently handles
+    legacy plaintext values (no ``"enc:"`` prefix) for backward
+    compatibility.
+    """
+    if stored is None:
+        return None
+    if isinstance(stored, str) and stored.startswith("enc:"):
+        try:
+            return decrypt_token(stored[4:].encode())
+        except Exception:
+            return None
+    return stored

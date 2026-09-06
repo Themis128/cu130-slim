@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import Team, TeamMember, User
@@ -151,12 +152,13 @@ async def create_template(
 @router.get("/templates/{template_id}", response_model=PromptTemplateResponse)
 async def get_template(
     template_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single prompt template by ID."""
     result = await db.execute(
-        select(PromptTemplate).where(PromptTemplate.id == template_id)
+        select(PromptTemplate).where(PromptTemplate.id == template_id, PromptTemplate.team_id == team_id)
     )
     template = result.scalar_one_or_none()
     if not template:
@@ -168,12 +170,13 @@ async def get_template(
 async def update_template(
     template_id: uuid.UUID,
     updates: dict,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a prompt template."""
     result = await db.execute(
-        select(PromptTemplate).where(PromptTemplate.id == template_id)
+        select(PromptTemplate).where(PromptTemplate.id == template_id, PromptTemplate.team_id == team_id)
     )
     template = result.scalar_one_or_none()
     if not template:
@@ -195,12 +198,13 @@ async def update_template(
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
     template_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a prompt template."""
     result = await db.execute(
-        select(PromptTemplate).where(PromptTemplate.id == template_id)
+        select(PromptTemplate).where(PromptTemplate.id == template_id, PromptTemplate.team_id == team_id)
     )
     template = result.scalar_one_or_none()
     if not template:
@@ -316,12 +320,13 @@ async def delete_content_template(
 @router.get("/{workflow_id}", response_model=GeneratedWorkflowResponse)
 async def get_workflow(
     workflow_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single generated workflow by ID."""
     result = await db.execute(
-        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id)
     )
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -332,12 +337,13 @@ async def get_workflow(
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
     workflow_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a generated workflow."""
     result = await db.execute(
-        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id)
     )
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -349,12 +355,13 @@ async def delete_workflow(
 @router.post("/{workflow_id}/undeploy")
 async def undeploy_workflow(
     workflow_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Undeploy a workflow from n8n (deactivate + remove)."""
     result = await db.execute(
-        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id)
+        select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id)
     )
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -657,10 +664,11 @@ async def import_cloudless_carousel(
 @router.post("/deploy/{workflow_id}")
 async def deploy_workflow(
     workflow_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id))
     workflow = result.scalar_one_or_none()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -688,10 +696,11 @@ async def deploy_workflow(
 async def execute_workflow(
     workflow_id: uuid.UUID,
     data: dict | None = None,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id))
     workflow = result.scalar_one_or_none()
     if not workflow or not workflow.n8n_workflow_id:
         raise HTTPException(status_code=404, detail="Workflow not found or not deployed")
@@ -718,11 +727,12 @@ async def execute_workflow(
 async def get_workflow_executions(
     workflow_id: uuid.UUID,
     limit: int = 10,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch recent n8n execution history for a deployed workflow."""
-    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
+    result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id))
     workflow = result.scalar_one_or_none()
     if not workflow or not workflow.n8n_workflow_id:
         return []

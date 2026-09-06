@@ -35,7 +35,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_field, decrypt_token, encrypt_field
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember
@@ -200,9 +200,15 @@ def _get_browser_bridge_client() -> BrowserBridgeClient:
 
 
 def _get_instagram_session_id(account: SocialAccount) -> str | None:
-    """Retrieve a stored Instagram private API session ID."""
+    """Retrieve a stored Instagram private API session ID (decrypting if needed)."""
     meta = _get_meta(account)
-    return meta.get("private_api_session_id")
+    return decrypt_field(meta.get("private_api_session_id"))
+
+
+def _set_instagram_session_id(account: SocialAccount, session_id: str) -> None:
+    """Encrypt and store an Instagram private API session ID."""
+    meta = _get_meta(account)
+    meta["private_api_session_id"] = encrypt_field(session_id)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -380,15 +386,15 @@ async def platform_login(
         challenge = result.get("challenge_required", False)
 
         if session_id and not two_factor and not challenge:
-            meta = _get_meta(account)
-            meta["private_api_session_id"] = session_id
+            _set_instagram_session_id(account, session_id)
             # Also save settings for session restore
             try:
                 settings = await client.get_settings(session_id)
+                meta = _get_meta(account)
                 meta["private_api_settings"] = settings
             except Exception:
                 pass
-            account.meta_data = meta
+            account.meta_data = _get_meta(account)
             # meta is the same object loaded from the JSONB column — without
             # flag_modified SQLAlchemy sees no change and persists nothing.
             flag_modified(account, "meta_data")
@@ -1765,11 +1771,12 @@ async def import_instagram_session_from_browser(
     )
     account = result.scalar_one_or_none()
     if account:
-        meta = dict(account.meta_data or {})
-        meta["private_api_session_id"] = sidecar_session_id
+        _set_instagram_session_id(account, sidecar_session_id)
         # Also save the raw sessionid cookie for reference
+        meta = _get_meta(account)
         meta["instagram_sessionid_cookie"] = sessionid
         account.meta_data = meta
+        flag_modified(account, "meta_data")
         await db.commit()
 
     return {
@@ -1816,8 +1823,8 @@ async def set_instagram_web_session(
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
 
-    meta = dict(account.meta_data or {})
-    meta["private_api_session_id"] = body.sessionid
+    _set_instagram_session_id(account, body.sessionid)
+    meta = _get_meta(account)
     meta["private_api_csrf_token"] = body.csrftoken
     meta["private_api_ds_user_id"] = body.ds_user_id
     meta["private_api_login_type"] = "web_session"
@@ -1852,8 +1859,8 @@ async def get_instagram_web_session_status(
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
 
-    meta = dict(account.meta_data or {})
-    sessionid = meta.get("private_api_session_id")
+    sessionid = _get_instagram_session_id(account)
+    meta = _get_meta(account)
     csrftoken = meta.get("private_api_csrf_token")
     ds_user_id = meta.get("private_api_ds_user_id")
 

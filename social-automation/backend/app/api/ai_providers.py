@@ -337,7 +337,7 @@ async def get_usage_summary(
     # Daily neuron totals + budget
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     daily_row = await db.execute(
-        func.select(
+        select(
             func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)
         ).where(
             AIUsageLog.team_id == team.id,

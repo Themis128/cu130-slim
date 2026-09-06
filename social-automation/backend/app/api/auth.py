@@ -932,14 +932,13 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         )
 
     # Encode state with PKCE verifier so the callback can use it for token exchange
-    import base64 as _b64enc
-    import json as _jsonenc
+    # State is HMAC-signed to prevent CSRF and tampering.
+    from app.core.security import sign_oauth_state
+
+    state_payload: dict = {"t": str(team_id)}
     if code_verifier:
-        state = _b64enc.urlsafe_b64encode(
-            _jsonenc.dumps({"t": str(team_id), "cv": code_verifier}).encode()
-        ).rstrip(b"=").decode()
-    else:
-        state = str(team_id)
+        state_payload["cv"] = code_verifier
+    state = sign_oauth_state(state_payload)
 
     authorization_url = await client.get_authorization_url(
         redirect_uri,
@@ -992,16 +991,14 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail=f"OAuth error from {platform}: {error} — {error_description}")
     if not code:
         raise HTTPException(status_code=400, detail=f"No authorization code returned by {platform}")
-    # Decode state — may be plain UUID or base64-JSON with PKCE verifier
-    try:
-        import base64 as _b64
-        import json as _json
-        _data = _json.loads(_b64.urlsafe_b64decode(state + "==").decode())
-        team_id = uuid.UUID(_data["t"])
-        code_verifier: str | None = _data.get("cv")
-    except Exception:
-        team_id = uuid.UUID(state)
-        code_verifier = None
+    # Verify signed state — reject unsigned/legacy state for security
+    from app.core.security import verify_oauth_state
+
+    state_data = verify_oauth_state(state)
+    if state_data is None:
+        raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
+    team_id = uuid.UUID(state_data["t"])
+    code_verifier: str | None = state_data.get("cv")
 
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
@@ -1426,8 +1423,9 @@ async def instagram2_authorize(
     if not settings.INSTAGRAM2_CLIENT_ID:
         raise HTTPException(status_code=400, detail="Instagram Business Login not configured (INSTAGRAM2_CLIENT_ID missing)")
 
-    state = json.dumps({"t": str(team_id)})
-    state_b64 = base64.urlsafe_b64encode(state.encode()).rstrip(b"=").decode()
+    from app.core.security import sign_oauth_state
+
+    state_b64 = sign_oauth_state({"t": str(team_id)})
 
     scope = "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages"
     auth_url = (
@@ -1455,12 +1453,13 @@ async def instagram2_callback(
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code returned by Instagram")
 
-    # Decode state
-    try:
-        state_data = json.loads(base64.urlsafe_b64decode(state + "==").decode())
-        team_id = uuid.UUID(state_data["t"])
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
+    # Verify signed state
+    from app.core.security import verify_oauth_state
+
+    state_data = verify_oauth_state(state)
+    if state_data is None:
+        raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
+    team_id = uuid.UUID(state_data["t"])
 
     async with httpx.AsyncClient(timeout=15.0) as http:
         # Exchange code for short-lived user token

@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
@@ -176,7 +177,9 @@ MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
+@limiter.limit("10/minute")
 async def transcribe_audio(
+    request: Request,
     file: UploadFile = File(..., description="Audio upload (WAV, MP3, M4A, OGG…)"),
     model: str | None = Form(None, description="Workers AI STT model id, e.g. @cf/openai/whisper"),
     current_user: User = Depends(get_current_user),

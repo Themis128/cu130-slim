@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
@@ -396,9 +397,9 @@ class MediaAssetUpdateRequest(BaseModel):
 
 
 @router.get("/assets/{asset_id}", response_model=MediaAssetResponse)
-async def get_media(asset_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(MediaAsset).where(MediaAsset.id == asset_id)
+        select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -410,11 +411,12 @@ async def get_media(asset_id: uuid.UUID, current_user: User = Depends(get_curren
 async def update_media(
     asset_id: uuid.UUID,
     body: MediaAssetUpdateRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(MediaAsset).where(MediaAsset.id == asset_id)
+        select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -439,8 +441,8 @@ async def update_media(
 
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_media(asset_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))
+async def delete_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id))
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -707,6 +709,16 @@ async def complete_upload(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
+    # Validate that the uploaded object key belongs to this team to
+    # prevent users from completing uploads for arbitrary keys they do
+    # not own. R2/MinIO keys are formatted as ``{team_id}/{date}/{file}``.
+    expected_prefix = f"{team.id}/"
+    if not body.key.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=403,
+            detail="Upload key does not belong to your team",
+        )
+
     corrected_alt = await correct_text(body.alt_text)
     corrected_tags = await correct_tags(body.tags or [])
     public_url = r2_presigned._public_url(body.key)
@@ -834,11 +846,12 @@ async def list_collections(
 @router.get("/collections/{collection_id}", response_model=MediaCollectionResponse)
 async def get_collection(
     collection_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(MediaCollection).where(MediaCollection.id == collection_id)
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
     )
     collection = result.scalar_one_or_none()
     if not collection:
@@ -856,11 +869,12 @@ async def get_collection(
 async def update_collection(
     collection_id: uuid.UUID,
     body: MediaCollectionUpdateRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(MediaCollection).where(MediaCollection.id == collection_id)
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
     )
     collection = result.scalar_one_or_none()
     if not collection:
@@ -887,11 +901,12 @@ async def update_collection(
 @router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_collection(
     collection_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(MediaCollection).where(MediaCollection.id == collection_id)
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
     )
     collection = result.scalar_one_or_none()
     if not collection:
@@ -935,6 +950,7 @@ async def add_asset_to_collection(
 async def remove_asset_from_collection(
     collection_id: uuid.UUID,
     asset_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -942,6 +958,7 @@ async def remove_asset_from_collection(
         select(MediaAsset).where(
             MediaAsset.id == asset_id,
             MediaAsset.collection_id == collection_id,
+            MediaAsset.team_id == team_id,
         )
     )
     asset = result.scalar_one_or_none()

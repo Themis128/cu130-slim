@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
+from app.api.deps import TeamId
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
@@ -230,11 +231,11 @@ async def get_calendar(
 
 
 @router.get("/posts/{post_id}", response_model=PostResponse)
-async def get_post(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Post)
         .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
-        .where(Post.id == post_id)
+        .where(Post.id == post_id, Post.team_id == team_id)
     )
     post = result.scalar_one_or_none()
     if not post:
@@ -244,9 +245,9 @@ async def get_post(post_id: uuid.UUID, current_user: User = Depends(get_current_
 
 
 @router.patch("/posts/{post_id}", response_model=PostResponse)
-async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_post(post_id: uuid.UUID, post_data: PostUpdate, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Post).where(Post.id == post_id).options(selectinload(Post.targets))
+        select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets))
     )
     post = result.scalar_one_or_none()
     if not post:
@@ -289,8 +290,8 @@ async def update_post(post_id: uuid.UUID, post_data: PostUpdate, current_user: U
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: uuid.UUID, current_user: User = Depends(require_editor), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Post).where(Post.id == post_id))
+async def delete_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(require_editor), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -307,7 +308,7 @@ async def delete_post(post_id: uuid.UUID, current_user: User = Depends(require_e
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)
-async def schedule_post(post_id: uuid.UUID, scheduled_at: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def schedule_post(post_id: uuid.UUID, scheduled_at: str, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     # Parse ISO 8601 string, support Z suffix
     try:
         if scheduled_at.endswith('Z'):
@@ -316,7 +317,7 @@ async def schedule_post(post_id: uuid.UUID, scheduled_at: str, current_user: Use
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid datetime format")
 
-    result = await db.execute(select(Post).where(Post.id == post_id))
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -330,10 +331,10 @@ async def schedule_post(post_id: uuid.UUID, scheduled_at: str, current_user: Use
 
 
 @router.post("/posts/{post_id}/publish-now", response_model=PostResponse)
-async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.worker.tasks.publishing import process_publish_queue, publish_post_now
 
-    result = await db.execute(select(Post).where(Post.id == post_id).options(selectinload(Post.targets)))
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets)))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -342,7 +343,7 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
     try:
         from app.models.brand import Brand, BrandVoice
         from app.services.brand_compliance import score_brand_compliance
-        brand_result = await db.execute(select(Brand).where(Brand.team_id == current_user.team_id))
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
         brand = brand_result.scalars().first()
         if brand:
             voice_result = await db.execute(select(BrandVoice).where(BrandVoice.brand_id == brand.id))
@@ -395,8 +396,8 @@ async def publish_now(post_id: uuid.UUID, current_user: User = Depends(get_curre
 
 
 @router.post("/posts/{post_id}/duplicate", response_model=PostResponse)
-async def duplicate_post(post_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Post).where(Post.id == post_id).options(selectinload(Post.targets)))
+async def duplicate_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets)))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -439,6 +440,7 @@ class CrossPostRequest(BaseModel):
 async def cross_post_to_platform(
     post_id: uuid.UUID,
     request: CrossPostRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -450,7 +452,7 @@ async def cross_post_to_platform(
     the first active account on ``target_platform`` for the team is used.
     """
     result = await db.execute(
-        select(Post).where(Post.id == post_id).options(selectinload(Post.targets))
+        select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets))
     )
     post = result.scalar_one_or_none()
     if not post:

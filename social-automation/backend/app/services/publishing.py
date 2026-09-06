@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_field, decrypt_token
 from app.models.content import MediaAsset, Post
 from app.models.social_account import SocialAccount
 from app.services.facebook_api import FacebookAPIClient
@@ -869,7 +869,7 @@ async def _publish_instagram_via_web(
     Videos are not yet supported via this path.
     """
     meta = account.meta_data or {}
-    session_id = meta.get("private_api_session_id")
+    session_id = decrypt_field(meta.get("private_api_session_id"))
     csrf_token = meta.get("private_api_csrf_token")
     ds_user_id = meta.get("private_api_ds_user_id")
     if not session_id or not csrf_token or not ds_user_id:
@@ -1047,7 +1047,7 @@ async def _publish_instagram_via_sidecar(
     Uses local file paths (uploads volume mounted in the sidecar at /uploads).
     """
     meta = account.meta_data or {}
-    session_id = meta.get("private_api_session_id")
+    session_id = decrypt_field(meta.get("private_api_session_id"))
     if not session_id:
         return PublishResult(
             success=False,
@@ -1295,12 +1295,13 @@ async def _publish_instagram(
             return ig_result
         logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
 
+    _decrypted_session = decrypt_field(meta.get("private_api_session_id"))
     has_web_session = bool(
-        meta.get("private_api_session_id")
+        _decrypted_session
         and meta.get("private_api_csrf_token")
         and meta.get("private_api_ds_user_id")
     )
-    has_sidecar_session = bool(meta.get("private_api_session_id"))
+    has_sidecar_session = bool(_decrypted_session)
     web_result: PublishResult | None = None
 
     # 2. Web API (rupload_igphoto)
