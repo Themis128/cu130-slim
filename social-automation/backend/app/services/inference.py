@@ -1800,6 +1800,9 @@ async def _call_dmr_chat(
     user_msg = prompt
     if schema:
         user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
+        # Qwen3 reasoning models support /no_think to skip the chain-of-thought
+        # phase and produce structured output directly — 10x faster on CPU.
+        user_msg += " /no_think"
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]
     payload: dict = {"model": model, "messages": messages, "temperature": 0.7}
@@ -1808,15 +1811,16 @@ async def _call_dmr_chat(
     if max_tokens:
         payload["max_tokens"] = max_tokens
     else:
-        payload["max_tokens"] = 1024
+        payload["max_tokens"] = 4096
     if schema:
         payload["response_format"] = {"type": "json_object"}
 
-    # DMR may need extra time for cold-start (model load from disk to VRAM),
-    # but 300s is too long for the fallback chain — cap at 15s so Cloudflare
-    # can take over quickly when DMR is slow (e.g. CPU-only on WSL2).
+    # DMR may need extra time for cold-start (model load from disk to VRAM)
+    # and for structured JSON generation with the 7.6B model on CPU.
+    # Use 180s for schema/JSON requests (large output), 30s for plain text.
+    dmr_timeout = 180.0 if schema else 30.0
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=dmr_timeout) as client:
             resp = await client.post(
                 f"{settings.DMR_URL}/chat/completions",
                 headers={"Content-Type": "application/json"},

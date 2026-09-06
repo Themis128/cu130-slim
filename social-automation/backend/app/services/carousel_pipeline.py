@@ -23,6 +23,7 @@ from app.models.user import Team, User
 from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.duplicate_detector import is_duplicate
 from app.services.inference import (
+    _call_local_diffusers_txt2img,
     _call_workers_ai_image,
     call_inference,
 )
@@ -551,11 +552,15 @@ async def _cf_generate_background(
     image_prompt: str,
     txt2img_model: str,
 ) -> Image.Image | None:
-    """Generate a unique realistic background via Cloudflare Workers AI only.
+    """Generate a unique realistic background.
+
+    DMR-first architecture:
+    1. local-diffusers (SD 1.5, GPU) — primary, high quality, ~5s per image
+    2. Cloudflare Workers AI (FLUX schnell) — fallback, free, 4 steps
+    3. None — brand canvas only (no photo background)
 
     Adds random photographic style and mood modifiers to ensure every generation
-    looks different, even for similar prompts. If CF is unavailable, returns None
-    and the slide is rendered on the brand canvas.
+    looks different, even for similar prompts.
     """
     style = random.choice(_PHOTO_STYLES)
     mood = random.choice(_MOODS)
@@ -564,8 +569,25 @@ async def _cf_generate_background(
         f"professional photography, high quality, sharp focus, "
         f"no text, no letters, no words, no watermark"
     )
-    raw_bytes = None
+    negative = "blurry, low quality, distorted, watermark, text, letters, words, ugly"
 
+    # 1) Try local-diffusers (GPU) first
+    try:
+        t2i_result = await _call_local_diffusers_txt2img(
+            prompt_t2i,
+            negative_prompt=negative,
+            width=512,
+            height=512,
+            steps=20,
+            cfg_scale=7.5,
+        )
+        raw_bytes = base64.b64decode(t2i_result["image_base64"])
+        logger.info("[carousel] background via local-diffusers (GPU)")
+        return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    except Exception as e:
+        logger.warning(f"[carousel] local-diffusers txt2img failed: {e}")
+
+    # 2) Fallback to Cloudflare Workers AI
     try:
         t2i_result = await _call_workers_ai_image(
             prompt_t2i,
@@ -573,17 +595,13 @@ async def _cf_generate_background(
             steps=4,
         )
         raw_bytes = base64.b64decode(t2i_result["image_base64"])
+        logger.info("[carousel] background via Cloudflare Workers AI (fallback)")
+        return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     except Exception as e:
         logger.warning(f"[carousel] CF txt2img failed (non-fatal): {e}")
 
-    if raw_bytes is None:
-        return None
-
-    try:
-        return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-    except Exception as e:
-        logger.info(f"[carousel] Could not decode image: {e}")
-        return None
+    # 3) No background — brand canvas only
+    return None
 
 
 async def generate_carousel_copy(
@@ -677,7 +695,7 @@ Return JSON only:
         team_id=team_id,
         schema=schema,
         model_override=text_model,
-        allow_fallback=False,  # CF-only per product rule — no DMR fallback for carousel
+        allow_fallback=True,  # DMR first → CF fallback
     )
 
 
@@ -720,10 +738,8 @@ async def run_cloudless_carousel_pipeline(
     if not account:
         raise HTTPException(status_code=400, detail=f"LinkedIn target account not found: {target_id}")
 
-    # 1) Copy — carousel structured JSON always uses CF; NLP/title use requested provider
-    # generate_carousel_copy enforces allow_fallback=False so it stays CF-only for quality.
-    # NLP rewrite and title generation use text_provider (DMR→CF fallback chain).
-    effective_provider = text_provider
+    # 1) Copy — carousel structured JSON uses CF Workers AI (primary) with DMR fallback.
+    # NLP rewrite and title generation use DMR ai/llama3.2 (primary) with CF fallback.
     if custom_slides:
         slides = list(custom_slides)[:num_slides]
         caption = custom_caption or "cloudless.gr — Clear skies. Zero friction."
@@ -732,13 +748,15 @@ async def run_cloudless_carousel_pipeline(
         from app.services.plain_english import NlpCheckReport
         nlp_report = NlpCheckReport(needs_fix=False, fixed=False, fields_rewritten=[], issues=[], duplicates={})
     else:
+        # Architecture: CF Workers AI is primary for carousel copy (0.5s vs 57-153s
+        # on DMR CPU). DMR ai/llama3.2 handles short NLP/title tasks in steps below.
         raw = await generate_carousel_copy(
             topic=topic,
             num_slides=num_slides,
             tone=tone,
             include_cta=include_cta,
-            text_model=text_model,
-            text_provider="cloudflare",  # CF-only for structured JSON quality
+            text_model=CF_TEXT_FREE,
+            text_provider="cloudflare",
             db=db,
             team_id=team.id,
         )
@@ -747,12 +765,13 @@ async def run_cloudless_carousel_pipeline(
         caption = raw.get("suggested_caption") or "We help small teams ship fast. cloudless.gr"
         hashtags = raw.get("hashtags") or ["cloudless", "serverless", "cloudnative", "startups", "smb"]
 
-        # 2) NLP checker + fixer (runs on both slides and caption)
+        # 2) NLP checker + fixer — DMR ai/llama3.2 primary (short prompts, ~30s)
+        #    CF fallback if DMR unavailable
         slides, caption, nlp_report = await run_nlp_check_and_fix(
             slides=slides,
             caption=caption,
-            provider_name=effective_provider,
-            model=text_model,
+            provider_name="dmr",  # DMR primary for short NLP tasks
+            model="ai/llama3.2",  # fast 3B model on CPU
             db=db,
             team_id=team.id,
             force_fix=True,
@@ -796,7 +815,8 @@ async def run_cloudless_carousel_pipeline(
         )
         slide_images.append(branded)
 
-    # 4) Generate AI title for the carousel
+    # 4) Generate AI title — DMR ai/llama3.2 primary (short prompt, ~15s)
+    #    CF fallback if DMR unavailable
     title_schema = {
         "type": "object",
         "properties": {
@@ -808,11 +828,11 @@ async def run_cloudless_carousel_pipeline(
     try:
         title_result = await call_inference(
             title_prompt,
-            provider_name=effective_provider,
+            provider_name="dmr",  # DMR primary for short title gen
             db=db,
             team_id=team.id,
             schema=title_schema,
-            model_override=text_model,
+            model_override="ai/llama3.2",  # fast 3B model
             allow_fallback=True,
         )
         ai_title = (title_result.get("title") or topic)[:80]

@@ -664,14 +664,15 @@ class TestProviderCatalog:
 
 
 # ===========================================================================
-# 8. generate_carousel_copy: CF-only enforcement
+# 8. generate_carousel_copy: CF primary with DMR fallback
 # ===========================================================================
 
 class TestCarouselCopyEnforcement:
 
     @pytest.mark.asyncio
-    async def test_carousel_copy_uses_allow_fallback_false(self, monkeypatch):
-        """generate_carousel_copy must call call_inference with allow_fallback=False."""
+    async def test_carousel_copy_uses_allow_fallback_true(self, monkeypatch):
+        """generate_carousel_copy must call call_inference with allow_fallback=True
+        so DMR can take over if CF is unavailable (architecture: CF primary, DMR fallback)."""
         from app.services import carousel_pipeline
 
         calls = []
@@ -693,30 +694,32 @@ class TestCarouselCopyEnforcement:
             team_id=None,
         )
         assert calls, "call_inference was never called"
-        assert calls[0]["allow_fallback"] is False, (
-            "Carousel copy must use allow_fallback=False (CF-only per product rule)"
+        assert calls[0]["allow_fallback"] is True, (
+            "Carousel copy must use allow_fallback=True (CF primary → DMR fallback)"
         )
 
     @pytest.mark.asyncio
-    async def test_carousel_copy_cf_failure_raises_immediately(self, monkeypatch):
-        """When CF fails and allow_fallback=False, error is raised — DMR is NOT tried."""
+    async def test_carousel_copy_cf_failure_falls_back_to_dmr(self, monkeypatch):
+        """When CF fails and allow_fallback=True, the fallback chain is enabled
+        so DMR can take over. We verify allow_fallback=True is passed."""
         from app.services import carousel_pipeline
 
-        providers_tried = []
+        calls = []
 
         async def fake_call_inference(prompt, *, provider_name="cloudflare", allow_fallback, **_kw):
-            providers_tried.append(provider_name)
-            raise HTTPException(status_code=502, detail="CF down")
+            calls.append({"provider_name": provider_name, "allow_fallback": allow_fallback})
+            return {"slides": [], "suggested_caption": "cap", "hashtags": []}
 
         monkeypatch.setattr(carousel_pipeline, "call_inference", fake_call_inference)
 
-        with pytest.raises(HTTPException) as exc:
-            await carousel_pipeline.generate_carousel_copy(
-                topic="AI", num_slides=5, tone="casual", include_cta=False,
-                text_model="@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-                text_provider="cloudflare",
-                db=MagicMock(),
-                team_id=None,
-            )
-        assert exc.value.status_code == 502
-        assert providers_tried == ["cloudflare"]  # DMR never tried
+        await carousel_pipeline.generate_carousel_copy(
+            topic="AI", num_slides=5, tone="casual", include_cta=False,
+            text_model="@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            text_provider="cloudflare",
+            db=MagicMock(),
+            team_id=None,
+        )
+        assert calls, "call_inference was never called"
+        assert calls[0]["allow_fallback"] is True, (
+            "Carousel copy must allow fallback so DMR can take over if CF fails"
+        )
