@@ -106,6 +106,10 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 - Carousel generation uses **Cloudflare Workers AI only**.
 - **Cloudflare-first, free-first** for all inference, storage, and databases; prefer Cloudflare Workers AI, R2, D1, KV, and Vectorize. Use local services (Postgres, Redis, Chroma, MinIO, Docker Model Runner) as failover.
 - **Database fallback chain**: D1 (Cloudflare, primary) → PostgreSQL (local, failover). The dual-write router (`app/services/db_router.py`) writes to D1 first, then Postgres. Circuit breaker opens after 3 D1 failures, routing to Postgres for 60s. Queued writes replay to D1 on recovery.
+- **Two PostgreSQL containers** (do not confuse them):
+  - `social-postgres` → DB `social_automation`, user `social_user` — SocialAuto app data (users, posts, media, accounts). This is the one `social-api` connects to via `DATABASE_URL`.
+  - `postgres` → DB `metabase`, user `metabase` — Metabase analytics warehouse only.
+- **Admin user seeding**: `init_db()` runs on `social-api` startup (FastAPI lifespan). If `SOCIAL_ADMIN_EMAIL` + `SOCIAL_ADMIN_PASSWORD` env vars are set, it creates the admin user if missing, re-hashes the password and syncs `name`/`timezone` on every startup (so `.env` rotations always take effect), and creates a default team. If login returns `{"detail":"Invalid credentials"}`, re-seed manually: `docker compose exec -T social-api python -c "import asyncio; from app.db.session import init_db; asyncio.run(init_db())"`. The login endpoint uses OAuth2 form data (`application/x-www-form-urlencoded`), not JSON.
 - **Cache fallback chain**: KV (Cloudflare, primary) → Redis (local, failover).
 - **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
 - **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.

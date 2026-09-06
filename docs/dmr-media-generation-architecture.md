@@ -54,6 +54,35 @@ fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB).
 | DMR CLI | `docker model status/list/run` | CLI only, no HTTP from host |
 | local-diffusers | Not accessible | No port mapped to host |
 
+## Databases
+
+Two separate PostgreSQL containers serve different purposes:
+
+| Container | DB | User | Purpose |
+|-----------|----|----|---------|
+| `social-postgres` | `social_automation` | `social_user` | SocialAuto app data (users, posts, media, accounts) |
+| `postgres` | `metabase` | `metabase` | Metabase analytics warehouse |
+
+**Admin user seeding:** `init_db()` runs on `social-api` startup (FastAPI lifespan).
+If `SOCIAL_ADMIN_EMAIL` and `SOCIAL_ADMIN_PASSWORD` env vars are set, it:
+1. Creates the admin user if missing.
+2. Re-hashes the password and syncs `name`/`timezone` on every startup
+   (so `.env` credential rotations always take effect).
+3. Creates a default team owned by the admin if no team membership exists.
+
+If login returns `{"detail":"Invalid credentials"}`:
+- Verify the `social-postgres` container is healthy (`docker compose ps social-postgres`).
+- Check the admin user exists:
+  `docker compose exec -T social-postgres psql -U social_user social_automation -c "SELECT email, name FROM users;"`
+- Re-seed manually:
+  `docker compose exec -T social-api python -c "import asyncio; from app.db.session import init_db; asyncio.run(init_db())"`
+- Verify env vars reach the container:
+  `docker compose exec -T social-api python -c "from app.core.config import settings; print(settings.SOCIAL_ADMIN_EMAIL)"`
+
+**Login endpoint:** `POST /api/v1/auth/login` uses OAuth2 form data
+(`application/x-www-form-urlencoded`), not JSON. Fields: `username` (email),
+`password`.
+
 ## Media Type Catalog
 
 ### 1. LinkedIn Carousel (PDF Infographic)
