@@ -493,13 +493,13 @@ async def auto_configure(
         quality_report = quality.to_dict()
 
     return AutoConfigureResponse(
-        task_type=str(result.get("task_type", "image")),
-        model=str(result.get("model", CF_TXT2IMG_FREE)),
-        steps=int(result.get("steps", 6)),
-        style=str(result.get("style", "photorealistic")),
-        platform=str(result.get("platform", "linkedin")),
-        tone=str(result.get("tone", "professional")),
-        num_slides=int(result.get("num_slides", 5)),
+        task_type=str(result.get("task_type") or "image"),
+        model=str(result.get("model") or CF_TXT2IMG_FREE),
+        steps=int(result.get("steps") or 6),
+        style=str(result.get("style") or "photorealistic"),
+        platform=str(result.get("platform") or "linkedin"),
+        tone=str(result.get("tone") or "professional"),
+        num_slides=int(result.get("num_slides") or 5),
         enhanced_prompt=enhanced_prompt,
         negative_prompt=negative_prompt,
         quality=quality_report,
