@@ -729,10 +729,10 @@ async def generate_image(
     # or text-heavy visual, generate a text-free background and overlay
     # correctly-spelled text via PIL. AI image models cannot spell.
     from app.services.infographic_renderer import (
-        is_infographic_request,
-        sanitize_prompt_for_background,
         generate_infographic_content,
+        is_infographic_request,
         render_infographic,
+        sanitize_prompt_for_background,
     )
 
     is_infographic = is_infographic_request(request.prompt)

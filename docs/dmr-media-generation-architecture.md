@@ -484,12 +484,14 @@ renderer solves this by:
 1. **Detecting** the request type via keyword matching (`infographic`,
    `poster`, `chart`, `statistics`, `timeline`, `checklist`, etc.)
 2. **Generating structured text content** via Cloudflare Workers AI LLM
-   (title, subtitle, sections with icon/heading/body, footer)
+   (title, subtitle, sections with heading/body, footer)
 3. **Sanitizing the prompt** to tell the AI image model NOT to render text
    (`NO TEXT, NO WORDS, NO LETTERS, NO WRITING, NO TYPOGRAPHY`)
 4. **Generating a text-free background** via the normal image pipeline
    (Local Diffusers → Cloudflare fallback)
 5. **Overlaying correctly-spelled text** via PIL with WorkSans fonts
+   — numbered cyan badge circles (1, 2, 3...) instead of emoji icons
+   (WorkSans doesn't support emoji glyphs)
    (same approach as `carousel_pipeline.py`)
 
 Service: `app/services/infographic_renderer.py`
