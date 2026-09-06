@@ -725,6 +725,36 @@ async def generate_image(
     if team:
         similar = await chroma_client.query_similar(str(team.id), enhanced_prompt, n_results=3)
 
+    # ── Infographic detection: if the prompt asks for an infographic, poster,
+    # or text-heavy visual, generate a text-free background and overlay
+    # correctly-spelled text via PIL. AI image models cannot spell.
+    from app.services.infographic_renderer import (
+        is_infographic_request,
+        sanitize_prompt_for_background,
+        generate_infographic_content,
+        render_infographic,
+    )
+
+    is_infographic = is_infographic_request(request.prompt)
+    infographic_content = None
+    gen_prompt = enhanced_prompt
+    gen_negative = request.negative_prompt
+    if is_infographic:
+        logger.info("[ai/generate-image] Infographic detected — generating text-free background + PIL text overlay")
+        try:
+            infographic_content = await generate_infographic_content(request.prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[ai/generate-image] Infographic content generation failed: {exc}")
+            is_infographic = False
+
+        if is_infographic:
+            gen_prompt = sanitize_prompt_for_background(enhanced_prompt)
+            gen_negative = (
+                f"{request.negative_prompt}, text, words, letters, writing, typography, labels"
+                if request.negative_prompt
+                else "text, words, letters, writing, typography, labels"
+            )
+
     provider_name = request.provider or "local-diffusers"
 
     if provider_name == "local-diffusers":
@@ -733,8 +763,8 @@ async def generate_image(
         result = None
         try:
             result = await _call_local_diffusers_txt2img(
-                prompt=enhanced_prompt,
-                negative_prompt=request.negative_prompt,
+                prompt=gen_prompt,
+                negative_prompt=gen_negative,
                 width=request.width,
                 height=request.height,
                 steps=request.steps,
@@ -760,10 +790,10 @@ async def generate_image(
                 )
             try:
                 result = await _call_workers_ai_image(
-                    prompt=enhanced_prompt,
+                    prompt=gen_prompt,
                     model=model,
                     api_key=api_key,
-                    negative_prompt=request.negative_prompt,
+                    negative_prompt=gen_negative,
                     width=request.width,
                     height=request.height,
                     steps=request.steps,
@@ -796,10 +826,10 @@ async def generate_image(
         result = None
         try:
             result = await _call_workers_ai_image(
-                prompt=enhanced_prompt,
+                prompt=gen_prompt,
                 model=model,
                 api_key=api_key,
-                negative_prompt=request.negative_prompt,
+                negative_prompt=gen_negative,
                 width=request.width,
                 height=request.height,
                 steps=request.steps,
@@ -833,6 +863,20 @@ async def generate_image(
             steps=request.steps,
         )
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+    # ── Infographic text overlay: composite correctly-spelled text via PIL.
+    if is_infographic and infographic_content:
+        try:
+            final_bytes = render_infographic(
+                infographic_content,
+                base64.b64decode(image_base64),
+                width=request.width or 1024,
+                height=request.height or 1024,
+            )
+            image_base64 = base64.b64encode(final_bytes).decode()
+            logger.info("[ai/generate-image] Infographic text overlay applied successfully")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[ai/generate-image] Infographic overlay failed, using raw background: {exc}")
 
     # Store prompt in chroma so future generations can detect duplicates
     if team and request.prompt:

@@ -569,13 +569,44 @@ async def generate_image(
     steps = opts.steps or 4
     cfg_scale = opts.cfg_scale or 7.5
 
+    # ── Infographic detection: if the prompt asks for an infographic, poster,
+    # or text-heavy visual, generate a text-free background and overlay
+    # correctly-spelled text via PIL. AI image models cannot spell.
+    from app.services.infographic_renderer import (
+        is_infographic_request,
+        sanitize_prompt_for_background,
+        generate_infographic_content,
+        render_infographic,
+    )
+
+    is_infographic = is_infographic_request(prompt)
+    infographic_content = None
+    bg_prompt = prompt
+    if is_infographic:
+        logger.info("[media/generate] Infographic detected — generating text-free background + PIL text overlay")
+        # Generate structured text content via LLM
+        try:
+            infographic_content = await generate_infographic_content(prompt, platform="instagram")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/generate] Infographic content generation failed: {exc}")
+            is_infographic = False
+
+        if is_infographic:
+            # Sanitize prompt: tell AI model to NOT render text
+            bg_prompt = sanitize_prompt_for_background(prompt)
+            negative_prompt = (
+                f"{negative_prompt}, text, words, letters, writing, typography, labels"
+                if negative_prompt
+                else "text, words, letters, writing, typography, labels"
+            )
+
     generated = None
 
     # 1. Local Diffusers (SD 1.5) — PRIMARY
     try:
         logger.info("[media/generate] Trying Local Diffusers (SD 1.5)")
         generated = await _call_local_diffusers_txt2img(
-            prompt=prompt,
+            prompt=bg_prompt,
             negative_prompt=negative_prompt,
             width=width,
             height=height,
@@ -593,7 +624,7 @@ async def generate_image(
         try:
             logger.info(f"[media/generate] Trying Cloudflare Workers AI ({cf_model})")
             generated = await _call_workers_ai_image(
-                prompt=prompt,
+                prompt=bg_prompt,
                 model=cf_model,
                 negative_prompt=negative_prompt,
                 width=width,
@@ -615,6 +646,20 @@ async def generate_image(
     image_b64 = generated.get("image_base64") or ""
     if not image_b64:
         raise HTTPException(status_code=502, detail="Image generation returned empty payload")
+
+    # ── Infographic text overlay: composite correctly-spelled text via PIL.
+    if is_infographic and infographic_content:
+        try:
+            final_bytes = render_infographic(
+                infographic_content,
+                base64.b64decode(image_b64),
+                width=width,
+                height=height,
+            )
+            image_b64 = base64.b64encode(final_bytes).decode()
+            logger.info("[media/generate] Infographic text overlay applied successfully")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/generate] Infographic overlay failed, using raw background: {exc}")
 
     # Record which provider generated this image
     gen_model = generated.get("model", "")
