@@ -137,7 +137,7 @@ class TestInfographicRendering:
         content = {
             "title": "Many Sections",
             "sections": [
-                {"icon": str(i), "heading": f"Section {i}", "body": f"Body {i}"}
+                {"icon": "📊", "heading": f"Section {i}", "body": f"Body {i}"}
                 for i in range(8)
             ],
         }

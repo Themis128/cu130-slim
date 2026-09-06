@@ -243,14 +243,12 @@ def render_infographic(
     sections = content.get("sections", [])
     section_font_h = _font(28, "semibold")
     section_font_b = _font(20, "regular")
-    icon_font = _font(32, "regular")
 
     section_y = title_y + 30
-    section_height = (height - section_y - 100) // max(len(sections), 1)
+    section_height = (height - section_y - 120) // max(len(sections), 1)
     section_height = min(section_height, 160)
 
     for i, section in enumerate(sections[:6]):
-        icon = _ascii_safe(section.get("icon", ""))
         heading = _ascii_safe(section.get("heading", ""))
         body = _ascii_safe(section.get("body", ""))
 
@@ -259,17 +257,30 @@ def render_infographic(
         card_rect = (margin, card_y, width - margin, card_y + section_height - 12)
         draw.rounded_rectangle(card_rect, radius=12, fill=(*CARD, 200))
 
-        # Icon
-        icon_x = margin + 20
-        icon_y = card_y + 18
-        draw.text((icon_x, icon_y), icon, font=icon_font, fill=ACCENT)
+        # Numbered badge (instead of emoji — WorkSans doesn't support emoji glyphs)
+        badge_num = str(i + 1)
+        badge_font = _font(24, "bold")
+        badge_size = 42
+        badge_x = margin + 20
+        badge_y = card_y + 18
+        draw.rounded_rectangle(
+            (badge_x, badge_y, badge_x + badge_size, badge_y + badge_size),
+            radius=10, fill=ACCENT,
+        )
+        # Center the number in the badge
+        num_w = draw.textlength(badge_num, font=badge_font)
+        draw.text(
+            (badge_x + (badge_size - num_w) / 2, badge_y + 6),
+            badge_num, font=badge_font, fill=BG,
+        )
 
         # Heading
-        heading_x = icon_x + 55
-        draw.text((heading_x, icon_y), heading, font=section_font_h, fill=TEXT_COL)
+        heading_x = badge_x + badge_size + 15
+        heading_y = badge_y + 4
+        draw.text((heading_x, heading_y), heading, font=section_font_h, fill=TEXT_COL)
 
         # Body (wrapped)
-        body_y = icon_y + int(section_font_h.size * 1.3)
+        body_y = heading_y + int(section_font_h.size * 1.3)
         max_body_width = width - heading_x - margin - 20
         _draw_wrapped_text(
             draw, body, (heading_x, body_y),
@@ -281,7 +292,7 @@ def render_infographic(
     footer = _ascii_safe(content.get("footer", ""))
     if footer:
         footer_font = _font(18, "regular")
-        footer_y = height - 50
+        footer_y = height - 70
         _draw_wrapped_text(
             draw, footer, (margin, footer_y),
             footer_font, SUB, width - 2 * margin, max_lines=2,
