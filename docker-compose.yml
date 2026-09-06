@@ -246,7 +246,9 @@ services:
     - N8N_SANDBOX_PORT=8081
     - N8N_SANDBOX_LOG_LEVEL=info
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ 2>/dev/null || exit 1"]
+      # Daemon serves /healthz (returns {"status":"ok"}); / returns wget RC 8,
+      # which permanently marked the container unhealthy despite working fine.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/healthz 2>/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
