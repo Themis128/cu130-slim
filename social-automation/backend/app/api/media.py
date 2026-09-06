@@ -595,9 +595,9 @@ async def generate_image(
             # Sanitize prompt: tell AI model to NOT render text
             bg_prompt = sanitize_prompt_for_background(prompt)
             negative_prompt = (
-                f"{negative_prompt}, text, words, letters, writing, typography, labels"
+                f"{negative_prompt}, text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
                 if negative_prompt
-                else "text, words, letters, writing, typography, labels"
+                else "text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
             )
 
     generated = None

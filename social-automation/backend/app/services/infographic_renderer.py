@@ -94,12 +94,15 @@ def sanitize_prompt_for_background(prompt: str) -> str:
     AI image models garble text. We ask for a clean background with space
     for text overlay, then render the text ourselves via PIL.
     """
-    # Remove explicit text requests and add anti-text instructions
+    # Remove explicit text requests and add anti-text instructions.
+    # The stronger the anti-text directives, the less garbled text bleeds
+    # through the overlay.
     return (
-        f"{prompt}, clean minimalist background design with large empty spaces "
-        f"for text overlay, NO TEXT, NO WORDS, NO LETTERS, NO WRITING, "
-        f"NO TYPOGRAPHY, abstract decorative elements only, "
-        f"professional dark blue corporate style"
+        f"{prompt}, clean minimalist abstract background design with large "
+        f"empty spaces for text overlay, absolutely NO TEXT NO WORDS NO LETTERS "
+        f"NO WRITING NO TYPOGRAPHY NO NUMBERS NO LABELS NO SIGNS NO CHARACTERS, "
+        f"abstract decorative geometric elements only, solid dark blue areas, "
+        f"professional corporate style, blank canvas"
     )
 
 
@@ -170,6 +173,57 @@ Return JSON with exactly:
     return result
 
 
+def _create_gradient_background(width: int, height: int) -> Image.Image:
+    """Create a procedurally generated gradient background with brand colors.
+
+    This guarantees zero text artifacts — no AI model is involved in the
+    background. Uses a diagonal gradient from dark navy to near-black with
+    subtle accent glow orbs (same brand palette as carousel_pipeline).
+
+    Based on the approach from the Intelligent Poster Generation Engine paper:
+    backgrounds computed mathematically using color interpolation and
+    pixel-level rendering ensure unique, professional visuals with no
+    garbled text.
+    """
+    img = Image.new("RGB", (width, height), BG)
+    px = img.load()
+
+    # Diagonal gradient: top-left = dark navy, bottom-right = near-black
+    for y in range(height):
+        for x in range(width):
+            t = (x + y) / (width + height)
+            # Blend BG (#0f0f17) toward a slightly darker tone
+            r = int(BG[0] * (1 - t * 0.3))
+            g = int(BG[1] * (1 - t * 0.3))
+            b = int(BG[2] * (1 - t * 0.3))
+            px[x, y] = (r, g, b)
+
+    # Add subtle accent glow orbs for visual depth (no text, no artifacts)
+    draw = ImageDraw.Draw(img, "RGBA")
+    orbs = [
+        # (cx, cy, radius, color, alpha)
+        (width * 0.85, height * 0.15, 200, (0, 255, 245, 15)),    # top-right cyan
+        (width * 0.15, height * 0.85, 250, (255, 100, 40, 12)),   # bottom-left orange
+        (width * 0.90, height * 0.90, 150, (0, 255, 245, 8)),     # bottom-right cyan
+        (width * 0.10, height * 0.20, 120, (100, 80, 200, 10)),   # top-left purple
+    ]
+    for cx, cy, r, color in orbs:
+        for radius in range(int(r), 0, -2):
+            alpha = int(color[3] * (1 - radius / r) * 0.5)
+            draw.ellipse(
+                (cx - radius, cy - radius, cx + radius, cy + radius),
+                fill=(color[0], color[1], color[2], alpha),
+            )
+
+    # Subtle dot grid for texture (same as carousel_pipeline)
+    step = 54
+    for gx in range(0, width, step):
+        for gy in range(0, height, step):
+            draw.ellipse((gx - 1, gy - 1, gx + 1, gy + 1), fill=GRID)
+
+    return img
+
+
 def render_infographic(
     content: dict[str, Any],
     background_bytes: bytes,
@@ -180,21 +234,36 @@ def render_infographic(
 
     Args:
         content: Structured content from generate_infographic_content.
-        background_bytes: PNG/JPEG bytes of the text-free background.
+        background_bytes: PNG/JPEG bytes of the text-free background (used as
+            subtle texture only — a procedural gradient is drawn on top to
+            guarantee zero text bleed-through from the AI model).
         width: Output image width.
         height: Output image height.
 
     Returns:
         PNG bytes of the finished infographic with correctly-spelled text.
     """
-    # Load and resize background to target dimensions
-    bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
-    bg = bg.resize((width, height), Image.LANCZOS)
+    # Create a procedurally generated gradient background. This completely
+    # eliminates the text bleed-through problem — no AI-generated text can
+    # appear because the background is computed mathematically.
+    # The AI background_bytes are used only as a faint texture layer (15% opacity)
+    # to add subtle color variation on top of the gradient.
+    img = _create_gradient_background(width, height)
 
-    # Darken the background for text readability (60% opacity dark overlay)
-    overlay = Image.new("RGBA", (width, height), (*BG, 180))
-    composited = Image.alpha_composite(bg, overlay)
-    img = composited.convert("RGB")
+    # Optionally blend the AI background as a very faint texture (15% opacity)
+    # for subtle color variation. This is safe — any AI text is fully obscured.
+    if background_bytes:
+        try:
+            bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
+            bg = bg.resize((width, height), Image.LANCZOS)
+            # Apply a heavy blur to eliminate any text features, then blend at 15%
+            bg = bg.filter(Image.GaussianBlur(radius=30))
+            bg.putalpha(38)  # 15% opacity
+            img = Image.alpha_composite(img.convert("RGBA"), bg).convert("RGB")
+        except Exception:
+            # If background loading fails, just use the pure gradient
+            pass
+
     draw = ImageDraw.Draw(img)
 
     # ── Header ────────────────────────────────────────────────────────────────
@@ -289,14 +358,19 @@ def render_infographic(
         )
 
     # ── Footer ────────────────────────────────────────────────────────────────
-    footer = _ascii_safe(content.get("footer", ""))
-    if footer:
-        footer_font = _font(18, "regular")
-        footer_y = height - 70
-        _draw_wrapped_text(
-            draw, footer, (margin, footer_y),
-            footer_font, SUB, width - 2 * margin, max_lines=2,
-        )
+    # Always show the brand URL; append LLM-generated footer text if any.
+    footer_text = _ascii_safe(content.get("footer", ""))
+    footer_line = "cloudless.gr"
+    if footer_text and "cloudless" not in footer_text.lower():
+        footer_line = f"{footer_text} — cloudless.gr"
+    elif footer_text:
+        footer_line = footer_text
+    footer_font = _font(18, "regular")
+    footer_y = height - 70
+    _draw_wrapped_text(
+        draw, footer_line, (margin, footer_y),
+        footer_font, SUB, width - 2 * margin, max_lines=2,
+    )
 
     # Export as PNG
     buf = io.BytesIO()

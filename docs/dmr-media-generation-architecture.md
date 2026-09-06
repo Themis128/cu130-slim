@@ -485,14 +485,27 @@ renderer solves this by:
    `poster`, `chart`, `statistics`, `timeline`, `checklist`, etc.)
 2. **Generating structured text content** via Cloudflare Workers AI LLM
    (title, subtitle, sections with heading/body, footer)
-3. **Sanitizing the prompt** to tell the AI image model NOT to render text
-   (`NO TEXT, NO WORDS, NO LETTERS, NO WRITING, NO TYPOGRAPHY`)
-4. **Generating a text-free background** via the normal image pipeline
-   (Local Diffusers → Cloudflare fallback)
+3. **Generating a text-free background** via the normal image pipeline
+   (Local Diffusers → Cloudflare fallback) with anti-text negative prompts
+4. **Creating a procedural gradient background** via PIL (diagonal gradient
+   + accent glow orbs + dot grid) — this **completely eliminates** text
+   bleed-through from the AI model. The AI background is used only as a
+   faint (15% opacity, Gaussian-blurred) texture layer for color variation.
 5. **Overlaying correctly-spelled text** via PIL with WorkSans fonts
    — numbered cyan badge circles (1, 2, 3...) instead of emoji icons
    (WorkSans doesn't support emoji glyphs)
    (same approach as `carousel_pipeline.py`)
+
+> **Why procedural backgrounds?** AI image models (SD 1.5, FLUX) cannot
+> reliably avoid generating text — even with "NO TEXT" instructions, they
+> produce garbled characters that bleed through dark overlays. The
+> [Intelligent Poster Generation Engine paper](http://ijdim.com/journal/index.php/ijdim/article/download/500/464)
+> confirms that mathematically computed backgrounds (gradients, radial
+> flows, patterns) are the correct approach for text-heavy designs.
+> [Ideogram 2.0](https://ideogram.ai/features/text-rendering/) achieves 95%
+> text accuracy but is a paid API outside our Cloudflare-first architecture.
+> [BizGen (CVPR 2025)](https://bizgen-msra.github.io/) uses layout-guided
+> cross-attention but is not available as an API.
 
 Service: `app/services/infographic_renderer.py`
 
@@ -551,21 +564,22 @@ available version of each text field is returned with a diagnostic report.
 flowchart TD
     A[User request: prompt + options] --> B{Infographic detected?}
     B -->|Yes| C[Generate structured text via CF Workers AI LLM]
-    C --> D[Sanitize prompt: NO TEXT, NO WORDS]
-    D --> E[Generate text-free background]
+    C --> D[Generate AI background with anti-text prompt]
+    D --> E{Local Diffusers SD 1.5}
     B -->|No| E
-    E --> F{Local Diffusers SD 1.5}
-    F -->|Success| G[Background image bytes]
-    F -->|Failure| H{Cloudflare Workers AI FLUX}
-    H -->|Success| G
-    H -->|Failure| I[HTTP 502: All providers exhausted]
-    G --> J{Infographic?}
-    J -->|Yes| K[PIL text overlay with WorkSans fonts]
-    K --> L[Final image with correct spelling]
-    J -->|No| L
-    L --> M[Persist to media_assets + R2]
-    M --> N[Quality pipeline: spellcheck + NLP + SEO]
-    N --> O[Return asset + quality report]
+    E -->|Success| F[Background image bytes]
+    E -->|Failure| G{Cloudflare Workers AI FLUX}
+    G -->|Success| F
+    G -->|Failure| H[HTTP 502: All providers exhausted]
+    F --> I{Infographic?}
+    I -->|Yes| J[Procedural gradient background via PIL]
+    J --> K[Blend AI bg as 15% texture + blur]
+    K --> L[PIL text overlay with WorkSans fonts]
+    L --> M[Final image with correct spelling]
+    I -->|No| M
+    M --> N[Persist to media_assets + R2]
+    N --> O[Quality pipeline: spellcheck + NLP + SEO]
+    O --> P[Return asset + quality report]
 ```
 
 ## Monitoring

@@ -74,7 +74,7 @@ class TestPromptSanitization:
 
     def test_adds_minimalist_background(self):
         result = sanitize_prompt_for_background("poster for event")
-        assert "clean minimalist background" in result
+        assert "clean minimalist" in result
         assert "empty spaces for text overlay" in result
 
 
@@ -128,6 +128,7 @@ class TestInfographicRendering:
             "sections": [
                 {"icon": "✅", "heading": "Check", "body": "Done."},
             ],
+            # Footer is always shown (defaults to cloudless.gr brand URL)
         }
         bg = self._make_background()
         result = render_infographic(content, bg)

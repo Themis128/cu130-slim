@@ -750,9 +750,9 @@ async def generate_image(
         if is_infographic:
             gen_prompt = sanitize_prompt_for_background(enhanced_prompt)
             gen_negative = (
-                f"{request.negative_prompt}, text, words, letters, writing, typography, labels"
+                f"{request.negative_prompt}, text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
                 if request.negative_prompt
-                else "text, words, letters, writing, typography, labels"
+                else "text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
             )
 
     provider_name = request.provider or "local-diffusers"
