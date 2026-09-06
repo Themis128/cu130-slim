@@ -375,3 +375,157 @@ class TestCeleryMediaEnhanceRegistration:
         import app.worker.tasks.media_enhance  # noqa: F401
         from app.worker.celery_app import celery_app
         assert "app.worker.tasks.media_enhance.batch_enhance_task" in celery_app.tasks
+
+
+# ===========================================================================
+# 8. Prompt-enhance and auto-configure quality coverage
+# ===========================================================================
+
+class TestPromptEnhanceQuality:
+    """Verify that /ai/generate-image-prompt runs the quality pipeline."""
+
+    def test_response_model_has_quality_field(self):
+        """GenerateImagePromptResponse must have a quality field."""
+        from app.api.ai import GenerateImagePromptResponse
+        fields = GenerateImagePromptResponse.model_fields
+        assert "quality" in fields
+
+    @pytest.mark.asyncio
+    async def test_quality_pipeline_called_on_enhanced_prompt(self, monkeypatch):
+        """The enhanced prompt must pass through apply_media_quality."""
+        from app.api import ai as ai_module
+
+        # Mock call_inference to return a jargon-heavy prompt
+        async def fake_inference(*_a, **_kw):
+            return {
+                "prompt": "Leverage scalable solutions for digital transformation",
+                "negative_prompt": "blurry, low quality, watermark",
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # Mock the quality pipeline to track it was called
+        quality_called = []
+
+        async def fake_quality(**kwargs):
+            quality_called.append(kwargs)
+            from app.services.media_quality import MediaQualityResult
+            return MediaQualityResult(
+                prompt="Use scalable solutions for digital transformation",
+                negative_prompt="blurry, low quality, watermark",
+                caption="Use scalable solutions for digital transformation",
+                spellcheck_applied=True,
+            )
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fake_quality,
+        )
+
+        result = await ai_module.generate_image_prompt(
+            ai_module.GenerateImagePromptRequest(description="test", style="photorealistic"),
+            current_user=MagicMock(),
+        )
+
+        assert len(quality_called) == 1
+        assert quality_called[0]["prompt"] == "Leverage scalable solutions for digital transformation"
+        # The returned prompt should be the quality-corrected version
+        assert "Leverage" not in result.prompt
+        assert result.quality is not None
+        assert result.quality["spellcheck_applied"] is True
+
+
+class TestAutoConfigureQuality:
+    """Verify that /ai/auto-configure runs the quality pipeline."""
+
+    def test_response_model_has_quality_field(self):
+        """AutoConfigureResponse must have a quality field."""
+        from app.api.ai import AutoConfigureResponse
+        fields = AutoConfigureResponse.model_fields
+        assert "quality" in fields
+
+    @pytest.mark.asyncio
+    async def test_quality_pipeline_called_on_enhanced_prompt(self, monkeypatch):
+        """The auto-configured enhanced_prompt must pass through apply_media_quality."""
+        from app.api import ai as ai_module
+
+        # Mock call_inference to return config with a jargon-heavy enhanced_prompt
+        async def fake_inference(*_a, **_kw):
+            return {
+                "task_type": "image",
+                "model": "@cf/black-forest-labs/flux-1-schnell",
+                "steps": 6,
+                "style": "photorealistic",
+                "platform": "linkedin",
+                "tone": "professional",
+                "num_slides": 5,
+                "enhanced_prompt": "Leverage synergistic paradigms for digital transformation",
+                "negative_prompt": "blurry, low quality",
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # Mock the quality pipeline
+        quality_called = []
+
+        async def fake_quality(**kwargs):
+            quality_called.append(kwargs)
+            from app.services.media_quality import MediaQualityResult
+            return MediaQualityResult(
+                prompt="Use synergistic paradigms for digital transformation",
+                negative_prompt="blurry, low quality",
+                caption="Use synergistic paradigms for digital transformation",
+                spellcheck_applied=True,
+            )
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fake_quality,
+        )
+
+        result = await ai_module.auto_configure(
+            ai_module.AutoConfigureRequest(prompt="test", context="image"),
+            current_user=MagicMock(),
+        )
+
+        assert len(quality_called) == 1
+        assert "Leverage" not in (result.enhanced_prompt or "")
+        assert result.quality is not None
+        assert result.quality["spellcheck_applied"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_quality_when_no_enhanced_prompt(self, monkeypatch):
+        """When auto-configure returns no enhanced_prompt, quality is None."""
+        from app.api import ai as ai_module
+
+        async def fake_inference(*_a, **_kw):
+            return {
+                "task_type": "text",
+                "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                "steps": 6,
+                "style": "professional",
+                "platform": "linkedin",
+                "tone": "professional",
+                "num_slides": 5,
+                "enhanced_prompt": None,
+                "negative_prompt": None,
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # If quality is called, fail — it shouldn't be
+        async def fail_quality(**_kw):
+            raise AssertionError("quality should not be called when no enhanced_prompt")
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fail_quality,
+        )
+
+        result = await ai_module.auto_configure(
+            ai_module.AutoConfigureRequest(prompt="test", context="auto"),
+            current_user=MagicMock(),
+        )
+
+        assert result.enhanced_prompt is None
+        assert result.quality is None

@@ -306,6 +306,7 @@ class GenerateImagePromptRequest(BaseModel):
 class GenerateImagePromptResponse(BaseModel):
     prompt: str
     negative_prompt: str
+    quality: dict | None = None
 
 
 class AnalyzeContentRequest(BaseModel):
@@ -376,9 +377,23 @@ Return JSON with exactly:
     }
 
     result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
+    raw_prompt = result.get("prompt", request.description)
+    raw_neg = result.get("negative_prompt", "blurry, low quality, watermark, text overlay, logo, nsfw")
+
+    # ── Quality pipeline: spellcheck + NLP + SEO on the enhanced prompt text.
+    from app.services.media_quality import apply_media_quality
+
+    quality = await apply_media_quality(
+        prompt=raw_prompt,
+        negative_prompt=raw_neg,
+        caption=raw_prompt,  # treat the prompt as caption for NLP/SEO scoring
+        platform="instagram",
+    )
+
     return GenerateImagePromptResponse(
-        prompt=result.get("prompt", request.description),
-        negative_prompt=result.get("negative_prompt", "blurry, low quality, watermark, text overlay, logo, nsfw"),
+        prompt=quality.prompt or raw_prompt,
+        negative_prompt=quality.negative_prompt or raw_neg,
+        quality=quality.to_dict(),
     )
 
 
@@ -397,6 +412,7 @@ class AutoConfigureResponse(BaseModel):
     num_slides: int
     enhanced_prompt: str | None = None
     negative_prompt: str | None = None
+    quality: dict | None = None
 
 
 @router.post("/auto-configure", response_model=AutoConfigureResponse)
@@ -456,6 +472,26 @@ async def auto_configure(
         return str(v)
 
     result = await call_inference(llm_prompt, provider_name="cloudflare", schema=schema)
+    raw_enhanced = _str_or_join(result.get("enhanced_prompt"))
+    raw_neg = _str_or_join(result.get("negative_prompt"))
+
+    # ── Quality pipeline: spellcheck + NLP + SEO on the enhanced prompt text.
+    quality_report = None
+    enhanced_prompt = raw_enhanced
+    negative_prompt = raw_neg
+    if raw_enhanced:
+        from app.services.media_quality import apply_media_quality
+
+        quality = await apply_media_quality(
+            prompt=raw_enhanced,
+            negative_prompt=raw_neg or "",
+            caption=raw_enhanced,  # treat the prompt as caption for NLP/SEO scoring
+            platform=str(result.get("platform", "linkedin")),
+        )
+        enhanced_prompt = quality.prompt or raw_enhanced
+        negative_prompt = quality.negative_prompt or raw_neg
+        quality_report = quality.to_dict()
+
     return AutoConfigureResponse(
         task_type=str(result.get("task_type", "image")),
         model=str(result.get("model", CF_TXT2IMG_FREE)),
@@ -464,8 +500,9 @@ async def auto_configure(
         platform=str(result.get("platform", "linkedin")),
         tone=str(result.get("tone", "professional")),
         num_slides=int(result.get("num_slides", 5)),
-        enhanced_prompt=_str_or_join(result.get("enhanced_prompt")),
-        negative_prompt=_str_or_join(result.get("negative_prompt")),
+        enhanced_prompt=enhanced_prompt,
+        negative_prompt=negative_prompt,
+        quality=quality_report,
     )
 
 
