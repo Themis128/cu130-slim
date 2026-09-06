@@ -1803,20 +1803,31 @@ async def _call_dmr_chat(
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]
     payload: dict = {"model": model, "messages": messages, "temperature": 0.7}
+    # Always set a max_tokens limit — without it, DMR on CPU can generate
+    # endlessly for large prompts, causing multi-minute hangs.
     if max_tokens:
         payload["max_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = 1024
     if schema:
         payload["response_format"] = {"type": "json_object"}
 
-    # DMR may need 300s for cold-start (model load from disk to VRAM).
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{settings.DMR_URL}/chat/completions",
-            headers={"Content-Type": "application/json"},
-            json=payload,
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"DMR error {resp.status_code}: {resp.text[:400]}")
+    # DMR may need extra time for cold-start (model load from disk to VRAM),
+    # but 300s is too long for the fallback chain — cap at 15s so Cloudflare
+    # can take over quickly when DMR is slow (e.g. CPU-only on WSL2).
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings.DMR_URL}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"DMR error {resp.status_code}: {resp.text[:400]}")
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail=f"DMR timeout: {exc}") from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=502, detail=f"DMR connection error: {exc}") from exc
 
     msg = resp.json()["choices"][0]["message"]
     content = msg.get("content") or msg.get("reasoning_content") or ""

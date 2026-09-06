@@ -187,6 +187,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
   }, { timeout: 45_000 })
 
   test('generate-content with provider=cloudflare runs a real LLM call', async ({ request }) => {
+    test.setTimeout(120_000)
     const r = await request.post(`${API_V1}/ai/generate-content`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
@@ -195,13 +196,14 @@ test.describe('Cloudflare backend contract @e2e', () => {
         provider: 'cloudflare',
         model: CF_CHAT_MODEL,
       },
+      timeout: 90_000,
     })
     expect(r.status()).toBe(200)
     const body = await r.json()
     expect(body.content).toEqual(expect.any(String))
     expect(body.content.length).toBeGreaterThan(0)
     expect(Array.isArray(body.hashtags)).toBe(true)
-  }, { timeout: 45_000 })
+  })
 
   test('Workers AI batch submit → retrieve (queueRequest)', async ({ request }) => {
     const submitted = await request.post(`${API_V1}/ai/workers-ai/batch`, {
