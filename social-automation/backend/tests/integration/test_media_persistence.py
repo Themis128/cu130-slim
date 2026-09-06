@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 TEST_USER = {"email": "media-persist-test@example.com", "password": "TestPass123!", "name": "Media Persist Test"}
 
@@ -305,7 +306,7 @@ async def test_media_type_filters(client, db):
 
 
 @pytest.mark.asyncio
-async def test_auto_tag_and_similar_assets(client, db):
+async def test_auto_tag_and_similar_assets(client, db, engine):
     """AI auto-tagging populates ai_caption/ai_tags and indexes the asset in Chroma."""
     from unittest.mock import AsyncMock, patch
 
@@ -328,7 +329,13 @@ async def test_auto_tag_and_similar_assets(client, db):
             return {"description": "A coastline with blue water"}
         return {"description": "coastline, water, sky, beach, rocks"}
 
+    # auto_tag_asset creates its own session via the module-level
+    # async_session_maker (bound to the app engine / a different event loop).
+    # Patch it to use a sessionmaker backed by the test engine so the asyncpg
+    # connection stays on the same loop as the test.
+    test_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     with (
+        patch.object(media_ai, "async_session_maker", new=test_session_maker),
         patch.object(media_ai, "_call_dmr_vision", new=AsyncMock(return_value=None)),
         patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(side_effect=_fake_caption)),
         patch("app.services.chroma_client.add_content", new=AsyncMock()) as mock_add,
