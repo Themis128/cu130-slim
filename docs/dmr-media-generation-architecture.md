@@ -461,8 +461,8 @@ touched** — only prompt, caption, alt_text, tags, and other text metadata.
 
 | Endpoint | Quality Pipeline | Notes |
 |----------|-----------------|-------|
-| `POST /api/v1/media/generate-image` | ✅ Full | Pre-gen spellcheck on prompt; post-gen NLP+SEO on caption/alt_text/tags |
-| `POST /api/v1/ai/generate-image` | ✅ Full | Post-gen quality on persisted asset's text fields |
+| `POST /api/v1/media/generate-image` | ✅ Full | Pre-gen spellcheck on prompt; post-gen NLP+SEO on caption/alt_text/tags; infographic renderer if detected |
+| `POST /api/v1/ai/generate-image` | ✅ Full | Post-gen quality on persisted asset's text fields; infographic renderer if detected |
 | `POST /api/v1/ai/generate-image-pipeline` | ✅ Full | Post-gen quality on persisted asset's text fields |
 | `POST /api/v1/ai/generate-image-flux` | ✅ Full | Post-gen quality on persisted asset's text fields |
 | `POST /api/v1/ai/generate-carousel` | ✅ Bespoke | NLP fix on slides+caption, spellcheck, SEO scoring |
@@ -542,6 +542,29 @@ also written back to the asset's columns.
 The quality pipeline is advisory — it never raises. If any step fails
 (LanguageTool down, NLP model unavailable, SEO engine error), the best
 available version of each text field is returned with a diagnostic report.
+
+### Full Image Generation Flow (Mermaid)
+
+```mermaid
+flowchart TD
+    A[User request: prompt + options] --> B{Infographic detected?}
+    B -->|Yes| C[Generate structured text via CF Workers AI LLM]
+    C --> D[Sanitize prompt: NO TEXT, NO WORDS]
+    D --> E[Generate text-free background]
+    B -->|No| E
+    E --> F{Local Diffusers SD 1.5}
+    F -->|Success| G[Background image bytes]
+    F -->|Failure| H{Cloudflare Workers AI FLUX}
+    H -->|Success| G
+    H -->|Failure| I[HTTP 502: All providers exhausted]
+    G --> J{Infographic?}
+    J -->|Yes| K[PIL text overlay with WorkSans fonts]
+    K --> L[Final image with correct spelling]
+    J -->|No| L
+    L --> M[Persist to media_assets + R2]
+    M --> N[Quality pipeline: spellcheck + NLP + SEO]
+    N --> O[Return asset + quality report]
+```
 
 ## Monitoring
 
