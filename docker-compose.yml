@@ -109,11 +109,14 @@ x-worker-depends: &worker-depends
 services:
   comfyui:
     image: baltzakist/cu130-slim-comfyui:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: .
       dockerfile: Dockerfile
     container_name: social-media-comfyui-gpu
+    networks:
+    - backend
+    - gpu
     ports:
     - 8000:8000
     volumes:
@@ -409,7 +412,7 @@ services:
     restart: unless-stopped
   env-manager-backend:
     image: baltzakist/cu130-slim-env-manager-backend:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./env-manager/backend
       dockerfile: Dockerfile
@@ -432,7 +435,7 @@ services:
     restart: unless-stopped
   env-manager-frontend:
     image: baltzakist/cu130-slim-env-manager-frontend:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./env-manager/frontend
       dockerfile: Dockerfile
@@ -493,7 +496,7 @@ services:
     restart: unless-stopped
   social-api:
     image: baltzakist/cu130-slim-social-api:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
