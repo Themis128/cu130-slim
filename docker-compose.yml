@@ -814,6 +814,9 @@ services:
     - ./social-automation/frontend:/app
     - /app/node_modules
     - /app/.next
+    networks:
+    - backend
+    - frontend
     depends_on:
       social-api:
         condition: service_healthy
