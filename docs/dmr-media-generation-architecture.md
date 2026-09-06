@@ -474,6 +474,40 @@ touched** — only prompt, caption, alt_text, tags, and other text metadata.
 | `POST /api/v1/media/enhance/batch` (alt_text op) | ✅ Spellcheck | Batch alt text spellchecked before persist |
 | `POST /api/v1/media/upload` | ✅ Image quality | Image quality scoring (sharpness/brightness/contrast) |
 
+### Infographic Renderer — Text-Free Background + PIL Text Overlay
+
+AI image models (SD 1.5, FLUX schnell) **cannot spell** — they generate
+pixels that look like text but are garbled nonsense. When a user asks for
+an infographic, poster, chart, or any text-heavy visual, the infographic
+renderer solves this by:
+
+1. **Detecting** the request type via keyword matching (`infographic`,
+   `poster`, `chart`, `statistics`, `timeline`, `checklist`, etc.)
+2. **Generating structured text content** via Cloudflare Workers AI LLM
+   (title, subtitle, sections with icon/heading/body, footer)
+3. **Sanitizing the prompt** to tell the AI image model NOT to render text
+   (`NO TEXT, NO WORDS, NO LETTERS, NO WRITING, NO TYPOGRAPHY`)
+4. **Generating a text-free background** via the normal image pipeline
+   (Local Diffusers → Cloudflare fallback)
+5. **Overlaying correctly-spelled text** via PIL with WorkSans fonts
+   (same approach as `carousel_pipeline.py`)
+
+Service: `app/services/infographic_renderer.py`
+
+| Function | Purpose |
+|----------|---------|
+| `is_infographic_request(prompt)` | Keyword detection |
+| `sanitize_prompt_for_background(prompt)` | Adds anti-text instructions |
+| `generate_infographic_content(prompt)` | LLM generates structured JSON text |
+| `render_infographic(content, bg_bytes)` | PIL composites text over background |
+
+Wired into:
+- `POST /api/v1/media/generate-image`
+- `POST /api/v1/ai/generate-image`
+
+If the infographic content generation or PIL overlay fails, the raw
+text-free background is returned (non-fatal degradation).
+
 ### Response Metadata
 
 Image generation responses now include a `quality` field with diagnostics:
