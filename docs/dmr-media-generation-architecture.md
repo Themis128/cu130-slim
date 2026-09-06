@@ -399,6 +399,87 @@ First successful carousel with corrected architecture:
 | cloudflare | llama-3.3-70b | 1 | YES | 186s |
 | dmr | ai/llama3.2 | 8 | YES | 3-17s |
 
+## Quality Pipeline — All Media Generation
+
+Every media-generation endpoint applies a unified quality pipeline to the
+**text fields** associated with the generated asset. **Image bytes are never
+touched** — only prompt, caption, alt_text, tags, and other text metadata.
+
+### Service: `app/services/media_quality.py`
+
+`apply_media_quality()` runs three stages on media-associated text:
+
+1. **Spellcheck** — LanguageTool correction on all text fields:
+   - `prompt`, `negative_prompt` (machine-facing, spellcheck only)
+   - `caption`, `alt_text` (user-facing, full pipeline)
+   - `tags` (spellcheck + deduplication)
+
+2. **NLP plain-English check + fix** — `run_nlp_check_and_fix()` on
+   user-facing text (`caption`, `alt_text`):
+   - Detects jargon, buzzwords, long sentences, complex words.
+   - Rewrites into plain English via Cloudflare Workers AI (primary) with
+     DMR `ai/llama3.2` fallback.
+   - Does NOT run on `prompt` (machine-facing — prompts can legitimately
+     contain technical terms).
+
+3. **SEO scoring** — `analyze_seo()` on `caption` if it's substantial
+   enough (≥ 40 chars):
+   - Scores length, readability, plain English, hashtag count, links,
+     keywords.
+   - Generates keyword suggestions, meta title/description, Open Graph tags.
+
+### Coverage
+
+| Endpoint | Quality Pipeline | Notes |
+|----------|-----------------|-------|
+| `POST /api/v1/media/generate-image` | ✅ Full | Pre-gen spellcheck on prompt; post-gen NLP+SEO on caption/alt_text/tags |
+| `POST /api/v1/ai/generate-image` | ✅ Full | Post-gen quality on persisted asset's text fields |
+| `POST /api/v1/ai/generate-image-pipeline` | ✅ Full | Post-gen quality on persisted asset's text fields |
+| `POST /api/v1/ai/generate-image-flux` | ✅ Full | Post-gen quality on persisted asset's text fields |
+| `POST /api/v1/ai/generate-carousel` | ✅ Bespoke | NLP fix on slides+caption, spellcheck, SEO scoring |
+| `POST /api/v1/ai/generate-carousel-pipeline` | ✅ Bespoke | Full carousel pipeline with NLP+spellcheck+SEO |
+| `POST /api/v1/ai/run-carousel-and-publish` | ✅ Bespoke | End-to-end carousel with quality + publish |
+| `POST /api/v1/ai/generate-content` | ✅ Full | `apply_quality_pipeline()` on caption+hashtags |
+| `POST /api/v1/ai/improve-content` | ✅ Full | `apply_quality_pipeline()` on improved content |
+| `POST /api/v1/media/enhance/assets/{id}/alt-text` | ✅ Spellcheck | AI-generated alt text spellchecked before return |
+| `POST /api/v1/media/enhance/batch` (alt_text op) | ✅ Spellcheck | Batch alt text spellchecked before persist |
+| `POST /api/v1/media/upload` | ✅ Image quality | Image quality scoring (sharpness/brightness/contrast) |
+
+### Response Metadata
+
+Image generation responses now include a `quality` field with diagnostics:
+
+```json
+{
+  "image_base64": "...",
+  "prompt": "corrected prompt",
+  "asset_id": "uuid",
+  "quality": {
+    "prompt": "corrected prompt",
+    "caption": "plain-English caption",
+    "alt_text": "corrected alt text",
+    "tags": ["deduplicated", "tags"],
+    "seo_score": {"overall": 92, "recommendations": []},
+    "nlp_report": {"needs_fix": false, "fixed": true, "issues": []},
+    "spellcheck_applied": true,
+    "improved": false,
+    "iterations": 0
+  }
+}
+```
+
+### Persistence
+
+Quality diagnostics are persisted into `MediaAsset.meta_data.quality` via
+`persist_media_quality_metadata()`. Corrected `alt_text` and `tags` are
+also written back to the asset's columns.
+
+### Non-Fatal Design
+
+The quality pipeline is advisory — it never raises. If any step fails
+(LanguageTool down, NLP model unavailable, SEO engine error), the best
+available version of each text field is returned with a diagnostic report.
+
 ## Monitoring
 
 ```bash
