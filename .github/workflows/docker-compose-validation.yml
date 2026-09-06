@@ -51,7 +51,7 @@ jobs:
       - name: Validate pre-built image references
         run: |
           echo "Checking pre-built image references..."
-          # All CI-built images use baltzakist/cu130-slim-{service}:<tag> with pull_policy: always.
+          # All CI-built images use baltzakist/cu130-slim-{service}:<tag> with pull_policy: if_not_present.
           # CI auto-increments version tags (v2.{run_number}) and updates :latest.
           # Accept either :latest or a versioned :vN.N tag.
           expected_prefixes=(
@@ -95,14 +95,16 @@ jobs:
             fi
           done
 
-          # All CI-built services must have pull_policy: always.
+          # All CI-built services must have a valid pull_policy.
+          # Accept: always, if_not_present, missing (Docker default = if_not_present).
+          # Reject: never (would skip pulling CI-built images).
           for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-worker-media social-worker-default social-frontend celery-beat; do
             if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
               pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
-              if [[ "$pull_policy" == "always" ]]; then
-                echo "✅ $service has pull_policy: always"
+              if [[ "$pull_policy" == "always" || "$pull_policy" == "if_not_present" || "$pull_policy" == "missing" ]]; then
+                echo "✅ $service has pull_policy: $pull_policy"
               else
-                echo "❌ $service has pull_policy: $pull_policy (expected: always)"
+                echo "❌ $service has pull_policy: $pull_policy (expected: always, if_not_present, or missing)"
                 exit 1
               fi
             fi

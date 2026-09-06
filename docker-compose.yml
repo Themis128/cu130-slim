@@ -246,7 +246,7 @@ services:
     - N8N_SANDBOX_PORT=8081
     - N8N_SANDBOX_LOG_LEVEL=info
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ 2>/dev/null || exit 0"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ 2>/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -397,6 +397,12 @@ services:
     # Limit Java heap — spell/grammar check doesn't need 512MB.
     - Java_Xms=128m
     - Java_Xmx=256m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8010/v2/languages 2>/dev/null | grep -q 'name' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   portainer:
@@ -660,7 +666,7 @@ services:
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
     image: baltzakist/cu130-slim-social-worker:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -689,7 +695,7 @@ services:
 
   social-worker-media:
     image: baltzakist/cu130-slim-social-worker:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -717,7 +723,7 @@ services:
 
   social-worker-default:
     image: baltzakist/cu130-slim-social-worker:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -744,7 +750,7 @@ services:
     restart: unless-stopped
   celery-beat:
     image: baltzakist/cu130-slim-social-worker:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -774,7 +780,7 @@ services:
     restart: unless-stopped
   cloudflared:
     image: baltzakist/cloudflared:v0.2
-    pull_policy: always
+    pull_policy: if_not_present
     container_name: social-cloudflared
     networks:
     - backend
@@ -799,7 +805,7 @@ services:
 
   social-frontend:
     image: baltzakist/cu130-slim-social-frontend:v2.417
-    pull_policy: always
+    pull_policy: if_not_present
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile.dev
