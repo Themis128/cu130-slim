@@ -59,7 +59,6 @@ jobs:
             "baltzakist/cu130-slim-env-manager-backend:"
             "baltzakist/cu130-slim-env-manager-frontend:"
             "baltzakist/cu130-slim-social-api:"
-            "baltzakist/cu130-slim-social-worker:"
             "baltzakist/cu130-slim-social-frontend:"
           )
 

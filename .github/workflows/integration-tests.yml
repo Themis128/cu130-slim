@@ -89,8 +89,10 @@ jobs:
 
       - name: Wait for PostgreSQL to be ready
         run: |
+          # NOTE: pg_isready is not preinstalled on hosted runners — use a raw TCP check.
+          # The Postgres service container healthcheck already ensures the DB is accepting connections.
           for i in {1..30}; do
-            if pg_isready -h localhost -p 5432 -U test > /dev/null 2>&1; then
+            if (echo > /dev/tcp/127.0.0.1/5432) > /dev/null 2>&1; then
               echo "PostgreSQL is ready"
               exit 0
             fi
