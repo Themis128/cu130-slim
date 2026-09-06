@@ -22,7 +22,7 @@ from app.api.auth import (
     twitter_client,
 )
 from app.core.config import get_settings
-from app.core.security import decrypt_token, encrypt_token
+from app.core.security import decrypt_token, encrypt_token, sign_oauth_state
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
@@ -47,13 +47,31 @@ def _pkce_pair() -> tuple[str, str]:
 
 
 def _encode_state(team_id: uuid.UUID, code_verifier: str | None = None) -> str:
-    if code_verifier is None:
-        return str(team_id)
-    payload = json.dumps({"t": str(team_id), "cv": code_verifier})
-    return base64.urlsafe_b64encode(payload.encode()).decode()
+    """Create an HMAC-signed OAuth state parameter.
+
+    Uses the same signing scheme as ``app.api.auth.sign_oauth_state`` so the
+    callback handler (``verify_oauth_state``) can validate it regardless of
+    which endpoint generated the authorize URL.
+    """
+    payload: dict = {"t": str(team_id)}
+    if code_verifier is not None:
+        payload["cv"] = code_verifier
+    return sign_oauth_state(payload)
 
 
 def _decode_state(state: str) -> tuple[uuid.UUID, str | None]:
+    """Backwards-compatible decoder for legacy unsigned states.
+
+    New states are HMAC-signed and verified by ``verify_oauth_state`` in the
+    callback handler. This decoder is kept for any internal callers that still
+    parse state directly.
+    """
+    from app.core.security import verify_oauth_state
+
+    verified = verify_oauth_state(state)
+    if verified is not None:
+        return uuid.UUID(verified["t"]), verified.get("cv")
+    # Legacy fallback: plain UUID or unsigned base64 JSON (pre-fix)
     try:
         data = json.loads(base64.urlsafe_b64decode(state + "==").decode())
         return uuid.UUID(data["t"]), data.get("cv")
