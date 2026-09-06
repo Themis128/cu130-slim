@@ -42,14 +42,14 @@ test.describe('Content Creation Page — real backend', () => {
   test('should show all 6 platform buttons (disabled for a fresh user)', async ({ authenticatedPage: page }) => {
     await page.goto('/content/new');
     // Platform buttons are disabled when no accounts are connected.
-    // The Threads platform button's accessible name is "@ Threads" (with the
-    // @ icon), which we disambiguate from the "Thread X · Threads" content-type
-    // button by matching the @ prefix.
+    // The Threads platform button's accessible name is "@Threads" (with the
+    // @ icon), which we disambiguate from the "ThreadX · Threads" content-type
+    // button by matching the @ prefix without a space.
     await expect(page.getByRole('button', { name: /LinkedIn/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Twitter/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Instagram/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Facebook/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /@ Threads/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Threads not connected/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /TikTok/i })).toBeVisible();
   });
 
