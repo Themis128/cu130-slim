@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # Reachable from containers via host.docker.internal:12434
     # Models are pulled via `docker model pull ai/<name>` and loaded on demand.
     DMR_URL: str = "http://host.docker.internal:12434/engines/llama.cpp/v1"
-    DMR_TEXT_MODEL: str = "ai/qwen2.5"
+    DMR_TEXT_MODEL: str = "ai/llama3.2"  # fast 3.2B on CPU (3-17s); qwen2.5 7.6B is too slow
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
     DMR_TINY_MODEL: str = "ai/smollm2"

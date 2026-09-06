@@ -77,7 +77,7 @@ class GenerateContentRequest(BaseModel):
     length: str = "medium"
     include_hashtags: bool = True
     include_emojis: bool = True
-    provider: str = "dmr"  # DMR local primary; falls back to cloudflare
+    provider: str = "cloudflare"  # CF primary (0.5s 70B); DMR ai/llama3.2 fallback
     model: str | None = None
     template_id: uuid.UUID | None = None
 
@@ -512,7 +512,7 @@ Return JSON with:
     }
 
     try:
-        result = await call_ollama(prompt, schema=schema)
+        result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
     except Exception:
         result = {
             "sentiment": "neutral",
@@ -1899,7 +1899,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
         "required": ["improved_content", "changes"],
     }
 
-    result = await call_ollama(prompt, schema=schema)
+    result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
     improved = result.get("improved_content", request.content)
 
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
@@ -1964,7 +1964,7 @@ Return JSON with:
         "required": ["intent", "platforms", "needs_image", "needs_scheduling", "schedule_hint", "data_sources", "complexity"],
     }
 
-    intent = await call_ollama(intent_prompt, schema=schema)
+    intent = await call_inference(intent_prompt, provider_name="cloudflare", schema=schema)
 
     # Find matching template
     template = None
@@ -2495,7 +2495,7 @@ class RunCarouselAndPublishRequest(BaseModel):
     tone: str = "clear and friendly"
     include_cta: bool = True
     text_model: str = CF_TEXT_FREE
-    text_provider: str = "dmr"  # DMR (local) primary; falls back to cloudflare on failure
+    text_provider: str = "cloudflare"  # CF primary for copy; pipeline hardcodes DMR for NLP/title
     txt2img_model: str = CF_TXT2IMG_FREE
     target_account_id: str | None = None
     publish: bool = True

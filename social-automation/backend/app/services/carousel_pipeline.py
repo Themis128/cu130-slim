@@ -709,7 +709,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "dmr",   # DMR local primary; CF cloud fallback
+    text_provider: str = "cloudflare",   # CF primary for copy; DMR hardcoded for NLP/title below
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
