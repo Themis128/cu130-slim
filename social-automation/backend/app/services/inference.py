@@ -846,7 +846,7 @@ async def _call_workers_ai_img2img(
     if allow_fallback:
         hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
         if hf_key:
-            print(f"[inference] CF img2img quota/retries exhausted — falling back to HF {HF_IMG2IMG_FALLBACK}", flush=True)
+            logger.warning(f"[inference] CF img2img quota/retries exhausted — falling back to HF {HF_IMG2IMG_FALLBACK}")
             try:
                 return await _call_hf_img2img(
                     prompt=prompt,
@@ -1032,7 +1032,7 @@ async def _call_cf_image_pipeline(
                     allow_fallback=allow_fallback,
                 )
         except HTTPException as first_exc:
-            print(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}", flush=True)
+            logger.warning(f"[cf-pipeline] enhance failed, using draft: {first_exc.detail}")
             enhance_model_used = "draft-only"
             enhanced = draft
     else:
@@ -1531,24 +1531,24 @@ async def _do_call_inference(
                 # CF txt2img exhausted → Pixazo → Together → HF
                 pixazo_key = (settings.PIXAZO_API_KEY or "").strip()
                 if pixazo_key:
-                    print("[inference] CF txt2img quota — falling back to Pixazo FLUX Schnell", flush=True)
+                    logger.warning("[inference] CF txt2img quota — falling back to Pixazo FLUX Schnell")
                     try:
                         return await _call_pixazo_txt2img(prompt, api_key=pixazo_key, width=1024, height=1024)
                     except HTTPException:
-                        print("[inference] Pixazo also failed — trying Together", flush=True)
+                        logger.warning("[inference] Pixazo also failed — trying Together")
                 together_key = (settings.TOGETHER_API_KEY or "").strip()
                 if together_key:
-                    print(f"[inference] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}", flush=True)
+                    logger.info(f"[inference] Falling back to Together {TOGETHER_TXT2IMG_FALLBACK}")
                     try:
                         return await _call_together_txt2img(
                             prompt, model=TOGETHER_TXT2IMG_FALLBACK, api_key=together_key,
                             width=1024, height=1024, steps=4,
                         )
                     except HTTPException:
-                        print("[inference] Together txt2img also failed — trying HF", flush=True)
+                        logger.warning("[inference] Together txt2img also failed — trying HF")
                 hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
                 if hf_key:
-                    print(f"[inference] Falling back to HF {HF_TXT2IMG_FALLBACK}", flush=True)
+                    logger.info(f"[inference] Falling back to HF {HF_TXT2IMG_FALLBACK}")
                     return await _call_hf_txt2img(
                         prompt, model=HF_TXT2IMG_FALLBACK, api_key=hf_key,
                         width=1024, height=1024, steps=4,
@@ -1566,17 +1566,17 @@ async def _do_call_inference(
             # CF text exhausted → Groq → HF
             groq_key = (settings.GROQ_API_KEY or "").strip()
             if groq_key:
-                print(f"[inference] CF text quota — falling back to Groq {GROQ_TEXT_FALLBACK}", flush=True)
+                logger.warning(f"[inference] CF text quota — falling back to Groq {GROQ_TEXT_FALLBACK}")
                 try:
                     return await _call_groq_chat(
                         prompt, model=GROQ_TEXT_FALLBACK, api_key=groq_key,
                         schema=schema, max_tokens=max_tokens,
                     )
                 except HTTPException as groq_exc:
-                    print(f"[inference] Groq failed: {getattr(groq_exc, 'detail', groq_exc)!s:.200s} — trying HF", flush=True)
+                    logger.warning(f"[inference] Groq failed: {getattr(groq_exc, 'detail', groq_exc)!s:.200s} — trying HF")
             hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
             if hf_key:
-                print(f"[inference] Falling back to HF {HF_TEXT_FALLBACK}", flush=True)
+                logger.info(f"[inference] Falling back to HF {HF_TEXT_FALLBACK}")
                 return await _call_hf_chat(
                     prompt, model=HF_TEXT_FALLBACK, api_key=hf_key,
                     schema=schema, max_tokens=max_tokens,

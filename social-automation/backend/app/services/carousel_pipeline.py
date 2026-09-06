@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 import random
 import re
@@ -33,7 +34,7 @@ from app.services.plain_english import (
 )
 from app.services.spellcheck import auto_correct, preprocess_for_render
 
-
+logger = logging.getLogger(__name__)
 async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dict:
     """Load brand visual colors from the database.
 
@@ -573,7 +574,7 @@ async def _cf_generate_background(
         )
         raw_bytes = base64.b64decode(t2i_result["image_base64"])
     except Exception as e:
-        print(f"[carousel] CF txt2img failed (non-fatal): {e}", flush=True)
+        logger.warning(f"[carousel] CF txt2img failed (non-fatal): {e}")
 
     if raw_bytes is None:
         return None
@@ -581,7 +582,7 @@ async def _cf_generate_background(
     try:
         return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     except Exception as e:
-        print(f"[carousel] Could not decode image: {e}", flush=True)
+        logger.info(f"[carousel] Could not decode image: {e}")
         return None
 
 
@@ -775,12 +776,12 @@ async def run_cloudless_carousel_pipeline(
         if highlight:
             highlight = preprocess_for_render(await auto_correct(highlight))
 
-        print(f"[n8n-pipeline] slide {i + 1}/{len(slides)} — generating background: {image_prompt[:60]}…", flush=True)
+        logger.info(f"[n8n-pipeline] slide {i + 1}/{len(slides)} — generating background: {image_prompt[:60]}…")
         bg_img = await _cf_generate_background(image_prompt, txt2img_model)
         if bg_img:
-            print(f"[n8n-pipeline] slide {i + 1} background ready", flush=True)
+            logger.info(f"[n8n-pipeline] slide {i + 1} background ready")
         else:
-            print(f"[n8n-pipeline] slide {i + 1} CF unavailable — pure brand canvas", flush=True)
+            logger.warning(f"[n8n-pipeline] slide {i + 1} CF unavailable — pure brand canvas")
 
         branded = compose_branded_slide(
             bg_img,
@@ -817,7 +818,7 @@ async def run_cloudless_carousel_pipeline(
         ai_title = (title_result.get("title") or topic)[:80]
     except Exception:
         ai_title = topic[:80]
-    print(f"[n8n-pipeline] AI carousel title: {ai_title}", flush=True)
+    logger.info(f"[n8n-pipeline] AI carousel title: {ai_title}")
 
     # 5) Combine all slides into a single PDF — one media library entry
     safe_topic = re.sub(r"[^a-zA-Z0-9_-]", "-", topic)[:32]
@@ -828,7 +829,7 @@ async def run_cloudless_carousel_pipeline(
     else:
         slide_images[0].save(pdf_buf, format="PDF")
     pdf_bytes = pdf_buf.getvalue()
-    print(f"[n8n-pipeline] carousel PDF created — {len(slide_images)} slides, {len(pdf_bytes)} bytes", flush=True)
+    logger.info(f"[n8n-pipeline] carousel PDF created — {len(slide_images)} slides, {len(pdf_bytes)} bytes")
 
     carousel_asset = await persist_generated_image(
         db,
@@ -866,9 +867,9 @@ async def run_cloudless_carousel_pipeline(
             team_id=team.id,
         )
         seo_score = (seo_result or {}).get("score", {}) or {}
-        print(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100", flush=True)
+        logger.info(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100")
     except Exception as exc:
-        print(f"[n8n-pipeline] SEO scoring failed (non-fatal): {exc}", flush=True)
+        logger.warning(f"[n8n-pipeline] SEO scoring failed (non-fatal): {exc}")
 
     post = Post(
         team_id=team.id,
@@ -938,7 +939,7 @@ async def run_cloudless_carousel_pipeline(
             process_publish_queue.apply_async(connection=conn, countdown=2)
     except Exception as exc:  # noqa: BLE001 — still return post; beat may pick it up
         queue_error = f"{type(exc).__name__}: {exc}"
-        print(f"[n8n-pipeline] celery queue failed (beat may still publish): {queue_error}", flush=True)
+        logger.warning(f"[n8n-pipeline] celery queue failed (beat may still publish): {queue_error}")
         result["queue_warning"] = queue_error
 
     if not wait_for_publish:

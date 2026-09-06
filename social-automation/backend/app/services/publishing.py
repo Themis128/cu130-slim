@@ -155,7 +155,7 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
                 from app.services import minio_storage
                 data = await minio_storage.get_object(asset.storage_path)
         except Exception as exc:
-            print(f"[publishing] Failed to fetch {asset.storage_path} from {backend}: {exc}", flush=True)
+            logger.warning(f"[publishing] Failed to fetch {asset.storage_path} from {backend}: {exc}")
         if data:
             import tempfile
             ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
@@ -213,7 +213,7 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
             from app.services import minio_storage
             data = await minio_storage.get_object(asset.storage_path)
     except Exception as exc:
-        print(f"[publishing] Failed to fetch music {asset.storage_path} from {backend}: {exc}", flush=True)
+        logger.warning(f"[publishing] Failed to fetch music {asset.storage_path} from {backend}: {exc}")
     if data:
         import tempfile
         ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
@@ -252,7 +252,7 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
         err = stderr.decode("utf-8", errors="replace")[:500]
-        print(f"[publishing] ffmpeg mix failed: {err}", flush=True)
+        logger.warning(f"[publishing] ffmpeg mix failed: {err}")
         return video_path  # fall back to original
     return out_path
 
@@ -359,7 +359,7 @@ async def _twitter_upload_media(path: str) -> str | None:
     token_secret = _settings.TWITTER_ACCESS_TOKEN_SECRET
 
     if not all([api_key, api_secret, token, token_secret]):
-        print("[twitter] v1 credentials not configured — skipping media upload", flush=True)
+        logger.warning("[twitter] v1 credentials not configured — skipping media upload")
         return None
 
     upload_url = "https://upload.twitter.com/1.1/media/upload.json"
@@ -381,9 +381,9 @@ async def _twitter_upload_media(path: str) -> str | None:
         if resp.status_code == 200:
             mid = resp.json().get("media_id_string")
             if mid:
-                print(f"[twitter] uploaded media {mid}", flush=True)
+                logger.info(f"[twitter] uploaded media {mid}")
                 return mid
-        print(f"[twitter] media upload failed {resp.status_code}: {resp.text[:200]}", flush=True)
+        logger.warning(f"[twitter] media upload failed {resp.status_code}: {resp.text[:200]}")
         return None
 
 

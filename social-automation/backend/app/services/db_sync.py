@@ -42,6 +42,11 @@ SYNC_TABLES: list[dict[str, str]] = [
     {"table": "post_analytics_snapshots", "pk": "id"},
 ]
 
+# Whitelist of allowed table names — used to prevent SQL injection in
+# sync_table_to_d1 / sync_table_to_postgres where the table name is
+# interpolated into raw SQL.
+_ALLOWED_TABLES = frozenset(t["table"] for t in SYNC_TABLES)
+
 
 class SyncService:
     """Bidirectional D1 ↔ PostgreSQL sync service."""
@@ -115,6 +120,10 @@ class SyncService:
         Reads from Postgres and upserts into D1.
         Uses INSERT OR REPLACE for SQLite/D1.
         """
+        if table not in _ALLOWED_TABLES:
+            logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
+            return {"synced": 0, "errors": 1, "skipped": 0}
+
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -200,6 +209,10 @@ class SyncService:
 
         Reads from D1 and upserts into Postgres using INSERT ... ON CONFLICT.
         """
+        if table not in _ALLOWED_TABLES:
+            logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
+            return {"synced": 0, "errors": 1, "skipped": 0}
+
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine
 

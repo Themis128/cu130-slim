@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -9,6 +10,7 @@ from app.core.config import get_settings
 from app.core.security import hash_password, verify_password
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 engine = create_async_engine(
@@ -60,7 +62,7 @@ async def init_db() -> None:
                     )
                     session.add(admin_user)
                     await session.flush()
-                    print(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
+                    logger.info(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
                 except IntegrityError:
                     await session.rollback()
                     result = await session.execute(
@@ -91,7 +93,7 @@ async def init_db() -> None:
                 admin_user.password_hash = hash_password(settings.SOCIAL_ADMIN_PASSWORD)
                 admin_user.name = desired_name
                 admin_user.timezone = settings.APP_TIMEZONE
-                print(f"Synced env admin credentials for {settings.SOCIAL_ADMIN_EMAIL}")
+                logger.info(f"Synced env admin credentials for {settings.SOCIAL_ADMIN_EMAIL}")
 
             membership = await session.execute(
                 select(TeamMember).where(TeamMember.user_id == admin_user.id)
@@ -107,7 +109,7 @@ async def init_db() -> None:
                     session.add(
                         TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER)
                     )
-                    print(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
+                    logger.info(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
                     await session.commit()
                 except IntegrityError:
                     await session.rollback()

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import asdict, dataclass
 from dataclasses import field as dc_field
 
 from fastapi import HTTPException
 
+logger = logging.getLogger(__name__)
 # Injected into LLM prompts for content / carousel generation.
 PLAIN_ENGLISH_RULES = """
 PLAIN ENGLISH RULES (must follow):
@@ -414,10 +416,9 @@ async def run_nlp_check_and_fix(
                 for i in after.issues
             ]
         )
-    print(
+    logger.info(
         f"[nlp] check issues={len(report.issues)} fixed={report.fixed} "
-        f"rewritten={report.fields_rewritten} dup_actions={dup_report.actions}",
-        flush=True,
+        f"rewritten={report.fields_rewritten} dup_actions={dup_report.actions}"
     )
     return cleaned_slides, cleaned_caption, report
 

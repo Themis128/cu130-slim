@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import pathlib
 import uuid
@@ -24,6 +25,7 @@ from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
 from app.worker.celery_app import celery_app
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
@@ -120,7 +122,7 @@ async def _score_and_store_quality(
     try:
         score = score_image_quality(image_bytes)
     except Exception as exc:  # noqa: BLE001
-        print(f"[media/quality] scoring failed for {asset.id}: {exc}", flush=True)
+        logger.warning(f"[media/quality] scoring failed for {asset.id}: {exc}")
         return
 
     if asset.meta_data is None:
@@ -559,7 +561,7 @@ async def generate_image(
 
     # 1. Local Diffusers (SD 1.5) — PRIMARY
     try:
-        print("[media/generate] Trying Local Diffusers (SD 1.5)", flush=True)
+        logger.info("[media/generate] Trying Local Diffusers (SD 1.5)")
         generated = await _call_local_diffusers_txt2img(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -569,7 +571,7 @@ async def generate_image(
             cfg_scale=cfg_scale,
         )
     except Exception as exc:  # noqa: BLE001
-        print(f"[media/generate] Local Diffusers failed: {exc}", flush=True)
+        logger.warning(f"[media/generate] Local Diffusers failed: {exc}")
 
     # 2. Cloudflare Workers AI — ONLY cloud fallback
     if generated is None:
@@ -577,7 +579,7 @@ async def generate_image(
         if cf_model and not cf_model.startswith("@cf/"):
             cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
         try:
-            print(f"[media/generate] Trying Cloudflare Workers AI ({cf_model})", flush=True)
+            logger.info(f"[media/generate] Trying Cloudflare Workers AI ({cf_model})")
             generated = await _call_workers_ai_image(
                 prompt=prompt,
                 model=cf_model,
@@ -588,9 +590,9 @@ async def generate_image(
                 cfg_scale=opts.cfg_scale or 3.5,
             )
         except HTTPException as exc:
-            print(f"[media/generate] CF failed ({exc.status_code})", flush=True)
+            logger.warning(f"[media/generate] CF failed ({exc.status_code})")
         except Exception as exc:  # noqa: BLE001
-            print(f"[media/generate] CF failed: {exc}", flush=True)
+            logger.warning(f"[media/generate] CF failed: {exc}")
 
     if generated is None:
         raise HTTPException(

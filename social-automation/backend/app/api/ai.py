@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import os
 import re
 import uuid
@@ -38,6 +39,7 @@ from app.services.plain_english import check_plain_english
 from app.worker.celery_app import celery_app
 from app.worker.tasks.publishing import process_publish_queue, publish_post_now
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
@@ -699,7 +701,7 @@ async def generate_image(
                 seed=request.seed,
             )
         except HTTPException as exc:
-            print(f"[ai/generate-image] Local Diffusers failed ({exc.status_code}: {exc.detail[:80]}), falling back to Cloudflare", flush=True)
+            logger.warning(f"[ai/generate-image] Local Diffusers failed ({exc.status_code}: {exc.detail[:80]}), falling back to Cloudflare")
 
         if result is None:
             # Fall back to Cloudflare Workers AI (the ONLY cloud fallback)
@@ -727,7 +729,7 @@ async def generate_image(
                     cfg_scale=request.cfg_scale,
                 )
             except HTTPException as exc:
-                print(f"[ai/generate-image] CF also failed ({exc.status_code})", flush=True)
+                logger.warning(f"[ai/generate-image] CF also failed ({exc.status_code})")
 
             if result is None:
                 raise HTTPException(
@@ -763,7 +765,7 @@ async def generate_image(
                 cfg_scale=request.cfg_scale,
             )
         except HTTPException as exc:
-            print(f"[ai/generate-image] CF failed ({exc.status_code})", flush=True)
+            logger.warning(f"[ai/generate-image] CF failed ({exc.status_code})")
 
         if result is None:
             raise HTTPException(
@@ -2367,7 +2369,7 @@ async def generate_carousel_pipeline(
         force_fix=True,
         allow_fallback=True,
     )
-    print(f"[carousel-pipeline] nlp {nlp_report.to_dict()}", flush=True)
+    logger.info(f"[carousel-pipeline] nlp {nlp_report.to_dict()}")
 
     media_ids: list[uuid.UUID] = []
     slide_results: list[CarouselPipelineSlideResult] = []
@@ -2385,7 +2387,7 @@ async def generate_carousel_pipeline(
             f"Sharper details, richer cyan/orange lighting on dark navy, professional polish, "
             f"stronger visual metaphor for: {body}. No text, no logos."
         )
-        print(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img", flush=True)
+        logger.info(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img")
         pipe = await _call_cf_image_pipeline(
             prompt=visual,
             enhance_prompt=enhance,

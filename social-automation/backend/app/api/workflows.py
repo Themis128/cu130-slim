@@ -687,7 +687,7 @@ async def deploy_workflow(
 @router.post("/execute/{workflow_id}")
 async def execute_workflow(
     workflow_id: uuid.UUID,
-    data: dict = {},
+    data: dict | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -695,6 +695,9 @@ async def execute_workflow(
     workflow = result.scalar_one_or_none()
     if not workflow or not workflow.n8n_workflow_id:
         raise HTTPException(status_code=404, detail="Workflow not found or not deployed")
+
+    if data is None:
+        data = {}
 
     async with httpx.AsyncClient() as client:
         headers = {"X-N8N-API-KEY": settings.N8N_API_KEY}
