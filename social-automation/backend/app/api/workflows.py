@@ -695,10 +695,10 @@ async def deploy_workflow(
 @router.post("/execute/{workflow_id}")
 async def execute_workflow(
     workflow_id: uuid.UUID,
-    data: dict | None = None,
     team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    data: dict | None = None,
 ):
     result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id))
     workflow = result.scalar_one_or_none()
@@ -726,10 +726,10 @@ async def execute_workflow(
 @router.get("/{workflow_id}/executions")
 async def get_workflow_executions(
     workflow_id: uuid.UUID,
-    limit: int = 10,
     team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    limit: int = 10,
 ):
     """Fetch recent n8n execution history for a deployed workflow."""
     result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id, GeneratedWorkflow.team_id == team_id))

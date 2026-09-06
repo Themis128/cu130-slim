@@ -74,6 +74,13 @@ class InstagramAPIError(Exception):
             message = f"Instagram API error {status_code} for {url}: {response_text[:400]}"
         super().__init__(message)
 
+    @property
+    def safe_detail(self) -> str:
+        """Return a client-safe error message without upstream URL/response details."""
+        if 400 <= self.status_code < 500:
+            return f"Instagram API request failed ({self.status_code})"
+        return f"Instagram API temporarily unavailable ({self.status_code})"
+
 
 class InstagramAPIClient:
     """Async Instagram Graph API client for a single access token.

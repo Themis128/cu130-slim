@@ -245,7 +245,13 @@ async def get_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Dep
 
 
 @router.patch("/posts/{post_id}", response_model=PostResponse)
-async def update_post(post_id: uuid.UUID, post_data: PostUpdate, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_post(
+    post_id: uuid.UUID,
+    post_data: PostUpdate,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets))
     )
@@ -308,7 +314,13 @@ async def delete_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)
-async def schedule_post(post_id: uuid.UUID, scheduled_at: str, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def schedule_post(
+    post_id: uuid.UUID,
+    scheduled_at: str,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     # Parse ISO 8601 string, support Z suffix
     try:
         if scheduled_at.endswith('Z'):

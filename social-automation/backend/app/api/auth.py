@@ -1,5 +1,3 @@
-import base64
-import json
 import logging
 import uuid
 from datetime import UTC

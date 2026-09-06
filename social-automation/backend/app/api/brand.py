@@ -1022,9 +1022,10 @@ async def run_brand_autopilot(
     Finds empty calendar slots, generates on-brand content from messaging
     pillars, checks compliance, and creates draft posts.
     """
+    brand = await _get_brand(current_user, db)
     result = await run_autopilot(
         db=db,
-        team_id=current_user.team_id,
+        team_id=brand.team_id,
         user_id=current_user.id,
         days=days,
         min_compliance_score=min_compliance_score,
@@ -1040,6 +1041,7 @@ async def get_trends(
     """Get trending topics from Twitter/X, Reddit, and top-performing posts."""
     import os
 
+    brand = await _get_brand(current_user, db)
     twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
-    result = await scout_trends(db, current_user.team_id, twitter_token)
+    result = await scout_trends(db, brand.team_id, twitter_token)
     return result

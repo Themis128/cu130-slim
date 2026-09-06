@@ -134,7 +134,7 @@ async def get_publishing_quota(
         config = usage_data.get("config") or {}
         total = int(config.get("quota_total", 25))
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     return QuotaResponse(remaining=remaining, total=total, used=used)
 
 
@@ -154,7 +154,7 @@ async def list_comments(
     try:
         result = await client.list_comments(media_id, limit=limit)
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     comments = [
         CommentOut(
             id=str(c.get("id", "")),
@@ -184,7 +184,7 @@ async def reply_to_comment(
     try:
         result = await client.reply_to_comment(comment_id, request.message)
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     return CommentOut(
         id=str(result.get("id", "")),
         text=result.get("text"),
@@ -209,7 +209,7 @@ async def hide_comment(
     try:
         await client.hide_comment(comment_id, hide=hide)
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     return CommentActionResponse(success=True, detail="hidden" if hide else "unhidden")
 
 
@@ -228,7 +228,7 @@ async def delete_comment(
     try:
         await client.delete_comment(comment_id)
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     return CommentActionResponse(success=True, detail="deleted")
 
 
@@ -252,9 +252,9 @@ async def publish_story(
             alt_text=request.alt_text,
         )
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail=str(exc))
+        raise HTTPException(status_code=504, detail=exc.safe_detail)
     return StoryPublishResponse(media_id=media_id)
 
 
@@ -273,7 +273,7 @@ async def get_mentions(
     try:
         mentions = await client.get_recent_mentions(limit=limit)
     except InstagramAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     return MentionsResponse(
         mentions=[
             MentionOut(
