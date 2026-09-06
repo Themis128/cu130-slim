@@ -719,6 +719,9 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
     container_name: social-worker-default
+    networks:
+    - backend
+    - db
     environment: *worker-env
     volumes: *worker-volumes
     extra_hosts:
@@ -743,6 +746,9 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
     container_name: celery-beat
+    networks:
+    - backend
+    - db
     environment: *worker-env
     volumes:
     - ./.env:/app/.env:ro
@@ -767,6 +773,9 @@ services:
     image: baltzakist/cloudflared:v0.2
     pull_policy: always
     container_name: social-cloudflared
+    networks:
+    - backend
+    - default
     environment:
     - SOCIAL_TUNNEL_TOKEN=${SOCIAL_TUNNEL_TOKEN:-}
     volumes:
@@ -828,6 +837,8 @@ services:
       context: ./instagram-private-api
       dockerfile: Dockerfile
     container_name: instagram-private-api
+    networks:
+    - backend
     ports:
     - 8011:8000
     environment:
@@ -853,6 +864,8 @@ services:
   warp-proxy:
     image: caomingjun/warp
     container_name: warp-proxy
+    networks:
+    - backend
     ports:
     - 1080:1080
     environment:
@@ -889,6 +902,8 @@ services:
       context: ./browser-novnc
       dockerfile: Dockerfile
     container_name: browser-novnc
+    networks:
+    - backend
     ports:
     - 6080:6080    # noVNC web interface (for iframe embedding)
     - 5900:5900    # VNC (desktop client)
@@ -924,6 +939,8 @@ services:
       context: ./tiktok-browser-sidecar
       dockerfile: Dockerfile
     container_name: tiktok-browser-sidecar
+    networks:
+    - backend
     ports:
     - 9224:9224
     environment:
@@ -951,6 +968,8 @@ services:
       context: ./linkedin-browser-sidecar
       dockerfile: Dockerfile
     container_name: linkedin-browser-sidecar
+    networks:
+    - backend
     ports:
     - 9225:9225
     environment:
@@ -974,6 +993,8 @@ services:
   linkedin-mcp-server:
     image: stickerdaniel/linkedin-mcp-server:latest
     container_name: linkedin-mcp-server
+    networks:
+    - backend
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "9227", "--path", "/mcp"]
     ports:
     - 9227:9227
@@ -1006,6 +1027,8 @@ services:
       context: ./airbyte-mcp-server
       dockerfile: Dockerfile
     container_name: airbyte-mcp-server
+    networks:
+    - backend
     ports:
     - 9228:9228
     - 9229:9229
@@ -1048,6 +1071,8 @@ services:
       context: ./facebook-browser-sidecar
       dockerfile: Dockerfile
     container_name: facebook-browser-sidecar
+    networks:
+    - backend
     ports:
     - 9226:9226
     environment:
@@ -1080,12 +1105,17 @@ volumes:
   facebook_browser_data: null
   airbyte_mcp_data: null
 
+# Explicit network topology (restored 2026-09-06 to match runtime state).
+# Names are pinned so compose adopts the existing networks instead of
+# creating project-prefixed ones. `default` is the implicit project network
+# (cu130-slim_default) used by social-frontend / comfyui / cloudflared.
 networks:
   backend:
-    driver: bridge
+    name: cu130-backend
   db:
-    driver: bridge
+    name: cu130-db
   frontend:
-    driver: bridge
+    name: cu130-frontend
   gpu:
-    driver: bridge
+    name: cu130-gpu
+  default: null
