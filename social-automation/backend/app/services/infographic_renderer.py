@@ -64,7 +64,8 @@ def _font(size: int, weight: str = "regular") -> ImageFont.FreeTypeFont:
     fb = _FALLBACK.get("bold" if weight == "bold" else "regular", _FALLBACK["regular"])
     if os.path.exists(fb):
         return ImageFont.truetype(fb, size)
-    return ImageFont.load_default()
+    # load_default() returns ImageFont, not FreeTypeFont — cast for mypy
+    return ImageFont.load_default()  # type: ignore[return-value]
 
 
 def _ascii_safe(text: str) -> str:
@@ -187,6 +188,7 @@ def _create_gradient_background(width: int, height: int) -> Image.Image:
     """
     img = Image.new("RGB", (width, height), BG)
     px = img.load()
+    assert px is not None  # img.load() returns PixelAccess for RGB images
 
     # Diagonal gradient: top-left = dark navy, bottom-right = near-black
     for y in range(height):
