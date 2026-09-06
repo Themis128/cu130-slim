@@ -326,13 +326,19 @@ async def generate_alt_text_endpoint(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate accessibility-focused alt text using AI vision model."""
+    """Generate accessibility-focused alt text using AI vision model.
+
+    The AI-generated alt text is spellchecked via LanguageTool before return.
+    """
     asset = await _get_asset(asset_id, current_user, db)
     image_bytes = await _load_asset_bytes(asset)
     alt_text = await generate_alt_text(image_bytes)
     if not alt_text:
         raise HTTPException(status_code=503, detail="Alt text generation unavailable — AI services not configured")
-    return {"alt_text": alt_text}
+    # Spellcheck the AI-generated alt text before returning.
+    from app.services.media_spellcheck import correct_text
+    corrected = await correct_text(alt_text)
+    return {"alt_text": corrected or alt_text}
 
 
 # ── Batch operations ──────────────────────────────────────────────────────────

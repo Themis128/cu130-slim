@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.worker.tasks.analytics",
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
+        "app.worker.tasks.media_enhance",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
     ],

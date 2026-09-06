@@ -74,7 +74,10 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
                 elif operation == "alt_text":
                     alt_text = await image_enhance.generate_alt_text(image_bytes)
                     if alt_text:
-                        asset.alt_text = alt_text
+                        # Spellcheck the AI-generated alt text before persisting.
+                        from app.services.media_spellcheck import correct_text
+                        corrected = await correct_text(alt_text)
+                        asset.alt_text = corrected or alt_text
                         await db.commit()
                     continue
                 else:

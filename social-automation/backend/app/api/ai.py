@@ -631,6 +631,7 @@ class GenerateImageResponse(BaseModel):
     similar_content: list[str] = []
     asset_id: uuid.UUID | None = None
     storage_path: str | None = None
+    quality: dict | None = None
 
 
 @router.post("/generate-image", response_model=GenerateImageResponse)
@@ -836,6 +837,24 @@ async def generate_image(
         except Exception:
             pass
 
+    # ── Media quality pipeline: spellcheck + NLP + SEO on associated text.
+    # Image bytes are never touched; only prompt/caption/alt_text/tags.
+    quality_report = None
+    if asset:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+
+        quality = await apply_media_quality(
+            prompt=asset.generation_prompt or request.prompt,
+            caption=asset.ai_caption or "",
+            alt_text=asset.alt_text or "",
+            tags=asset.tags or [],
+            platform="instagram",
+            db=db,
+            team_id=team_id,
+        )
+        await persist_media_quality_metadata(asset, quality, db)
+        quality_report = quality.to_dict()
+
     return GenerateImageResponse(
         image_base64=image_base64,
         format="base64",
@@ -843,6 +862,7 @@ async def generate_image(
         similar_content=similar,
         asset_id=asset.id if asset else None,
         storage_path=asset.storage_path if asset else None,
+        quality=quality_report,
     )
 
 
@@ -869,6 +889,7 @@ class GenerateImagePipelineResponse(BaseModel):
     draft_id: str | None = None
     asset_id: uuid.UUID | None = None
     storage_path: str | None = None
+    quality: dict | None = None
 
 
 @router.post("/generate-image-pipeline", response_model=GenerateImagePipelineResponse)
@@ -950,6 +971,23 @@ async def generate_image_pipeline(
             source="ai-generated",
         )
 
+    # ── Media quality pipeline: spellcheck + NLP + SEO on associated text.
+    quality_report = None
+    if asset:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+
+        quality = await apply_media_quality(
+            prompt=asset.generation_prompt or request.prompt,
+            caption=asset.ai_caption or "",
+            alt_text=asset.alt_text or "",
+            tags=asset.tags or [],
+            platform="instagram",
+            db=db,
+            team_id=team_id,
+        )
+        await persist_media_quality_metadata(asset, quality, db)
+        quality_report = quality.to_dict()
+
     return GenerateImagePipelineResponse(
         image_base64=image_base64,
         format="base64",
@@ -958,6 +996,7 @@ async def generate_image_pipeline(
         draft_id=draft_id,
         asset_id=asset.id if asset else None,
         storage_path=asset.storage_path if asset else None,
+        quality=quality_report,
     )
 
 
@@ -1290,6 +1329,7 @@ class GenerateImageFluxResponse(BaseModel):
     prompt: str
     asset_id: uuid.UUID | None = None
     storage_path: str | None = None
+    quality: dict | None = None
 
 
 @router.post("/generate-image-flux")
@@ -1346,12 +1386,30 @@ async def generate_image_flux(
             source="ai-generated",
         )
 
+    # ── Media quality pipeline: spellcheck + NLP + SEO on associated text.
+    quality_report = None
+    if asset:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+
+        quality = await apply_media_quality(
+            prompt=asset.generation_prompt or request.prompt,
+            caption=asset.ai_caption or "",
+            alt_text=asset.alt_text or "",
+            tags=asset.tags or [],
+            platform="instagram",
+            db=db,
+            team_id=team_id,
+        )
+        await persist_media_quality_metadata(asset, quality, db)
+        quality_report = quality.to_dict()
+
     return GenerateImageFluxResponse(
         image_base64=image_base64,
         format="base64",
         prompt=request.prompt,
         asset_id=asset.id if asset else None,
         storage_path=asset.storage_path if asset else None,
+        quality=quality_report,
     )
 
 

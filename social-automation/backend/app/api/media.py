@@ -22,6 +22,7 @@ from app.models.content import MediaAsset, MediaCollection
 from app.models.user import Team, TeamMember, User
 from app.services import minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
+from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
 from app.worker.celery_app import celery_app
@@ -548,15 +549,24 @@ async def generate_image(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    # Spell-check the prompt and negative prompt before generation.
-    prompt = await correct_text(body.prompt) or body.prompt
+    # ── Quality pipeline: spellcheck prompt + negative prompt before generation.
+    # Full NLP/SEO runs after generation on caption/alt_text (user-facing text).
     opts = body.options or MediaGenerateOptions()
-    opts.negative_prompt = await correct_text(opts.negative_prompt) or opts.negative_prompt
+    quality_pre = await apply_media_quality(
+        prompt=body.prompt,
+        negative_prompt=opts.negative_prompt,
+        platform="instagram",  # media library default platform for SEO
+        db=db,
+        team_id=team.id,
+        run_nlp=False,  # NLP/SEO deferred to post-generation
+        run_seo=False,
+    )
+    prompt = quality_pre.prompt or body.prompt
+    negative_prompt = quality_pre.negative_prompt or opts.negative_prompt
 
     width = opts.width or 1024
     height = opts.height or 1024
     steps = opts.steps or 4
-    negative_prompt = opts.negative_prompt or ""
     cfg_scale = opts.cfg_scale or 7.5
 
     generated = None
@@ -628,6 +638,24 @@ async def generate_image(
 
     # Quality gate: score the generated image and store the result.
     await _score_and_store_quality(asset, base64.b64decode(image_b64), db)
+
+    # ── Media quality pipeline: NLP plain-English + SEO on user-facing text.
+    # Runs on alt_text/caption/tags (never touches image bytes). The prompt
+    # was already spellchecked before generation; here we process the
+    # AI-generated alt_text and tags that persist_generated_image created.
+    quality_post = await apply_media_quality(
+        prompt=asset.generation_prompt or prompt,
+        caption=asset.ai_caption or "",
+        alt_text=asset.alt_text or "",
+        tags=asset.tags or [],
+        platform="instagram",
+        db=db,
+        team_id=team.id,
+        run_spellcheck=True,  # re-check persisted text
+        run_nlp=True,
+        run_seo=True,
+    )
+    await persist_media_quality_metadata(asset, quality_post, db)
 
     return asset
 
