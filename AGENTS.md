@@ -38,8 +38,8 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
 - `social-worker-publishing`, `social-worker-media`, `social-worker-default` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The three queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
-- `ollama` — restart after Ollama env var changes or Modelfile updates. Recreate the custom model with `ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu` after Modelfile changes.
 - `comfyui` — restart after CLI args or env changes.
+- **Docker Model Runner (DMR)** — not a Compose container; it's a host-level Docker engine (`docker model *` CLI). No restart needed after app code changes. After `docker model configure --context-size N` or runtime flag changes, the model reloads on the next request. Use `docker model status` to verify the engine is running.
 - `n8n` — restart and re-import workflows after any `n8n-workflows/` or webhook change.
 - `social-frontend` — rebuild image or restart dev container after frontend source change.
 
@@ -85,15 +85,18 @@ docker compose exec -T social-worker-publishing celery -A app.worker.celery_app 
 # check which queues each worker is consuming
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues
 
-# check Ollama GPU offload status (should show 100% GPU, 2048 ctx, Forever)
-docker compose exec -T ollama ollama ps
+# check Docker Model Runner status (host-level engine, not a Compose container)
+docker model status
+curl -sf http://localhost:12434/engines/v1/models | python3 -m json.tool
+
+# list pulled DMR models
+docker model list
 
 # check GPU VRAM usage
 nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
 
-# recreate the GPU-optimized Ollama model after Modelfile changes
-docker compose cp ollama/Modelfile.llama31-gpu ollama:/tmp/Modelfile.llama31-gpu
-docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu
+# configure DMR context size (model reloads on next request)
+docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 ```
 
 ## Product defaults to preserve
@@ -101,7 +104,7 @@ docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.ll
 - LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not a personal profile.
 - Threads account for **cloudless.gr** uses the Threads/Instagram username **`cloudless.gr`** (with a dot, not underscore). This is the brand account, not the personal `t_baltzakis` account.
 - Carousel generation uses **Cloudflare Workers AI only**.
-- **Cloudflare-first, free-first** for all inference, storage, and databases; prefer Cloudflare Workers AI, R2, D1, KV, and Vectorize. Use local services (Postgres, Redis, Chroma, MinIO, Ollama) as failover.
+- **Cloudflare-first, free-first** for all inference, storage, and databases; prefer Cloudflare Workers AI, R2, D1, KV, and Vectorize. Use local services (Postgres, Redis, Chroma, MinIO, Docker Model Runner) as failover.
 - **Database fallback chain**: D1 (Cloudflare, primary) → PostgreSQL (local, failover). The dual-write router (`app/services/db_router.py`) writes to D1 first, then Postgres. Circuit breaker opens after 3 D1 failures, routing to Postgres for 60s. Queued writes replay to D1 on recovery.
 - **Cache fallback chain**: KV (Cloudflare, primary) → Redis (local, failover).
 - **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
@@ -110,11 +113,10 @@ docker compose exec -T ollama ollama create llama3.1:8b-gpu -f /tmp/Modelfile.ll
 - **Inference fallback chain (images)**: Local Diffusers (SD 1.5, GPU) → Cloudflare Workers AI (the ONLY cloud fallback). Other image providers (Pixazo, Together, HuggingFace, NVIDIA FLUX) are manual-selection-only.
 - **Docker Model Runner (DMR)**: Primary local text inference. API at `http://localhost:12434` (host) or `http://host.docker.internal:12434` (containers). OpenAI-compatible (`/engines/v1/chat/completions`), Anthropic-compatible (`/anthropic/v1/messages`), and Ollama-compatible (`/api/chat`) APIs. Models: `ai/qwen3:8b-q4_K_M` (text), `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny), `ai/stable-diffusion` (SDXL image, pulled but Diffusers engine not available on WSL2). Config via `docker model configure --context-size N`. Skill: `.devin/skills/docker-model-runner/`. MCP server: `dmr` in `.devin/mcp_config.json` (8 tools: status, list, chat, embed, pull, inspect, configure, generate_image).
   - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
-- **Ollama default model**: `llama3.1:8b-gpu` (custom Modelfile with `num_gpu=99`, `num_ctx=2048`). All layers on GPU, q8_0 KV cache, 2048-token context. See GPU & VRAM section below.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password, `GITHUB_TOKEN`).
-- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `ollama:11435`, `comfyui:8000`, `metabase:3000`). New internal services may use unmapped ports only after confirming no conflicts.
+- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `comfyui:8000`, `metabase:3000`). DMR runs on host port `12434` (not a Compose service). New internal services may use unmapped ports only after confirming no conflicts.
 
 ## Platform coverage
 
@@ -226,7 +228,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 
 ## LinkedIn carousel pipeline
 
-- **Cloudflare Workers AI only** for carousel generation (text + image). No Ollama/ComfyUI fallback for this path.
+- **Cloudflare Workers AI only** for carousel generation (text + image). No DMR/ComfyUI fallback for this path.
 - The pipeline (`app/services/carousel_pipeline.py`) generates slide copy, runs NLP plain-English check/fix, spellchecks each slide's title/body/highlight via LanguageTool, generates background images via FLUX schnell, composes branded slides (dark navy + teal Cloudless brand), spellchecks the final caption, runs SEO scoring on the caption+hashtags, and combines all slides into a **single PDF** — one media library entry.
 - An AI-generated title is produced for each carousel and stored in `MediaAsset.ai_caption`. The target platform and account are stored in `MediaAsset.tags` (e.g. `['carousel', 'linkedin', 'slides:7', 'cloudless.gr']`).
 - The `/api/v1/ai/run-carousel-and-publish` endpoint supports `custom_slides`, `custom_caption`, and `custom_hashtags` in the request body to override AI-generated copy with curated content. When custom slides are provided, AI copy generation and NLP dedup are skipped.
@@ -273,26 +275,25 @@ All content-generating endpoints now return additional quality metadata:
 
 In addition to generation-time quality checks, `publish_to_platform` in `app/services/publishing.py` spellchecks the final assembled post text (including platform-specific overrides, hashtags, and link URLs) via `auto_correct` before dispatching to social platforms. This is advisory — spellcheck failures never block publishing.
 
-### Ollama fallback for text quality steps
+### DMR fallback for text quality steps
 
-All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel copy generation, AI title generation) use `allow_fallback=True`, so if Cloudflare Workers AI is unavailable or quota-exhausted, the inference chain falls back through Groq → Together → HF → **Ollama** (last resort). This ensures the quality pipeline never silently skips NLP/SEO improvement when CF is down.
+All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel copy generation, AI title generation) use `allow_fallback=True`, so if Cloudflare Workers AI is unavailable or quota-exhausted, the inference chain falls back to **DMR** (Docker Model Runner, local). The automatic fallback chain is `dmr → cloudflare` only — other cloud providers (Groq, Gemini, Mistral, etc.) are manual-selection-only. This ensures the quality pipeline never silently skips NLP/SEO improvement when CF is down.
 
-**What falls back to Ollama:**
+**What falls back to DMR:**
 - `apply_quality_pipeline` NLP check/fix and auto-improve iterations.
 - `run_cloudless_carousel_pipeline` slide copy generation, NLP check/fix, and AI title generation.
 - `generate-carousel-pipeline` endpoint NLP check/fix.
 - `generate-content` and `improve-content` via `apply_quality_pipeline`.
 
 **What does NOT fall back (stays Cloudflare-only):**
-- Carousel **image** generation (`_call_cf_image_pipeline`, `_cf_generate_background`) — images must use Cloudflare Workers AI (FLUX schnell / SD img2img) per the product default. Image generation has no Ollama fallback.
+- Carousel **image** generation (`_call_cf_image_pipeline`, `_cf_generate_background`) — images must use Cloudflare Workers AI (FLUX schnell / SD img2img) per the product default. Image generation has no DMR fallback.
 - `generate-carousel-pipeline` image pipeline calls (`allow_fallback=False` for image requests).
 
-**Ollama model**: `llama3.1:8b-gpu` (custom Modelfile, 100% GPU, 2048 ctx, q8_0 KV cache, `KEEP_ALIVE=-1` so it stays resident in VRAM permanently). Verify with `docker compose exec -T ollama ollama ps` — should show `llama3.1:8b-gpu, 4.9 GB, 100% GPU, 2048, Forever`.
+**DMR model**: `ai/qwen3:8b-q4_K_M` (Q4_K_M quantization, ~5GB VRAM when loaded). DMR auto-loads the model on first request and auto-unloads after idle — no manual VRAM preload needed. Verify with `docker model status` and `curl -sf http://localhost:12434/engines/v1/models`.
 
 **Container tuning notes:**
-- Ollama and ComfyUI share the 8GB RTX 3070 Laptop GPU. Ollama uses ~5GB VRAM (model weights + KV cache); ComfyUI gets ~2GB free (enough for SD 1.5 fp16).
-- `OLLAMA_GPU_OVERHEAD=2147483648` (2GB) reserves VRAM for ComfyUI so Ollama doesn't monopolize the card.
-- After Ollama container restart, the model must be reloaded: `docker compose exec -T ollama ollama run llama3.1:8b-gpu "Say OK"` (forces VRAM load), or send any inference request.
+- DMR and the `local-diffusers` container share the 8GB RTX 3070 Laptop GPU. DMR uses ~5GB VRAM (model weights + KV cache) when a model is loaded; local-diffusers uses ~2GB when generating. DMR auto-unloads when idle so they rarely conflict.
+- DMR is a host-level Docker engine (not a Compose container) — no `docker compose restart` needed. Context size and runtime flags are set via `docker model configure`.
 - LanguageTool (`languagetool` container, port 8010) handles spellcheck — `Java_Xmx=256m` heap limit. No GPU needed.
 
 ### Container data-flow matrix
@@ -307,7 +308,7 @@ Verified connectivity from `social-api` to all dependent services:
 | Postgres (primary DB) | `social-postgres` | 5432 | TCP | OK |
 | MinIO (storage) | `minio` | 9000 | `/minio/health/live` | OK (200) |
 | n8n (workflows) | `n8n` | 5678 | `/healthz` | OK (200) |
-| Ollama (fallback inference) | `ollama` | 11434 | `/api/tags` | OK (200, model in VRAM) |
+| DMR (primary local inference) | host engine (not Compose) | 12434 | `/engines/v1/models` | OK (200, model auto-loads on request) |
 | Instagram Private API | `instagram-private-api` | 8000 | `/` | OK (307 redirect to /docs) |
 | LinkedIn Browser Sidecar | `linkedin-browser-sidecar` | 9225 | `/health` | OK (200) |
 | Facebook Browser Sidecar | `facebook-browser-sidecar` | 9226 | `/health` | OK (200) |
@@ -435,28 +436,24 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 
 ## GPU & VRAM optimization
 
-The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Ollama and ComfyUI share the GPU. The configuration maximizes VRAM usage and minimizes system RAM.
+The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. DMR (Docker Model Runner) and the `local-diffusers` container share the GPU. The configuration maximizes VRAM usage and minimizes system RAM.
 
-### Ollama (`ollama` container)
+### Docker Model Runner (DMR, host engine — not a Compose container)
 
-- **Model**: `llama3.1:8b-gpu` — custom Modelfile at `ollama/Modelfile.llama31-gpu` with `num_gpu=99` (forces all 32 layers to GPU) and `num_ctx=2048`.
-- **`OLLAMA_FLASH_ATTENTION=1`** — reduces VRAM and RAM for attention layers.
-- **`OLLAMA_KV_CACHE_TYPE=q8_0`** — quantizes KV cache to 8-bit, halves context memory.
-- **`OLLAMA_CONTEXT_LENGTH=2048`** — caps context at 2048 tokens (social copy rarely exceeds 500).
-- **`OLLAMA_GPU_OVERHEAD=2147483648`** (2GB) — reserves VRAM for ComfyUI so Ollama doesn't monopolize the 8GB card.
-- **`OLLAMA_MAX_LOADED_MODELS=1`** — only one model resident at a time.
-- **`OLLAMA_NUM_PARALLEL=1`** — no concurrent inference (prevents KV cache multiplication).
-- **`OLLAMA_KEEP_ALIVE=-1`** — model stays in VRAM permanently (no reload latency, no RAM swap-out).
-- Default model in `app/core/config.py` is `llama3.1:8b-gpu`.
-- `ollama ps` should show `100% GPU, 2048 ctx, Forever`.
-- After Modelfile changes: copy to container and recreate with `ollama create llama3.1:8b-gpu -f /tmp/Modelfile.llama31-gpu`.
-- Known issue: Ollama can freeze when unloading models if ComfyUI holds VRAM. The `OLLAMA_GPU_OVERHEAD` + `--reserve-vram` combination mitigates this by preventing either service from starving the other.
+- **Model**: `ai/qwen3:8b-q4_K_M` — Q4_K_M quantization, ~5GB VRAM when loaded. All layers on GPU via llama.cpp engine.
+- **Context size**: configurable via `docker model configure --context-size N` (default 4096). Social copy rarely exceeds 500 tokens.
+- **Auto-load/unload**: DMR loads the model on first request and unloads after idle — no manual VRAM preload or `KEEP_ALIVE` needed (unlike the old Ollama setup).
+- **Default model** in `app/core/config.py` is `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL`).
+- Verify with `docker model status` and `curl -sf http://localhost:12434/engines/v1/models`.
+- After context/flag changes: `docker model configure --context-size N ai/qwen3:8b-q4_K_M` — the model reloads on the next request.
+- Other DMR models available: `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny/fast, 360M).
+- **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
 
 ### ComfyUI (`social-media-comfyui-gpu` container)
 
 - **`--gpu-only`** — forces text encoders, CLIP, and models onto GPU (minimum RAM usage).
 - **`--force-fp16`** — halves VRAM usage with minimal quality loss.
-- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM Ollama.
+- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM local-diffusers.
 - Note: `--gpu-only` and `--highvram` are mutually exclusive. `--gpu-only` is the stronger flag (forces everything onto GPU).
 
 ### Java heap limits (RAM savings)
@@ -469,11 +466,11 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Ollama 
 | Component | VRAM | Notes |
 |-----------|------|-------|
 | CUDA/display driver | ~0.5GB | System overhead |
-| Ollama model weights | ~4.9GB | llama3.1:8b Q4, all 32 layers on GPU |
-| Ollama KV cache | ~0.1GB | q8_0 at 2048 ctx |
+| DMR model weights | ~5.0GB | qwen3:8b Q4_K_M, auto-loaded on request, auto-unloaded when idle |
 | ComfyUI (idle) | ~0.5GB | PyTorch + CUDA context |
 | Local Diffusers (SD 1.5) | ~2.0GB | Allocated when generating; unloaded when idle |
-| **Free for models** | **~2GB** | Enough for SD 1.5 at fp16; SDXL needs careful management |
+| **Free when DMR loaded** | **~0.5GB** | Tight — DMR auto-unloads when idle so local-diffusers can generate |
 
 - **DMR SDXL on disk**: The `ai/stable-diffusion` model (6.94 GB DDUF) is cached locally but cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
-- **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so Ollama/ComfyUI can use the VRAM.
+- **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so DMR/ComfyUI can use the VRAM.
+- **DMR + local-diffusers coexistence**: DMR auto-unloads its model after idle, so the two rarely hold VRAM simultaneously. When both are active (~7GB total), it fits in 8GB but leaves little headroom.
