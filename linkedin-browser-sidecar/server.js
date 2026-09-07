@@ -38,6 +38,8 @@
  *   GET  /debug/screenshot     — full-page screenshot as PNG
  *   POST /debug/navigate       — navigate to a URL (for debugging)
  *   POST /debug/eval           — evaluate JavaScript in the page
+ *   GET  /debug/all-cookies    — export ALL context cookies (httpOnly, cross-domain)
+ *                                ?domain=linkedin.com to filter by domain
  *
  * Session is injected via POST /session with a Playwright storage_state
  * JSON (cookies + origins) or a cookies dict. Sessions are persisted to
