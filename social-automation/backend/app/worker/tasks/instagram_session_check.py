@@ -96,36 +96,14 @@ async def _send_alert(owner: User, account_username: str, reason: str) -> None:
                 logger.info("Skipping IG alert for %s — within cooldown", owner.email)
                 return
 
-        from app.services.email_digest import send_email
+        from app.services.email_templates import send_instagram_session_alert_email
 
-        subject = f"Instagram session expired for @{account_username}"
-        text = (
-            f"Hi {owner.name or owner.email},\n\n"
-            f"The Instagram private-API session for @{account_username} has expired.\n\n"
-            f"Reason: {reason}\n\n"
-            "To restore it:\n"
-            "1. Log in to Instagram in a real browser.\n"
-            "2. Copy the `sessionid` cookie from devtools.\n"
-            "3. Import it: .devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>\n\n"
-            "— SocialAuto"
+        await send_instagram_session_alert_email(
+            owner_email=owner.email,
+            owner_name=owner.name or "",
+            account_username=account_username,
+            reason=reason,
         )
-        await send_email(subject=subject, text_body=text, html_body=f"<pre>{text}</pre>", to_addrs=[owner.email])
-
-        # Log the alert.
-        async with async_sessionmaker(
-            create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool),
-            class_=AsyncSession,
-            expire_on_commit=False,
-        ) as db:
-            db.add(
-                EmailLog(
-                    recipient=owner.email,
-                    subject=subject,
-                    template="instagram_session_alert",
-                    user_id=owner.id,
-                )
-            )
-            await db.commit()
     except Exception:
         logger.debug("IG alert email failed (non-fatal)", exc_info=True)
 

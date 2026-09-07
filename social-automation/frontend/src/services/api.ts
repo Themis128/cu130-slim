@@ -192,6 +192,27 @@ export const authApi = {
   }) => api.put('/auth/notifications/preferences', data),
   exportData: () => api.get('/auth/export-data'),
   deleteAccount: (password: string) => api.delete('/auth/account', { data: { password } }),
+  switchTeam: (teamId: string) =>
+    api.post('/auth/switch-team', { team_id: teamId }),
+}
+
+// Team endpoints
+export const teamsApi = {
+  list: () => api.get('/teams'),
+  create: (name: string) => api.post('/teams', { name }),
+  get: (teamId: string) => api.get(`/teams/${teamId}`),
+  update: (teamId: string, name: string) => api.patch(`/teams/${teamId}`, { name }),
+  delete: (teamId: string) => api.delete(`/teams/${teamId}`),
+  invite: (teamId: string, email: string, role?: string) =>
+    api.post(`/teams/${teamId}/invite`, { email, role: role || 'editor' }),
+  acceptInvite: (token: string) =>
+    api.post('/teams/accept-invite', { token }),
+  addMember: (teamId: string, userId: string, role?: string) =>
+    api.post(`/teams/${teamId}/members/${userId}`, { role: role || 'editor' }),
+  changeRole: (teamId: string, userId: string, role: string) =>
+    api.patch(`/teams/${teamId}/members/${userId}`, { role }),
+  removeMember: (teamId: string, userId: string) =>
+    api.delete(`/teams/${teamId}/members/${userId}`),
 }
 
 // Content endpoints

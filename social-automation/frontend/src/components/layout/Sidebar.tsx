@@ -39,6 +39,7 @@ const navigation = [
   { name: 'Workflows', href: '/workflows', icon: Zap },
   { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'Accounts', href: '/accounts', icon: Users },
+  { name: 'Team', href: '/team', icon: Users },
   { name: 'Browser Login', href: '/browser-login', icon: Monitor },
   { name: 'MCP Stack', href: '/mcp-stack', icon: Server },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },

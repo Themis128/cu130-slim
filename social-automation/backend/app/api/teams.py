@@ -96,6 +96,10 @@ class InviteResponse(BaseModel):
     message: str
 
 
+class AcceptInviteRequest(BaseModel):
+    token: str
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -356,13 +360,13 @@ async def invite_member(
             try:
                 import asyncio
 
-                from app.services.email_templates import send_team_invite_email
+                from app.services.email_templates import send_team_added_email
 
                 inviter_name = current_user.name or current_user.email
                 asyncio.create_task(
-                    send_team_invite_email(
+                    send_team_added_email(
                         inviter_name, target_user.email, team.name,
-                        f"{frontend_url}/dashboard?team={team.id}",
+                        f"{frontend_url}/team",
                     )
                 )
             except Exception:
@@ -561,3 +565,93 @@ async def remove_member(
 
     await db.delete(target_membership)
     await db.commit()
+
+
+# ── Accept invite (no team-scoped auth — uses invite JWT) ──────────────
+
+
+@router.post("/accept-invite", response_model=TeamResponse)
+async def accept_invite(
+    data: AcceptInviteRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    """Accept a team invitation by presenting the invite JWT.
+
+    The invite token (created by ``POST /{team_id}/invite`` when the user
+    does not yet exist) carries ``invite_team_id``, ``invite_email``, and
+    ``invite_role``.  This endpoint verifies the token, checks that the
+    logged-in user's email matches the invite email, and adds the user
+    as a member of the target team.
+    """
+    from app.core.security import decode_token
+
+    payload = decode_token(data.token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired invite token",
+        )
+
+    invite_email = payload.get("invite_email")
+    invite_team_id = payload.get("invite_team_id")
+    invite_role = payload.get("invite_role", "editor")
+
+    if not invite_email or not invite_team_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token is not a valid invite token",
+        )
+
+    if current_user.email != invite_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This invite was sent to a different email address",
+        )
+
+    try:
+        team_uuid = uuid.UUID(invite_team_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid team ID in invite token",
+        )
+
+    team = await _get_team_or_404(db, team_uuid)
+
+    # Check if already a member.
+    existing = await _get_membership(db, team.id, current_user.id)
+    if existing is not None:
+        # Update role if different.
+        try:
+            new_role = UserRole(invite_role)
+        except ValueError:
+            new_role = UserRole.EDITOR
+        if existing.role != new_role:
+            existing.role = new_role
+            await db.commit()
+    else:
+        try:
+            new_role = UserRole(invite_role)
+        except ValueError:
+            new_role = UserRole.EDITOR
+        membership = TeamMember(
+            team_id=team.id, user_id=current_user.id, role=new_role
+        )
+        db.add(membership)
+        await db.commit()
+
+    # Return team info with the user's role.
+    member_count_result = await db.execute(
+        select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id)
+    )
+    member_count = member_count_result.scalar_one()
+
+    final_membership = await _get_membership(db, team.id, current_user.id)
+    return TeamResponse(
+        id=team.id,
+        name=team.name,
+        owner_id=team.owner_id,
+        member_count=member_count,
+        role=final_membership.role if final_membership else UserRole.VIEWER,
+    )

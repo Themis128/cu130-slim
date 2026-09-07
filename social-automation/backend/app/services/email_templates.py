@@ -311,3 +311,80 @@ async def send_team_invite_email(
     except Exception as exc:
         logger.exception("Failed to send team invite email to %s", invitee_email)
         await _log_email(invitee_email, subject, "team_invite", status="failed", error=str(exc))
+
+
+async def send_team_added_email(
+    adder_name: str,
+    user_email: str,
+    team_name: str,
+    dashboard_link: str,
+) -> None:
+    """Send a 'you have been added to a team' notification.
+
+    Unlike :func:`send_team_invite_email`, this is sent to an existing user
+    who has already been added as a member — there is nothing to accept.
+    """
+    subject = f"You have been added to {team_name} on SocialAuto"
+    text = (
+        f"Hi,\n\n"
+        f"{adder_name} has added you to the team \"{team_name}\" on SocialAuto.\n\n"
+        f"You can access the team dashboard here:\n{dashboard_link}\n\n"
+        "— The SocialAuto Team"
+    )
+    html = _html_wrapper(
+        f"Joined {team_name}",
+        f"""
+        <p><strong>{adder_name}</strong> has added you to the team
+        <strong>{team_name}</strong> on SocialAuto.</p>
+        <a href="{dashboard_link}" class="btn">Go to Dashboard</a>
+        """,
+    )
+    try:
+        await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[user_email])
+        await _log_email(user_email, subject, "team_added")
+    except Exception as exc:
+        logger.exception("Failed to send team-added email to %s", user_email)
+        await _log_email(user_email, subject, "team_added", status="failed", error=str(exc))
+
+
+async def send_instagram_session_alert_email(
+    owner_email: str,
+    owner_name: str,
+    account_username: str,
+    reason: str,
+) -> None:
+    """Send an alert that an Instagram private-API session has expired."""
+    subject = f"Instagram session expired for @{account_username}"
+    text = (
+        f"Hi {owner_name or owner_email},\n\n"
+        f"The Instagram private-API session for @{account_username} has expired.\n\n"
+        f"Reason: {reason}\n\n"
+        "To restore it:\n"
+        "1. Log in to Instagram in a real browser.\n"
+        "2. Copy the `sessionid` cookie from devtools.\n"
+        "3. Import it: .devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>\n\n"
+        "— SocialAuto"
+    )
+    html = _html_wrapper(
+        "Instagram session expired",
+        f"""
+        <p>Hi <strong>{owner_name or owner_email}</strong>,</p>
+        <p>The Instagram private-API session for <strong>@{account_username}</strong>
+        has expired.</p>
+        <p><em>Reason: {reason}</em></p>
+        <p>To restore it:</p>
+        <ol>
+          <li>Log in to Instagram in a real browser.</li>
+          <li>Copy the <code>sessionid</code> cookie from devtools.</li>
+          <li>Import it via
+            <code>.devin/skills/instagram-private-api/scripts/import-session.sh &lt;sessionid&gt;</code>
+          </li>
+        </ol>
+        """,
+    )
+    try:
+        await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[owner_email])
+        await _log_email(owner_email, subject, "instagram_session_alert")
+    except Exception as exc:
+        logger.exception("Failed to send IG session alert to %s", owner_email)
+        await _log_email(owner_email, subject, "instagram_session_alert", status="failed", error=str(exc))

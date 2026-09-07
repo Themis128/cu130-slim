@@ -163,7 +163,7 @@ class TestSendAlertCooldown:
 
     @pytest.mark.asyncio
     async def test_alert_sent_when_no_recent_alert(self):
-        """If no recent alert exists, send the email and log it."""
+        """If no recent alert exists, send the email via email_templates."""
         owner = MagicMock()
         owner.email = "owner@example.com"
         owner.name = "Owner"
@@ -192,12 +192,13 @@ class TestSendAlertCooldown:
             "app.worker.tasks.instagram_session_check.create_async_engine",
             return_value=MagicMock(),
         ), patch(
-            "app.services.email_digest.send_email",
+            "app.services.email_templates.send_instagram_session_alert_email",
             new_callable=AsyncMock,
         ) as mock_send:
             await _send_alert(owner, "testuser", "session rejected")
 
         mock_send.assert_called_once()
-        args = mock_send.call_args
-        assert "testuser" in args.kwargs["subject"]
-        assert owner.email in args.kwargs["to_addrs"]
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["owner_email"] == owner.email
+        assert "testuser" in kwargs["account_username"]
+        assert kwargs["reason"] == "session rejected"
