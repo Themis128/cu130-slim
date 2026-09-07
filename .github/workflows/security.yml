@@ -208,16 +208,48 @@ jobs:
         run: pip install pip-audit
 
       - name: Audit env-manager backend
+        env:
+          PIP_AUDIT_TIMEOUT: '60'
         run: |
           cd env-manager/backend
-          pip-audit --desc -r requirements.txt
+          # pip-audit queries the PyPI/OSV JSON API per package; transient
+          # read timeouts (default 15s) fail the whole job. Bump the timeout
+          # and retry, falling back to the OSV service if PyPI is unreachable.
+          for svc in pypi osv; do
+            for attempt in 1 2 3; do
+              echo "==> pip-audit (service=$svc, attempt=$attempt)"
+              if pip-audit --desc --timeout 60 --vulnerability-service "$svc" -r requirements.txt; then
+                exit 0
+              fi
+              echo "==> attempt $attempt failed (service=$svc), retrying in $((attempt*10))s..."
+              sleep $((attempt*10))
+            done
+          done
+          echo "pip-audit failed after retries on both PyPI and OSV services."
+          exit 1
 
       - name: Audit social-automation backend
+        env:
+          PIP_AUDIT_TIMEOUT: '60'
         run: |
           cd social-automation/backend
           pip install --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
           pip install -e .
-          pip-audit --desc --local
+          # pip-audit queries the PyPI/OSV JSON API per package; transient
+          # read timeouts (default 15s) fail the whole job. Bump the timeout
+          # and retry, falling back to the OSV service if PyPI is unreachable.
+          for svc in pypi osv; do
+            for attempt in 1 2 3; do
+              echo "==> pip-audit (service=$svc, attempt=$attempt)"
+              if pip-audit --desc --timeout 60 --vulnerability-service "$svc" --local; then
+                exit 0
+              fi
+              echo "==> attempt $attempt failed (service=$svc), retrying in $((attempt*10))s..."
+              sleep $((attempt*10))
+            done
+          done
+          echo "pip-audit failed after retries on both PyPI and OSV services."
+          exit 1
 
   node-dependency-audit:
     name: Node.js dependency audit
