@@ -33,6 +33,7 @@ class User(Base):
     )
     two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     two_factor_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     notification_preferences: Mapped[dict] = mapped_column(
         JSONB,
         default=lambda: {
@@ -64,6 +65,7 @@ class Team(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    plan_tier: Mapped[str] = mapped_column(String(20), default="free", server_default="free", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     owner: Mapped["User"] = relationship("User", back_populates="owned_teams", foreign_keys=[owner_id])

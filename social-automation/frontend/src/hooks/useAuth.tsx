@@ -9,7 +9,7 @@ interface AuthContextType extends AuthState {
   register: (data: RegisterData) => Promise<boolean>
   logout: () => void
   refreshUser: () => Promise<void>
-  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string }) => Promise<boolean>
+  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string; timezone?: string; onboarding_completed?: boolean; metadata?: Record<string, unknown> }) => Promise<boolean>
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>
 }
 
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     toast.success('Logged out successfully')
   }
 
-  const updateProfile = async (data: { full_name?: string; email?: string; avatar_url?: string }): Promise<boolean> => {
+  const updateProfile = async (data: { full_name?: string; email?: string; avatar_url?: string; timezone?: string; onboarding_completed?: boolean; metadata?: Record<string, unknown> }): Promise<boolean> => {
     try {
       const response = await authApi.updateProfile(data)
       setState(prev => ({ ...prev, user: response.data }))

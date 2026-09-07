@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
+from app.api.deps import check_quota
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
@@ -692,6 +693,8 @@ async def generate_image(
     )
     team = team_result.scalars().first()
     team_id = team.id if team else None
+    if team_id:
+        await check_quota("ai_calls_per_month", team_id, db)
 
     # Enhance prompt with brand visual identity if available
     enhanced_prompt = request.prompt
@@ -987,6 +990,8 @@ async def generate_image_pipeline(
     )
     team = team_result.scalars().first()
     team_id = team.id if team else None
+    if team_id:
+        await check_quota("ai_calls_per_month", team_id, db)
 
     # Check chroma for similar generated images before submitting
     similar: list[str] = []
@@ -1427,6 +1432,8 @@ async def generate_image_flux(
     )
     team = team_result.scalars().first()
     team_id = team.id if team else None
+    if team_id:
+        await check_quota("ai_calls_per_month", team_id, db)
 
     # Get provider config
     from app.services.inference import _get_provider_config
@@ -1506,6 +1513,7 @@ async def generate_content(
     )
     team = team_result.scalars().first()
     if team:
+        await check_quota("ai_calls_per_month", team.id, db)
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
         if similar:
             # Surface similar content in prompt so Ollama can differentiate
@@ -2279,6 +2287,7 @@ async def generate_carousel(
     )
     team = team_result.scalars().first()
     if team:
+        await check_quota("ai_calls_per_month", team.id, db)
         similar = await chroma_client.query_similar(str(team.id), request.topic, n_results=3)
         if similar:
             # Surface similar content in prompt so AI can differentiate

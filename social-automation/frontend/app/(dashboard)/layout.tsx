@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { Layout } from '@/components/layout'
 import { TourProvider } from '@/hooks/useTour'
@@ -13,14 +13,23 @@ import { Loader2 } from 'lucide-react'
 export const dynamic = 'force-dynamic'
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, user } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/login')
     }
   }, [isAuthenticated, isLoading, router])
+
+  // Redirect to onboarding wizard if the user hasn't completed it yet
+  // (unless they're already on the onboarding page)
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user && user.onboarding_completed === false && pathname !== '/onboarding') {
+      router.push('/onboarding')
+    }
+  }, [isLoading, isAuthenticated, user, pathname, router])
 
   if (isLoading) {
     return (

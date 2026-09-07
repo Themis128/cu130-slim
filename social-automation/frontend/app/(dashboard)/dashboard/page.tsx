@@ -12,7 +12,9 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { WeekCalendar } from '@/components/ui/WeekCalendar'
 import { PostingHeatmap } from '@/components/ui/PostingHeatmap'
-import { useOverviewMetrics, useTopPosts, useScheduledPosts } from '@/hooks/useQueries'
+import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist'
+import { EmptyState as DashboardEmptyState } from '@/components/dashboard/EmptyState'
+import { useOverviewMetrics, useTopPosts, useScheduledPosts, useAccounts, useMedia } from '@/hooks/useQueries'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { useAuth } from '@/hooks/useAuth'
 import type { TopPost } from '@/types'
@@ -45,8 +47,15 @@ export default function DashboardPage() {
   const { data: metrics, isLoading: metricsLoading } = useOverviewMetrics(30)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(5)
   const { data: scheduledPosts = [] } = useScheduledPosts()
+  const { data: accounts } = useAccounts()
+  const { data: mediaData } = useMedia({ page: 1, page_size: 1 })
   const { setCtx } = useAdvisor()
   const { user } = useAuth()
+
+  const connectedAccountsCount = accounts?.length ?? metrics?.connected_accounts ?? 0
+  const totalPosts = metrics?.total_posts ?? 0
+  const mediaCount = mediaData?.total ?? mediaData?.items?.length ?? mediaData?.assets?.length ?? 0
+  const hasScheduledPost = (metrics?.scheduled_posts ?? 0) > 0
 
   useEffect(() => {
     if (!metrics) return
@@ -134,6 +143,47 @@ export default function DashboardPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Onboarding checklist (auto-hides when all done or dismissed) */}
+      <OnboardingChecklist
+        connectedAccounts={connectedAccountsCount}
+        hasBrand={false}
+        postCount={totalPosts}
+        hasScheduledPost={hasScheduledPost}
+      />
+
+      {/* Empty-state cards for new users */}
+      {(connectedAccountsCount === 0 || totalPosts === 0 || mediaCount === 0) && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {connectedAccountsCount === 0 && (
+            <DashboardEmptyState
+              icon={Users}
+              title="No social accounts connected"
+              description="Connect your first social account to start publishing content across platforms."
+              actionLabel="Connect account"
+              actionHref="/accounts"
+            />
+          )}
+          {totalPosts === 0 && (
+            <DashboardEmptyState
+              icon={PenLine}
+              title="No posts yet"
+              description="Create your first post to share with your audience across all connected platforms."
+              actionLabel="Create post"
+              actionHref="/content/new"
+            />
+          )}
+          {mediaCount === 0 && (
+            <DashboardEmptyState
+              icon={Image}
+              title="No media uploaded"
+              description="Upload your first image or video to use in your social media posts."
+              actionLabel="Upload media"
+              actionHref="/media"
+            />
+          )}
+        </div>
+      )}
 
       {/* Stats cards */}
       <div

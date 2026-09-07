@@ -1884,7 +1884,9 @@ async def get_instagram_web_session_status(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Use WARP proxy if available to avoid datacenter IP blocks
+        proxy = getattr(settings, "INSTAGRAM_PROXY", None) or "socks5://warp-proxy:1080"
+        async with httpx.AsyncClient(timeout=15.0, proxy=proxy) as client:
             resp = await client.get(
                 f"https://www.instagram.com/api/v1/users/{ds_user_id}/info/",
                 headers=headers,

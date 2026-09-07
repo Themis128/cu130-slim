@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
-from app.api.deps import TeamId
+from app.api.deps import TeamId, check_quota
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
@@ -116,6 +116,8 @@ async def create_post(post_data: PostCreate, current_user: User = Depends(get_cu
     team = result.scalars().first()
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
+
+    await check_quota("posts_per_month", team.id, db)
 
     corrected_text = await auto_correct(post_data.content_text or "")
 

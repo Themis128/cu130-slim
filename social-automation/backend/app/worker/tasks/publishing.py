@@ -23,31 +23,51 @@ logger = logging.getLogger(__name__)
 
 
 async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:
-    """Fire-and-forget webhook when a publish succeeds.
+    """Fire-and-forget webhook + email when a publish succeeds.
 
     Reads PUBLISH_SUCCESS_WEBHOOK_URL from the environment. If the post has a
     workflow_run_id, it is included in the payload so downstream systems can
     correlate the publish event back to the originating workflow run.
+    Also sends a transactional email to the post author if email
+    notifications are enabled.
     """
     webhook_url = os.environ.get("PUBLISH_SUCCESS_WEBHOOK_URL", "")
-    if not webhook_url:
-        return
-    payload = {
-        "event": "publish.success",
-        "post_id": str(post.id),
-        "platform": account.platform,
-        "account_id": str(account.id),
-        "platform_url": platform_url,
-        "published_at": datetime.now(UTC).isoformat(),
-        "workflow_run_id": str(post.workflow_run_id) if post.workflow_run_id else None,
-        "workflow_id": str(post.workflow_id) if post.workflow_id else None,
-    }
+    if webhook_url:
+        payload = {
+            "event": "publish.success",
+            "post_id": str(post.id),
+            "platform": account.platform,
+            "account_id": str(account.id),
+            "platform_url": platform_url,
+            "published_at": datetime.now(UTC).isoformat(),
+            "workflow_run_id": str(post.workflow_run_id) if post.workflow_run_id else None,
+            "workflow_id": str(post.workflow_id) if post.workflow_id else None,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(webhook_url, json=payload)
+                logger.info("Publish success webhook → %s  status=%s", webhook_url, r.status_code)
+        except Exception as exc:
+            logger.warning("Publish success webhook failed: %s", exc)
+
+    # Send transactional email notification to the post author
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(webhook_url, json=payload)
-            logger.info("Publish success webhook → %s  status=%s", webhook_url, r.status_code)
-    except Exception as exc:
-        logger.warning("Publish success webhook failed: %s", exc)
+        from app.models.user import User
+        from app.services.email_templates import send_post_published_email
+
+        settings = get_settings()
+        engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        async with async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)() as db:
+            if post.user_id:
+                result = await db.execute(select(User).where(User.id == post.user_id))
+                author = result.scalar_one_or_none()
+                if author:
+                    prefs = author.notification_preferences or {}
+                    if prefs.get("email_new_post", True):
+                        await send_post_published_email(author, post)
+        await engine.dispose()
+    except Exception:
+        logger.warning("Failed to send post-published email for post %s", post.id)
 
 # Bind shared tasks in this process to the Redis-backed app (not default AMQP).
 celery_app.set_default()

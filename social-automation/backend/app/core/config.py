@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "Social Automation API"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    # Expose Swagger/ReDoc UI independently of DEBUG mode.
+    EXPOSE_API_DOCS: bool = True
     # Set to "test" or "development" to disable the rate-limiter per-request key.
     APP_ENV: str = "production"
     API_PREFIX: str = "/api/v1"

@@ -14,7 +14,8 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, oauth2_scheme
+from app.core.security import decode_token
 from app.db.session import get_db
 from app.models.user import Team, TeamMember, User, UserRole
 
@@ -25,8 +26,31 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 async def get_current_team_id(
     current_user: CurrentUser,
     db: DbSession,
+    token: str = Depends(oauth2_scheme),
 ) -> uuid.UUID:
-    """Return the user's team ID, raising 403 if they have no team."""
+    """Return the user's active team ID.
+
+    The team is resolved in priority order:
+      1. ``team_id`` claim in the JWT (set by ``POST /auth/switch-team``).
+      2. The first team membership for the user (fallback for legacy tokens).
+    Raises 403 if the user has no team.
+    """
+    # 1. Check for a team_id embedded in the access token.
+    payload = decode_token(token)
+    jwt_team_id = payload.get("team_id") if payload else None
+    if jwt_team_id:
+        candidate = uuid.UUID(jwt_team_id)
+        # Validate that the user is actually a member of that team.
+        result = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == candidate,
+                TeamMember.user_id == current_user.id,
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            return candidate
+
+    # 2. Fallback: first team membership.
     result = await db.execute(
         select(Team.id).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
@@ -114,3 +138,90 @@ def require_team_role(min_role: UserRole):
 require_team_admin = require_team_role(UserRole.ADMIN)
 require_team_owner = require_team_role(UserRole.OWNER)
 require_team_editor = require_team_role(UserRole.EDITOR)
+
+
+# ── Quota / plan-limit enforcement ──────────────────────────────────────────
+
+
+async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> None:
+    """Check if the team has exceeded their plan limit for *resource*.
+
+    Raises ``HTTPException(429)`` if the team is over its plan limit.
+    A limit of ``-1`` means unlimited and always passes.
+
+    The platform admin (identified by ``SOCIAL_ADMIN_EMAIL``) is always
+    exempt from quota enforcement.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func
+
+    from app.core.config import get_settings
+    from app.core.quotas import get_effective_limit
+    from app.models.ai_usage import AIUsageLog
+    from app.models.content import Post, PostStatus
+    from app.models.social_account import SocialAccount
+
+    # Admin bypass: the platform admin is never limited
+    settings = get_settings()
+    admin_email = getattr(settings, "SOCIAL_ADMIN_EMAIL", None)
+    if admin_email:
+        result = await db.execute(
+            select(Team.owner_id).where(Team.id == team_id)
+        )
+        owner_id = result.scalar_one_or_none()
+        if owner_id:
+            result = await db.execute(
+                select(User.email).where(User.id == owner_id)
+            )
+            owner_email = result.scalar_one_or_none()
+            if owner_email and owner_email == admin_email:
+                return  # Admin is exempt from all quotas
+
+    # Get team's plan tier
+    result = await db.execute(select(Team.plan_tier).where(Team.id == team_id))
+    tier = result.scalar_one_or_none() or "free"
+
+    limit = get_effective_limit(tier, resource)
+    if limit == -1:
+        return  # unlimited
+
+    # Calculate current month usage
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    if resource == "ai_calls_per_month":
+        result = await db.execute(
+            select(func.count(AIUsageLog.id)).where(
+                AIUsageLog.team_id == team_id,
+                AIUsageLog.created_at >= month_start,
+            )
+        )
+        usage = result.scalar_one()
+    elif resource == "posts_per_month":
+        result = await db.execute(
+            select(func.count(Post.id)).where(
+                Post.team_id == team_id,
+                Post.created_at >= month_start,
+                Post.status != PostStatus.ARCHIVED,
+            )
+        )
+        usage = result.scalar_one()
+    elif resource == "social_accounts":
+        result = await db.execute(
+            select(func.count(SocialAccount.id)).where(SocialAccount.team_id == team_id)
+        )
+        usage = result.scalar_one()
+    else:
+        return
+
+    if usage >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Plan limit exceeded: {resource} ({usage}/{limit}). Upgrade your plan to continue.",
+            headers={
+                "X-Quota-Resource": resource,
+                "X-Quota-Used": str(usage),
+                "X-Quota-Limit": str(limit),
+            },
+        )

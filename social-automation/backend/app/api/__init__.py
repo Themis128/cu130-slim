@@ -19,6 +19,8 @@ from app.api import (
     profile,
     publishing,
     secrets,
+    teams,
+    usage,
     workflows,
 )
 
@@ -43,3 +45,5 @@ api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
+api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
+api_router.include_router(usage.router, prefix="/usage", tags=["usage"])

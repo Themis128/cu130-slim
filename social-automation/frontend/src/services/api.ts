@@ -173,7 +173,7 @@ export const authApi = {
   refresh: (refresh_token: string) =>
     api.post('/auth/refresh', { refresh_token }),
   me: () => api.get('/auth/me'),
-  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string }) =>
+  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string; timezone?: string; onboarding_completed?: boolean; metadata?: Record<string, unknown> }) =>
     api.patch('/auth/me', data),
   changePassword: (data: { current_password: string; new_password: string }) =>
     api.post('/auth/change-password', data),

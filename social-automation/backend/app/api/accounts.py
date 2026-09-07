@@ -21,6 +21,7 @@ from app.api.auth import (
     tiktok_client,
     twitter_client,
 )
+from app.api.deps import check_quota
 from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token, sign_oauth_state
 from app.db.session import get_db
@@ -192,6 +193,8 @@ async def connect_account_body(
         raise HTTPException(status_code=403, detail="No team found for user")
     team_id = data.team_id or team.id
 
+    await check_quota("social_accounts", team_id, db)
+
     redirect_uri = getattr(settings, f"{data.platform.upper()}_REDIRECT_URI", None)
     client = PLATFORM_CLIENTS.get(data.platform)
 
@@ -247,6 +250,8 @@ async def connect_account(
     )
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Not a member of this team")
+
+    await check_quota("social_accounts", team_id, db)
 
     # Redirect to auth endpoint
 

@@ -103,6 +103,7 @@ async def init_db() -> None:
                     team = Team(
                         name=f"{admin_user.name or admin_user.email}'s Team",
                         owner_id=admin_user.id,
+                        plan_tier="enterprise",
                     )
                     session.add(team)
                     await session.flush()
@@ -114,4 +115,15 @@ async def init_db() -> None:
                 except IntegrityError:
                     await session.rollback()
             else:
+                # Ensure admin's existing team is always enterprise tier
+                await session.execute(
+                    select(Team).where(Team.owner_id == admin_user.id)
+                )
+                admin_teams = (await session.execute(
+                    select(Team).where(Team.owner_id == admin_user.id)
+                )).scalars().all()
+                for t in admin_teams:
+                    if t.plan_tier != "enterprise":
+                        t.plan_tier = "enterprise"
+                        logger.info(f"Upgraded admin team '{t.name}' to enterprise tier")
                 await session.commit()

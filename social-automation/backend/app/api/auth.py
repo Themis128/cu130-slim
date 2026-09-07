@@ -313,6 +313,7 @@ class UserResponse(BaseModel):
     avatar_url: str | None
     timezone: str
     two_factor_enabled: bool = False
+    onboarding_completed: bool = False
 
     class Config:
         from_attributes = True
@@ -390,6 +391,16 @@ async def register(request: Request, user_data: UserCreate, db: AsyncSession = D
     await db.commit()
     await db.refresh(user)
 
+    # Send welcome email (fire-and-forget, non-blocking)
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_welcome_email
+
+        asyncio.create_task(send_welcome_email(user))
+    except Exception:
+        logger.warning("Failed to queue welcome email for %s", user.email)
+
     return user
 
 
@@ -432,10 +443,49 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+class SwitchTeamRequest(BaseModel):
+    team_id: uuid.UUID
+
+
+@router.post("/switch-team", response_model=TokenResponse)
+async def switch_team(
+    data: SwitchTeamRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch the active team for the current user.
+
+    Verifies the user is a member of the target team, then issues a new
+    access token that carries ``team_id`` so downstream dependencies can
+    resolve the active team from the JWT.
+    """
+    result = await db.execute(
+        select(TeamMember).where(
+            TeamMember.team_id == data.team_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this team",
+        )
+
+    access_token = create_access_token(
+        {"sub": str(current_user.id), "email": current_user.email, "team_id": str(data.team_id)}
+    )
+    refresh_token = create_refresh_token({"sub": str(current_user.id)})
+
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = None
     email: str | None = None
     avatar_url: str | None = None
+    timezone: str | None = None
+    onboarding_completed: bool | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -455,6 +505,10 @@ async def update_profile(
         current_user.email = data.email
     if data.avatar_url is not None:
         current_user.avatar_url = data.avatar_url
+    if data.timezone is not None:
+        current_user.timezone = data.timezone
+    if data.onboarding_completed is not None:
+        current_user.onboarding_completed = data.onboarding_completed
     await db.commit()
     await db.refresh(current_user)
     return current_user
@@ -1404,6 +1458,24 @@ async def oauth_callback(
                 )
                 db.add(page_account)
         await db.commit()
+
+    # Send account-connected email (fire-and-forget)
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_account_connected_email
+
+        # Resolve the team owner to send the notification to
+        owner_result = await db.execute(
+            select(User).join(TeamMember, TeamMember.user_id == User.id).where(
+                TeamMember.team_id == team_id, TeamMember.role == UserRole.OWNER
+            )
+        )
+        owner = owner_result.scalars().first()
+        if owner:
+            asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
+    except Exception:
+        logger.warning("Failed to queue account-connected email for %s", platform)
 
     return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
 

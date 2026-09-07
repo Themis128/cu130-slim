@@ -5,6 +5,7 @@ export interface User {
   avatar_url: string | null
   timezone: string
   two_factor_enabled: boolean
+  onboarding_completed?: boolean
   created_at: string
 }
 
