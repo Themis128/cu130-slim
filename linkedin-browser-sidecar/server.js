@@ -1332,12 +1332,64 @@ async function handleUpdateCompanyAbout(req, res) {
   if (!about) return res.status(400).json({ error: 'about is required' });
   try {
     await ensureBrowser();
+    // Navigate to the public about page first
     await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
+    await page.waitForTimeout(2000);
 
-    // Click the "Edit" button in the About section
-    const editBtn = page.locator('button[aria-label*="Edit about"], button[aria-label*="edit about"], button:has-text("Edit overview"), a:has-text("Edit overview"), button:has-text("Edit about")').first();
-    if (await editBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the company "Edit about" button' });
+    // Check if we got redirected to admin dashboard (happens for page admins)
+    const currentUrl = page.url();
+    if (currentUrl.includes('/admin/')) {
+      // Navigate to the admin "Edit Page" overview section
+      await navigate(`https://www.linkedin.com/company/${vanity}/admin/overview/`);
+      await page.waitForTimeout(3000);
+    }
+
+    // Try multiple edit button selectors for different LinkedIn layouts
+    const editSelectors = [
+      'button[aria-label*="Edit about"]',
+      'button[aria-label*="edit about"]',
+      'button:has-text("Edit overview")',
+      'a:has-text("Edit overview")',
+      'button:has-text("Edit about")',
+      'button[aria-label*="Edit intro"]',
+      'button[aria-label*="Edit description"]',
+      'a:has-text("Edit details")',
+      'button:has-text("Edit details")',
+      // Admin layout: "Edit Page" → overview edit
+      'button:has-text("Edit Page")',
+      'a:has-text("Edit Page")',
+    ];
+
+    let editBtn = null;
+    for (const sel of editSelectors) {
+      const loc = page.locator(sel).first();
+      if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+        editBtn = loc;
+        break;
+      }
+    }
+
+    // If no edit button found, try clicking "Edit Page" in the admin nav first
+    if (!editBtn) {
+      const editPageLink = page.locator('a:has-text("Edit Page"), button:has-text("Edit Page")').first();
+      if (await editPageLink.count() > 0) {
+        await editPageLink.click();
+        await page.waitForTimeout(3000);
+        // Now look for the about/description edit button
+        for (const sel of editSelectors.slice(0, 6)) {
+          const loc = page.locator(sel).first();
+          if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+            editBtn = loc;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!editBtn) {
+      // Take a screenshot for debugging
+      await page.screenshot({ path: '/tmp/li-edit-debug.png' });
+      return res.status(404).json({ error: 'Could not locate the company "Edit about" button', url: page.url() });
     }
     await editBtn.click();
     await page.waitForTimeout(3000);
