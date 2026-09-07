@@ -4,8 +4,6 @@ Follows the pattern in tests/integration/test_auth.py.  Each test function
 gets a fresh database (the ``engine`` fixture drops & recreates all tables).
 """
 
-import uuid
-
 import pytest
 
 USER_A = {"email": "usera@example.com", "password": "TestPass123!", "name": "User A"}
@@ -123,7 +121,7 @@ async def test_owner_can_change_role(client):
     await _register(client, USER_A)
     await _register(client, USER_B)
     token_a = await _login(client, USER_A)
-    token_b = await _login(client, USER_B)
+    await _login(client, USER_B)
 
     teams = (await client.get("/api/v1/teams", headers=_auth(token_a))).json()
     team_id = teams[0]["id"]

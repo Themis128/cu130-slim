@@ -1,7 +1,5 @@
 """Unit tests for email template functions."""
 
-import pytest
-
 from app.services.email_templates import _html_wrapper
 
 

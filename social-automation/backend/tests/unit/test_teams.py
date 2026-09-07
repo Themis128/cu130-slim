@@ -9,6 +9,7 @@ import uuid
 import pytest
 
 from app.api.teams import (
+    _ROLE_LEVEL,
     ChangeRoleRequest,
     InviteRequest,
     MemberResponse,
@@ -16,11 +17,9 @@ from app.api.teams import (
     TeamDetailResponse,
     TeamResponse,
     TeamUpdate,
-    _ROLE_LEVEL,
     _role_at_least,
 )
 from app.models.user import UserRole
-
 
 # ── Role hierarchy ────────────────────────────────────────────────────────────
 
