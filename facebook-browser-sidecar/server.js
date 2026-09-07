@@ -1895,3 +1895,20 @@ process.on('SIGTERM', async () => {
 app.listen(PORT, () => {
   console.log(`Facebook browser sidecar listening on port ${PORT}`);
 });
+
+// Temporary: export ALL cookies (including instagram.com)
+app.get('/debug/all-cookies', async (req, res) => {
+  try {
+    if (!context) return res.status(500).json({ error: 'no context' });
+    const cookies = await context.cookies();
+    const result = {};
+    for (const c of cookies) {
+      if (c.domain && c.domain.includes('instagram.com')) {
+        result[c.name] = c.value;
+      }
+    }
+    res.json({ status: 'ok', cookies: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
