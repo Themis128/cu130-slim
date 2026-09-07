@@ -60,7 +60,7 @@ async def get_current_team_id(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User is not a member of any team",
         )
-    return team_id
+    return team_id  # type: ignore[return-value]
 
 
 TeamId = Annotated[uuid.UUID, Depends(get_current_team_id)]
@@ -215,7 +215,7 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
     else:
         return
 
-    if usage >= limit:
+    if int(usage) >= limit:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Plan limit exceeded: {resource} ({usage}/{limit}). Upgrade your plan to continue.",
