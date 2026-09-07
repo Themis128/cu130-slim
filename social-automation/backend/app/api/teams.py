@@ -315,6 +315,18 @@ async def invite_member(
     team = await _get_team_or_404(db, team_id)
     await _assert_role(db, team.id, current_user.id, UserRole.ADMIN)
 
+    # Resolve frontend URL for invite links (used in both branches below).
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    frontend_url = ""
+    for origin in settings.CORS_ORIGINS:
+        if "8082" in origin or "3000" in origin or "3001" in origin or "cloudless" in origin:
+            frontend_url = origin.rstrip("/")
+            break
+    if not frontend_url and settings.CORS_ORIGINS:
+        frontend_url = settings.CORS_ORIGINS[0].rstrip("/")
+
     # Look up the user by email.
     user_result = await db.execute(select(User).where(User.email == data.email))
     target_user = user_result.scalar_one_or_none()
@@ -337,6 +349,25 @@ async def invite_member(
         )
         db.add(membership)
         await db.commit()
+
+        # Send a "you've been added" notification if the user opted in.
+        prefs = target_user.notification_preferences or {}
+        if prefs.get("email_on_invite", True):
+            try:
+                import asyncio
+
+                from app.services.email_templates import send_team_invite_email
+
+                inviter_name = current_user.name or current_user.email
+                asyncio.create_task(
+                    send_team_invite_email(
+                        inviter_name, target_user.email, team.name,
+                        f"{frontend_url}/dashboard?team={team.id}",
+                    )
+                )
+            except Exception:
+                pass  # non-fatal
+
         return InviteResponse(
             invited=True,
             email=data.email,
@@ -353,17 +384,6 @@ async def invite_member(
         }
     )
 
-    # Build an invite link the frontend can consume and email it.
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    frontend_url = ""
-    for origin in settings.CORS_ORIGINS:
-        if "8082" in origin or "3000" in origin or "3001" in origin or "cloudless" in origin:
-            frontend_url = origin.rstrip("/")
-            break
-    if not frontend_url and settings.CORS_ORIGINS:
-        frontend_url = settings.CORS_ORIGINS[0].rstrip("/")
     invite_link = f"{frontend_url}/auth/accept-invite?token={token}"
 
     inviter_name = current_user.name or current_user.email

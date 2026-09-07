@@ -1724,11 +1724,14 @@ app.get('/session/validate', async (req, res) => {
     await settle();
     const loggedIn = await isLoggedIn();
     const url = page.url();
-    const isProfilePicker = url.includes('crypted_string=');
     let bodySnippet = '';
     try {
       bodySnippet = (await page.innerText('body')).slice(0, 200);
     } catch (_) {}
+    // Match isLoggedIn() detection: URL param OR page content indicators.
+    const isProfilePicker = url.includes('crypted_string=') ||
+      bodySnippet.includes('Continue as ') ||
+      bodySnippet.includes('Use another profile');
     res.json({
       status: 'ok',
       logged_in: loggedIn,

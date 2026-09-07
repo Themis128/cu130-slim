@@ -16,6 +16,7 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
+        "app.worker.tasks.instagram_session_check",
     ],
 )
 
