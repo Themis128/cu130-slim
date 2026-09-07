@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Update LinkedIn personal About section via browser sidecar
 # Usage: li-personal-update-about.sh "About text" OR li-personal-update-about.sh /path/to/file.txt
+# Note: LinkedIn uses a contenteditable div (not textarea) for the About section
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$ROOT"
@@ -22,7 +23,7 @@ python3 << 'PYEOF'
 import requests, json, time
 
 with open('/tmp/li-personal-about.txt') as f:
-    about = f.read()
+    about = f.read().strip()
 
 SIDECAR = 'http://localhost:9225'
 
@@ -30,7 +31,7 @@ SIDECAR = 'http://localhost:9225'
 requests.post(f'{SIDECAR}/debug/navigate', json={'url': 'https://www.linkedin.com/in/baltzakis-themis/'}, timeout=30)
 time.sleep(5)
 
-# Click "Edit about" button
+# Click "Edit about" button (aria-label="Edit about")
 resp = requests.post(f'{SIDECAR}/debug/eval', json={'script': '''
 (async () => {
     const btns = document.querySelectorAll('button, a');
@@ -43,20 +44,46 @@ resp = requests.post(f'{SIDECAR}/debug/eval', json={'script': '''
 '''}, timeout=15)
 print(f'  Edit button: {resp.json().get("result","")}')
 
-# Set the about text
+# LinkedIn uses a contenteditable div, not a textarea
 resp2 = requests.post(f'{SIDECAR}/debug/eval', json={'script': f'''
-(function(){{
-    const t = document.querySelector('textarea');
-    if(!t) return 'no textarea';
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(t, {json.dumps(about)});
-    t.dispatchEvent(new Event('input', {{bubbles: true}}));
-    return 'set: ' + t.value.length + ' chars';
+(async () => {{
+    const editor = document.querySelector('div[contenteditable="true"][role="textbox"]');
+    if (!editor) {{
+        // Fallback: try textarea
+        const ta = document.querySelector('textarea');
+        if (ta) {{
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(ta, {json.dumps(about)});
+            ta.dispatchEvent(new Event('input', {{bubbles: true}}));
+            return 'textarea set: ' + ta.value.length + ' chars';
+        }}
+        return 'no editor found';
+    }}
+    
+    editor.focus();
+    await new Promise(r => setTimeout(r, 500));
+    
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    await new Promise(r => setTimeout(r, 500));
+    
+    document.execCommand('delete');
+    await new Promise(r => setTimeout(r, 500));
+    
+    document.execCommand('insertText', false, {json.dumps(about)});
+    await new Promise(r => setTimeout(r, 1000));
+    
+    editor.dispatchEvent(new InputEvent('input', {{bubbles: true, inputType: 'insertText', data: {json.dumps(about)}}}));
+    
+    return 'contenteditable set: ' + editor.textContent.length + ' chars';
 }})()
-'''}, timeout=10)
+'''}, timeout=15)
 print(f'  Set: {resp2.json().get("result","")}')
 
-time.sleep(1)
+time.sleep(2)
 
 # Save
 resp3 = requests.post(f'{SIDECAR}/debug/eval', json={'script': '''
