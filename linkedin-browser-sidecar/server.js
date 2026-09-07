@@ -2017,6 +2017,81 @@ app.get('/debug/form-html', async (req, res) => {
   }
 });
 
+// ── Debug helpers (for admin dashboard navigation) ────────────────────────
+app.post('/debug/navigate', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    await ensureBrowser();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2000);
+    res.json({ status: 'ok', url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/debug/eval', async (req, res) => {
+  try {
+    const { script } = req.body;
+    if (!script) return res.status(400).json({ error: 'script is required' });
+    await ensureBrowser();
+    const result = await page.evaluate(script);
+    res.json({ status: 'ok', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/debug/buttons', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const buttons = await page.evaluate(() => {
+      const els = document.querySelectorAll('button, a, div[role="button"], span[role="button"]');
+      const results = [];
+      for (const e of els) {
+        const text = (e.textContent || '').trim().substring(0, 80);
+        const aria = e.getAttribute('aria-label');
+        if (text || aria) {
+          results.push({ tag: e.tagName, text, ariaLabel: aria, href: e.href || null });
+        }
+      }
+      return results.slice(0, 50);
+    });
+    res.json({ status: 'ok', buttons });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/debug/screenshot', async (req, res) => {
+  try {
+    await ensureBrowser();
+    const buf = await page.screenshot({ fullPage: false });
+    res.set('Content-Type', 'image/png');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export ALL context cookies (including httpOnly, cross-domain).
+app.get('/debug/all-cookies', async (req, res) => {
+  try {
+    if (!context) return res.status(500).json({ error: 'no context' });
+    const domainFilter = req.query.domain;
+    const cookies = await context.cookies();
+    const result = {};
+    for (const c of cookies) {
+      if (domainFilter && c.domain && !c.domain.includes(domainFilter)) continue;
+      result[c.name] = c.value;
+    }
+    res.json({ status: 'ok', count: Object.keys(result).length, cookies: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   await closeBrowser();
