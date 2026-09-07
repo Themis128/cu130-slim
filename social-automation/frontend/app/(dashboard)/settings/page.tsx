@@ -49,6 +49,9 @@ export default function SettingsPage() {
     email_new_post: true,
     email_scheduled: true,
     email_analytics: false,
+    email_on_quota: true,
+    email_on_invite: true,
+    email_account_connected: true,
     push_new_post: true,
     push_scheduled: false,
   })
@@ -517,9 +520,12 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                { id: 'email_new_post',   label: 'Post published',         description: 'When a scheduled post goes live' },
-                { id: 'email_scheduled',  label: 'Post scheduled',         description: 'Confirmation when posts are scheduled' },
-                { id: 'email_analytics',  label: 'Weekly analytics report', description: 'Summary of your weekly performance' },
+                { id: 'email_new_post',          label: 'Post published',         description: 'When a scheduled post goes live' },
+                { id: 'email_scheduled',         label: 'Post scheduled',         description: 'Confirmation when posts are scheduled' },
+                { id: 'email_analytics',         label: 'Weekly analytics report', description: 'Summary of your weekly performance' },
+                { id: 'email_on_quota',          label: 'Quota warnings',         description: 'When you reach 80% of your plan limit' },
+                { id: 'email_on_invite',         label: 'Team invitations',       description: 'When someone invites you to a team' },
+                { id: 'email_account_connected', label: 'Account connected',      description: 'When a new social account is linked' },
               ].map((item) => (
                 <div key={item.id} className="flex items-center justify-between py-1">
                   <div>

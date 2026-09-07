@@ -637,6 +637,9 @@ class NotificationPreferencesRequest(BaseModel):
     email_new_post: bool = True
     email_scheduled: bool = True
     email_analytics: bool = False
+    email_on_quota: bool = True
+    email_on_invite: bool = True
+    email_account_connected: bool = True
     push_new_post: bool = True
     push_scheduled: bool = False
 
@@ -645,6 +648,9 @@ class NotificationPreferencesResponse(BaseModel):
     email_new_post: bool
     email_scheduled: bool
     email_analytics: bool
+    email_on_quota: bool
+    email_on_invite: bool
+    email_account_connected: bool
     push_new_post: bool
     push_scheduled: bool
 
@@ -662,6 +668,9 @@ async def get_notification_preferences(
         email_new_post=prefs.get("email_new_post", True),
         email_scheduled=prefs.get("email_scheduled", True),
         email_analytics=prefs.get("email_analytics", False),
+        email_on_quota=prefs.get("email_on_quota", True),
+        email_on_invite=prefs.get("email_on_invite", True),
+        email_account_connected=prefs.get("email_account_connected", True),
         push_new_post=prefs.get("push_new_post", True),
         push_scheduled=prefs.get("push_scheduled", False),
     )
@@ -850,6 +859,8 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest, db: Asy
 
     # Send password reset email via the transactional template (logs to email_logs)
     try:
+        import asyncio
+
         from app.services.email_templates import send_password_reset_email
 
         asyncio.create_task(send_password_reset_email(user, reset_link))
@@ -1458,7 +1469,10 @@ async def oauth_callback(
         )
         owner = owner_result.scalars().first()
         if owner:
-            asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
+            # Respect notification preferences — default to True if unset.
+            prefs = owner.notification_preferences or {}
+            if prefs.get("email_account_connected", True):
+                asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
     except Exception:
         logger.warning("Failed to queue account-connected email for %s", platform)
 

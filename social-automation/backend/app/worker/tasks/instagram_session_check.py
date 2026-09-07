@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_field
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.worker.celery_app import celery_app
@@ -151,7 +151,7 @@ async def _run_check() -> dict:
             session_id_enc = meta.get("private_api_session_id")
             if not session_id_enc:
                 continue
-            session_id = decrypt_token(session_id_enc) or ""
+            session_id = decrypt_field(session_id_enc) or ""
             if not session_id:
                 continue
 

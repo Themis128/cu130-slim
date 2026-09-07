@@ -249,6 +249,10 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
                 )
                 owner = owner_result.scalar_one_or_none()
                 if owner is not None:
+                    # Respect notification preferences — default to True if unset.
+                    prefs = owner.notification_preferences or {}
+                    if not prefs.get("email_on_quota", True):
+                        return
                     import asyncio
 
                     from app.services.email_templates import send_quota_warning_email

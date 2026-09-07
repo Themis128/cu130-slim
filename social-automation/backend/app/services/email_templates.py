@@ -4,8 +4,15 @@ Built on top of the existing ``send_email()`` from ``email_digest.py``.
 Each function builds a subject + plain-text + HTML body and calls
 ``send_email()`` with the recipient's address.
 
-All emails respect the user's ``notification_preferences`` — the caller
-should check the relevant flag before calling these functions.
+All sends are logged to the ``email_logs`` table via ``_log_email()``.
+
+Notification preferences are checked by the *caller*, not inside these
+functions — see the call sites in ``auth.py``, ``teams.py``, ``deps.py``,
+and ``publishing.py`` for the preference gates:
+  - ``email_new_post`` → post_published (in publishing.py Celery task)
+  - ``email_on_quota`` → quota_warning (in deps.py check_quota)
+  - ``email_account_connected`` → account_connected (in auth.py OAuth callback)
+  - welcome, password_reset, team_invite: always sent (no preference gate)
 """
 
 from __future__ import annotations

@@ -187,6 +187,7 @@ export const authApi = {
   getNotificationPreferences: () => api.get('/auth/notifications/preferences'),
   updateNotificationPreferences: (data: {
     email_new_post: boolean; email_scheduled: boolean; email_analytics: boolean;
+    email_on_quota: boolean; email_on_invite: boolean; email_account_connected: boolean;
     push_new_post: boolean; push_scheduled: boolean;
   }) => api.put('/auth/notifications/preferences', data),
   exportData: () => api.get('/auth/export-data'),
