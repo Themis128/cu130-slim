@@ -2,7 +2,7 @@
 
 > **Artifact type:** Plan
 > **Created:** 2026-09-07
-> **Status:** Draft — awaiting approval
+> **Status:** Implemented — all 8 tasks complete (commits c7340e9, e9e151e)
 > **Owner:** Themistoklis Baltzakis
 > **Repo:** `cu130-slim` (Docker Compose stack)
 
@@ -14,13 +14,13 @@ analytics, media, SEO, 6 platforms, Cloudflare-first infrastructure) is
 production-grade. This plan covers the missing **business layer** and
 **operational reliability** items.
 
-## Current state summary
+## Current state summary (post-implementation)
 
 | Area | Status |
 |------|--------|
 | 29 Docker containers | All healthy |
-| API (259 endpoints, 223 paths) | Healthy |
-| Unit tests | 427 passed, 1 skipped |
+| API (259+ endpoints, 230 paths) | Healthy |
+| Unit tests | 473 passed, 1 skipped |
 | Lint (ruff) | Clean |
 | 3 Celery workers | All online |
 | Cloudflare D1/KV/Vectorize | All true, dual-write active |
@@ -28,9 +28,15 @@ production-grade. This plan covers the missing **business layer** and
 | n8n (9 workflows) | Running |
 | Auth: register, login, password reset, 2FA, OAuth | Present |
 | Rate limiter (slowapi + Redis) | Present, IP-based, 300/min default |
-| Email digest service (Resend SMTP) | Present, digest-only |
-| Team/Role model (Owner/Admin/Editor/Viewer) | Present in DB, no management API |
-| API docs (Swagger/ReDoc) | Disabled in production (`DEBUG=true` in `.env` so currently visible) |
+| Transactional email (6 templates + EmailLog) | Present, all wired, preference-gated |
+| Team/Role model + 9-endpoint management API | Present, JWT team switching, cross-tenant isolation |
+| Tier-based quotas (free/pro/business/enterprise) | Present, check_quota on AI/content/accounts, 80% warning email |
+| Onboarding wizard (4-step) | Present, onboarding_completed field, dashboard redirect |
+| Public marketing pages (landing/pricing/features/about/api-docs) | Present, auth-aware root page |
+| API docs (Swagger/ReDoc) | `EXPOSE_API_DOCS=true`, `DEBUG=false` — docs accessible, no stack traces |
+| Instagram session health check | Celery beat task every 6h, alert email on expiry |
+| Facebook sidecar session validation | Hardened — detects profile picker, c_user cookie, deep-check endpoint |
+| Alembic head | `t2c4d5e6f7a8` (onboarding + plan_tier + email_logs) |
 | Users in DB | 1 |
 | Teams in DB | 1 |
 
@@ -546,16 +552,16 @@ mode should be off in production.
 
 ## Implementation order
 
-| Priority | Phase | Task | Effort | Dependencies |
-|----------|-------|------|--------|--------------|
-| 1 | 1.1 | Multi-tenant team API + isolation tests | Medium | None |
-| 2 | 1.2 | Public landing + pricing page | Medium | None |
-| 3 | 1.3 | Onboarding wizard | Medium | 1.1 (team model) |
-| 4 | 2.1 | Instagram session recovery | Small (manual) | None |
-| 5 | 2.2 | Facebook session re-login | Small (manual) | None |
-| 6 | 3.1 | Rate limiting / quota enforcement | Medium | 1.1 (plan_tier on Team) |
-| 7 | 3.2 | Transactional email notifications | Medium | 1.1 (team invite email) |
-| 8 | 3.3 | Public API documentation | Small | 1.2 (public route group) |
+| Priority | Phase | Task | Effort | Dependencies | Status |
+|----------|-------|------|--------|--------------|--------|
+| 1 | 1.1 | Multi-tenant team API + isolation tests | Medium | None | ✅ Done (commit c7340e9) |
+| 2 | 1.2 | Public landing + pricing page | Medium | None | ✅ Done (commit c7340e9) |
+| 3 | 1.3 | Onboarding wizard | Medium | 1.1 (team model) | ✅ Done (commit c7340e9) |
+| 4 | 2.1 | Instagram session recovery | Small (manual) | None | ✅ Automated (commit e9e151e: Celery beat task every 6h, alert email on expiry; manual sessionid import still required) |
+| 5 | 2.2 | Facebook session re-login | Small (manual) | None | ✅ Hardened (commit e9e151e: isLoggedIn() now detects profile picker; manual re-login still required) |
+| 6 | 3.1 | Rate limiting / quota enforcement | Medium | 1.1 (plan_tier on Team) | ✅ Done (commit c7340e9 + e9e151e: Alembic migration s1b3c4d5e6f7, quota warning at 80%) |
+| 7 | 3.2 | Transactional email notifications | Medium | 1.1 (team invite email) | ✅ Done (commit c7340e9 + e9e151e: all 6 templates wired, EmailLog persistence, notification preferences) |
+| 8 | 3.3 | Public API documentation | Small | 1.2 (public route group) | ✅ Done (commit c7340e9 + e9e151e: DEBUG=false, EXPOSE_API_DOCS decoupled) |
 
 ## What is explicitly NOT in this plan
 

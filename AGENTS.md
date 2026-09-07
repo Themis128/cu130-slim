@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 380 tests, 1 skipped).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 473 tests, 1 skipped).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -85,6 +85,21 @@ docker compose exec -T social-worker-publishing celery -A app.worker.celery_app 
 # check which queues each worker is consuming
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues
 
+# run Alembic migrations to the latest head
+docker compose exec -T social-api python -m alembic upgrade head
+
+# check current Alembic head
+docker compose exec -T social-api python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; sd=ScriptDirectory.from_config(Config('alembic.ini')); print(sd.get_current_head())"
+
+# check team plan tiers and quota usage
+curl -s http://localhost:8083/api/v1/usage -H "Authorization: Bearer <token>" | python3 -m json.tool
+
+# deep-check Facebook sidecar session (detects profile picker)
+curl -s http://localhost:9226/session/validate | python3 -m json.tool
+
+# manually trigger Instagram session health check
+docker compose exec -T social-worker-default celery -A app.worker.celery_app call app.worker.tasks.instagram_session_check.check_instagram_sessions
+
 # check Docker Model Runner status (host-level engine, not a Compose container)
 docker model status
 curl -sf http://localhost:12434/engines/v1/models | python3 -m json.tool
@@ -122,6 +137,13 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
 - **Infographic renderer** (`app/services/infographic_renderer.py`): AI image models (SD 1.5, FLUX) cannot spell — they generate garbled nonsense text in pixels. When a prompt contains keywords like `infographic`, `poster`, `chart`, `statistics`, `timeline`, `checklist`, the renderer: (1) generates structured text content via Cloudflare Workers AI LLM, (2) generates an AI background with anti-text negative prompts, (3) creates a **procedural gradient background** via PIL (diagonal gradient + accent glow orbs + dot grid) to eliminate text bleed-through — the AI background is used only as a 15% opacity Gaussian-blurred texture layer, (4) overlays correctly-spelled text via PIL with WorkSans fonts — uses numbered cyan badge circles (1, 2, 3...) instead of emoji icons. Wired into `/media/generate-image` and `/ai/generate-image`. Non-fatal: falls back to raw background if overlay fails. Vision-model QA: no spelling errors, no garbled text, quality 8/10.
 - **Quality pipeline** (`app/services/media_quality.py`): All media-generation endpoints run spellcheck (LanguageTool) + NLP plain-English check/fix + SEO scoring on prompt, caption, alt_text, and tags. Image bytes are never touched. Quality reports persisted in `MediaAsset.meta_data.quality`. Non-fatal: failures return best-available text with diagnostics.
+- **Multi-tenant teams** (`app/api/teams.py`): 9-endpoint Teams API (create, list, get, patch, delete, invite, add/remove members, role changes, switch active team). JWT `team_id` claims, role hierarchy (OWNER>ADMIN>EDITOR>VIEWER). Cross-tenant isolation on all content/media/account queries. `GET /api/v1/teams`, `POST /api/v1/teams/{team_id}/switch`, `POST /api/v1/teams/{team_id}/invite` (sends email if user doesn't exist).
+- **Tier-based quota enforcement** (`app/core/quotas.py`, `app/api/deps.py:check_quota`): free(10 posts/50 AI/1 account), pro(100/500/5), business(∞/5000/20), enterprise(∞/∞/∞). `check_quota()` on AI, content, and account-connect endpoints. Admin bypass via `SOCIAL_ADMIN_EMAIL`. `GET /api/v1/usage` + `/api/v1/usage/history`. `init_db()` auto-sets admin team to enterprise. Quota warning email at 80% (once per month per resource, respects `email_on_quota` preference).
+- **Onboarding wizard** (`app/(dashboard)/onboarding/`): 4-step frontend wizard (welcome, connect account, brand basics, first post). `onboarding_completed` field on `User` model (Alembic `r0a1b2c3d4e5`). `PATCH /auth/me` support. Dashboard redirect for incomplete onboarding. `OnboardingChecklist` + `EmptyState` dashboard widgets.
+- **Public marketing pages** (`app/(public)/`): landing (`/`), pricing (`/pricing`), features (`/features`), about (`/about`), API docs (`/api-docs`). 7 marketing components. Auth-aware root page redirects logged-in users to `/dashboard`.
+- **Transactional email** (`app/services/email_templates.py`): 6 templates (welcome, password reset, post published, account connected, quota warning, team invite). `EmailLog` model + `email_logs` table (Alembic `t2c4d5e6f7a8`). Fire-and-forget via `asyncio.create_task` in request scope, `await` in Celery tasks. Non-fatal on failure. Respects notification preferences: `email_new_post`, `email_on_quota`, `email_account_connected` (welcome, password_reset, team_invite always sent). Frontend toggles in Settings → Notifications.
+- **Public API documentation**: `EXPOSE_API_DOCS` setting (default `true`) decoupled from `DEBUG`. Swagger UI (`/docs`), ReDoc (`/redoc`), OpenAPI JSON (`/openapi.json`) all accessible with `DEBUG=false`. Frontend `/api-docs` page with CDN-loaded Swagger UI.
+- **DEBUG=false in production**: `.env` has `DEBUG=false` (was `true`). Stack traces are no longer exposed. API docs remain accessible via `EXPOSE_API_DOCS=true`.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password, `GITHUB_TOKEN`).
 - Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `comfyui:8000`, `metabase:3000`). DMR runs on host port `12434` (not a Compose service). New internal services may use unmapped ports only after confirming no conflicts.
 
@@ -146,6 +168,14 @@ A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs
 - **LinkedIn**: tokens don't expire (no `expires_in` returned).
 
 If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page. The task is registered in `celery_app.py` beat_schedule as `refresh-expiring-tokens`.
+
+### Instagram private-API session health check
+
+A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_sessions` runs every 6 hours (at :30 past, every 6h). It calls `GET /account` on the aiograpi-rest sidecar (`http://instagram-private-api:8000`) with each saved `X-Session-ID` from `social_accounts.meta_data["private_api_session_id"]`. If the session is expired or the sidecar is unreachable, the account is marked `expired` and the team owner gets an alert email (24h cooldown to avoid spam). The task is registered in `celery_app.py` beat_schedule as `check-instagram-sessions`.
+
+### Facebook browser sidecar session validation
+
+The FB sidecar's `isLoggedIn()` function checks three signals: (1) URL is `facebook.com` and not `/login`, `/checkpoint`, `/recover`; (2) the `c_user` cookie exists; (3) the page does NOT show the profile picker ("Continue as X" / "Use another profile" / `crypted_string` query param). The `GET /session/validate` endpoint does a deep check (navigates to the feed and returns a body snippet). If the profile picker is shown, `logged_in` is `false` — the session is NOT usable even though cookies exist.
 
 ### Facebook account model
 
