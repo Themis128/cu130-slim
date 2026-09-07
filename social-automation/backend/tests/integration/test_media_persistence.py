@@ -352,8 +352,14 @@ async def test_auto_tag_and_similar_assets(client, db, engine):
     assert "water" in ai_tags_lower
     assert mock_add.called
 
-    # Similar-asset query should use Chroma (the asset itself is filtered out)
-    with patch("app.services.chroma_client.query_similar", new=AsyncMock(return_value=[str(asset_id)])):
+    # Similar-asset query should use Chroma (the asset itself is filtered out).
+    # get_similar_assets creates its own session via the module-level
+    # async_session_maker (bound to the app engine / a different event loop),
+    # so patch it to use the test engine sessionmaker as well.
+    with (
+        patch.object(media_ai, "async_session_maker", new=test_session_maker),
+        patch("app.services.chroma_client.query_similar", new=AsyncMock(return_value=[str(asset_id)])),
+    ):
         similar = await client.get(f"/api/v1/media/assets/{asset_id}/similar", headers=headers)
     assert similar.status_code == 200, similar.text
     assert isinstance(similar.json(), list)
