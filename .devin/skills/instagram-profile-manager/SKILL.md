@@ -98,3 +98,35 @@ Run from repo root `cu130-slim/`:
 - Instagram aggressively blocks datacenter IPs. Use WARP proxy
   (`socks5://warp-proxy:1080`) for login attempts.
 - Never log or commit session IDs, settings JSON, or passwords.
+
+## Session recovery procedure (when all sessions are expired)
+
+When the sidecar's saved sessions are expired and username/password login
+gets 429 (rate limited) or "login with Facebook" error, follow this order:
+
+1. **Get a fresh sessionid from a real browser** (most reliable):
+   - Open https://www.instagram.com in Chrome/Firefox and log in manually.
+   - Open DevTools → Application → Cookies → instagram.com.
+   - Copy the `sessionid` cookie value.
+   - Import it: `.devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>`
+   - Verify: `.devin/skills/instagram-private-api/scripts/get-profile.sh <new_session_id>`
+
+2. **If username/password login is rate-limited (429)**:
+   - Wait 24-48h for the rate limit to clear.
+   - Retry with WARP proxy: `INSTAGRAM_PROXY=socks5://warp-proxy:1080`
+   - The sidecar login script passes the proxy to avoid datacenter IP blocks.
+
+3. **If Facebook SSO has a redirect loop**:
+   - The profile picker page (`Continue as X`) causes a redirect loop.
+   - Use the FB sidecar's `GET /session/validate` to confirm the picker is shown.
+   - Alternative: use the FB sidecar's `/debug/all-cookies` endpoint to extract
+     Instagram cookies from an authenticated FB session that has already
+     authorized Instagram.
+
+4. **Automated health check**:
+   - A Celery beat task (`check-instagram-sessions`) runs every 6 hours.
+   - It calls `GET /account` on the sidecar with each saved `X-Session-ID`.
+   - If a session is expired, the account is marked `expired` and the team
+     owner gets an alert email (24h cooldown to avoid spam).
+   - Check task status: `docker compose exec -T social-worker-default celery -A
+     app.worker.celery_app inspect active | grep instagram`

@@ -122,6 +122,7 @@ celery_app.conf.update(
         "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
+        "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -154,6 +155,12 @@ celery_app.conf.update(
         "process-recurring-posts": {
             "task": "app.worker.tasks.recurring.process_recurring_posts",
             "schedule": 300.0,
+        },
+        # Check Instagram private-API sidecar sessions every 6 hours.
+        # Marks expired sessions and alerts the team owner via email.
+        "check-instagram-sessions": {
+            "task": "app.worker.tasks.instagram_session_check.check_instagram_sessions",
+            "schedule": crontab(minute=30, hour="*/6"),  # every 6h at :30
         },
     },
 )

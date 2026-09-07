@@ -134,15 +134,55 @@ function bufferToTempFile(buffer, filename) {
   return tmp;
 }
 
-/** Check if we're logged in by looking at the current URL. */
-function isLoggedIn() {
+/**
+ * Check if we're logged in to Facebook.
+ *
+ * A URL-only check is insufficient — Facebook's profile picker page
+ * ("Continue as X / Use another profile") appears at facebook.com/?crypted_string=...
+ * and passes the URL check even though the session is NOT usable.
+ *
+ * This function checks three signals:
+ *  1. URL is facebook.com and not /login, /checkpoint, /recover
+ *  2. The `c_user` cookie exists (the real auth cookie — without it, no
+ *     authenticated request will succeed)
+ *  3. The page does NOT show the profile picker ("Continue as" / "Use another
+ *     profile" / `crypted_string` query param)
+ *
+ * Returns true only when all three signals indicate a usable session.
+ */
+async function isLoggedIn() {
   const url = page.url();
-  return (
-    url.includes('facebook.com') &&
-    !url.includes('/login') &&
-    !url.includes('/checkpoint') &&
-    !url.includes('/recover')
-  );
+  if (!url.includes('facebook.com')) return false;
+  if (url.includes('/login') || url.includes('/checkpoint') || url.includes('/recover')) return false;
+
+  // The profile picker page has a crypted_string query param and shows
+  // "Continue as <name>" / "Use another profile" — not a usable session.
+  if (url.includes('crypted_string=')) return false;
+
+  // Check for the c_user cookie — the primary authentication cookie.
+  // Without it, no authenticated Graph/web request will work.
+  let hasCUser = false;
+  try {
+    if (context) {
+      const cookies = await context.cookies();
+      hasCUser = cookies.some(c => c.name === 'c_user' && c.domain && c.domain.includes('facebook.com'));
+    }
+  } catch (_) {}
+  if (!hasCUser) return false;
+
+  // Check page content for the profile picker text.
+  try {
+    const bodyText = await page.innerText('body').catch(() => '');
+    if (bodyText && (
+      bodyText.includes('Continue as ') ||
+      bodyText.includes('Use another profile') ||
+      bodyText.includes('Log in to Facebook')
+    )) {
+      return false;
+    }
+  } catch (_) {}
+
+  return true;
 }
 
 /** Find and click a Save button in a dialog or page. */
@@ -253,7 +293,7 @@ async function navigateAndCheck(url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await settle();
   await closeDialogs();
-  return isLoggedIn();
+  return await isLoggedIn();
 }
 
 /**
@@ -350,7 +390,7 @@ async function handleSetSession(req, res) {
   try {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
-    const loggedIn = isLoggedIn();
+    const loggedIn = await isLoggedIn();
     if (loggedIn) await saveSession();
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
@@ -363,7 +403,7 @@ async function handleCheckSession(req, res) {
     await ensureBrowser();
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
-    const loggedIn = isLoggedIn();
+    const loggedIn = await isLoggedIn();
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url(), active_page_id: activePageId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -399,7 +439,7 @@ async function handleLogin(req, res) {
           await codeInput.fill(verification_code);
           await codeInput.press('Enter');
           await page.waitForTimeout(5000);
-          if (isLoggedIn()) {
+          if (await isLoggedIn()) {
             storageState = await context.storageState();
             await saveSession();
             res.json({ status: 'ok', logged_in: true, storage_state: storageState });
@@ -416,7 +456,7 @@ async function handleLogin(req, res) {
     }
 
     // Check if login succeeded
-    if (isLoggedIn()) {
+    if (await isLoggedIn()) {
       storageState = await context.storageState();
       await saveSession();
       res.json({ status: 'ok', logged_in: true, storage_state: storageState });
@@ -446,7 +486,7 @@ async function handleReadProfile(req, res) {
     await page.goto('https://www.facebook.com/me', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -663,7 +703,7 @@ async function handleUploadPicture(req, res) {
     await page.goto('https://www.facebook.com/profile.php', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -736,7 +776,7 @@ async function handleUploadCover(req, res) {
     await page.goto('https://www.facebook.com/profile.php', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1124,7 +1164,7 @@ async function handleExportCookies(req, res) {
   try {
     await ensureBrowser();
     const cookies = await exportCookies();
-    const loggedIn = isLoggedIn();
+    const loggedIn = await isLoggedIn();
     res.json({ status: 'ok', logged_in: loggedIn, cookies });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1142,7 +1182,7 @@ async function handlePostText(req, res) {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1210,7 +1250,7 @@ async function handlePostPhoto(req, res) {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1298,7 +1338,7 @@ async function handlePostLink(req, res) {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1349,7 +1389,7 @@ async function handlePostVideo(req, res) {
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1422,7 +1462,7 @@ async function handleListPages(req, res) {
     await page.goto('https://www.facebook.com/pages/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1466,7 +1506,7 @@ async function handleUsePage(req, res) {
     await page.goto(`https://www.facebook.com/profile.php?id=${page_id}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1500,7 +1540,7 @@ async function handlePagePostText(req, res) {
     await page.goto(`https://www.facebook.com/profile.php?id=${activePageId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1544,7 +1584,7 @@ async function handlePagePostPhoto(req, res) {
     await page.goto(`https://www.facebook.com/profile.php?id=${activePageId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
 
-    if (!isLoggedIn()) {
+    if (!await isLoggedIn()) {
       return res.status(401).json({ error: 'Not logged in to Facebook' });
     }
 
@@ -1673,6 +1713,34 @@ app.get('/health', (req, res) => {
 app.post('/session', handleSetSession);
 app.get('/session', handleCheckSession);
 app.post('/login', handleLogin);
+
+// Deep session validation — navigates to the feed and checks for the
+// profile picker page.  More expensive than GET /session but gives a
+// definitive answer about whether the session is usable.
+app.get('/session/validate', async (req, res) => {
+  try {
+    await ensureBrowser();
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle();
+    const loggedIn = await isLoggedIn();
+    const url = page.url();
+    const isProfilePicker = url.includes('crypted_string=');
+    let bodySnippet = '';
+    try {
+      bodySnippet = (await page.innerText('body')).slice(0, 200);
+    } catch (_) {}
+    res.json({
+      status: 'ok',
+      logged_in: loggedIn,
+      url,
+      profile_picker: isProfilePicker,
+      body_snippet: bodySnippet,
+      active_page_id: activePageId,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Personal profile
 app.get('/profile', handleReadProfile);
@@ -1869,7 +1937,7 @@ app.post('/debug/navigate', async (req, res) => {
     await ensureBrowser();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
-    res.json({ status: 'ok', url: page.url(), loggedIn: isLoggedIn() });
+    res.json({ status: 'ok', url: page.url(), loggedIn: await isLoggedIn() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

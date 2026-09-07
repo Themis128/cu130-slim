@@ -352,6 +352,32 @@ async def invite_member(
             "invite_role": data.role.value,
         }
     )
+
+    # Build an invite link the frontend can consume and email it.
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    frontend_url = ""
+    for origin in settings.CORS_ORIGINS:
+        if "8082" in origin or "3000" in origin or "3001" in origin or "cloudless" in origin:
+            frontend_url = origin.rstrip("/")
+            break
+    if not frontend_url and settings.CORS_ORIGINS:
+        frontend_url = settings.CORS_ORIGINS[0].rstrip("/")
+    invite_link = f"{frontend_url}/auth/accept-invite?token={token}"
+
+    inviter_name = current_user.name or current_user.email
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_team_invite_email
+
+        asyncio.create_task(
+            send_team_invite_email(inviter_name, data.email, team.name, invite_link)
+        )
+    except Exception:
+        pass  # non-fatal — email logging happens inside the template
+
     return InviteResponse(
         invited=False,
         email=data.email,

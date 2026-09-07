@@ -24,6 +24,37 @@ logger = logging.getLogger(__name__)
 FROM_NAME = "SocialAuto"
 
 
+async def _log_email(
+    recipient: str,
+    subject: str,
+    template: str,
+    user_id: object | None = None,
+    team_id: object | None = None,
+    status: str = "sent",
+    error: str | None = None,
+) -> None:
+    """Persist a row to email_logs for delivery audit. Non-fatal."""
+    try:
+        from app.db.session import async_session_maker
+        from app.models.email_log import EmailLog
+
+        async with async_session_maker() as session:
+            session.add(
+                EmailLog(
+                    recipient=recipient,
+                    subject=subject[:500],
+                    template=template,
+                    status=status,
+                    error=error,
+                    user_id=user_id,
+                    team_id=team_id,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.debug("email_log insert failed (non-fatal)", exc_info=True)
+
+
 def _html_wrapper(title: str, body_html: str) -> str:
     """Wrap content in a simple responsive HTML email template."""
     return f"""\
@@ -101,8 +132,10 @@ async def send_welcome_email(user: User) -> None:
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[_user_email(user)])
-    except Exception:
+        await _log_email(_user_email(user), subject, "welcome", user_id=user.id)
+    except Exception as exc:
         logger.exception("Failed to send welcome email to %s", user.email)
+        await _log_email(_user_email(user), subject, "welcome", user_id=user.id, status="failed", error=str(exc))
 
 
 # ── Password Reset ──────────────────────────────────────────────────────────
@@ -130,8 +163,10 @@ async def send_password_reset_email(user: User, reset_link: str) -> None:
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[_user_email(user)])
-    except Exception:
+        await _log_email(_user_email(user), subject, "password_reset", user_id=user.id)
+    except Exception as exc:
         logger.exception("Failed to send password reset email to %s", user.email)
+        await _log_email(_user_email(user), subject, "password_reset", user_id=user.id, status="failed", error=str(exc))
 
 
 # ── Post Published ──────────────────────────────────────────────────────────
@@ -164,8 +199,11 @@ async def send_post_published_email(user: User, post: Post) -> None:
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[_user_email(user)])
-    except Exception:
+        team_id = getattr(post, "team_id", None)
+        await _log_email(_user_email(user), subject, "post_published", user_id=user.id, team_id=team_id)
+    except Exception as exc:
         logger.exception("Failed to send post-published email to %s", user.email)
+        await _log_email(_user_email(user), subject, "post_published", user_id=user.id, status="failed", error=str(exc))
 
 
 # ── Account Connected ───────────────────────────────────────────────────────
@@ -190,8 +228,10 @@ async def send_account_connected_email(user: User, platform: str) -> None:
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[_user_email(user)])
-    except Exception:
+        await _log_email(_user_email(user), subject, "account_connected", user_id=user.id)
+    except Exception as exc:
         logger.exception("Failed to send account-connected email to %s", user.email)
+        await _log_email(_user_email(user), subject, "account_connected", user_id=user.id, status="failed", error=str(exc))
 
 
 # ── Quota Warning ───────────────────────────────────────────────────────────
@@ -225,8 +265,10 @@ async def send_quota_warning_email(
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[_user_email(user)])
-    except Exception:
+        await _log_email(_user_email(user), subject, "quota_warning", user_id=user.id)
+    except Exception as exc:
         logger.exception("Failed to send quota warning email to %s", user.email)
+        await _log_email(_user_email(user), subject, "quota_warning", user_id=user.id, status="failed", error=str(exc))
 
 
 # ── Team Invite ─────────────────────────────────────────────────────────────
@@ -258,5 +300,7 @@ async def send_team_invite_email(
     )
     try:
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[invitee_email])
-    except Exception:
+        await _log_email(invitee_email, subject, "team_invite")
+    except Exception as exc:
         logger.exception("Failed to send team invite email to %s", invitee_email)
+        await _log_email(invitee_email, subject, "team_invite", status="failed", error=str(exc))

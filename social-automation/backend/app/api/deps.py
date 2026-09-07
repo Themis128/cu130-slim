@@ -225,3 +225,36 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
                 "X-Quota-Limit": str(limit),
             },
         )
+
+    # Fire a quota warning email at 80% usage (non-fatal, fire-and-forget).
+    # Only warn once per resource per month — check email_logs for an existing
+    # warning this month to avoid spamming on every call.
+    try:
+        usage_int = int(usage)
+        if limit > 0 and usage_int >= int(limit * 0.8):
+            from app.models.email_log import EmailLog
+
+            existing = await db.execute(
+                select(func.count(EmailLog.id)).where(
+                    EmailLog.team_id == team_id,
+                    EmailLog.template == "quota_warning",
+                    EmailLog.subject.contains(resource),
+                    EmailLog.created_at >= month_start,
+                )
+            )
+            if existing.scalar_one() == 0:
+                # Find the team owner to email.
+                owner_result = await db.execute(
+                    select(User).join(Team, Team.owner_id == User.id).where(Team.id == team_id)
+                )
+                owner = owner_result.scalar_one_or_none()
+                if owner is not None:
+                    import asyncio
+
+                    from app.services.email_templates import send_quota_warning_email
+
+                    asyncio.create_task(
+                        send_quota_warning_email(owner, resource, usage_int, limit)
+                    )
+    except Exception:
+        pass  # non-fatal — quota check must never fail on email issues

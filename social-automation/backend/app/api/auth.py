@@ -848,26 +848,11 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest, db: Asy
         frontend_url = cors_origins[0].rstrip("/")
     reset_link = f"{frontend_url}/reset-password?token={reset_token}"
 
-    # Send password reset email via SMTP (Resend relay)
+    # Send password reset email via the transactional template (logs to email_logs)
     try:
-        from app.services.email_digest import send_email_smtp
+        from app.services.email_templates import send_password_reset_email
 
-        send_email_smtp(
-            subject="Password Reset — SocialAuto",
-            text_body=(
-                f"You requested a password reset.\n\n"
-                f"Click the link below to reset your password:\n{reset_link}\n\n"
-                f"This link expires in 30 minutes.\n"
-                f"If you did not request this, ignore this email."
-            ),
-            html_body=(
-                f"<p>You requested a password reset.</p>"
-                f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
-                f"<p>This link expires in 30 minutes.</p>"
-                f"<p>If you did not request this, ignore this email.</p>"
-            ),
-            to_addrs=[user.email],
-        )
+        asyncio.create_task(send_password_reset_email(user, reset_link))
     except Exception:
         logger.warning("Failed to send password reset email to %s", user.email)
 
