@@ -1892,23 +1892,24 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
-  console.log(`Facebook browser sidecar listening on port ${PORT}`);
-});
-
-// Temporary: export ALL cookies (including instagram.com)
+// Export ALL context cookies (including httpOnly, cross-domain).
+// Optional ?domain=instagram.com filter to scope to a specific domain.
 app.get('/debug/all-cookies', async (req, res) => {
   try {
     if (!context) return res.status(500).json({ error: 'no context' });
+    const domainFilter = req.query.domain;
     const cookies = await context.cookies();
     const result = {};
     for (const c of cookies) {
-      if (c.domain && c.domain.includes('instagram.com')) {
-        result[c.name] = c.value;
-      }
+      if (domainFilter && c.domain && !c.domain.includes(domainFilter)) continue;
+      result[c.name] = c.value;
     }
-    res.json({ status: 'ok', cookies: result });
+    res.json({ status: 'ok', count: Object.keys(result).length, cookies: result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.listen(PORT, () => {
+  console.log(`Facebook browser sidecar listening on port ${PORT}`);
 });
