@@ -1,170 +1,143 @@
 # Social Media Tools Research
 
-Curated catalog of free/open-source social media management tools, libraries, and frameworks
-discovered through web and GitHub research (September 2026). Each entry includes integration
+Comprehensive catalog of 60+ free/open-source social media management tools, libraries, and
+frameworks from web and GitHub research (September 2026). Each entry includes integration
 notes for SocialAuto.
 
-## Publishing & Scheduling Platforms
+## All-in-One Scheduling Platforms
 
-### Hookpost
-- **URL**: https://github.com/jatinder14/hookpost
-- **License**: AGPL-3.0
-- **Stack**: Next.js, Docker Compose, MCP server
-- **What it does**: All-in-one open-source social media scheduler with multi-agent AI copilot.
-  Publishes to 30+ networks (X, LinkedIn, Instagram, Facebook, Threads, YouTube, TikTok, Reddit,
-  Pinterest, Bluesky, Mastodon, Telegram, Discord, Slack).
-- **Integration with SocialAuto**: MCP server can be used as an alternative publishing backend.
-  REST API compatible with SocialAuto's content API. Can replace n8n for scheduling workflows.
-- **Free/Open-source**: Yes (AGPL-3.0)
+| Name | GitHub | License | Stars | Integration |
+|------|--------|---------|-------|-------------|
+| **TryPost** | https://github.com/trypostit/trypost | AGPL-3.0 | ~572 | MCP server, 12 networks, visual calendar. Self-host as sidecar. |
+| **BrightBean Studio** | https://github.com/brightbeanxyz/brightbean-studio | AGPL-3.0 | ~1,845 | 10+ platforms, self-hostable dashboard. Fork for frontend. |
+| **OpenPost** | https://github.com/rodrgds/openpost | AGPL/MIT | ~38 | Go+SvelteKit, single container, SQLite. Drop-in scheduling backend. |
+| **pendpost** | https://github.com/pendpost/pendpost | MIT | ~6 | AI-agent-first with human approval gate, MCP-native. Approval pattern. |
+| **SocialFlow** | https://github.com/inbharatai/SocialFlow | — | ~30 | 6-agent autonomous CMO, 12 platforms. Multi-agent pipeline pattern. |
+| **Universal AI Studio** | https://github.com/Sadhi-Team-16/Universal-AI-Studio | MIT | ~1 | 13-platform engine registry. BaseEngine pattern. |
+| **PostAll** | https://github.com/qingxuantang/postall | MIT | ~12 | AI content generation + RLHF. AI copywriter backend. |
+| **Hookpost** | https://github.com/jatinder14/hookpost | AGPL-3.0 | 0 | 30+ networks, MCP + CLI. REST API alternative. |
+| **Posthive** | https://github.com/AstaBlackClove/posthive | AGPL-3.0 | ~12 | MCP, OAuth 2.0 + PKCE, 14+ platforms, bulk CSV. |
 
-### pendpost
-- **URL**: https://github.com/pendpost/pendpost
-- **License**: MIT
-- **Stack**: Python, MCP-native
-- **What it does**: Agent-first social media planner with human approval gate. AI agents draft
-  and schedule posts, but nothing publishes until a human approves. Supports Instagram,
-  Facebook, LinkedIn, YouTube, X, Telegram, Discord, Mastodon, Nostr, WordPress, Ghost.
-- **Integration with SocialAuto**: The approval gate pattern can be added to SocialAuto's
-  publish queue. MCP server can drive SocialAuto's API from AI agents.
-- **Free/Open-source**: Yes (MIT)
+## Cross-Platform Content Syndication
 
-### Posthive
-- **URL**: https://github.com/AstaBlackClove/posthive
-- **License**: AGPL-3.0
-- **Stack**: Next.js, Redis
-- **What it does**: Agentic social media scheduling platform with built-in AI agent support
-  via MCP. 14+ platforms, calendar view, bulk CSV scheduling, post templates, first comment
-  scheduling, per-platform overrides, Instagram Reels & Stories, YouTube Shorts.
-- **Integration with SocialAuto**: OAuth 2.0 + PKCE MCP server pattern. Calendar view UI
-  patterns. Bulk scheduling approach.
-- **Free/Open-source**: Yes (AGPL-3.0)
+| Name | GitHub | License | Integration |
+|------|--------|---------|-------------|
+| **Open-Dispatch** | https://github.com/Matthew-Selvam/Open-Dispatch | MIT | FastAPI dispatcher for 7 platforms. Publishing sidecar. |
+| **usp** | https://github.com/adam-arutyunov/usp | — | Markdown → 9 platforms with LLM rewrites. CLI/CI cross-posting. |
+| **universal-social-sdk** | https://github.com/Gabo-Tech/universal-social-sdk | MIT | TypeScript SDK for 9 platforms. Future Node worker. |
 
-### SocialFlow
-- **URL**: https://github.com/inbharatai/socialflow
-- **License**: Open-source (unspecified)
-- **Stack**: FastAPI, Playwright, Ollama
-- **What it does**: AI-powered autonomous social media CMO. 6-agent pipeline (Scout, Planner,
-  Creator, Reviewer, Publisher, Analyst). 12 platforms including Discord, Reddit, Medium,
-  Substack. Brand kit, approval gates, local AI via Ollama.
-- **Integration with SocialAuto**: Multi-agent pipeline pattern. Brand kit system. Local AI
-  via Ollama/DMR (already in SocialAuto). Playwright-based publishing (already used).
-- **Free/Open-source**: Yes
+## Platform-Specific Python SDKs
 
-## Python Libraries
+### LinkedIn
+- **linkedin-api-python-client** (official): https://github.com/linkedin-developers/linkedin-api-python-client — Rest.li client, OAuth2/URN.
+- **octopus-linkedin**: https://github.com/octoryn/octopus-linkedin — MCP server for governed LinkedIn marketing.
 
-### marqetive-lib
-- **URL**: https://pypi.org/project/marqetive-lib/
-- **License**: Open-source
-- **What it does**: Modern Python library for social media platform integrations. Unified
-  async API for Twitter/X, LinkedIn, Instagram, TikTok, Threads. Auto token refresh,
-  media upload with progress, retry logic with exponential backoff and jitter.
-- **Integration with SocialAuto**: Can replace or supplement individual platform API
-  clients. The retry/backoff pattern and auto token refresh factory are directly applicable.
-  Type-safe with full type hints.
-- **Free/Open-source**: Yes
+### Twitter/X
+- **tweepy**: https://github.com/tweepy/tweepy (MIT, 11K stars) — De-facto Python library for API v2.
+- **snscrape**: https://github.com/JustAnotherArchivist/snscrape (GPL-3.0, 5.4K stars) — Scraper for profiles/hashtags.
+- **Scweet**: https://github.com/Altimis/Scweet (MIT, 1.5K stars) — Scrape X without API, proxy support.
 
-### instagrapi (best practices)
-- **URL**: https://github.com/subzeroid/instagrapi
-- **License**: MIT
-- **What it does**: Instagram private API client. Best practices for rate limiting:
-  - One stable proxy/IP per account
-  - Match country, locale, device settings, and saved sessions
-  - Avoid rotating proxy identity mid-session
-  - Use `socks5h://` for proxy hostnames that resolve through the proxy
-  - Limit concurrency per account
-  - Exponential backoff with jitter
-- **Integration with SocialAuto**: Already integrated. Best practices document should be
-  followed for WARP proxy assignment and session management.
-- **Free/Open-source**: Yes (MIT)
+### Facebook & Instagram
+- **python-facebook**: https://github.com/sns-sdks/python-facebook (Apache-2.0, 379 stars) — Graph API wrapper, Threads support in v0.20.1.
+- **instagrapi**: https://github.com/subzeroid/instagrapi (MIT, 6.5K stars) — Private Instagram API. Already integrated.
+- **aiograpi**: https://github.com/subzeroid/aiograpi (MIT, 410 stars) — Async private Instagram API. Already integrated.
+- **Inoue-AI Instagram SDK**: https://github.com/Inoue-AI/Inoue-AI-Instagram-SDK (MIT) — Async Graph API with Pydantic v2.
 
-### Agoras
-- **URL**: https://github.com/LuisAlejandro/agoras
-- **License**: Open-source
-- **What it does**: CLI utility for publishing to X, Facebook, Instagram, LinkedIn, Discord,
-  YouTube, TikTok, Threads, Telegram, WhatsApp. Modular architecture (5 PyPI packages).
-  OAuth callback server for easier authentication.
-- **Integration with SocialAuto**: OAuth callback server pattern. Modular platform
-  implementations. GitHub Actions integration.
-- **Free/Open-source**: Yes
+### Threads
+- **pythreads**: https://github.com/marclove/pythreads (MIT, 72 stars) — Clean async wrapper for official Threads API.
+- **threads-client**: https://github.com/nicko4o/threads-client (MIT) — Production-grade async-first SDK.
+- **meta-threads-sdk**: https://github.com/MetaThreads/meta-threads-sdk (MIT) — Sync/async, OAuth, rate-limit tracking.
+- **Inoue-AI Threads SDK**: https://github.com/Inoue-AI/Inoue-AI-Threads-SDK (MIT) — Async Pydantic v2, publishing/insights/replies.
 
-## Content Generation
+### TikTok
+- **Inoue-AI TikTok SDK**: https://github.com/Inoue-AI/Inoue-AI-TikTok-SDK (MIT) — Content Posting API, Display API, Data Portability.
+- **tiktok-api-client**: https://github.com/mymi14s/tiktok_api_client (MIT) — OAuth and video/photo publishing helper.
+- **python-tiktok**: https://github.com/sns-sdks/python-tiktok (MIT, 26 stars) — TikTok for Business/Research APIs.
+- **TikTok-Api**: https://github.com/davidteather/TikTok-Api (MIT, 6.4K stars) — Scraper for public data (not posting).
 
-### PulseTag
-- **URL**: https://github.com/bradmca/pulse-tag
-- **License**: Open-source
-- **Stack**: FastAPI, Next.js, Playwright, OpenRouter
-- **What it does**: AI-driven hashtag generator. Analyzes social media posts in real-time
-  and generates optimized hashtag strategies. Three-tier strategy: Safe (high-volume),
-  Rising (trending mid-volume), Niche (low-competition). Uses free OpenRouter LLMs.
-- **Integration with SocialAuto**: Hashtag generation API can be called from SocialAuto's
-  AI content pipeline. Three-tier hashtag strategy pattern. Free LLM via OpenRouter.
-- **Free/Open-source**: Yes
+## AI Content Generation
 
-### contentflow
-- **URL**: https://github.com/teyfikoz/contentflow
-- **License**: Open-source
-- **What it does**: Multi-platform AI marketing content generator. 8 platforms, 5 brand
-  voices, 5 languages. Content scoring (readability, engagement, hashtag quality, length
-  fit). Content calendar with auto-scheduling. SEO optimizer (meta tags, titles, outlines).
-  Works offline with 50+ curated templates or online with HuggingFace AI.
-- **Integration with SocialAuto**: Content scoring pattern. Offline template system.
-  SEO optimizer. HuggingFace Inference API (free tier) as fallback for Cloudflare Workers AI.
-- **Free/Open-source**: Yes
+| Name | GitHub | License | Integration |
+|------|--------|---------|-------------|
+| **PostAll** | https://github.com/qingxuantang/postall | MIT | AI content + RLHF + scheduling. |
+| **AetherPost** | https://github.com/fununnn/aetherpost | MIT | YAML campaigns, profile sync. |
+| **Social Vase** | https://github.com/Docwaltt/Social-Vase | — | Brand-aware AI content. |
+| **PulseTag** | https://github.com/bradmca/pulse-tag | MIT | Three-tier hashtag strategy (Safe/Rising/Niche). Free OpenRouter LLMs. |
+| **contentflow** | https://github.com/teyfikoz/contentflow | — | 8 platforms, 5 brand voices, content scoring, offline templates. |
+| **Marketing Orchestrator** | https://github.com/Dakshaarvind/Marketing-Orchestator | — | 4-stage AI pipeline, SEO scoring. |
 
-### Marketing Orchestrator
-- **URL**: https://github.com/Dakshaarvind/Marketing-Orchestator
-- **License**: Open-source
-- **What it does**: AI-powered marketing content generation with 4-stage pipeline:
-  Analysis -> Competitor Research -> Content Generation -> SEO Optimization. Automatic
-  DALL-E 3 image generation. Competitor intelligence via Yelp API. SEO scores (85-90/100).
-- **Integration with SocialAuto**: 4-stage pipeline pattern. Competitor analysis. SEO
-  scoring (already in SocialAuto).
-- **Free/Open-source**: Yes
+## Image & Video Generation
 
-## Rate Limiting & Proxy Management
+| Name | GitHub | License | Integration |
+|------|--------|---------|-------------|
+| **postcanvas** | https://github.com/ghedo44/postcanvas | — | Pixel-perfect social image generator with platform presets. |
+| **Open Carrusel** | https://github.com/Hainrixz/open-carrusel | MIT | Claude-driven Instagram carousel builder. |
+| **ogcops** | https://github.com/codercops/ogcops | MIT | OG image generator, 109 templates, 8 platform previews. |
+| **OpenReels** | https://github.com/streamoji-sdk/OpenReels | MIT | AI short-form video pipeline (script→TTS→visuals→MP4). |
+| **foco** | https://github.com/Chisu-io/foco | Apache-2.0 | AI short-form studio with Revideo rendering. |
+| **Remotion** | https://github.com/remotion-dev/remotion | Other | Programmatic video in React (58K stars). |
 
-### ProxyRotator
-- **URL**: https://github.com/keyhankamyar/ProxyRotator
-- **License**: Open-source
-- **What it does**: Async V2ray (VMESS) proxy rotation library. Auto-update subscriptions,
-  test connections, rotate user-agents, handle rate limits. Built on Xray-core. Built-in
-  delay with jitter, thread-safe global lock.
-- **Integration with SocialAuto**: Can supplement WARP proxy with V2ray rotation. Rate
-  limit delay with jitter pattern. User-agent rotation.
-- **Free/Open-source**: Yes
+## Analytics, Monitoring & Listening
 
-### Adaptive Rate Limiting (auto_connector)
-- **URL**: https://github.com/ivasik-k7/auto_connector
-- **License**: Open-source
-- **What it does**: Adaptive throttling with primary + secondary rate-limit handling,
-  per-worker pacing, exponential backoff. Honors `Retry-After` headers. Two-layer cache
-  (in-memory + TTL disk). Resumable campaigns with JSON state.
-- **Integration with SocialAuto**: Adaptive throttling pattern for all platform API calls.
-  `Retry-After` header handling. Two-layer cache pattern.
-- **Free/Open-source**: Yes
+| Name | GitHub | License | Integration |
+|------|--------|---------|-------------|
+| **influence-hub** | https://github.com/reforia/influence-hub | — | Multi-platform analytics + MCP server. |
+| **social-brain** | https://github.com/catehstn/social-brain | — | CLI → Claude prompts for analytics reports. |
+| **linkedin-report-automation** | https://github.com/Nikkk2312/linkedin-report-automation | — | LinkedIn Marketing → dashboard + PPTX. |
+| **Harken** | https://github.com/VladUZH/harken | MIT | Self-hosted listening: HN, Reddit, Mastodon, Bluesky, X, YouTube, RSS. |
+| **openmagpie** | https://github.com/obris-dev/openmagpie | — | Social listening with LLM relevance scoring. |
+| **snscrape** | https://github.com/JustAnotherArchivist/snscrape | GPL-3.0 | Scrape public data when no API available. |
 
-## Key Patterns to Adopt
+## Rate Limiting, Retry & Proxy
 
-1. **Human approval gate** (pendpost): Add optional approval step to publish queue before
-   posts go live. Posts stay in `pending_approval` state until a human approves.
+| Name | GitHub | License | Integration |
+|------|--------|---------|-------------|
+| **tenacity** | https://github.com/jd/tenacity | Apache-2.0 | Python retry/backoff library. Wrap all publisher calls. |
+| **NyaProxy** | https://github.com/nya-foundation/nyaproxy | — | Quota-aware routing, credential pooling, rate limits. |
+| **proxyspin** | https://github.com/gproxynet/proxyspin | — | Rotating proxy pool for Scrapy/Playwright/requests. |
+| **swiftshadow** | https://github.com/sachin-sankar/swiftshadow | GPL/MIT | Free IP proxy rotator (326 stars). |
+| **LitProxy** | https://github.com/OEvortex/LitProxy | MIT | Proxy management with health checks, httpx support. |
+| **ProxyRotator** | https://github.com/keyhankamyar/ProxyRotator | — | V2ray VMESS rotation, user-agent rotation, rate-limit delay. |
 
-2. **Three-tier hashtag strategy** (PulseTag): Categorize hashtags as Safe/Rising/Niche
-   instead of a flat list. Improves reach across audience types.
+## Browser Automation & Anti-Detection
 
-3. **Content scoring** (contentflow): Score generated content on readability, engagement,
-   hashtag quality, and length fit before publishing.
+| Name | GitHub | License | Notes |
+|------|--------|---------|-------|
+| **Playwright** | https://github.com/microsoft/playwright | Apache-2.0 | Already integrated. |
+| **agentic-stealth-browser** | https://github.com/shanewas/agentic-stealth-browser | — | Human-mimicking for Cloudflare/LinkedIn anti-bot. |
+| **invisible_playwright** | https://github.com/feder-cr/invisible_playwright | MIT | Stealth-patched Firefox, passes bot detection. |
+| **arcanada-publisher** | https://github.com/Arcanada-one/arcanada-publisher | MIT | Playwright publisher for FB/LI/X/Reddit/VK/Telegram. |
+| **ClawSocial** | https://github.com/alex-noel/clawsocial | — | Playwright for IG/X/LI (post/like/comment/DM/follow). |
+| **ultrastealth** | https://github.com/anusoft/ultrastealth | — | Maximum-stealth with CDP-leak fixes + MCP. |
 
-4. **Adaptive rate limiting** (auto_connector): Honor `Retry-After` headers, use exponential
-   backoff with jitter, pace requests per-worker, cache responses.
+## Workflow / General Automation
 
-5. **Stable proxy identity** (instagrapi): One stable proxy/IP per account. Match country,
-   locale, device settings. Never rotate proxy mid-session.
+| Name | GitHub | License | Notes |
+|------|--------|---------|-------|
+| **n8n** | https://github.com/n8n-io/n8n | Other | Already in stack. |
+| **n8n-nodes-social** | https://github.com/botzvn/n8n-nodes-social | MIT | Community nodes for Meta, X, TikTok, Threads. |
+| **Activepieces** | https://github.com/activepieces/activepieces | Other | Open-source Zapier, 400+ pieces, MCP. 24K stars. |
+| **Huginn** | https://github.com/huginn/huginn | MIT | Self-hosted IFTTT, 49.8K stars. |
 
-6. **MCP server** (Hookpost, pendpost, Posthive): Expose SocialAuto's API through an MCP
-   server so AI agents (Claude, ChatGPT, Cursor) can drive content creation and scheduling.
+## Top Recommendations for SocialAuto
 
-7. **Offline templates** (contentflow): Ship 50+ curated content templates that work
-   without AI, as a fallback when all AI providers are unavailable.
+1. **Replace per-platform API clients with typed SDKs**:
+   - Threads: `pythreads` or `Inoue-AI Threads SDK`
+   - TikTok: `Inoue-AI TikTok SDK` (Content Posting API)
+   - Instagram: `Inoue-AI Instagram SDK` or `python-facebook`
+   - LinkedIn: `linkedin-api-python-client` (official)
+   - X: `tweepy` + `snscrape` for no-API analytics
 
-8. **Multi-agent pipeline** (SocialFlow): Scout -> Planner -> Creator -> Reviewer ->
-   Publisher -> Analyst. Each agent has a specific role and schedule.
+2. **Add self-hosted scheduling/calendar sidecar**: TryPost or BrightBean Studio
+
+3. **Strengthen AI content + media generation**:
+   - `PostAll` for AI copywriting
+   - `postcanvas` for branded static images
+   - `Open Carrusel` for carousel assets
+   - `OpenReels` for short-form video
+
+4. **Add social listening**: `Harken` (MIT, simplest self-hosted listener)
+
+5. **Resilience**: Wrap all publisher calls in `tenacity` with platform-specific retry/backoff
+
+6. **Agent/MCP integration**: Expose SocialAuto via MCP server (see socialauto-mcp-server skill)
