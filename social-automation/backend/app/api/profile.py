@@ -1001,8 +1001,31 @@ async def _get_linkedin_sidecar(account: SocialAccount) -> LinkedInSidecarClient
     return client
 
 
+def _is_linkedin_company(account: SocialAccount) -> bool:
+    """Heuristic: company pages have a vanity name (no @), personal profiles use email."""
+    return "@" not in (account.username or "")
+
+
 async def _get_linkedin_profile(account: SocialAccount) -> ProfileResponse:
     client = await _get_linkedin_sidecar(account)
+    if _is_linkedin_company(account):
+        try:
+            result = await client.get_company(account.username)
+        except LinkedInSidecarError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+        profile = result.get("company", result)
+        return ProfileResponse(
+            platform="linkedin",
+            account_id=account.account_id,
+            username=account.username,
+            full_name=profile.get("name"),
+            headline=profile.get("tagline"),
+            about=profile.get("description") or profile.get("about"),
+            website=profile.get("website"),
+            location=profile.get("location"),
+            profile_pic_url=profile.get("logo_url") or profile.get("profile_pic_url"),
+            raw=profile,
+        )
     try:
         result = await client.get_profile()
     except LinkedInSidecarError as e:
@@ -1029,6 +1052,36 @@ async def _update_linkedin_profile(
     client = await _get_linkedin_sidecar(account)
     updated: list[str] = []
     ignored: list[str] = []
+
+    if _is_linkedin_company(account):
+        vanity = account.username
+        try:
+            if updates.about is not None:
+                await client.update_company_about(vanity, updates.about)
+                updated.append("about")
+            if updates.website is not None:
+                await client.update_company_website(vanity, updates.website)
+                updated.append("website")
+            if updates.headline is not None:
+                await client.update_company_about(vanity, updates.headline)
+                updated.append("headline")
+        except LinkedInSidecarError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+        for field in ["biography", "full_name", "phone", "email", "quotes", "location", "work", "education"]:
+            if getattr(updates, field, None) is not None:
+                ignored.append(field)
+        if not updated:
+            return ProfileUpdateResponse(
+                success=False,
+                message="No supported fields to update for LinkedIn Company Page",
+                ignored_fields=ignored,
+            )
+        return ProfileUpdateResponse(
+            success=True,
+            updated_fields=updated,
+            ignored_fields=ignored,
+            message="LinkedIn Company Page updated",
+        )
 
     try:
         if updates.headline is not None:
