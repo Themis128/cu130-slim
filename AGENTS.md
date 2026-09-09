@@ -116,6 +116,7 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 
 ## Product defaults to preserve
 
+- **Never change profile pictures or banners/cover photos on any social media account unless the user explicitly asks for it.** This applies to all platforms (Facebook, Instagram, LinkedIn, Threads, Twitter/X, TikTok). If a profile picture or banner is missing or outdated, mention it to the user but do not change it yourself.
 - LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not a personal profile.
 - Threads account for **cloudless.gr** uses the Threads/Instagram username **`cloudless.gr`** (with a dot, not underscore). This is the brand account, not the personal `t_baltzakis` account.
 - Carousel generation uses **Cloudflare Workers AI only**.
