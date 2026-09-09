@@ -147,14 +147,14 @@ class ThreadsAPIClient:
             return resp.json()
 
     async def get_profile(self) -> dict[str, Any]:
-        """Fetch the full Threads profile including follower/following/media counts.
+        """Fetch the Threads profile.
 
         Returns fields: id, username, name, threads_profile_picture_url,
-        threads_biography, followers_count, following_count, media_count.
+        threads_biography, is_verified.
         """
         url = f"{self._base_url}/{self.user_id}"
         params = self._params({
-            "fields": "username,name,threads_profile_picture_url,threads_biography,followers_count,following_count,media_count",
+            "fields": "username,name,threads_profile_picture_url,threads_biography,is_verified",
         })
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=self._headers(), params=params)

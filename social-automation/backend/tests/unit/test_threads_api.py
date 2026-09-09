@@ -112,19 +112,19 @@ async def test_get_profile_success(client):
         "id": "user-456",
         "username": "cloudless_gr",
         "name": "cloudless.gr",
-        "followers_count": 42,
-        "following_count": 10,
-        "media_count": 5,
+        "threads_profile_picture_url": "https://example.com/pic.jpg",
+        "threads_biography": "Serverless cloud for startups",
+        "is_verified": False,
     }))
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
         result = await client.get_profile()
 
     assert result["username"] == "cloudless_gr"
-    assert result["followers_count"] == 42
+    assert result["threads_biography"] == "Serverless cloud for startups"
     assert fake.calls[0]["method"] == "GET"
     assert fake.calls[0]["url"] == f"{api.THREADS_API_BASE}/v1.0/user-456"
-    assert "followers_count" in fake.calls[0]["params"]["fields"]
+    assert "threads_biography" in fake.calls[0]["params"]["fields"]
 
 
 @pytest.mark.asyncio

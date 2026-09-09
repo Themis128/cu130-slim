@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
-from app.api.deps import check_quota
+from app.api.deps import TeamId, check_quota
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
@@ -1504,12 +1504,13 @@ async def generate_image_flux(
 @router.post("/generate-content", response_model=GenerateContentResponse)
 async def generate_content(
     request: GenerateContentRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     # Check chroma for similar existing content before generating
     team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+        select(Team).where(Team.id == team_id)
     )
     team = team_result.scalars().first()
     if team:
