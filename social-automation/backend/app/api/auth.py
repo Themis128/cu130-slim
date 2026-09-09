@@ -116,6 +116,10 @@ _OAUTH_CLIENT_ID_ENV_VAR: dict[str, str] = {
 #   - rw_organization_admin          : Community Management API — manage
 #     organization page details (description, specialties, etc). Requires
 #     ADMINISTRATOR role on the page. Needed for programmatic profile updates.
+#     NOT requested by default — causes "Page not found" on the LinkedIn
+#     consent screen if the app does not have the Community Management API
+#     product approved with write access. Add it back only after LinkedIn
+#     approves the tier upgrade (see linkedin-api-upgrade skill).
 #     Keep the requested list small: a degraded or denied consent screen from
 #     LinkedIn is frequently caused by requesting a scope (or enabling a
 #     Product below) that the app does not actually have approved.
@@ -125,7 +129,7 @@ LINKEDIN_SCOPES: list[str] = [
     "email",
     "w_member_social",
     "w_organization_social",
-    "rw_organization_admin",
+    "r_organization_admin",
 ]
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
