@@ -5,9 +5,9 @@ import httpx
 import pytest
 
 pytest.importorskip("mcp")
-from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
+from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest  # noqa: E402
 
-from app.mcp.server import TOOLS, _handle_call_tool, _handle_list_tools
+from app.mcp.server import TOOLS, _handle_call_tool, _handle_list_tools  # noqa: E402
 
 
 class TestTools:
