@@ -54,6 +54,7 @@ class SyncResult:
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
     snapshots: list[str] = field(default_factory=list)
+    notes: str = ""
 
 
 def _linkedin_headers(token: str) -> dict[str, str]:
@@ -811,7 +812,7 @@ async def _fetch_threads_account_insights(
     across all posts in the default 30-day window the API returns.
     """
     url = f"https://graph.threads.net/v1.0/{user_id}/insights"
-    params = {"metric": "views,likes,replies,reposts,quotes,followers_count", "access_token": token}
+    params = {"metric": "views,likes,replies,reposts,quotes", "access_token": token}
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
         return {}
@@ -894,6 +895,7 @@ async def sync_threads_account(
                     social_account_id=account.id,
                     platform="threads",
                     event_type="account_insights",
+                    occurred_at=captured_at,
                     meta_data={
                         "captured_at": captured_at.isoformat(),
                         "views": account_insights.get("views", 0),
@@ -925,6 +927,7 @@ async def sync_threads_account(
                     social_account_id=account.id,
                     platform="threads",
                     event_type="profile_sync",
+                    occurred_at=captured_at,
                     meta_data={
                         "captured_at": captured_at.isoformat(),
                         "followers_count": int(profile.get("followers_count", 0) or 0),

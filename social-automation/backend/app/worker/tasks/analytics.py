@@ -50,6 +50,7 @@ async def _sync_all_analytics_async() -> dict:
                 summary["synced"] += result.synced
                 summary["errors"].extend(result.errors[:20])
             except Exception as exc:  # noqa: BLE001
+                await db.rollback()
                 summary["errors"].append(f"team {team.id}: {exc}")
     return summary
 
