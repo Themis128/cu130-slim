@@ -64,6 +64,37 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def export_cookies(self, domain: str = "linkedin.com") -> dict[str, str]:
+        """Export all cookies from the browser context (including httpOnly).
+
+        Returns a dict of cookie name → value. Use ``domain`` to filter.
+        """
+        async with self._client as c:
+            r = await c.get("/debug/all-cookies", params={"domain": domain})
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            data = r.json()
+            return data.get("cookies", {})
+
+    async def refresh_session(self) -> dict[str, Any]:
+        """Navigate to the feed and re-save the session.
+
+        Call this periodically (every 12-24h) to keep the LinkedIn browser
+        session alive. The sidecar navigates to ``/feed``, checks if logged in,
+        and saves the updated storage state to ``/data/li-session.json``.
+        """
+        async with self._client as c:
+            r = await c.get("/session")
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            result = r.json()
+            if not result.get("logged_in"):
+                raise LinkedInSidecarError(401, "LinkedIn session is not logged in — re-capture required")
+            # Session is alive — export fresh cookies for persistence.
+            cookies = await self.export_cookies()
+            result["cookies"] = cookies
+            return result
+
     async def login(self, username: str, password: str, verification_code: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"username": username, "password": password}
         if verification_code:

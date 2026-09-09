@@ -124,6 +124,7 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
+        "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -162,6 +163,12 @@ celery_app.conf.update(
         "check-instagram-sessions": {
             "task": "app.worker.tasks.instagram_session_check.check_instagram_sessions",
             "schedule": crontab(minute=30, hour="*/6"),  # every 6h at :30
+        },
+        # Check and refresh LinkedIn browser sidecar session every 12 hours.
+        # Exports fresh cookies and persists them to the secret store.
+        "check-linkedin-sessions": {
+            "task": "app.worker.tasks.linkedin_session_check.check_linkedin_sessions",
+            "schedule": crontab(minute=45, hour="*/12"),  # every 12h at :45
         },
     },
 )

@@ -157,6 +157,13 @@ class Settings(BaseSettings):
     # Format: http://user:pass@host:port  or  socks5://user:pass@host:port
     # Default: Cloudflare WARP proxy (free, non-datacenter IP)
     INSTAGRAM_PROXY: str = "socks5://warp-proxy:1080"
+    # Comma-separated list of fallback proxies for rotation on blocks/throttling.
+    # Proxies are sticky per account; only rotate when a proxy is flagged.
+    INSTAGRAM_PROXY_POOL: str = ""
+    # Max Instagram requests per minute per account (0 = unlimited).
+    INSTAGRAM_RATE_LIMIT_RPM: int = 30
+    # HikerAPI key for a read-only Instagram fallback when local throttling occurs.
+    HIKER_API_KEY: str = ""
 
     # Browser bridge (browser-novnc container) — used as fallback for
     # Instagram profile operations when the aiograpi-rest sidecar fails

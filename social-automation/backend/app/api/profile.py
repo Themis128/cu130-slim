@@ -42,6 +42,7 @@ from app.models.user import Team, TeamMember
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
+from app.services.free_instagram_client import FreeInstagramError, free_instagram_client
 from app.services.instagram_private_api import (
     InstagramPrivateAPIClient,
     InstagramPrivateAPIError,
@@ -538,11 +539,35 @@ async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
         )
     except BrowserBridgeError as e:
         if e.status_code == 400:
-            raise HTTPException(
-                status_code=401,
-                detail="No active browser session. Start one via the browser-login page first.",
+            logger.warning("Browser bridge has no session — trying free Instagram client")
+        else:
+            logger.warning("Browser bridge failed (%s) — trying free Instagram client", e.detail)
+
+    # Fallback: free Instagram client (sidecar anon + HTML scraper, no API key)
+    try:
+        username = account.username or account.display_name or ""
+        if username:
+            data = await free_instagram_client.get_user_by_username(username)
+            return ProfileResponse(
+                platform="instagram",
+                account_id=account.account_id,
+                username=data.get("username"),
+                full_name=data.get("full_name"),
+                biography=data.get("biography"),
+                website=data.get("external_url"),
+                profile_pic_url=data.get("profile_pic_url"),
+                is_private=data.get("is_private"),
+                is_verified=data.get("is_verified"),
+                raw=data,
             )
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except FreeInstagramError as e:
+        logger.warning("Free Instagram client failed: %s", e)
+
+    raise HTTPException(
+        status_code=503,
+        detail="All Instagram profile methods failed (sidecar, browser bridge, free scraper). "
+        "Connect an account via OAuth or import a sessionid cookie.",
+    )
 
 
 async def _update_instagram_profile(

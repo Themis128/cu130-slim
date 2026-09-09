@@ -388,3 +388,45 @@ async def send_instagram_session_alert_email(
     except Exception as exc:
         logger.exception("Failed to send IG session alert to %s", owner_email)
         await _log_email(owner_email, subject, "instagram_session_alert", status="failed", error=str(exc))
+
+
+async def send_linkedin_session_alert_email(
+    owner_email: str,
+    owner_name: str,
+    reason: str,
+) -> None:
+    """Send an alert that the LinkedIn browser sidecar session has expired."""
+    subject = "LinkedIn browser session expired"
+    text = (
+        f"Hi {owner_name or owner_email},\n\n"
+        "The LinkedIn browser automation session has expired.\n\n"
+        f"Reason: {reason}\n\n"
+        "To restore it:\n"
+        "1. Open LinkedIn in a real browser and log in.\n"
+        "2. Export cookies (li_at, JSESSIONID, bcookie, bscookie) from devtools.\n"
+        "3. POST them to the LinkedIn sidecar: curl -X POST http://localhost:9225/session ...\n\n"
+        "— SocialAuto"
+    )
+    html = _html_wrapper(
+        "LinkedIn session expired",
+        f"""
+        <p>Hi <strong>{owner_name or owner_email}</strong>,</p>
+        <p>The LinkedIn browser automation session has expired.</p>
+        <p><em>Reason: {reason}</em></p>
+        <p>To restore it:</p>
+        <ol>
+          <li>Open LinkedIn in a real browser and log in.</li>
+          <li>Export cookies (<code>li_at</code>, <code>JSESSIONID</code>,
+            <code>bcookie</code>, <code>bscookie</code>) from devtools.</li>
+          <li>POST them to the LinkedIn sidecar:
+            <code>curl -X POST http://localhost:9225/session -H 'Content-Type: application/json' -d '{{"cookies":{{...}}}}'</code>
+          </li>
+        </ol>
+        """,
+    )
+    try:
+        await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[owner_email])
+        await _log_email(owner_email, subject, "linkedin_session_alert")
+    except Exception as exc:
+        logger.exception("Failed to send LI session alert to %s", owner_email)
+        await _log_email(owner_email, subject, "linkedin_session_alert", status="failed", error=str(exc))
