@@ -21,7 +21,7 @@ from app.api.auth import (
     tiktok_client,
     twitter_client,
 )
-from app.api.deps import check_quota
+from app.api.deps import TeamId, check_quota
 from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token, sign_oauth_state
 from app.db.session import get_db
@@ -119,17 +119,10 @@ async def list_accounts(
     platform: str | None = None,
     account_type: str | None = None,
     is_business: bool | None = None,
-    current_user: User = Depends(get_current_user),
+    team_id: uuid.UUID = Depends(TeamId),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
-    if not team:
-        return []
-
-    query = select(SocialAccount).where(SocialAccount.team_id == team.id)
+    query = select(SocialAccount).where(SocialAccount.team_id == team_id)
     if platform:
         query = query.where(SocialAccount.platform == platform)
     if account_type:

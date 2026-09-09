@@ -96,7 +96,7 @@ async def init_db() -> None:
                 logger.info(f"Synced env admin credentials for {settings.SOCIAL_ADMIN_EMAIL}")
 
             membership = await session.execute(
-                select(TeamMember).where(TeamMember.user_id == admin_user.id)
+                select(TeamMember).where(TeamMember.user_id == admin_user.id).limit(1)
             )
             if not membership.scalar_one_or_none():
                 try:
@@ -114,16 +114,13 @@ async def init_db() -> None:
                     await session.commit()
                 except IntegrityError:
                     await session.rollback()
-            else:
-                # Ensure admin's existing team is always enterprise tier
-                await session.execute(
-                    select(Team).where(Team.owner_id == admin_user.id)
-                )
-                admin_teams = (await session.execute(
-                    select(Team).where(Team.owner_id == admin_user.id)
-                )).scalars().all()
-                for t in admin_teams:
-                    if t.plan_tier != "enterprise":
-                        t.plan_tier = "enterprise"
-                        logger.info(f"Upgraded admin team '{t.name}' to enterprise tier")
-                await session.commit()
+
+            # Ensure all teams owned by the admin are enterprise tier.
+            admin_teams = (await session.execute(
+                select(Team).where(Team.owner_id == admin_user.id)
+            )).scalars().all()
+            for t in admin_teams:
+                if t.plan_tier != "enterprise":
+                    t.plan_tier = "enterprise"
+                    logger.info(f"Upgraded admin team '{t.name}' to enterprise tier")
+            await session.commit()
