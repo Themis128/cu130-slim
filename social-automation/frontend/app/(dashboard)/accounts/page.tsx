@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
-  Building2, User,
+  Building2, User, Plus,
 } from 'lucide-react'
 
 function TikTokIcon({ className }: { className?: string }) {
@@ -488,17 +488,26 @@ export default function AccountsPage() {
   const EXPIRY_WARN_DAYS = 7
 
   const getAccountStatus = (platformId: string) => {
-    const account = connectedAccounts.find((a: SocialAccount) => a.platform === platformId)
-    if (!account) return { connected: false as const, expired: false, expiringSoon: false, daysLeft: null as number | null, account: null }
+    // Return ALL accounts for this platform (not just the first)
+    const accounts = connectedAccounts.filter((a: SocialAccount) => a.platform === platformId)
+    if (accounts.length === 0) return { connected: false as const, expired: false, expiringSoon: false, daysLeft: null as number | null, account: null, accounts: [] as SocialAccount[] }
+    // Aggregate health: if any account is expired, show expired; if any is expiring soon, show warning
     const now = new Date()
-    if (account.token_expires_at) {
-      const exp = new Date(account.token_expires_at)
-      if (exp < now) return { connected: true as const, expired: true, expiringSoon: false, daysLeft: 0, account }
-      const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
-      if (daysLeft <= EXPIRY_WARN_DAYS) return { connected: true as const, expired: false, expiringSoon: true, daysLeft, account }
-      return { connected: true as const, expired: false, expiringSoon: false, daysLeft, account }
+    let expired = false
+    let expiringSoon = false
+    let daysLeft: number | null = null
+    for (const account of accounts) {
+      if (account.token_expires_at) {
+        const exp = new Date(account.token_expires_at)
+        if (exp < now) { expired = true }
+        else {
+          const dl = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
+          if (dl <= EXPIRY_WARN_DAYS) { expiringSoon = true; daysLeft = daysLeft === null ? dl : Math.min(daysLeft, dl) }
+        }
+      }
     }
-    return { connected: true as const, expired: false, expiringSoon: false, daysLeft: null, account }
+    // Use the first account for backward compatibility with status.account
+    return { connected: true as const, expired, expiringSoon, daysLeft, account: accounts[0] ?? null, accounts }
   }
 
   const healthStats = platforms.map(p => ({ platform: p, status: getAccountStatus(p.id) }))
@@ -642,87 +651,113 @@ export default function AccountsPage() {
                             Token expires in {status.daysLeft} day{status.daysLeft !== 1 ? 's' : ''} — reconnect soon
                           </div>
                         )}
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Account</span>
-                            <span className="font-medium truncate max-w-[150px]">
-                              {status.account?.username || status.account?.display_name || 'Connected'}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Type</span>
-                            <div className="flex items-center gap-1.5">
-                              {status.account?.is_business && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  {status.account?.account_type === 'organization' ? 'Business' :
-                                   status.account?.account_type === 'page' ? 'Page' :
-                                   status.account?.account_type === 'business' ? 'Business' :
-                                   status.account?.account_type === 'creator' ? 'Creator' : 'Business'}
-                                </Badge>
-                              )}
-                              {!status.account?.is_business && (
-                                <Badge variant="outline" className="text-[10px]">Personal</Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Status</span>
-                            <Badge variant={status.expired ? 'destructive' : status.expiringSoon ? 'outline' : 'success'}>
-                              {status.expired ? 'Expired' : status.expiringSoon ? `${status.daysLeft}d left` : 'Active'}
-                            </Badge>
-                          </div>
+                        {/* Show ALL connected accounts for this platform */}
+                        <div className="space-y-3">
+                          {status.accounts.map((acct: SocialAccount) => {
+                            const acctExpired = acct.token_expires_at && new Date(acct.token_expires_at) < new Date()
+                            const acctExpiringSoon = acct.token_expires_at && !acctExpired && Math.ceil((new Date(acct.token_expires_at).getTime() - Date.now()) / 86400000) <= EXPIRY_WARN_DAYS
+                            return (
+                              <div key={acct.id} className="space-y-2 text-sm border-b last:border-b-0 pb-3 last:pb-0">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-muted-foreground">Account</span>
+                                  <span className="font-medium truncate max-w-[150px]">
+                                    {acct.username || acct.display_name || 'Connected'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-muted-foreground">Type</span>
+                                  <div className="flex items-center gap-1.5">
+                                    {acct.is_business && (
+                                      <Badge variant="secondary" className="text-[10px]">
+                                        {acct.account_type === 'organization' ? 'Business' :
+                                         acct.account_type === 'page' ? 'Page' :
+                                         acct.account_type === 'business' ? 'Business' :
+                                         acct.account_type === 'creator' ? 'Creator' : 'Business'}
+                                      </Badge>
+                                    )}
+                                    {!acct.is_business && (
+                                      <Badge variant="outline" className="text-[10px]">Personal</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-muted-foreground">Status</span>
+                                  <Badge variant={acctExpired ? 'destructive' : acctExpiringSoon ? 'outline' : 'success'}>
+                                    {acctExpired ? 'Expired' : acctExpiringSoon ? `${Math.ceil((new Date(acct.token_expires_at!).getTime() - Date.now()) / 86400000)}d left` : 'Active'}
+                                  </Badge>
+                                </div>
+                                <div className="flex gap-2">
+                                  {!acct.is_business && ['facebook', 'instagram', 'linkedin'].includes(platform.id) && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex-1"
+                                      onClick={() => handleSyncBusiness(acct.id, platform.name)}
+                                      disabled={syncBusinessMutation.isPending}
+                                    >
+                                      {syncBusinessMutation.isPending ? (
+                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Building2 className="mr-1.5 h-3.5 w-3.5" />
+                                      )}
+                                      Sync Business
+                                    </Button>
+                                  )}
+                                  {(acctExpired || acctExpiringSoon) && (
+                                    <Button
+                                      size="sm"
+                                      className="flex-1"
+                                      onClick={() => handleConnect(platform.id)}
+                                      disabled={connectingPlatform === platform.id}
+                                    >
+                                      {connectingPlatform === platform.id
+                                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                        : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                      }
+                                      Reconnect
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex-1"
+                                    onClick={() => handleDisconnect(acct.id, platform.name)}
+                                    disabled={disconnectMutation.isPending}
+                                  >
+                                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                    Disconnect
+                                  </Button>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="flex-1"
+                                    onClick={() => setSelectedProfileAccount(acct)}
+                                  >
+                                    <User className="mr-1.5 h-3.5 w-3.5" />
+                                    Edit Profile
+                                  </Button>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
-                        <div className="mt-4 flex gap-2">
-                          {status.connected && !status.account?.is_business && ['facebook', 'instagram', 'linkedin'].includes(platform.id) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1"
-                              onClick={() => handleSyncBusiness(status.account!.id, platform.name)}
-                              disabled={syncBusinessMutation.isPending}
-                            >
-                              {syncBusinessMutation.isPending ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Building2 className="mr-1.5 h-3.5 w-3.5" />
-                              )}
-                              Sync Business
-                            </Button>
-                          )}
-                          {(status.expired || status.expiringSoon) && (
-                            <Button
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => handleConnect(platform.id)}
-                              disabled={connectingPlatform === platform.id}
-                            >
-                              {connectingPlatform === platform.id
-                                ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                              }
-                              Reconnect
-                            </Button>
-                          )}
+                        {/* Always show "Add another" button so admin can connect more accounts */}
+                        <div className="mt-3">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1"
-                            onClick={() => handleDisconnect(status.account!.id, platform.name)}
-                            disabled={disconnectMutation.isPending}
-                          >
-                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                            Disconnect
-                          </Button>
-                        </div>
-
-                        <div className="mt-3">
-                          <Button
-                            size="sm"
                             className="w-full"
-                            onClick={() => setSelectedProfileAccount(status.account!)}
+                            onClick={() => handleConnect(platform.id)}
+                            disabled={isConnecting || connectMutation.isPending}
                           >
-                            <User className="mr-1.5 h-3.5 w-3.5" />
-                            Edit Profile
+                            {isConnecting ? (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Plus className="mr-2 h-3.5 w-3.5" />
+                            )}
+                            Add another {platform.name} account
                           </Button>
                         </div>
 
