@@ -690,7 +690,12 @@ async def _fetch_instagram_media_metrics(
     }
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
-        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}")
+        try:
+            err_data = resp.json()
+            err_msg = err_data.get("error", {}).get("message", resp.text[:200])
+        except Exception:
+            err_msg = resp.text[:200]
+        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -717,6 +722,16 @@ async def sync_instagram_account(
     days: int = 365,
 ) -> SyncResult:
     result = SyncResult()
+
+    # Personal Instagram accounts don't have Graph API insights access.
+    # Only Business/Creator accounts can use the /insights endpoint.
+    meta = account.meta_data or {}
+    account_type = meta.get("account_type", "person")
+    if account_type not in ("business", "creator", "BUSINESS", "CREATOR"):
+        result.skipped = 1
+        result.notes = "personal account — Graph API insights require Business/Creator account"
+        return result
+
     token = decrypt_token(account.access_token_enc)
     ig_user_id = account.account_id
     since = datetime.now(UTC) - timedelta(days=days)
@@ -813,10 +828,15 @@ async def _fetch_threads_account_insights(
 async def _fetch_threads_profile(
     client: httpx.AsyncClient, token: str, user_id: str,
 ) -> dict[str, Any]:
-    """Fetch the Threads profile including follower/following/media counts."""
+    """Fetch the Threads profile.
+
+    The Threads user node does not support followers_count, following_count,
+    or media_count as fields (returns 500). Only request supported fields.
+    Follower/reach metrics are fetched separately via the /insights endpoint.
+    """
     url = f"https://graph.threads.net/v1.0/{user_id}"
     params = {
-        "fields": "username,name,threads_profile_picture_url,threads_biography,followers_count,following_count,media_count",
+        "fields": "username,name,threads_profile_picture_url,threads_biography,is_verified",
         "access_token": token,
     }
     resp = await client.get(url, params=params)

@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.services.d1_client import d1_client
@@ -77,6 +77,8 @@ class SyncService:
     def __init__(self) -> None:
         self._sync_lock = asyncio.Lock()
         self._last_sync: dict[str, datetime] = {}
+        self._d1_write_limit_hit: bool = False
+        self._d1_write_limit_reset_at: datetime | None = None
 
     @staticmethod
     def _d1_to_pg_value(column: str, value: Any) -> Any:
@@ -123,6 +125,18 @@ class SyncService:
         if table not in _ALLOWED_TABLES:
             logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
             return {"synced": 0, "errors": 1, "skipped": 0}
+
+        # Circuit breaker: skip if D1 daily write limit was hit and hasn't reset
+        if self._d1_write_limit_hit:
+            now = datetime.now(UTC)
+            if self._d1_write_limit_reset_at and now < self._d1_write_limit_reset_at:
+                logger.debug("D1 daily write limit active, skipping sync for %s", table)
+                return {"synced": 0, "errors": 0, "skipped": 1}
+            else:
+                # Reset time passed — clear the flag and try again
+                self._d1_write_limit_hit = False
+                self._d1_write_limit_reset_at = None
+                logger.info("D1 daily write limit reset window passed, retrying sync")
 
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine
@@ -187,11 +201,19 @@ class SyncService:
                     logger.error("D1 sync row failed for %s: %s", table, exc)
                     stats["errors"] += 1
                     _consecutive_errors += 1
-                    # If D1 free tier daily limit is hit, skip all remaining tables
+                    # If D1 free tier daily limit is hit, set circuit breaker and skip all remaining
                     if "exceeded" in exc_str.lower() and "daily" in exc_str.lower():
                         logger.warning(
                             "D1 daily write limit reached — skipping remaining tables for this sync cycle"
                         )
+                        # Set circuit breaker — reset at next midnight UTC
+                        now = datetime.now(UTC)
+                        reset_at = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                        if reset_at <= now:
+                            reset_at = reset_at + timedelta(days=1)
+                        self._d1_write_limit_hit = True
+                        self._d1_write_limit_reset_at = reset_at
+                        logger.info("D1 write circuit breaker active until %s UTC", reset_at.isoformat())
                         stats["skipped"] = stats.get("skipped", 0) + (len(rows) - stats["synced"] - stats["errors"])
                         break
                     if _consecutive_errors >= 3:
