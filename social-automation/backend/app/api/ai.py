@@ -3197,3 +3197,423 @@ async def dmr_speculative_decoding(
     }
 
 
+# ===========================================================================
+# Emoji & Icon Generation
+# Uses DMR for prompt enhancement + local-diffusers (SD 1.5) or Cloudflare
+# FLUX for generation.  Produces small, vibrant images suitable for social
+# media content — emojis, stickers, icons, badges, reaction faces, etc.
+# ===========================================================================
+
+
+class EmojiGenerateRequest(BaseModel):
+    """Request for emoji/icon generation.
+
+    The `concept` is a short description of what the emoji should depict
+    (e.g. "happy cloud", "fire rocket", "thumbs up").  DMR enhances it into
+    a full SD prompt with style modifiers.  The generated image is a small
+    square (256x256 or 512x512) with transparent or solid background.
+    """
+
+    concept: str
+    style: str = "flat"  # flat | 3d | kawaii | pixel | outline | gradient
+    size: int = 512  # 256 | 512 | 768
+    background: str = "transparent"  # transparent | white | colored
+    bg_color: str | None = None  # hex color when background="colored"
+    negative_prompt: str = ""
+    seed: int = 0
+    steps: int = 25
+    cfg_scale: float = 8.0
+    provider: str = "local-diffusers"  # local-diffusers | cloudflare
+    enhance_prompt: bool = True  # use DMR to enhance the concept into a full SD prompt
+    remove_bg: bool = True  # remove background post-generation (when background="transparent")
+
+
+class EmojiGenerateResponse(BaseModel):
+    """Response for emoji/icon generation."""
+
+    image_base64: str
+    format: str = "base64"
+    concept: str
+    enhanced_prompt: str
+    style: str
+    size: int
+    provider: str
+    quality_check: dict | None = None
+
+
+# Style presets for emoji/icon generation
+_EMOJI_STYLE_PRESETS: dict[str, dict] = {
+    "flat": {
+        "positive": "flat design, simple shapes, bold outlines, vibrant solid colors, minimalist, vector style, centered, clean",
+        "negative": "3d, realistic, photographic, complex details, shadows, gradients, textures",
+    },
+    "3d": {
+        "positive": "3d render, soft lighting, smooth surfaces, rounded shapes, cute, glossy, octane render, blender style, centered",
+        "negative": "flat, 2d, sketch, rough, pixelated, low poly",
+    },
+    "kawaii": {
+        "positive": "kawaii style, cute, adorable, big eyes, pastel colors, simple, japanese emoji, sticker style, centered, white outline",
+        "negative": "scary, realistic, dark, complex, detailed background",
+    },
+    "pixel": {
+        "positive": "pixel art, 8-bit, retro game style, sharp pixels, limited color palette, pixelated, centered",
+        "negative": "smooth, realistic, 3d, gradient, high resolution detail",
+    },
+    "outline": {
+        "positive": "line art, thick black outline, minimal fill, simple, clean, vector outline style, centered",
+        "negative": "shading, gradient, 3d, realistic, photographic, texture",
+    },
+    "gradient": {
+        "positive": "gradient colors, modern, glossy, vibrant, smooth, app icon style, centered, rounded",
+        "negative": "flat, dull, pixelated, sketch, rough",
+    },
+}
+
+
+def _build_emoji_prompt(concept: str, style: str, background: str, bg_color: str | None) -> tuple[str, str]:
+    """Build a positive and negative prompt for emoji/icon generation.
+
+    Returns (positive_prompt, negative_prompt).
+    """
+    preset = _EMOJI_STYLE_PRESETS.get(style, _EMOJI_STYLE_PRESETS["flat"])
+
+    # Background handling
+    bg_prompt = ""
+    if background == "transparent":
+        # SD 1.5 doesn't support transparency — generate on white/gray, remove in post
+        bg_prompt = "on plain white background, isolated, no background details"
+    elif background == "white":
+        bg_prompt = "on plain white background, isolated"
+    elif background == "colored" and bg_color:
+        bg_prompt = f"on solid {bg_color} background, isolated"
+
+    positive = f"{concept}, {preset['positive']}, {bg_prompt}, high quality, detailed"
+    negative = preset["negative"]
+    if background == "transparent":
+        negative += ", complex background, scenery, landscape, multiple objects"
+
+    return positive, negative
+
+
+async def _remove_background_white(image_b64: str, tolerance: int = 30) -> str:
+    """Remove near-white background from an image, making it transparent.
+
+    Uses PIL to replace pixels close to white with transparency.
+    Returns a PNG base64 string with alpha channel.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    # Decode the base64 image
+    img_data = base64.b64decode(image_b64)
+    img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+
+    # Get pixel data
+    pixels = img.load()
+    width, height = img.size
+
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+            # If pixel is near-white, make it transparent
+            if r > 255 - tolerance and g > 255 - tolerance and b > 255 - tolerance:
+                pixels[x, y] = (255, 255, 255, 0)
+
+    # Save as PNG (supports alpha)
+    output = io.BytesIO()
+    img.save(output, format="PNG")
+    return base64.b64encode(output.getvalue()).decode("utf-8")
+
+
+@router.post("/emoji/generate", response_model=EmojiGenerateResponse)
+@limiter.limit("10/minute")
+async def generate_emoji(
+    request: Request,
+    payload: EmojiGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an emoji or icon for social media content.
+
+    Pipeline:
+    1. DMR enhances the concept into a full SD prompt (if enhance_prompt=True)
+    2. Local Diffusers (SD 1.5) or Cloudflare FLUX generates the image
+    3. Background is removed if background="transparent" (PIL white → alpha)
+    4. Optional: DMR vision quality check
+
+    The result is a small square image (256-768px) suitable for use as:
+    - Custom emoji reactions
+    - Story stickers
+    - Post icons and badges
+    - Profile badges
+    - Content decorations
+    """
+    import time as _time
+
+    from app.services.inference import _call_local_diffusers_txt2img, _call_workers_ai_image
+
+    # Check quota
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if team:
+        await check_quota("ai_calls_per_month", team.id, db)
+
+    # Step 1: Build the prompt
+    concept = payload.concept.strip()
+    if not concept:
+        raise HTTPException(status_code=400, detail="concept is required")
+
+    if payload.enhance_prompt:
+        # Use DMR to enhance the concept into a rich emoji prompt
+        from app.services.dmr import call_dmr_chat
+
+        style_desc = {
+            "flat": "flat vector design with bold outlines and solid colors",
+            "3d": "3D render with soft lighting and rounded shapes",
+            "kawaii": "kawaii Japanese cute style with big eyes",
+            "pixel": "8-bit pixel art with limited color palette",
+            "outline": "line art with thick black outlines",
+            "gradient": "modern gradient style with glossy finish",
+        }.get(payload.style, "flat design")
+
+        enhance_prompt = f"""Enhance this emoji concept into a detailed image generation prompt.
+
+Concept: "{concept}"
+Style: {style_desc}
+
+Return ONLY a single line prompt (no explanation, no markdown) that describes:
+- The subject in detail (expression, pose, features)
+- The art style
+- Colors and lighting
+- Background (plain, isolated)
+
+Keep it under 100 words. Start directly with the subject description."""
+
+        try:
+            dmr_result = await call_dmr_chat(
+                enhance_prompt,
+                max_tokens=150,
+                temperature=0.4,
+            )
+            enhanced_concept = dmr_result.get("text", "").strip()
+            if enhanced_concept and len(enhanced_concept) > 10:
+                concept = enhanced_concept
+        except Exception as exc:
+            logger.warning(f"[emoji] DMR prompt enhancement failed: {exc}")
+            # Fall back to raw concept
+
+    # Step 2: Build full SD prompt with style preset
+    positive_prompt, style_negative = _build_emoji_prompt(
+        concept, payload.style, payload.background, payload.bg_color
+    )
+    negative_prompt = f"{payload.negative_prompt}, {style_negative}".strip(", ")
+
+    # Step 3: Generate the image
+    start = _time.perf_counter()
+    result = None
+    provider_used = payload.provider
+
+    if payload.provider == "local-diffusers":
+        try:
+            result = await _call_local_diffusers_txt2img(
+                prompt=positive_prompt,
+                negative_prompt=negative_prompt,
+                width=payload.size,
+                height=payload.size,
+                steps=payload.steps,
+                cfg_scale=payload.cfg_scale,
+                seed=payload.seed,
+            )
+        except HTTPException as exc:
+            logger.warning(f"[emoji] Local Diffusers failed ({exc.status_code}), trying Cloudflare")
+            provider_used = "cloudflare"
+
+    if result is None:
+        # Fall back to Cloudflare FLUX schnell
+        from app.services.cf_models import CF_TXT2IMG_FREE
+
+        _, model, api_key = await _get_provider_config("cloudflare", team.id if team else None, db)
+        model = CF_TXT2IMG_FREE  # FLUX schnell — best for simple icons
+        try:
+            result = await _call_workers_ai_image(
+                prompt=positive_prompt,
+                model=model,
+                api_key=api_key,
+                negative_prompt=negative_prompt,
+                width=payload.size,
+                height=payload.size,
+                steps=min(payload.steps, 4),  # FLUX schnell max 8, default 4
+                cfg_scale=payload.cfg_scale,
+            )
+            provider_used = "cloudflare"
+        except HTTPException as exc:
+            logger.warning(f"[emoji] Cloudflare also failed ({exc.status_code})")
+
+    if result is None:
+        raise HTTPException(
+            status_code=502,
+            detail="All image generation providers failed (local Diffusers + Cloudflare)",
+        )
+
+    image_b64 = result["image_base64"]
+    gen_time = _time.perf_counter() - start
+
+    # Step 4: Remove background if requested
+    if payload.background == "transparent" and payload.remove_bg:
+        try:
+            image_b64 = await _remove_background_white(image_b64, tolerance=30)
+        except Exception as exc:
+            logger.warning(f"[emoji] Background removal failed: {exc}")
+
+    # Step 5: Optional quality check via DMR vision
+    quality_check = None
+    try:
+        from app.services.dmr import call_dmr_vision
+
+        # Convert to data URI for vision model
+        data_uri = f"data:image/png;base64,{image_b64}"
+        vision_prompt = (
+            "Rate this emoji/icon image quality from 1-10. "
+            "Is it clear, recognizable, and suitable for social media? "
+            'Return JSON: {"score": int, "clear": bool, "suitable": bool, "issues": str}'
+        )
+        vision_result = await call_dmr_vision(
+            data_uri,
+            vision_prompt,
+            max_tokens=100,
+        )
+        if vision_result:
+            from app.services.dmr import _parse_json_response
+
+            quality_check = _parse_json_response(vision_result)
+            if quality_check.get("_parse_error"):
+                quality_check = {"raw_assessment": vision_result[:200]}
+    except Exception as exc:
+        logger.debug(f"[emoji] Vision quality check failed: {exc}")
+
+    logger.info(
+        f"[emoji] Generated '{payload.concept}' ({payload.style}, {payload.size}px) "
+        f"in {gen_time:.1f}s via {provider_used}"
+    )
+
+    return EmojiGenerateResponse(
+        image_base64=image_b64,
+        concept=payload.concept,
+        enhanced_prompt=positive_prompt,
+        style=payload.style,
+        size=payload.size,
+        provider=provider_used,
+        quality_check=quality_check,
+    )
+
+
+class EmojiBatchRequest(BaseModel):
+    """Batch emoji generation — generate multiple emojis in one request."""
+
+    concepts: list[str]
+    style: str = "flat"
+    size: int = 512
+    background: str = "transparent"
+    bg_color: str | None = None
+    seed: int = 0
+    steps: int = 25
+    cfg_scale: float = 8.0
+    provider: str = "local-diffusers"
+    enhance_prompt: bool = True
+    remove_bg: bool = True
+
+
+class EmojiBatchResponse(BaseModel):
+    """Response for batch emoji generation."""
+
+    emojis: list[dict]  # list of {concept, image_base64, success, error?}
+
+
+@router.post("/emoji/batch", response_model=EmojiBatchResponse)
+@limiter.limit("5/minute")
+async def generate_emoji_batch(
+    request: Request,
+    payload: EmojiBatchRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate multiple emojis/icons in a single request.
+
+    Useful for creating a full sticker pack or icon set.
+    Limited to 10 concepts per request.
+    """
+    if len(payload.concepts) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 concepts per batch")
+    if not payload.concepts:
+        raise HTTPException(status_code=400, detail="At least one concept required")
+
+    # Check quota
+    team_result = await db.execute(
+        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    team = team_result.scalars().first()
+    if team:
+        await check_quota("ai_calls_per_month", team.id, db)
+
+    emojis = []
+    for concept in payload.concepts:
+        try:
+            # Reuse the single emoji generation logic
+            single_req = EmojiGenerateRequest(
+                concept=concept,
+                style=payload.style,
+                size=payload.size,
+                background=payload.background,
+                bg_color=payload.bg_color,
+                seed=payload.seed,
+                steps=payload.steps,
+                cfg_scale=payload.cfg_scale,
+                provider=payload.provider,
+                enhance_prompt=payload.enhance_prompt,
+                remove_bg=payload.remove_bg,
+            )
+            # Call the internal logic directly (not the HTTP endpoint)
+            result = await generate_emoji(request, single_req, current_user, db)
+            emojis.append({
+                "concept": concept,
+                "image_base64": result.image_base64,
+                "success": True,
+                "provider": result.provider,
+                "quality_check": result.quality_check,
+            })
+        except Exception as exc:
+            emojis.append({
+                "concept": concept,
+                "success": False,
+                "error": str(exc)[:200],
+            })
+
+    return EmojiBatchResponse(emojis=emojis)
+
+
+@router.get("/emoji/styles")
+@limiter.limit("30/minute")
+async def list_emoji_styles(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """List available emoji/icon styles and their descriptions."""
+    return {
+        "styles": {
+            name: {
+                "description": preset["positive"][:100],
+                "positive_modifiers": preset["positive"],
+                "negative_modifiers": preset["negative"],
+            }
+            for name, preset in _EMOJI_STYLE_PRESETS.items()
+        },
+        "sizes": [256, 512, 768],
+        "backgrounds": ["transparent", "white", "colored"],
+        "providers": ["local-diffusers", "cloudflare"],
+    }
+
+
