@@ -81,7 +81,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
   }, [profile])
 
   const needsLogin = platform === 'instagram' || (platform === 'facebook' && !isBusiness) || platform === 'linkedin'
-  const isReadOnly = platform === 'threads'
+  const isReadOnly = false
 
   const handleSave = async () => {
     const data: Record<string, string> = {}

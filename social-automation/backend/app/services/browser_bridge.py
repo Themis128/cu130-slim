@@ -12,6 +12,7 @@ authenticated fetch to Instagram's internal web API.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -126,3 +127,134 @@ class BrowserBridgeClient:
             if resp.status_code >= 400:
                 raise BrowserBridgeError(resp.status_code, resp.text)
             return resp.json()
+
+    # ── Generic browser automation primitives ─────────────────────────────
+
+    async def click(self, selector: str, text: str | None = None) -> dict[str, Any]:
+        """Click an element via the bridge."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/session/click",
+                json={"selector": selector, "text": text},
+            )
+            if resp.status_code >= 400:
+                raise BrowserBridgeError(resp.status_code, resp.text)
+            return resp.json()
+
+    async def fill(self, selector: str, value: str) -> dict[str, Any]:
+        """Fill an input/textarea via the bridge."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/session/fill",
+                json={"selector": selector, "value": value},
+            )
+            if resp.status_code >= 400:
+                raise BrowserBridgeError(resp.status_code, resp.text)
+            return resp.json()
+
+    async def evaluate(self, expression: str) -> dict[str, Any]:
+        """Evaluate JS in the browser and return the result."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/session/evaluate",
+                json={"expression": expression},
+            )
+            if resp.status_code >= 400:
+                raise BrowserBridgeError(resp.status_code, resp.text)
+            return resp.json()
+
+    # ── Threads profile via browser ─────────────────────────────────────
+
+    async def get_threads_profile(self, username: str) -> dict[str, Any]:
+        """Read a Threads profile by navigating to the public profile page."""
+        # Prefer .com; the canonical URLs are currently www.threads.com
+        await self.navigate(f"https://www.threads.com/@{username}")
+        await asyncio.sleep(2)
+        result = await self.evaluate("""() => {
+            const body = document.body.innerText;
+            const lines = body.split('\\n');
+            const nameEl = document.querySelector('h1, h2');
+            const displayName = nameEl ? nameEl.textContent.trim() : '';
+            const username = window.location.pathname.replace(/^\\/@/, '');
+            // Find the follower line, then walk backwards to find the last
+            // occurrence of the handle. Bio is everything between them.
+            const followerIdx = lines.findIndex(l => /\\d+ followers?/.test(l));
+            let bio = '';
+            if (followerIdx > 0) {
+                let handleIdx = -1;
+                for (let i = followerIdx - 1; i >= 0; i--) {
+                    if (lines[i].trim() === username) {
+                        handleIdx = i;
+                        break;
+                    }
+                }
+                if (handleIdx >= 0 && handleIdx < followerIdx) {
+                    const bioLines = [];
+                    for (let i = handleIdx + 1; i < followerIdx; i++) {
+                        const l = lines[i].trim();
+                        if (!l) continue;
+                        if (l === displayName) continue;
+                        bioLines.push(l);
+                    }
+                    bio = bioLines.join('\\n');
+                }
+            }
+            return {
+                url: document.location.href,
+                username: username,
+                full_name: displayName,
+                biography: bio,
+                raw: { sample: body.substring(0, 500) },
+            };
+        }""")
+        return result.get("result", {})
+
+    async def update_threads_profile(
+        self,
+        username: str,
+        biography: str | None = None,
+        full_name: str | None = None,
+        website: str | None = None,
+    ) -> dict[str, Any]:
+        """Update Threads bio/name via the logged-in browser session.
+
+        Threads has no official write API for profile fields, so we automate
+        the web UI through the VNC browser.
+        """
+        updated: list[str] = []
+        ignored: list[str] = []
+
+        if full_name is not None:
+            ignored.append("full_name")  # Not supported yet
+
+        if website is not None:
+            ignored.append("website")  # Not supported yet
+
+        if biography is not None:
+            try:
+                await self.navigate(f"https://www.threads.com/@{username}")
+                await asyncio.sleep(2)
+                await self.click('div[role="button"]', "Edit profile")
+                await asyncio.sleep(2)
+                await self.click('div[role="button"]', "Bio")
+                await asyncio.sleep(2)
+                await self.fill("textarea", biography)
+                await asyncio.sleep(1)
+                # Click the *last* Done in the DOM (the one inside the modal)
+                await self.evaluate("""(function() {
+                    const all = Array.from(document.querySelectorAll('div[role="button"]'));
+                    const done = all.filter(b => b.innerText.trim() === 'Done').pop();
+                    if (done) { done.click(); return 'clicked'; }
+                    return 'no Done';
+                })()""")
+                await asyncio.sleep(3)
+                updated.append("biography")
+            except Exception as e:
+                raise BrowserBridgeError(500, f"Threads bio update failed: {e}")
+
+        return {
+            "platform": "threads",
+            "status": "updated",
+            "updated_fields": updated,
+            "ignored_fields": ignored,
+        }

@@ -236,6 +236,8 @@ async def get_profile(
         return await _get_twitter_profile(account)
     elif account.platform == "tiktok":
         return await _get_tiktok_profile(account)
+    elif account.platform == "threads":
+        return await _get_threads_profile(account)
     else:
         raise HTTPException(
             status_code=400,
@@ -265,6 +267,8 @@ async def update_profile(
         return await _update_twitter_profile(account, updates)
     elif account.platform == "tiktok":
         return await _update_tiktok_profile(account, updates)
+    elif account.platform == "threads":
+        return await _update_threads_profile(account, updates)
     else:
         raise HTTPException(
             status_code=400,
@@ -567,6 +571,60 @@ async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
         status_code=503,
         detail="All Instagram profile methods failed (sidecar, browser bridge, free scraper). "
         "Connect an account via OAuth or import a sessionid cookie.",
+    )
+
+
+async def _get_threads_profile(account: SocialAccount) -> ProfileResponse:
+    """Read the Threads profile from the logged-in browser session."""
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client()
+    try:
+        data = await bridge.get_threads_profile(account.username)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads profile read failed: {e.detail}")
+
+    return ProfileResponse(
+        platform="threads",
+        account_id=account.account_id or account.username,
+        username=data.get("username") or account.username,
+        biography=data.get("biography"),
+        raw=data,
+    )
+
+
+async def _update_threads_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    """Update the Threads profile via the logged-in browser session."""
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    kwargs: dict[str, str | None] = {
+        "biography": updates.biography,
+        "full_name": updates.full_name,
+        "website": updates.website,
+    }
+    ignored = [k for k, v in kwargs.items() if v is not None and k != "biography"]
+
+    bridge = _get_browser_bridge_client()
+    try:
+        result = await bridge.update_threads_profile(
+            account.username,
+            biography=updates.biography,
+            full_name=updates.full_name,
+            website=updates.website,
+        )
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads profile update failed: {e.detail}")
+
+    return ProfileUpdateResponse(
+        success=result.get("status") == "updated",
+        updated_fields=result.get("updated_fields", []),
+        ignored_fields=result.get("ignored_fields", []) + ignored,
+        message="Threads profile updated via browser bridge",
     )
 
 

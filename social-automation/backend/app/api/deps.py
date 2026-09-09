@@ -54,7 +54,7 @@ async def get_current_team_id(
     result = await db.execute(
         select(Team.id).join(TeamMember).where(TeamMember.user_id == current_user.id)
     )
-    team_id = result.scalar_one_or_none()
+    team_id = result.scalars().first()
     if team_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
