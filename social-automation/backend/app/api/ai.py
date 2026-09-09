@@ -650,6 +650,45 @@ async def analyze_seo_endpoint(
     return SeoResponse(**result)
 
 
+class ContentScoreRequest(BaseModel):
+    content: str
+    platform: str
+    hashtags: list[str] = []
+
+
+class ContentScoreResponse(BaseModel):
+    readability: float
+    engagement: float
+    hashtag_quality: float
+    length_fit: float
+    overall: float
+    hashtag_strategy: dict | None = None
+
+
+@router.post("/score-content", response_model=ContentScoreResponse)
+async def score_content_endpoint(
+    request: ContentScoreRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Score content on readability, engagement, hashtag quality, and length fit.
+
+    Uses a heuristic four-dimension scoring system (no AI call required).
+    Optionally builds a three-tier hashtag strategy (Safe/Rising/Niche).
+    """
+    from app.services.content_scorer import build_hashtag_strategy, score_content
+
+    score = score_content(request.content, request.platform, request.hashtags)
+    strategy = build_hashtag_strategy(
+        topic=request.content.split("\n")[0][:80] if request.content else "social",
+        platform=request.platform,
+        existing_tags=request.hashtags,
+    )
+    return ContentScoreResponse(
+        **score.to_dict(),
+        hashtag_strategy=strategy.to_dict(),
+    )
+
+
 class GenerateImageRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""
