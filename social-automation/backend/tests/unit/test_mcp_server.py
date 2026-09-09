@@ -37,7 +37,7 @@ class TestTools:
 class TestHandleListTools:
     @pytest.mark.asyncio
     async def test_returns_all_tools(self):
-        result = await _handle_list_tools(ListToolsRequest(method="tools/list"))
+        result = await _handle_list_tools(None, ListToolsRequest(method="tools/list"))
         assert len(result.tools) == 12
 
 
@@ -48,7 +48,7 @@ class TestHandleCallTool:
             method="tools/call",
             params=CallToolRequestParams(name="unknown_tool", arguments={}),
         )
-        result = await _handle_call_tool(request)
+        result = await _handle_call_tool(None, request)
         assert result.is_error is True
 
     @pytest.mark.asyncio
@@ -58,7 +58,7 @@ class TestHandleCallTool:
             params=CallToolRequestParams(name="list_accounts", arguments={}),
         )
         with patch("app.mcp.server._api_request", new=AsyncMock(return_value=[])):
-            result = await _handle_call_tool(request)
+            result = await _handle_call_tool(None, request)
         assert not result.is_error
 
     @pytest.mark.asyncio
@@ -72,7 +72,7 @@ class TestHandleCallTool:
         )
         mock_response = {"readability": 80.0, "engagement": 70.0, "overall": 75.0}
         with patch("app.mcp.server._api_request", new=AsyncMock(return_value=mock_response)):
-            result = await _handle_call_tool(request)
+            result = await _handle_call_tool(None, request)
         assert not result.is_error
 
     @pytest.mark.asyncio
@@ -82,7 +82,7 @@ class TestHandleCallTool:
             params=CallToolRequestParams(name="list_accounts", arguments={}),
         )
         with patch("app.mcp.server._api_request", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
-            result = await _handle_call_tool(request)
+            result = await _handle_call_tool(None, request)
         assert result.is_error is True
 
 

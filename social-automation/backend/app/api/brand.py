@@ -533,10 +533,13 @@ async def extract_brand_kit(
     Returns a structured draft that the user can review and edit.
     """
     from app.services.brand_extractor import extract_brand_from_url
+    from app.services.url_safety import UnsafeUrlError
 
     try:
         result = await extract_brand_from_url(data.url)
         return result
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Brand extraction failed: {e}") from e
 

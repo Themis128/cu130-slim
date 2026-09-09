@@ -134,6 +134,23 @@ function bufferToTempFile(buffer, filename) {
   return tmp;
 }
 
+/** True only for facebook.com or a subdomain (not evilfacebook.com). */
+function isFacebookCookieDomain(domain) {
+  if (!domain) return false;
+  const d = String(domain).replace(/^\./, '').toLowerCase();
+  return d === 'facebook.com' || d.endsWith('.facebook.com');
+}
+
+/** True only when the page URL host is facebook.com or a subdomain. */
+function isFacebookPageUrl(urlStr) {
+  try {
+    const host = new URL(urlStr).hostname.toLowerCase();
+    return host === 'facebook.com' || host.endsWith('.facebook.com');
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Check if we're logged in to Facebook.
  *
@@ -152,7 +169,7 @@ function bufferToTempFile(buffer, filename) {
  */
 async function isLoggedIn() {
   const url = page.url();
-  if (!url.includes('facebook.com')) return false;
+  if (!isFacebookPageUrl(url)) return false;
   if (url.includes('/login') || url.includes('/checkpoint') || url.includes('/recover')) return false;
 
   // The profile picker page has a crypted_string query param and shows
@@ -165,7 +182,7 @@ async function isLoggedIn() {
   try {
     if (context) {
       const cookies = await context.cookies();
-      hasCUser = cookies.some(c => c.name === 'c_user' && c.domain && c.domain.includes('facebook.com'));
+      hasCUser = cookies.some(c => c.name === 'c_user' && isFacebookCookieDomain(c.domain));
     }
   } catch (_) {}
   if (!hasCUser) return false;
@@ -361,7 +378,7 @@ async function exportCookies() {
   const cookies = await context.cookies();
   const result = {};
   for (const c of cookies) {
-    if (c.domain && c.domain.includes('facebook.com')) {
+    if (isFacebookCookieDomain(c.domain)) {
       result[c.name] = c.value;
     }
   }

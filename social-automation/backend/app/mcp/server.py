@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from typing import Any
 
 import httpx
 
@@ -211,12 +212,12 @@ TOOLS: list[Tool] = [
 ]
 
 
-async def _handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
+async def _handle_list_tools(ctx: Any, request: ListToolsRequest) -> ListToolsResult:
     """Handle tools/list request."""
     return ListToolsResult(tools=TOOLS)
 
 
-async def _handle_call_tool(request: CallToolRequest) -> CallToolResult:
+async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResult:
     """Handle tools/call request."""
     name = request.params.name
     arguments = request.params.arguments or {}

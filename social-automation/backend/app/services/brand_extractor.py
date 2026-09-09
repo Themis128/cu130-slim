@@ -12,11 +12,31 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.services.inference import call_inference
+from app.services.url_safety import UnsafeUrlError, validate_public_http_url
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30.0
 MAX_CONTENT_CHARS = 8000
+MAX_REDIRECTS = 5
+_BOT_HEADERS = {"User-Agent": "CloudlessBrandBot/1.0"}
+
+
+async def _safe_get(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    """GET a validated public URL, re-validating each redirect target (SSRF-safe)."""
+    current = validate_public_http_url(url)
+    for _ in range(MAX_REDIRECTS + 1):
+        resp = await client.get(current, headers=_BOT_HEADERS)
+        if resp.status_code in {301, 302, 303, 307, 308}:
+            location = resp.headers.get("location")
+            if not location:
+                resp.raise_for_status()
+                return resp
+            next_url = urljoin(current, location)
+            current = validate_public_http_url(next_url)
+            continue
+        return resp
+    raise UnsafeUrlError("Too many redirects")
 
 
 async def extract_brand_from_url(url: str) -> dict:
@@ -25,23 +45,26 @@ async def extract_brand_from_url(url: str) -> dict:
     Returns a dict with brand identity, voice, and visual fields that can
     be used to pre-fill the brand creation form.
     """
-    # Normalize URL
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+    # Normalize + SSRF-validate before any network I/O
+    safe_url = validate_public_http_url(url)
 
-    parsed = urlparse(url)
+    parsed = urlparse(safe_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Fetch homepage and about page in parallel
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=True) as client:
-        homepage_resp = await client.get(url, headers={"User-Agent": "CloudlessBrandBot/1.0"})
+    # Fetch homepage and about pages (redirects re-validated per hop)
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=False) as client:
+        homepage_resp = await _safe_get(client, safe_url)
         homepage_html = homepage_resp.text
 
         about_html = ""
-        about_urls = [urljoin(base_url, "/about"), urljoin(base_url, "/about-us"), urljoin(base_url, "/en/about")]
+        about_urls = [
+            validate_public_http_url(urljoin(base_url, "/about")),
+            validate_public_http_url(urljoin(base_url, "/about-us")),
+            validate_public_http_url(urljoin(base_url, "/en/about")),
+        ]
         for about_url in about_urls:
             try:
-                resp = await client.get(about_url, headers={"User-Agent": "CloudlessBrandBot/1.0"})
+                resp = await _safe_get(client, about_url)
                 if resp.status_code == 200 and len(resp.text) > 500:
                     about_html = resp.text
                     break
@@ -81,7 +104,7 @@ async def extract_brand_from_url(url: str) -> dict:
     result: dict = {
         "name": name,
         "tagline": tagline,
-        "website_url": url,
+        "website_url": safe_url,
         "positioning_statement": ai_analysis.get("positioning_statement"),
         "mission": ai_analysis.get("mission"),
         "industry": ai_analysis.get("industry"),

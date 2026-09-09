@@ -36,3 +36,11 @@ ignore {
 ignore {
   input.PkgName == "kernel-devel"
 }
+
+# No patched release yet for CVE-2026-69112 in accelerate (affects loading
+# untrusted sharded checkpoints via weight_map). local-diffusers only loads a
+# fixed trusted MODEL_ID (SD 1.5) and never accepts user-supplied checkpoints.
+ignore {
+  input.PkgName == "accelerate"
+  input.VulnerabilityID == "CVE-2026-69112"
+}
