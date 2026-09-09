@@ -179,9 +179,26 @@ async def connect_account_body(
     db: AsyncSession = Depends(get_db),
 ):
     """Body-based alias for /connect/{platform} — used by the frontend."""
-    # Auto-resolve team from current user if not provided
+    # Auto-resolve team from current user if not provided.
+    # Prefer teams the user owns, then higher plan tiers (enterprise > free).
+    from sqlalchemy import case
+
+    from app.models.user import UserRole
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
     team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == current_user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
     )
     team = team_result.scalars().first()
     if not team:
