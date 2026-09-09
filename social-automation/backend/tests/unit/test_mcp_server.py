@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+
+pytest.importorskip("mcp")
 from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
 
 from app.mcp.server import TOOLS, _handle_call_tool, _handle_list_tools
