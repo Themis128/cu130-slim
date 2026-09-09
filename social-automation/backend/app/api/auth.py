@@ -125,8 +125,6 @@ LINKEDIN_SCOPES: list[str] = [
     "email",
     "w_member_social",
     "w_organization_social",
-    "r_organization_social",
-    "r_organization_admin",
     "rw_organization_admin",
 ]
 # Instagram2 client (Instagram API with Instagram Login)
@@ -937,15 +935,10 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": [
-            "public_profile", "email",
-            "user_about_me", "user_birthday", "user_hometown", "user_location",
-            "user_website", "user_work_history", "user_education_history",
-            "user_relationships", "user_religion_politics", "user_likes",
-            "user_posts", "user_photos", "user_videos", "user_friends",
+            "public_profile",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-            "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
-            "pages_read_user_content", "read_insights",
-            "ads_management", "ads_read", "business_management",
+            "pages_manage_engagement", "pages_manage_metadata",
+            "read_insights",
             "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
         ],
         "instagram": [
@@ -954,7 +947,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         ],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "instagram2": ["user_profile", "user_media"],
-        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
+        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
     }
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
