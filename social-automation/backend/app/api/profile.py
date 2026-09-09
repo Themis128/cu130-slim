@@ -772,8 +772,10 @@ async def _update_facebook_page_profile(
         kwargs["website"] = updates.website
     if updates.phone is not None:
         kwargs["phone"] = updates.phone
+    if updates.biography is not None:
+        kwargs["description"] = updates.biography
 
-    for field in ["headline", "biography", "full_name", "location", "email", "quotes", "work", "education"]:
+    for field in ["headline", "full_name", "location", "email", "quotes", "work", "education"]:
         if getattr(updates, field, None) is not None:
             ignored.append(field)
 
