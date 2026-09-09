@@ -652,13 +652,12 @@ async def get_instagram_profile():
 
         username = result.get("username", "")
 
-        # If we have a username, navigate to the edit page
+        # If we have a username, navigate to edit page via natural click
         if username:
-            await page.goto(f"https://www.instagram.com/accounts/edit/", wait_until="domcontentloaded")
-            await page.wait_for_timeout(3000)
+            await _navigate_to_edit_profile(page, username)
 
             # Check if we're on the edit page (not redirected to login)
-            if "login" in page.url:
+            if "login" in page.url or "__coig_login" in page.url:
                 # Fallback: scrape from profile page
                 await page.goto(f"https://www.instagram.com/{username}/", wait_until="domcontentloaded")
                 await page.wait_for_timeout(3000)
@@ -745,13 +744,72 @@ async def get_instagram_profile():
         raise HTTPException(500, f"Failed to read profile: {e}")
 
 
+async def _navigate_to_edit_profile(page, username: str | None = None):
+    """Navigate to the Instagram edit profile page via natural click flow.
+
+    Direct navigation to /accounts/edit/ triggers Instagram's __coig_login
+    redirect (session invalidation guard).  Instead we navigate to the
+    profile page and click the "Edit profile" button, which Instagram
+    treats as a legitimate user action.
+    """
+    # Step 1: navigate to the profile page (this never triggers redirect)
+    if username:
+        profile_url = f"https://www.instagram.com/{username}/"
+    else:
+        profile_url = "https://www.instagram.com/"
+    await page.goto(profile_url, wait_until="domcontentloaded")
+    await page.wait_for_timeout(3000)
+
+    if "login" in page.url:
+        raise HTTPException(401, "Not logged in to Instagram")
+
+    # Step 2: click the "Edit profile" button on the profile page
+    edit_clicked = False
+    for sel in [
+        'a[href="/accounts/edit/"]',
+        'a:has-text("Edit profile")',
+        'div[role="button"]:has-text("Edit profile")',
+    ]:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.click()
+                edit_clicked = True
+                break
+        except Exception:
+            continue
+
+    if not edit_clicked:
+        # Fallback: direct navigation (may work if session is fresh)
+        await page.goto(
+            "https://www.instagram.com/accounts/edit/",
+            wait_until="domcontentloaded",
+        )
+
+    await page.wait_for_timeout(3000)
+
+    # Verify we landed on the edit page
+    if "login" in page.url or "__coig_login" in page.url:
+        raise HTTPException(
+            401,
+            "Instagram redirected to login — session may be stale. "
+            "Re-login via VNC (http://localhost:6080/vnc.html) and retry.",
+        )
+
+    if "accounts/edit" not in page.url:
+        raise HTTPException(
+            500,
+            f"Failed to reach edit profile page (current URL: {page.url})",
+        )
+
+
 @app.patch("/profile/instagram")
 async def update_instagram_profile(req: ProfileUpdateRequest):
     """Update the Instagram profile via the logged-in browser session.
 
-    Navigates to the Instagram edit profile page, fills in the provided
-    fields, and clicks Submit.  Only fields that are provided (non-None)
-    are changed.
+    Uses natural navigation (profile page → click "Edit profile") to avoid
+    Instagram's __coig_login redirect guard.  Fills in the provided fields
+    and clicks Submit.  Only fields that are provided (non-None) are changed.
     """
     page = _state.get("page")
     context = _state.get("context")
@@ -759,12 +817,16 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
         raise HTTPException(400, "No active browser session — start one first")
 
     try:
-        # Navigate to the edit page
-        await page.goto("https://www.instagram.com/accounts/edit/", wait_until="domcontentloaded")
-        await page.wait_for_timeout(3000)
+        # Detect username from current page if possible
+        current_url = page.url
+        username = None
+        if "instagram.com/" in current_url and "accounts" not in current_url:
+            parts = current_url.split("instagram.com/")[1].split("/")[0]
+            if parts and not parts.startswith("?"):
+                username = parts
 
-        if "login" in page.url:
-            raise HTTPException(401, "Not logged in to Instagram")
+        # Natural navigation to edit profile page
+        await _navigate_to_edit_profile(page, username)
 
         updated = []
 
@@ -806,21 +868,46 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
 
         # Click submit
         submitted = False
+
+        # Method 1: Playwright click with scroll-into-view
         for sel in [
-            'button[type="submit"]',
             'div[role="button"]:has-text("Submit")',
             'div[role="button"]:has-text("Υποβολή")',
+            'button[type="submit"]',
             'button:has-text("Submit")',
             'button:has-text("Υποβολή")',
         ]:
             try:
                 btn = page.locator(sel).first
                 if await btn.count() > 0:
-                    await btn.click()
+                    await btn.scroll_into_view_if_needed(timeout=5000)
+                    await btn.wait_for(state="visible", timeout=5000)
+                    await btn.click(timeout=10000)
                     submitted = True
                     break
             except Exception:
                 continue
+
+        # Method 2: JS click fallback (more reliable for React apps)
+        if not submitted:
+            try:
+                clicked = await page.evaluate("""() => {
+                    const btns = document.querySelectorAll(
+                        'div[role="button"], button[type="submit"]'
+                    );
+                    for (const b of btns) {
+                        if (b.innerText.includes('Submit') || b.type === 'submit') {
+                            b.scrollIntoView({block: 'center'});
+                            b.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if clicked:
+                    submitted = True
+            except Exception:
+                pass
 
         if not submitted:
             raise HTTPException(500, "Could not find submit button on edit page")
