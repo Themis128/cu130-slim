@@ -451,32 +451,32 @@ class InstagramPrivateAPIClient:
         Mixed photo/video is supported.
         """
         import os
+        from io import BytesIO
 
         data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
-        file_objs: list[Any] = []
-        try:
-            for fp in file_paths:
-                file_objs.append(open(fp, "rb"))
-            files = [
-                ("files", (os.path.basename(fp), fobj, "application/octet-stream"))
-                for fp, fobj in zip(file_paths, file_objs)
-            ]
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{self._base_url}/album/upload",
-                    data=data,
-                    files=files,
-                    headers=self._headers(session_id),
+        files: list[tuple[str, tuple[str, BytesIO, str]]] = []
+        for fp in file_paths:
+            with open(fp, "rb") as handle:
+                files.append(
+                    (
+                        "files",
+                        (
+                            os.path.basename(fp),
+                            BytesIO(handle.read()),
+                            "application/octet-stream",
+                        ),
+                    )
                 )
-                return self._raise_for_status(resp)
-        finally:
-            for fobj in file_objs:
-                try:
-                    fobj.close()
-                except Exception:
-                    pass
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/album/upload",
+                data=data,
+                files=files,
+                headers=self._headers(session_id),
+            )
+            return self._raise_for_status(resp)
 
     async def upload_story(
         self,

@@ -3492,14 +3492,9 @@ Keep it under 100 words. Start directly with the subject description."""
             if quality_check.get("_parse_error"):
                 quality_check = {"raw_assessment": vision_result[:200]}
     except Exception as exc:
-        logger.debug(f"[emoji] Vision quality check failed: {exc}")
+        logger.debug("[emoji] Vision quality check failed (%s)", type(exc).__name__)
 
-    logger.info(
-        "[emoji] Generated image (%spx) in %.1fs via %s",
-        payload.size,
-        gen_time,
-        provider_used,
-    )
+    logger.info("[emoji] Generated image in %.1fs", gen_time)
 
     return EmojiGenerateResponse(
         image_base64=image_b64,
