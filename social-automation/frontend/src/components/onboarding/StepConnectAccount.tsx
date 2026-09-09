@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 import { useAccounts, useConnectAccount } from '@/hooks/useQueries'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
@@ -31,6 +32,7 @@ const PLATFORMS: PlatformOption[] = [
   { id: 'facebook', name: 'Facebook', icon: Facebook, color: 'bg-blue-700' },
   { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'bg-gradient-to-br from-purple-500 to-pink-500' },
   { id: 'twitter', name: 'Twitter / X', icon: Twitter, color: 'bg-sky-500' },
+  { id: 'threads', name: 'Threads', icon: ThreadsIcon, color: 'bg-gray-900' },
   { id: 'tiktok', name: 'TikTok', icon: TikTokIcon, color: 'bg-black' },
 ]
 

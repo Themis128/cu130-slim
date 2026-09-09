@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import {
-  Linkedin, Twitter, Instagram, Facebook, Hash,
+  Linkedin, Twitter, Instagram, Facebook,
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
   Building2, User, Plus,
 } from 'lucide-react'
+import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 
 function TikTokIcon({ className }: { className?: string }) {
   return (
@@ -201,7 +202,7 @@ const platforms: PlatformSetup[] = [
   {
     id: 'threads',
     name: 'Threads',
-    icon: Hash,
+    icon: ThreadsIcon,
     color: 'bg-gray-900',
     textColor: 'text-gray-900 dark:text-gray-100',
     description: 'Text-based conversations by Meta',

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 import { browserApi } from '@/services/api'
 
 function TikTokIcon({ className }: { className?: string }) {
@@ -24,6 +25,7 @@ const PLATFORM_ICONS: Record<string, React.ComponentType<{ className?: string }>
   linkedin: Linkedin,
   twitter: Twitter,
   tiktok: TikTokIcon,
+  threads: ThreadsIcon,
   youtube: Youtube,
 }
 
