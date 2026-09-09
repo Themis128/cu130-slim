@@ -23,4 +23,15 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
 
 curl -sf "$API/api/v1/secrets/$KEY" \
   -H "Authorization: Bearer $TOKEN" \
-  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("value",""))'
+  | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print('Error: API returned non-JSON response')
+    sys.exit(1)
+if 'detail' in d:
+    print(f'Error: {d[\"detail\"]}')
+    sys.exit(1)
+print(d.get('value', ''))
+"

@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Find the best time to post on a platform.
-# Usage: best-time.sh --platform linkedin
+# Find the best time to post for a specific account.
+# Usage: best-time.sh --account-id <uuid>
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$ROOT"
 
-PLATFORM="linkedin"
+ACCOUNT_ID=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --platform) PLATFORM="$2"; shift 2 ;;
+    --account-id) ACCOUNT_ID="$2"; shift 2 ;;
+    --platform) shift 2 ;;  # Ignored for backward compat
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+if [ -z "$ACCOUNT_ID" ]; then
+  echo "Usage: best-time.sh --account-id <uuid>" >&2
+  echo "  Find account IDs with: bash .devin/skills/socialauto-accounts/scripts/list-accounts.sh" >&2
+  exit 1
+fi
 
 API="${SOCIAL_API_URL:-http://127.0.0.1:8083}"
 
@@ -24,7 +31,7 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
   --data-urlencode "password=$ADMIN_PASS" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
-BODY="{\"platform\": \"$PLATFORM\"}"
+BODY="{\"account_id\": \"$ACCOUNT_ID\"}"
 
 curl -sf -X POST "$API/api/v1/ai/best-time-to-post" \
   -H "Authorization: Bearer $TOKEN" \

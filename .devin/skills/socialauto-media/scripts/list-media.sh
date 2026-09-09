@@ -32,7 +32,7 @@ PARAMS="page_size=$LIMIT"
 [[ -n "$TYPE" ]] && PARAMS="$PARAMS&type=$TYPE"
 [[ -n "$SEARCH" ]] && PARAMS="$PARAMS&search=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$SEARCH'))")"
 
-curl -sf "$API/api/v1/media?$PARAMS" \
+curl -sf "$API/api/v1/media/assets?$PARAMS" \
   -H "Authorization: Bearer $TOKEN" \
   | python3 -c "
 import sys, json

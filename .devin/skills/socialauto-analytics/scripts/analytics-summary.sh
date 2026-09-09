@@ -15,6 +15,6 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
   --data-urlencode "password=$ADMIN_PASS" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
-curl -sf "$API/api/v1/analytics/summary" \
+curl -sf "$API/api/v1/analytics/overview" \
   -H "Authorization: Bearer $TOKEN" \
   | python3 -m json.tool

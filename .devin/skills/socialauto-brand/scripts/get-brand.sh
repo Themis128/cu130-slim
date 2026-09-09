@@ -20,6 +20,9 @@ curl -sf "$API/api/v1/brand" \
   | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
+if d is None:
+    print('No brand profile set. Use the brand API to create one.')
+    sys.exit(0)
 print(f'Name: {d.get(\"name\",\"?\")}')
 print(f'Industry: {d.get(\"industry\",\"?\")}')
 print(f'Tagline: {d.get(\"tagline\",\"?\")}')

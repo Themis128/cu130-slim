@@ -29,7 +29,7 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
 
 BODY=$(python3 -c "
 import json
-print(json.dumps({'topic': '''$TOPIC''', 'platform': '''$PLATFORM'''}))
+print(json.dumps({'content': '''$TOPIC''', 'platform': '''$PLATFORM''', 'max_hashtags': 5}))
 ")
 
 curl -sf -X POST "$API/api/v1/ai/suggest-hashtags" \
@@ -38,7 +38,14 @@ curl -sf -X POST "$API/api/v1/ai/suggest-hashtags" \
   -d "$BODY" \
   | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
+try:
+    d = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print('Error: API returned non-JSON response')
+    sys.exit(1)
+if 'detail' in d:
+    print(f'Error: {d[\"detail\"]}')
+    sys.exit(1)
 tags = d.get('hashtags', d.get('data', {}).get('hashtags', []))
 for t in tags:
     print(f'#{t}')

@@ -11,11 +11,11 @@ echo ""
 # Check via database directly
 docker compose exec -T social-api python3 -c "
 import asyncio, os
-from app.db.session import async_session
+from app.db.session import async_session_maker
 from sqlalchemy import select, text
 
 async def main():
-    async with async_session() as db:
+    async with async_session_maker() as db:
         result = await db.execute(text('''
             SELECT platform, username, display_name, status, scopes, token_expires_at
             FROM social_accounts
