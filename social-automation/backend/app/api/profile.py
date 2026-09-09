@@ -111,6 +111,7 @@ class ProfileResponse(BaseModel):
     phone: str | None = None
     email: str | None = None
     profile_pic_url: str | None = None
+    avatar_url: str | None = None
     cover_url: str | None = None
     followers: int | None = None
     is_private: bool | None = None
