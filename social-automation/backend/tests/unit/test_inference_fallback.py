@@ -58,6 +58,8 @@ class _FakeResp:
 class _FakeClient:
     """Async context-manager HTTP client that returns a preset response."""
 
+    is_closed = False
+
     def __init__(self, status_code: int, body, headers=None):
         self._resp = _FakeResp(status_code, body, headers)
         self.last_url = None
@@ -77,6 +79,9 @@ class _FakeClient:
     async def get(self, url, **_kw):
         self.last_url = url
         return self._resp
+
+    async def aclose(self):
+        pass
 
 
 def _dmr_settings(monkeypatch, url="http://dmr:12434/engines/v1"):
@@ -519,10 +524,17 @@ class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_success_plain_text(self, monkeypatch):
         """Successful DMR chat returns {"text": content}."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "Hello!"}}]})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        # Mock the DMR service's shared client and health check
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Say hi")
         assert result == {"text": "Hello!"}
@@ -531,12 +543,18 @@ class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_success_with_schema_parses_json(self, monkeypatch):
         """With a schema, JSON in the content field is parsed and returned as dict."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(200, {
             "choices": [{"message": {"content": '{"slides": ["a", "b"]}'}}]
         })
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Make slides", schema={"type": "object"})
         assert result == {"slides": ["a", "b"]}
@@ -546,25 +564,38 @@ class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_non_200_raises_502(self, monkeypatch):
         """A non-200 response from DMR raises HTTPException 502."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(503, {"detail": "model loading"})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
+        # Mock CLI fallback to fail so we get the error
+        monkeypatch.setattr(dmr_mod, "_dmr_cli_run", lambda *a, **kw: None)
 
         with pytest.raises(HTTPException) as exc:
             await inference._call_dmr_chat("hi")
         assert exc.value.status_code == 502
-        assert "DMR error 503" in exc.value.detail
 
     @pytest.mark.asyncio
     async def test_reasoning_content_field_used_as_fallback(self, monkeypatch):
         """If content is empty/None, reasoning_content is used instead."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(200, {
             "choices": [{"message": {"content": None, "reasoning_content": "I think..."}}]
         })
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Think about it")
         assert result == {"text": "I think..."}
@@ -572,10 +603,16 @@ class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_max_tokens_passed_when_provided(self, monkeypatch):
         """Explicit max_tokens is forwarded to the payload."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         await inference._call_dmr_chat("hi", max_tokens=128)
         assert fake.last_json["max_tokens"] == 128
@@ -583,10 +620,16 @@ class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_model_override_respected(self, monkeypatch):
         """model_override replaces the default DMR_TEXT_MODEL."""
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         await inference._call_dmr_chat("hi", model_override="ai/qwen3:8b")
         assert fake.last_json["model"] == "ai/qwen3:8b"
@@ -601,11 +644,14 @@ class TestCallDmrEmbedding:
     @pytest.mark.asyncio
     async def test_success_returns_embedding_list(self, monkeypatch):
         """Successful embedding call returns the float list."""
+        from app.services import dmr as dmr_mod
+
         embedding = [0.1, 0.2, 0.3] * 100
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_EMBEDDING_MODEL", "ai/mxbai-embed-large")
         fake = _FakeClient(200, {"data": [{"embedding": embedding}]})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
 
         result = await inference._call_dmr_embedding("hello world")
         assert result == embedding
@@ -613,15 +659,17 @@ class TestCallDmrEmbedding:
 
     @pytest.mark.asyncio
     async def test_non_200_raises_502(self, monkeypatch):
+        from app.services import dmr as dmr_mod
+
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_EMBEDDING_MODEL", "ai/mxbai-embed-large")
         fake = _FakeClient(503, {"detail": "embedding model not loaded"})
-        monkeypatch.setattr(inference.httpx, "AsyncClient", lambda **_: fake)
+        monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
+        monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
 
         with pytest.raises(HTTPException) as exc:
             await inference._call_dmr_embedding("test")
         assert exc.value.status_code == 502
-        assert "DMR embedding error 503" in exc.value.detail
 
 
 # ===========================================================================

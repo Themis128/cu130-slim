@@ -1806,12 +1806,15 @@ async def _call_dmr_chat(
     """
     from app.services.dmr import call_dmr_chat
 
-    result = await call_dmr_chat(
-        prompt,
-        schema=schema,
-        model_override=model_override,
-        max_tokens=max_tokens,
-    )
+    try:
+        result = await call_dmr_chat(
+            prompt,
+            schema=schema,
+            model_override=model_override,
+            max_tokens=max_tokens,
+        )
+    except ConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     # Normalize: dmr.py returns {"json": dict} for schema, {"text": str} otherwise
     if schema and "json" in result:
         return result["json"]

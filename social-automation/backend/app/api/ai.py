@@ -3144,11 +3144,10 @@ async def dmr_warmup(
     current_user: User = Depends(get_current_user),
 ):
     """Trigger DMR model warm-up (pre-load models into VRAM)."""
+    import app.services.dmr as dmr_mod
     from app.services.dmr import warmup_models
 
     # Reset the warmup flag so it runs again
-    import app.services.dmr as dmr_mod
-
     dmr_mod._warmup_done = False
     await warmup_models()
     return {"status": "warmup complete", "warmup_done": dmr_mod._warmup_done}
