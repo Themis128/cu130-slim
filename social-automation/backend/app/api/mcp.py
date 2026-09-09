@@ -287,7 +287,7 @@ async def check_session(service_id: str, current_user: User = Depends(get_curren
             resp = await client.get(url)
             return {"status": "ok", "result": resp.json()}
     except Exception as e:
-        logger.warning("MCP session check failed for %s: %s", service_id, type(e).__name__)
+        logger.warning("MCP session check failed (%s)", type(e).__name__)
         return {"status": "error", "error": "Internal error"}
 
 

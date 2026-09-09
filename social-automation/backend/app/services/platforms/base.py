@@ -25,7 +25,7 @@ class PlatformDriver(Protocol):
     @property
     def platform(self) -> str:
         """Platform name (twitter, linkedin, instagram, …)."""
-        ...
+        pass
 
     async def publish(
         self,
@@ -34,15 +34,15 @@ class PlatformDriver(Protocol):
         db: Any,
     ) -> PublishResult:
         """Publish ``post`` to ``account``."""
-        ...
+        pass
 
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
         """Delete a previously published post. Returns True on success."""
-        ...
+        pass
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         """Return the current follower count for ``account``."""
-        ...
+        pass
 
 
 # ── concrete drivers ──────────────────────────────────────────────────────────

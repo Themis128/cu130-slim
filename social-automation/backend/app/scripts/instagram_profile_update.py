@@ -30,10 +30,16 @@ import argparse
 import json
 import sys
 import time
+from typing import NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BRIDGE_URL = "http://localhost:9223"
+
+
+def _die(message: str) -> NoReturn:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
 
 
 def _post_json(path: str, data: dict) -> dict:
@@ -49,11 +55,9 @@ def _post_json(path: str, data: dict) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
-        sys.exit(1)
+        _die(f"ERROR {exc.code}: {body}")
     except URLError as exc:
-        print(f"Connection error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        _die(f"Connection error: {exc}")
 
 
 def _patch_json(path: str, data: dict) -> dict:
@@ -69,11 +73,9 @@ def _patch_json(path: str, data: dict) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
-        sys.exit(1)
+        _die(f"ERROR {exc.code}: {body}")
     except URLError as exc:
-        print(f"Connection error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        _die(f"Connection error: {exc}")
 
 
 def _get_json(path: str) -> dict:
@@ -84,8 +86,9 @@ def _get_json(path: str) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
-        sys.exit(1)
+        _die(f"ERROR {exc.code}: {body}")
+    except URLError as exc:
+        _die(f"Connection error: {exc}")
 
 
 def check_session() -> dict:

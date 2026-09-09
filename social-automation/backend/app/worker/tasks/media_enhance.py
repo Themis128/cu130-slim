@@ -47,7 +47,7 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
 
                 image_bytes = await _load_asset_bytes(asset)
                 out_bytes = None
-                mime_type = "image/jpeg"
+                mime_type: str | None = None
 
                 if operation == "resize":
                     r = image_transform.resize_image(image_bytes, **params)
@@ -84,7 +84,7 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
                     logger.warning("Batch: unknown operation %s", operation)
                     continue
 
-                if out_bytes:
+                if out_bytes and mime_type:
                     # Store result as a new media asset
                     from app.services.media_storage import persist_generated_image
                     # Determine extension from mime type

@@ -1688,7 +1688,7 @@ async def call_inference(
         tracked_model = model_override or provider_name
 
     start = time.perf_counter()
-    used_provider = provider_name
+    used_provider: str | None = None
     fallback_used: str | None = None
     is_image_request = provider_name in {
         "nvidia-flux",
@@ -1733,6 +1733,9 @@ async def call_inference(
         else:
             if last_error:
                 raise last_error
+            raise HTTPException(status_code=502, detail="No inference provider is available")
+
+        if used_provider is None:
             raise HTTPException(status_code=502, detail="No inference provider is available")
 
         latency_ms = int((time.perf_counter() - start) * 1000)
