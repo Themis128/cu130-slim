@@ -85,6 +85,18 @@ Run from repo root `cu130-slim/`:
 
 # List brand assets
 .devin/skills/socialauto-brand/scripts/list-assets.sh
+
+# Update brand DNA (name, tagline, website, mission)
+.devin/skills/socialauto-brand/scripts/update-brand-dna.sh "Cloudless" "Clear skies. Zero friction." "https://cloudless.gr" "Mission text"
+
+# Update brand visual (colors, fonts, logo)
+.devin/skills/socialauto-brand/scripts/update-brand-visual.sh "#0b1220" "#00fff5" "Instrument Sans" "Work Sans"
+
+# Upload a logo and set it as brand logo
+.devin/skills/socialauto-brand/scripts/upload-logo.sh /path/to/logo.png
+
+# Compile/generate brand guidelines
+.devin/skills/socialauto-brand/scripts/compile-guidelines.sh
 ```
 
 ## Brand voice structure

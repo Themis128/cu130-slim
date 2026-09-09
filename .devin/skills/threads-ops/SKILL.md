@@ -9,12 +9,17 @@ Day-to-day operations for the Threads platform in the SocialAuto Cloudless stack
 - Diagnose `threads_basic` permission / tester errors.
 - Verify the Threads app and OAuth configuration.
 - Post a draft to Threads manually or via script.
+- Update Threads bio or display name via browser bridge.
+- Get Threads profile info (bio, username, avatar, token status).
 
 ## Quick commands
 
 ```bash
 # Check Threads app status and connected accounts
 bash .devin/skills/threads-ops/scripts/check-threads-app.sh
+
+# Get Threads profile info (bio, username, avatar, token)
+bash .devin/skills/threads-ops/scripts/get-threads-profile.sh
 
 # Switch to the cloudless.gr Threads/Instagram profile
 bash .devin/skills/threads-ops/scripts/switch-threads-account.sh cloudless.gr
@@ -24,6 +29,12 @@ bash .devin/skills/threads-ops/scripts/connect-threads.sh
 
 # Post a text thread to the first connected Threads account
 bash .devin/skills/threads-ops/scripts/post-threads.sh "Hello from the Cloudless social stack"
+
+# Update Threads bio via browser bridge
+bash .devin/skills/threads-ops/scripts/update-threads-bio.sh cloudless_gr "Clear skies. Zero friction."
+
+# Update Threads display name via browser bridge (max 2 changes per 14 days)
+bash .devin/skills/threads-ops/scripts/update-threads-name.sh cloudless_gr "Cloudless"
 ```
 
 ## Background
@@ -116,6 +127,9 @@ Before non-test users can connect Threads:
 
 - `scripts/check-threads-app.sh` — list connected accounts, app status and token health.
 - `scripts/connect-threads.sh` — start the SocialAuto OAuth flow and show the authorization URL.
+- `scripts/get-threads-profile.sh` — get Threads profile info via API (bio, username, avatar, token).
 - `scripts/switch-threads-account.sh` — switch the VNC browser to a different Instagram/Threads profile.
 - `scripts/post-threads.sh` — publish a simple text thread.
+- `scripts/update-threads-bio.sh` — update Threads bio via browser bridge.
+- `scripts/update-threads-name.sh` — update Threads display name via browser bridge (max 2 per 14 days).
 - `scripts/verify-threads-tester.sh` — verify the app configuration and OAuth URL.
