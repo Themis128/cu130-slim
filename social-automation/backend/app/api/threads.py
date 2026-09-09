@@ -12,7 +12,6 @@ Exposes Threads-specific endpoints:
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any
 
@@ -22,10 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User
+from app.models.user import User
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 
 router = APIRouter()
@@ -34,16 +34,9 @@ router = APIRouter()
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-async def _get_team(db: AsyncSession, user: User) -> Team | None:
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == user.id)
-    )
-    return result.scalars().first()
-
-
 async def _get_threads_account(
     db: AsyncSession,
-    team: Team,
+    team_id: uuid.UUID,
     account_id: uuid.UUID,
 ) -> SocialAccount:
     """Resolve a Threads social account for the team."""
@@ -51,7 +44,7 @@ async def _get_threads_account(
         await db.execute(
             select(SocialAccount).where(
                 SocialAccount.id == account_id,
-                SocialAccount.team_id == team.id,
+                SocialAccount.team_id == team_id,
                 SocialAccount.platform == "threads",
             )
         )
@@ -63,11 +56,11 @@ async def _get_threads_account(
 
 async def _get_threads_client(
     db: AsyncSession,
-    team: Team,
+    team_id: uuid.UUID,
     account_id: uuid.UUID,
 ) -> tuple[SocialAccount, ThreadsAPIClient]:
     """Resolve a Threads account and return (account, authenticated client)."""
-    acct = await _get_threads_account(db, team, account_id)
+    acct = await _get_threads_account(db, team_id, account_id)
     if not acct.access_token_enc:
         raise HTTPException(status_code=400, detail="Threads account has no access token")
     token = decrypt_token(acct.access_token_enc)
@@ -79,9 +72,10 @@ async def _get_threads_client(
 
 def _get_browser_bridge_client():
     """Lazy import and construct the browser bridge client."""
-    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
-
     import os
+
+    from app.services.browser_bridge import BrowserBridgeClient
+
     bridge_url = os.getenv("BROWSER_BRIDGE_URL", "http://localhost:9223")
     return BrowserBridgeClient(bridge_url)
 
@@ -160,15 +154,12 @@ class ThreadsPostListResponse(BaseModel):
 
 @router.get("/profile", response_model=ThreadsProfileResponse)
 async def get_threads_profile(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Read the Threads profile via the Graph API."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
     try:
         data = await client.get_profile()
     except ThreadsAPIError as exc:
@@ -186,8 +177,8 @@ async def get_threads_profile(
 @router.put("/profile", response_model=ThreadsProfileUpdateResponse)
 async def update_threads_profile(
     request: ThreadsProfileUpdateRequest,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update the Threads profile (bio/name) via the browser bridge.
@@ -195,10 +186,7 @@ async def update_threads_profile(
     Threads has no official write API for profile fields, so this endpoint
     automates the web UI through the logged-in browser session.
     """
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    acct = await _get_threads_account(db, team, account_id)
+    acct = await _get_threads_account(db, team_id, account_id)
     if not acct.username:
         raise HTTPException(status_code=400, detail="Threads account has no username")
 
@@ -230,16 +218,13 @@ async def update_threads_profile(
 
 @router.get("/insights", response_model=ThreadsInsightsResponse)
 async def get_threads_insights(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     metric: str = Query("views", description="Insight metric: views, likes, replies, reposts, quotes, followers_count"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch account-level insights for a Threads account."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
     try:
         data = await client.get_insights(metric=metric)
     except ThreadsAPIError as exc:
@@ -253,16 +238,13 @@ async def get_threads_insights(
 @router.get("/posts/{media_id}/insights", response_model=ThreadsPostInsightsResponse)
 async def get_threads_post_insights(
     media_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     metric: str = Query("views", description="Insight metric: views, likes, replies, reposts, quotes"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch insights for a specific Threads post."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
     import httpx
     url = f"https://graph.threads.net/v1.0/{media_id}/insights"
     async with httpx.AsyncClient(timeout=30.0) as http:
@@ -285,15 +267,12 @@ async def get_threads_post_insights(
 
 @router.get("/quota", response_model=ThreadsQuotaResponse)
 async def get_threads_quota(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Check the Threads publishing quota (250 posts per 24 hours)."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
     url = f"https://graph.threads.net/v1.0/{client.user_id}/threads_publishing_limit"
@@ -321,17 +300,14 @@ async def get_threads_quota(
 
 @router.get("/posts", response_model=ThreadsPostListResponse)
 async def list_threads_posts(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     limit: int = Query(25, ge=1, le=100),
     after: str | None = Query(None, description="Cursor for pagination"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List published Threads posts for the authenticated user."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
     url = f"https://graph.threads.net/v1.0/{client.user_id}/threads"
@@ -373,9 +349,9 @@ async def list_threads_posts(
 @router.post("/posts/{media_id}/reply", response_model=ThreadsReplyResponse)
 async def reply_to_thread(
     media_id: str,
+    team_id: TeamId,
     request: ThreadsReplyRequest,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Reply to an existing Threads post.
@@ -383,10 +359,7 @@ async def reply_to_thread(
     Creates a text container as a reply and publishes it.
     Requires the ``threads_manage_replies`` permission.
     """
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
 
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Reply text is required")
@@ -433,15 +406,12 @@ async def reply_to_thread(
 @router.delete("/posts/{media_id}", response_model=ThreadsDeleteResponse)
 async def delete_threads_post(
     media_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a published Threads post."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
     try:
         success = await client.delete_post(media_id)
     except ThreadsAPIError as exc:
@@ -453,15 +423,12 @@ async def delete_threads_post(
 
 @router.get("/followers", response_model=ThreadsInsightsResponse)
 async def get_threads_followers(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch the Threads follower count via the insights endpoint."""
-    team = await _get_team(db, current_user)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    _, client = await _get_threads_client(db, team, account_id)
+    _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
     url = f"https://graph.threads.net/v1.0/{client.user_id}/insights"

@@ -83,10 +83,13 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
   const needsLogin = platform === 'instagram' || (platform === 'facebook' && !isBusiness) || platform === 'linkedin'
   // Threads: bio and name are editable via browser bridge (no API write support)
   // TikTok: no profile update API at all — truly read-only
-  const isReadOnly = platform === 'tiktok'
+  const READ_ONLY_PLATFORMS = new Set(['tiktok'])
+  const isReadOnlyPlatform = READ_ONLY_PLATFORMS.has(platform)
   // Threads profile picture is synced from Instagram — cannot upload directly
-  const canUploadPicture = platform !== 'tiktok' && platform !== 'threads'
-  const canUploadCover = platform !== 'tiktok' && platform !== 'instagram' && platform !== 'threads'
+  const NO_PICTURE_UPLOAD = new Set(['tiktok', 'threads'])
+  const NO_COVER_UPLOAD = new Set(['tiktok', 'instagram', 'threads'])
+  const canUploadPicture = !NO_PICTURE_UPLOAD.has(platform)
+  const canUploadCover = !NO_COVER_UPLOAD.has(platform)
 
   const handleSave = async () => {
     const data: Record<string, string> = {}
@@ -258,7 +261,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
           </div>
         )}
 
-        {isReadOnly ? (
+        {isReadOnlyPlatform ? (
           <div className="text-sm text-muted-foreground">
             TikTok does not support profile updates through the API.
           </div>
@@ -342,11 +345,11 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
 
               {(platform === 'facebook' || platform === 'instagram' || platform === 'tiktok' || platform === 'threads') && (
                 <div className="space-y-1">
-                  <Label className="text-sm">{platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? 'Biography' : 'About'}</Label>
+                  <Label className="text-sm">{platform === 'facebook' ? 'About' : 'Biography'}</Label>
                   <Textarea
-                    value={platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? biography : about}
-                    onChange={(e) => platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? setBiography(e.target.value) : setAbout(e.target.value)}
-                    placeholder={platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? 'Bio text' : 'About text'}
+                    value={platform === 'facebook' ? about : biography}
+                    onChange={(e) => platform === 'facebook' ? setAbout(e.target.value) : setBiography(e.target.value)}
+                    placeholder={platform === 'facebook' ? 'About text' : 'Bio text'}
                     rows={3}
                   />
                   {platform === 'threads' && (
