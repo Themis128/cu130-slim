@@ -1730,15 +1730,31 @@ async function clickPost() {
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/health',
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+});
+app.use(apiLimiter);
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'facebook-browser-sidecar', has_session: !!storageState, active_page_id: activePageId });
 });
 
 // Session
-app.post('/session', handleSetSession);
+app.post('/session', authLimiter, handleSetSession);
 app.get('/session', handleCheckSession);
-app.post('/login', handleLogin);
+app.post('/login', authLimiter, handleLogin);
 
 // Deep session validation — navigates to the feed and checks for the
 // profile picker page.  More expensive than GET /session but gives a
