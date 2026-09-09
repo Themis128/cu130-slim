@@ -20,12 +20,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
 from app.api.deps import TeamId
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
-from app.models.user import User
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 
 router = APIRouter()
@@ -223,12 +221,16 @@ async def get_threads_insights(
     metric: str = Query("views", description="Insight metric: views, likes, replies, reposts, quotes, followers_count"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch account-level insights for a Threads account."""
+    """Fetch account-level insights for a Threads account.
+
+    The Threads insights API requires app review for production use.
+    In development mode, this may return empty values.
+    """
     _, client = await _get_threads_client(db, team_id, account_id)
     try:
         data = await client.get_insights(metric=metric)
-    except ThreadsAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.response_text)
+    except ThreadsAPIError:
+        return ThreadsInsightsResponse(metric=metric, values=[])
     return ThreadsInsightsResponse(
         metric=metric,
         values=data.get("data", []),
@@ -276,25 +278,29 @@ async def get_threads_quota(
 
     import httpx
     url = f"https://graph.threads.net/v1.0/{client.user_id}/threads_publishing_limit"
-    async with httpx.AsyncClient(timeout=30.0) as http:
-        resp = await http.get(
-            url,
-            headers={"Authorization": f"Bearer {client.access_token}"},
-            params={"fields": "quota_usage"},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            resp = await http.get(
+                url,
+                headers={"Authorization": f"Bearer {client.access_token}"},
+                params={"fields": "quota_usage"},
+            )
         if resp.status_code >= 400:
-            # If the quota endpoint fails, return defaults
             return ThreadsQuotaResponse(remaining=250, total=250, used=0)
         data = resp.json()
+    except Exception:
+        return ThreadsQuotaResponse(remaining=250, total=250, used=0)
 
     quota_data = (data.get("data") or [{}])[0]
     used = 0
-    for item in (quota_data.get("quota_usage") or []):
-        if item.get("metric") == "publish_count":
-            used = int(item.get("value", 0))
-            break
+    quota_usage = quota_data.get("quota_usage") or []
+    if isinstance(quota_usage, list):
+        for item in quota_usage:
+            if isinstance(item, dict) and item.get("metric") == "publish_count":
+                used = int(item.get("value", 0))
+                break
     config = quota_data.get("config") or {}
-    total = int(config.get("quota_total", 250))
+    total = int(config.get("quota_total", 250)) if isinstance(config, dict) else 250
     return ThreadsQuotaResponse(remaining=max(0, total - used), total=total, used=used)
 
 
@@ -427,23 +433,28 @@ async def get_threads_followers(
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch the Threads follower count via the insights endpoint."""
+    """Fetch the Threads follower count via the insights endpoint.
+
+    The Threads insights API requires app review for production use.
+    In development mode, this may return an error — we return empty
+    values instead of failing.
+    """
     _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
     url = f"https://graph.threads.net/v1.0/{client.user_id}/insights"
-    async with httpx.AsyncClient(timeout=15.0) as http:
-        resp = await http.get(
-            url,
-            headers={"Authorization": f"Bearer {client.access_token}"},
-            params={"metric": "followers_count"},
-        )
-        if resp.status_code >= 400:
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail=f"Threads followers error: {resp.text[:300]}",
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            resp = await http.get(
+                url,
+                headers={"Authorization": f"Bearer {client.access_token}"},
+                params={"metric": "followers_count"},
             )
+        if resp.status_code >= 400:
+            return ThreadsInsightsResponse(metric="followers_count", values=[])
         data = resp.json()
+    except Exception:
+        return ThreadsInsightsResponse(metric="followers_count", values=[])
     return ThreadsInsightsResponse(
         metric="followers_count",
         values=data.get("data", []),
