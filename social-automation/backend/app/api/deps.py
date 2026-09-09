@@ -50,9 +50,29 @@ async def get_current_team_id(
         if result.scalar_one_or_none() is not None:
             return candidate
 
-    # 2. Fallback: first team membership.
+    # 2. Fallback: prefer the team the user owns, then any membership.
+    #    This prevents a user who belongs to multiple teams (e.g. admin
+    #    invited to a free-tier team) from being defaulted to the wrong
+    #    (non-owned, lower-tier) team on login without an explicit switch.
+    from sqlalchemy import case
+
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
     result = await db.execute(
-        select(Team.id).join(TeamMember).where(TeamMember.user_id == current_user.id)
+        select(Team.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == current_user.id)
+        .order_by(
+            # Prefer teams where the user is the owner (role == 'OWNER')
+            (TeamMember.role == UserRole.OWNER).desc(),
+            # Then prefer higher plan tiers (enterprise > business > pro > free)
+            _tier_rank.desc(),
+        )
     )
     team_id = result.scalars().first()
     if team_id is None:

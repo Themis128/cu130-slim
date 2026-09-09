@@ -415,7 +415,32 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    access_token = create_access_token({"sub": str(user.id), "email": user.email})
+    # Auto-resolve the user's team so the JWT is team-scoped on login.
+    # Prefer teams the user owns, then higher plan tiers (enterprise > free).
+    from sqlalchemy import case
+
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    team_result = await db.execute(
+        select(Team.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
+    )
+    team_id = team_result.scalars().first()
+    token_data: dict[str, str] = {"sub": str(user.id), "email": user.email}
+    if team_id:
+        token_data["team_id"] = str(team_id)
+
+    access_token = create_access_token(token_data)
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
@@ -434,7 +459,31 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    access_token = create_access_token({"sub": str(user.id), "email": user.email})
+    # Auto-resolve team (same priority as login).
+    from sqlalchemy import case
+
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    team_result = await db.execute(
+        select(Team.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
+    )
+    team_id = team_result.scalars().first()
+    token_data: dict[str, str] = {"sub": str(user.id), "email": user.email}
+    if team_id:
+        token_data["team_id"] = str(team_id)
+
+    access_token = create_access_token(token_data)
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
