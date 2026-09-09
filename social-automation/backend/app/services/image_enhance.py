@@ -253,36 +253,14 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
 # ── Smart Crop (AI subject detection + Pillow crop) ───────────────────────────
 
 async def _dmr_vision_query(data_uri: str, prompt: str, max_tokens: int = 60) -> str | None:
-    """Call DMR qwen3-vl (local) for a vision query. Returns text or None."""
-    payload = {
-        "model": settings.DMR_VISION_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": data_uri}},
-                ],
-            },
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.3,
-    }
-    # DMR may need 300s for cold-start (model load from disk to VRAM).
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            resp = await client.post(
-                f"{settings.DMR_URL}/chat/completions",
-                headers={"Content-Type": "application/json"},
-                json=payload,
-            )
-            if resp.status_code == 200:
-                msg = resp.json()["choices"][0]["message"]
-                return msg.get("content") or msg.get("reasoning_content") or ""
-            logger.warning("DMR vision returned %s", resp.status_code)
-        except Exception as exc:
-            logger.warning("DMR vision failed: %s", exc)
-    return None
+    """Call DMR qwen3-vl (local) for a vision query. Returns text or None.
+
+    Delegates to the shared DMR vision helper (app.services.dmr.call_dmr_vision)
+    which provides connection pooling, VRAM-aware routing, and CLI fallback.
+    """
+    from app.services.dmr import call_dmr_vision
+
+    return await call_dmr_vision(data_uri, prompt, max_tokens=max_tokens)
 
 
 def _prepare_image_for_vision(image_bytes: bytes) -> str:

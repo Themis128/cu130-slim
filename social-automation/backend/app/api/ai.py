@@ -2969,3 +2969,232 @@ async def seed_default_workflows(
     return {"seeded": seeded}
 
 
+# ===========================================================================
+# DMR (Docker Model Runner) management endpoints
+# Exposes the new DMR service features: status, streaming, vision,
+# benchmark, request logs, warmup, keep-alive, speculative decoding.
+# ===========================================================================
+
+
+class DmrStatusResponse(BaseModel):
+    """DMR health and status response."""
+    online: bool
+    url: str
+    text_model: str
+    vision_model: str
+    embedding_model: str
+    tiny_model: str
+    vram: dict | None = None
+    warmup_done: bool = False
+
+
+@router.get("/dmr/status", response_model=DmrStatusResponse)
+@limiter.limit("30/minute")
+async def dmr_status(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Check DMR health, configured models, and GPU VRAM status."""
+    from app.services import dmr
+
+    online = await dmr._check_dmr_health()
+    vram = dmr._get_vram_info()
+    return DmrStatusResponse(
+        online=online,
+        url=settings.DMR_URL,
+        text_model=settings.DMR_TEXT_MODEL,
+        vision_model=settings.DMR_VISION_MODEL,
+        embedding_model=settings.DMR_EMBEDDING_MODEL,
+        tiny_model=settings.DMR_TINY_MODEL,
+        vram=vram,
+        warmup_done=dmr._warmup_done,
+    )
+
+
+class DmrChatRequest(BaseModel):
+    """DMR chat request with streaming and tool calling support."""
+    prompt: str
+    model: str | None = None
+    system: str | None = None
+    max_tokens: int | None = 512
+    temperature: float = 0.7
+    stream: bool = False
+    tools: list[dict] | None = None
+    schema: dict | None = None
+
+
+@router.post("/dmr/chat")
+@limiter.limit("20/minute")
+async def dmr_chat(
+    request: Request,
+    payload: DmrChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Direct DMR chat with streaming, tool calling, and JSON mode support.
+
+    When `stream=True`, returns a streaming response (SSE format).
+    Otherwise returns the complete response as JSON.
+    """
+    from app.services.dmr import call_dmr_chat
+
+    result = await call_dmr_chat(
+        payload.prompt,
+        schema=payload.schema,
+        model_override=payload.model,
+        max_tokens=payload.max_tokens,
+        system=payload.system,
+        tools=payload.tools,
+        stream=payload.stream,
+        temperature=payload.temperature,
+    )
+
+    if payload.stream and "stream" in result:
+        from fastapi.responses import StreamingResponse
+
+        async def generate():
+            async for chunk in result["stream"]:
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    return result
+
+
+class DmrVisionRequest(BaseModel):
+    """DMR vision (multimodal) request."""
+    image_base64: str
+    prompt: str
+    max_tokens: int = 60
+    model: str | None = None
+
+
+class DmrVisionResponse(BaseModel):
+    """DMR vision response."""
+    text: str | None = None
+    error: str | None = None
+
+
+@router.post("/dmr/vision", response_model=DmrVisionResponse)
+@limiter.limit("10/minute")
+async def dmr_vision(
+    request: Request,
+    payload: DmrVisionRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Send an image + text prompt to DMR's vision model (qwen3-vl)."""
+    from app.services.dmr import call_dmr_vision
+
+    # Ensure it's a data URI
+    image_uri = payload.image_base64
+    if not image_uri.startswith("data:"):
+        image_uri = f"data:image/jpeg;base64,{image_uri}"
+
+    text = await call_dmr_vision(
+        image_uri,
+        payload.prompt,
+        max_tokens=payload.max_tokens,
+        model_override=payload.model,
+    )
+    if text is None:
+        return DmrVisionResponse(error="DMR vision failed — model may be offline or insufficient VRAM")
+    return DmrVisionResponse(text=text)
+
+
+class DmrBenchmarkRequest(BaseModel):
+    """DMR benchmark request."""
+    model: str
+    force: bool = False
+
+
+@router.post("/dmr/benchmark")
+@limiter.limit("5/minute")
+async def dmr_benchmark(
+    request: Request,
+    payload: DmrBenchmarkRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Benchmark a DMR model's performance (tokens per second).  Cached for 1 hour."""
+    from app.services.dmr import get_model_benchmark
+
+    result = await get_model_benchmark(payload.model, force=payload.force)
+    if result is None:
+        raise HTTPException(status_code=502, detail="Benchmark failed — DMR may be offline")
+    return result
+
+
+@router.get("/dmr/requests")
+@limiter.limit("10/minute")
+async def dmr_requests(
+    request: Request,
+    model: str | None = None,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch recent DMR request/response pairs for debugging."""
+    from app.services.dmr import get_dmr_requests
+
+    return await get_dmr_requests(model=model, limit=limit)
+
+
+@router.post("/dmr/warmup")
+@limiter.limit("2/minute")
+async def dmr_warmup(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger DMR model warm-up (pre-load models into VRAM)."""
+    from app.services.dmr import warmup_models
+
+    # Reset the warmup flag so it runs again
+    import app.services.dmr as dmr_mod
+
+    dmr_mod._warmup_done = False
+    await warmup_models()
+    return {"status": "warmup complete", "warmup_done": dmr_mod._warmup_done}
+
+
+class DmrKeepAliveRequest(BaseModel):
+    """DMR keep-alive configuration request."""
+    model: str
+    keep_alive: str = "5m"
+
+
+@router.post("/dmr/keep-alive")
+@limiter.limit("10/minute")
+async def dmr_keep_alive(
+    request: Request,
+    payload: DmrKeepAliveRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Configure keep-alive for a DMR model so it stays loaded in VRAM."""
+    from app.services.dmr import configure_keep_alive
+
+    await configure_keep_alive(payload.model, keep_alive=payload.keep_alive)
+    return {"status": "configured", "model": payload.model, "keep_alive": payload.keep_alive}
+
+
+class DmrSpeculativeDecodingRequest(BaseModel):
+    """DMR speculative decoding configuration request."""
+    model: str
+    draft_model: str = "ai/smollm2"
+
+
+@router.post("/dmr/speculative-decoding")
+@limiter.limit("2/minute")
+async def dmr_speculative_decoding(
+    request: Request,
+    payload: DmrSpeculativeDecodingRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Configure speculative decoding: use a small draft model to speed up a larger one."""
+    from app.services.dmr import configure_speculative_decoding
+
+    await configure_speculative_decoding(payload.model, draft_model=payload.draft_model)
+    return {
+        "status": "configured",
+        "model": payload.model,
+        "draft_model": payload.draft_model,
+    }
+
+

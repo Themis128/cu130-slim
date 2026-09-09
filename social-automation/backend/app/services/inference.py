@@ -1792,66 +1792,46 @@ async def _call_dmr_chat(
 ) -> dict:
     """Call Docker Model Runner (llama.cpp, OpenAI-compatible API on the host).
 
+    Delegates to the unified DMR service (app.services.dmr) which provides:
+    - CLI fallback when HTTP API is unreachable (WSL2/Docker Desktop)
+    - Connection pooling (shared httpx.AsyncClient)
+    - Retry on cold-start timeout
+    - Per-request model routing (short→smollm2, complex→qwen3)
+    - VRAM-aware routing
+    - Keep-alive configuration
+    - Streaming and tool calling support
+
     DMR loads models on demand and unloads them when idle, so the first request
     may take several seconds while the model spins up.  No API key is required.
     """
-    model = model_override or settings.DMR_TEXT_MODEL
-    system = "You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation."
-    user_msg = prompt
-    if schema:
-        user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
-        # Qwen3 reasoning models support /no_think to skip the chain-of-thought
-        # phase and produce structured output directly — 10x faster on CPU.
-        user_msg += " /no_think"
+    from app.services.dmr import call_dmr_chat
 
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]
-    payload: dict = {"model": model, "messages": messages, "temperature": 0.7}
-    # Always set a max_tokens limit — without it, DMR on CPU can generate
-    # endlessly for large prompts, causing multi-minute hangs.
-    if max_tokens:
-        payload["max_tokens"] = max_tokens
-    else:
-        payload["max_tokens"] = 4096
-    if schema:
-        payload["response_format"] = {"type": "json_object"}
-
-    # DMR may need extra time for cold-start (model load from disk to VRAM)
-    # and for structured JSON generation with the 7.6B model on CPU.
-    # Use 180s for schema/JSON requests (large output), 30s for plain text.
-    dmr_timeout = 180.0 if schema else 30.0
-    try:
-        async with httpx.AsyncClient(timeout=dmr_timeout) as client:
-            resp = await client.post(
-                f"{settings.DMR_URL}/chat/completions",
-                headers={"Content-Type": "application/json"},
-                json=payload,
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"DMR error {resp.status_code}: {resp.text[:400]}")
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail=f"DMR timeout: {exc}") from exc
-    except httpx.ConnectError as exc:
-        raise HTTPException(status_code=502, detail=f"DMR connection error: {exc}") from exc
-
-    msg = resp.json()["choices"][0]["message"]
-    content = msg.get("content") or msg.get("reasoning_content") or ""
-    if schema:
-        return _parse_json_response(content)
-    return {"text": content}
+    result = await call_dmr_chat(
+        prompt,
+        schema=schema,
+        model_override=model_override,
+        max_tokens=max_tokens,
+    )
+    # Normalize: dmr.py returns {"json": dict} for schema, {"text": str} otherwise
+    if schema and "json" in result:
+        return result["json"]
+    if schema and "text" in result and "_parse_error" in result:
+        # JSON parse failed — return as-is for caller to handle
+        return result
+    return result
 
 
 async def _call_dmr_embedding(text: str, model_override: str | None = None) -> list[float]:
-    """Generate embeddings via Docker Model Runner (OpenAI-compatible /embeddings)."""
-    model = model_override or settings.DMR_EMBEDDING_MODEL
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{settings.DMR_URL}/embeddings",
-            headers={"Content-Type": "application/json"},
-            json={"model": model, "input": text},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"DMR embedding error {resp.status_code}: {resp.text[:400]}")
-    return resp.json()["data"][0]["embedding"]
+    """Generate embeddings via Docker Model Runner (OpenAI-compatible /embeddings).
+
+    Delegates to the unified DMR service with connection pooling and health checks.
+    """
+    from app.services.dmr import call_dmr_embedding
+
+    try:
+        return await call_dmr_embedding(text, model_override=model_override)
+    except ConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 async def _call_openai_compat(

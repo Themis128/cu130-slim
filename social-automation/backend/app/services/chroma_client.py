@@ -53,19 +53,17 @@ async def _cf_embedding(text: str) -> list[float]:
 
 
 async def _dmr_embedding(text: str) -> list[float]:
-    """Call Docker Model Runner (Qwen3-Embedding-8B, local) for embeddings. Returns [] on failure."""
-    async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
-        try:
-            resp = await client.post(
-                f"{settings.DMR_URL}/embeddings",
-                headers={"Content-Type": "application/json"},
-                json={"model": settings.DMR_EMBEDDING_MODEL, "input": text},
-            )
-            if resp.status_code == 200:
-                return resp.json()["data"][0]["embedding"]
-        except Exception:
-            pass
-    return []
+    """Call Docker Model Runner (Qwen3-Embedding-8B, local) for embeddings. Returns [] on failure.
+
+    Delegates to the shared DMR service (app.services.dmr.call_dmr_embedding)
+    which provides connection pooling, health checks, and CLI fallback.
+    """
+    from app.services.dmr import call_dmr_embedding
+
+    try:
+        return await call_dmr_embedding(text)
+    except Exception:
+        return []
 
 
 async def _get_embedding(text: str) -> list[float]:

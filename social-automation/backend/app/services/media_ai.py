@@ -205,39 +205,13 @@ def _extract_query_text(result: dict) -> str | None:
 async def _call_dmr_vision(image_b64: str, prompt: str, max_tokens: int = 512) -> str | None:
     """Call Docker Model Runner (qwen3-vl, local) for vision tasks.
 
-    Uses the OpenAI-compatible chat completions API with image_url content.
+    Delegates to the shared DMR vision helper (app.services.dmr.call_dmr_vision)
+    which provides connection pooling, VRAM-aware routing, and CLI fallback.
     Returns the text response, or None on failure.
     """
-    data_uri = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
-    payload = {
-        "model": settings.DMR_VISION_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": data_uri}},
-                ],
-            },
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.3,
-    }
-    # DMR may need 300s for cold-start (model load from disk to VRAM).
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            resp = await client.post(
-                f"{settings.DMR_URL}/chat/completions",
-                headers={"Content-Type": "application/json"},
-                json=payload,
-            )
-            if resp.status_code == 200:
-                msg = resp.json()["choices"][0]["message"]
-                return msg.get("content") or msg.get("reasoning_content") or ""
-            logger.warning("DMR vision returned %s", resp.status_code)
-        except Exception as exc:
-            logger.warning("DMR vision failed: %s", exc)
-    return None
+    from app.services.dmr import call_dmr_vision
+
+    return await call_dmr_vision(image_b64, prompt, max_tokens=max_tokens)
 
 
 async def _caption_image(image_b64: str) -> str | None:

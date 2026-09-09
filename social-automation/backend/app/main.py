@@ -25,7 +25,17 @@ async def lifespan(app: FastAPI):
     celery_app.set_default()
     celery_app.set_current()
     await init_db()
+    # DMR model warm-up (improvement #5): pre-load frequently-used models
+    # into VRAM on startup so the first real request is fast.  Runs in
+    # background — does not block startup.  Also configures keep-alive.
+    from app.services.dmr import on_startup as dmr_startup
+
+    await dmr_startup()
     yield
+    # Clean up DMR connection pool on shutdown
+    from app.services.dmr import on_shutdown as dmr_shutdown
+
+    await dmr_shutdown()
 
 
 app = FastAPI(
