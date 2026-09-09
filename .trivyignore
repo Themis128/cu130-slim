@@ -13,3 +13,11 @@ CVE-2025-3730
 CVE-2025-2953
 CVE-2025-3000
 CVE-2025-3001
+
+# PyTorch 2.6.0 in diffusers-server (local-diffusers / SD 1.5).
+# Trivy lists no Fixed Version for these VulDB entries. The sidecar only loads
+# a fixed trusted MODEL_ID and does not use RNN pack/unpack, profiler JIT
+# callbacks, or quantized nnq sigmoid paths. Local Docker network only.
+CVE-2025-2998
+CVE-2025-2148
+CVE-2025-2149

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 import secrets
 import uuid
 
@@ -34,6 +35,7 @@ from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
@@ -456,10 +458,16 @@ async def test_account(
             "valid": account.status == "active",
             "status": account.status,
             "tested": True,
-            "message": f"Platform returned HTTP {exc.status_code}: {exc.response_text[:200]}",
+            "message": f"Platform returned HTTP {exc.status_code}",
         }
     except Exception as exc:
-        return {"valid": account.status == "active", "status": account.status, "tested": False, "message": f"Network error: {exc}"}
+        logger.warning("Account validation network error: %s", type(exc).__name__)
+        return {
+            "valid": account.status == "active",
+            "status": account.status,
+            "tested": False,
+            "message": "Network error",
+        }
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

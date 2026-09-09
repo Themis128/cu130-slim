@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.api.auth import get_current_user
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Service URLs from environment
@@ -265,7 +267,7 @@ async def get_screenshot(service_id: str, current_user: User = Depends(get_curre
                 return Response(content=resp.content, media_type="image/png")
             raise HTTPException(status_code=resp.status_code, detail="Sidecar returned error")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal error") from e
 
 
 @router.post("/stack/{service_id}/session")
@@ -285,7 +287,8 @@ async def check_session(service_id: str, current_user: User = Depends(get_curren
             resp = await client.get(url)
             return {"status": "ok", "result": resp.json()}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        logger.warning("MCP session check failed for %s: %s", service_id, type(e).__name__)
+        return {"status": "error", "error": "Internal error"}
 
 
 @router.post("/linkedin/profile")
@@ -348,7 +351,8 @@ async def linkedin_mcp_get_profile(current_user: User = Depends(get_current_user
                     break
             return {"status": "ok", "profile": text}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        logger.warning("LinkedIn MCP get-profile failed: %s", type(e).__name__)
+        return {"status": "error", "error": "Internal error"}
 
 
 @router.post("/linkedin/search-people")
@@ -411,4 +415,5 @@ async def linkedin_mcp_search_people(
                     break
             return {"status": "ok", "results": text}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        logger.warning("LinkedIn MCP search-people failed: %s", type(e).__name__)
+        return {"status": "error", "error": "Internal error"}

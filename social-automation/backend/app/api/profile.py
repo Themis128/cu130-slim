@@ -2059,10 +2059,11 @@ async def get_instagram_web_session_status(
                 follow_redirects=False,
             )
     except httpx.HTTPError as exc:
+        logger.warning("Instagram session check failed: %s", type(exc).__name__)
         return {
             "configured": True,
             "valid": False,
-            "message": f"Session check failed: {exc}",
+            "message": "Session check failed",
         }
 
     # Instagram returns 302 redirect to login when sessionid is invalid,

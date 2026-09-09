@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.log_sanitize import sanitize_log_text
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -1467,7 +1468,10 @@ async def oauth_callback(
             if prefs.get("email_account_connected", True):
                 asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
     except Exception:
-        logger.warning("Failed to queue account-connected email for %s", platform)
+        logger.warning(
+            "Failed to queue account-connected email for %s",
+            sanitize_log_text(str(platform)),
+        )
 
     return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
 

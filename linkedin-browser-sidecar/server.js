@@ -154,12 +154,37 @@ async function navigate(url, timeout = 60000) {
   await dismissDialogs();
 }
 
-/** Save a Buffer to a temp file and return the path. */
+const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
+
+/** Save a Buffer to a private temp file (mkdtemp + mode 0o600). */
 function bufferToTempFile(buffer, filename) {
-  const ext = path.extname(filename) || '.jpg';
-  const tmp = path.join(os.tmpdir(), `li-sidecar-${Date.now()}${ext}`);
-  fs.writeFileSync(tmp, buffer);
+  if (!Buffer.isBuffer(buffer)) {
+    throw new Error('Expected a Buffer');
+  }
+  if (buffer.length > MAX_TEMP_FILE_BYTES) {
+    throw new Error('Upload exceeds maximum allowed size');
+  }
+  let ext = path.extname(filename || '') || '.jpg';
+  if (!/^\.[A-Za-z0-9]{1,8}$/.test(ext)) {
+    ext = '.bin';
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'li-sidecar-'));
+  fs.chmodSync(dir, 0o700);
+  const tmp = path.join(dir, `upload${ext}`);
+  fs.writeFileSync(tmp, buffer, { mode: 0o600 });
   return tmp;
+}
+
+/** Remove a temp file created by bufferToTempFile and its private directory. */
+function cleanupTempFile(tmpPath) {
+  if (!tmpPath) return;
+  try { cleanupTempFile(tmpPath); } catch (_) {}
+  try {
+    const dir = path.dirname(tmpPath);
+    if (path.basename(dir).startsWith('li-sidecar-')) {
+      fs.rmdirSync(dir);
+    }
+  } catch (_) {}
 }
 
 /** Click the first visible element matching a selector. */
@@ -1003,7 +1028,7 @@ async function handleUploadCover(req, res) {
       await clickSave();
       res.json({ status: 'ok', updated: ['cover'] });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1070,7 +1095,7 @@ async function handleUploadPicture(req, res) {
 
       res.json({ status: 'ok', updated: ['profile_picture'] });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1669,7 +1694,7 @@ async function handleUploadCompanyLogo(req, res) {
       }
       res.json({ status: 'ok', updated: ['logo'], vanity });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1718,7 +1743,7 @@ async function handleUploadCompanyCover(req, res) {
       await clickSave();
       res.json({ status: 'ok', updated: ['cover'], vanity });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1864,7 +1889,7 @@ async function handlePostImage(req, res) {
       res.json({ status: 'ok', posted: true, url: postUrl });
     } finally {
       for (const p of tmpPaths) {
-        try { fs.unlinkSync(p); } catch (_) {}
+        cleanupTempFile(p);
       }
     }
   } catch (err) {
@@ -2045,7 +2070,7 @@ async function handleCompanyPostImage(req, res) {
       res.json({ status: 'ok', posted: true, vanity, url: postUrl });
     } finally {
       for (const p of tmpPaths) {
-        try { fs.unlinkSync(p); } catch (_) {}
+        cleanupTempFile(p);
       }
     }
   } catch (err) {

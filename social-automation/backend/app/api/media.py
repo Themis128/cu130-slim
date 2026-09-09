@@ -16,6 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
 from app.core.config import settings
+from app.core.log_sanitize import sanitize_log_text
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
@@ -614,7 +615,7 @@ async def generate_image(
             cfg_scale=cfg_scale,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"[media/generate] Local Diffusers failed: {exc}")
+        logger.warning("[media/generate] Local Diffusers failed: %s", type(exc).__name__)
 
     # 2. Cloudflare Workers AI — ONLY cloud fallback
     if generated is None:
@@ -622,7 +623,10 @@ async def generate_image(
         if cf_model and not cf_model.startswith("@cf/"):
             cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
         try:
-            logger.info(f"[media/generate] Trying Cloudflare Workers AI ({cf_model})")
+            logger.info(
+                "[media/generate] Trying Cloudflare Workers AI (%s)",
+                sanitize_log_text(str(cf_model)),
+            )
             generated = await _call_workers_ai_image(
                 prompt=bg_prompt,
                 model=cf_model,
@@ -633,9 +637,9 @@ async def generate_image(
                 cfg_scale=opts.cfg_scale or 3.5,
             )
         except HTTPException as exc:
-            logger.warning(f"[media/generate] CF failed ({exc.status_code})")
+            logger.warning("[media/generate] CF failed (%s)", exc.status_code)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[media/generate] CF failed: {exc}")
+            logger.warning("[media/generate] CF failed: %s", type(exc).__name__)
 
     if generated is None:
         raise HTTPException(

@@ -62,6 +62,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-fs-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          trivyignores: '.trivyignore'
           exit-code: '0'  # Don't fail on fs scan, just report
 
       - name: Upload Trivy filesystem results to GitHub Security

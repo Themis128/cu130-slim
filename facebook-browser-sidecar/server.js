@@ -127,12 +127,38 @@ async function settle(timeout = 20000) {
   await page.waitForTimeout(1500);
 }
 
-/** Save a Buffer to a temp file and return the path. */
+const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
+
+/** Save a Buffer to a private temp file (mkdtemp + mode 0o600). */
 function bufferToTempFile(buffer, filename) {
-  const ext = path.extname(filename) || '.jpg';
-  const tmp = path.join(os.tmpdir(), `fb-sidecar-${Date.now()}${ext}`);
-  fs.writeFileSync(tmp, buffer);
+  if (!Buffer.isBuffer(buffer)) {
+    throw new Error('Expected a Buffer');
+  }
+  if (buffer.length > MAX_TEMP_FILE_BYTES) {
+    throw new Error('Upload exceeds maximum allowed size');
+  }
+  let ext = path.extname(filename || '') || '.jpg';
+  // Allow only a short alphanumeric extension (no path segments).
+  if (!/^\.[A-Za-z0-9]{1,8}$/.test(ext)) {
+    ext = '.bin';
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fb-sidecar-'));
+  fs.chmodSync(dir, 0o700);
+  const tmp = path.join(dir, `upload${ext}`);
+  fs.writeFileSync(tmp, buffer, { mode: 0o600 });
   return tmp;
+}
+
+/** Remove a temp file created by bufferToTempFile and its private directory. */
+function cleanupTempFile(tmpPath) {
+  if (!tmpPath) return;
+  try { cleanupTempFile(tmpPath); } catch (_) {}
+  try {
+    const dir = path.dirname(tmpPath);
+    if (path.basename(dir).startsWith('fb-sidecar-')) {
+      fs.rmdirSync(dir);
+    }
+  } catch (_) {}
 }
 
 /** True only for facebook.com or a subdomain (not evilfacebook.com). */
@@ -785,7 +811,7 @@ async function handleUploadPicture(req, res) {
       await clickSave();
       res.json({ status: 'ok', updated: ['profile_picture'] });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -855,7 +881,7 @@ async function handleUploadCover(req, res) {
 
       res.json({ status: 'ok', updated: ['cover'] });
     } finally {
-      fs.unlinkSync(tmpPath);
+      cleanupTempFile(tmpPath);
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1346,7 +1372,7 @@ async function handlePostPhoto(req, res) {
       res.json({ status: 'ok', posted: true, photo_count: images.length, message: 'Photo post submitted to personal profile' });
     } finally {
       for (const p of tmpPaths) {
-        try { fs.unlinkSync(p); } catch (_) {}
+        cleanupTempFile(p);
       }
     }
   } catch (err) {
@@ -1441,9 +1467,7 @@ async function handlePostVideo(req, res) {
     }
 
     const buffer = Buffer.from(video_base64, 'base64');
-    const ext = path.extname(filename || '.mp4') || '.mp4';
-    const tmpPath = path.join(os.tmpdir(), `fb-sidecar-video-${Date.now()}${ext}`);
-    fs.writeFileSync(tmpPath, buffer);
+    const tmpPath = bufferToTempFile(buffer, filename || 'video.mp4');
 
     try {
       await fileInput.setInputFiles(tmpPath);
@@ -1471,7 +1495,7 @@ async function handlePostVideo(req, res) {
       await settle(120000);
       res.json({ status: 'ok', posted: true, message: 'Video post submitted to personal profile' });
     } finally {
-      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      try { cleanupTempFile(tmpPath); } catch (_) {}
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1658,7 +1682,7 @@ async function handlePagePostPhoto(req, res) {
       res.json({ status: 'ok', posted: true, page_id: activePageId, photo_count: images.length, message: 'Photo posted to Page' });
     } finally {
       for (const p of tmpPaths) {
-        try { fs.unlinkSync(p); } catch (_) {}
+        cleanupTempFile(p);
       }
     }
   } catch (err) {

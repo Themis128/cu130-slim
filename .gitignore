@@ -104,5 +104,9 @@ social-automation/uploads/
 slack-apps/*/.slack/
 .playwright-data/
 
+# Local demo auth JWTs (never commit)
+.tiktok-demo-auth.json
+*.demo-auth.json
+
 # Local Diffusers model cache (downloaded HF weights, ~2GB)
 diffusers-server/models/
