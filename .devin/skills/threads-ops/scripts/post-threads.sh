@@ -56,8 +56,21 @@ if [ -z "$ACCOUNT_ID" ]; then
   exit 1
 fi
 
-echo "=== Posting to Threads account $ACCOUNT_ID ==="
-curl -s -X POST "$API/api/v1/content" \
+echo "=== Creating draft on Threads account $ACCOUNT_ID ==="
+CREATE=$(curl -s -X POST "$API/api/v1/content/posts" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "{\"content\":\"$TEXT\",\"platform\":\"threads\",\"account_id\":\"$ACCOUNT_ID\",\"status\":\"published\"}" | python3 -m json.tool
+  -d "{\"content_text\":\"$TEXT\",\"target_account_ids\":[\"$ACCOUNT_ID\"]}")
+
+echo "$CREATE" | python3 -m json.tool
+
+POST_ID=$(echo "$CREATE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+if [ -z "$POST_ID" ]; then
+  echo "Draft creation failed"
+  exit 1
+fi
+
+echo ""
+echo "=== Publishing post $POST_ID now ==="
+curl -s -X POST "$API/api/v1/content/posts/$POST_ID/publish-now" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool

@@ -1754,7 +1754,7 @@ async def log_action(
     from app.models.user import AuditLog
     # Resolve team
     result = await db.execute(
-        select(TeamMember.team_id).where(TeamMember.user_id == user.id)
+        select(TeamMember.team_id).where(TeamMember.user_id == user.id).limit(1)
     )
     team_id = result.scalar_one_or_none()
     if not team_id:

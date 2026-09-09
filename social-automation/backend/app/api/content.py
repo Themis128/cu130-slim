@@ -108,21 +108,18 @@ class PostListResponse(BaseModel):
 
 
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
-async def create_post(post_data: PostCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Resolve the user's team (single-team model)
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
-    if not team:
-        raise HTTPException(status_code=400, detail="No team found")
-
-    await check_quota("posts_per_month", team.id, db)
+async def create_post(
+    post_data: PostCreate,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_quota("posts_per_month", team_id, db)
 
     corrected_text = await auto_correct(post_data.content_text or "")
 
     post = Post(
-        team_id=team.id,
+        team_id=team_id,
         user_id=current_user.id,
         status=PostStatus.DRAFT if not post_data.scheduled_at else PostStatus.SCHEDULED,
         content_text=corrected_text or post_data.content_text,
