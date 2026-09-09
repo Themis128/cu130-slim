@@ -3007,7 +3007,7 @@ async def dmr_status(
         embedding_model=settings.DMR_EMBEDDING_MODEL,
         tiny_model=settings.DMR_TINY_MODEL,
         vram=vram,
-        warmup_done=dmr._warmup_done,
+        warmup_done=dmr.is_warmup_done(),
     )
 
 
@@ -3144,13 +3144,12 @@ async def dmr_warmup(
     current_user: User = Depends(get_current_user),
 ):
     """Trigger DMR model warm-up (pre-load models into VRAM)."""
-    import app.services.dmr as dmr_mod
-    from app.services.dmr import warmup_models
+    from app.services.dmr import is_warmup_done, reset_warmup, warmup_models
 
     # Reset the warmup flag so it runs again
-    dmr_mod._warmup_done = False
+    reset_warmup()
     await warmup_models()
-    return {"status": "warmup complete", "warmup_done": dmr_mod._warmup_done}
+    return {"status": "warmup complete", "warmup_done": is_warmup_done()}
 
 
 class DmrKeepAliveRequest(BaseModel):
@@ -3496,8 +3495,10 @@ Keep it under 100 words. Start directly with the subject description."""
         logger.debug(f"[emoji] Vision quality check failed: {exc}")
 
     logger.info(
-        f"[emoji] Generated '{payload.concept}' ({payload.style}, {payload.size}px) "
-        f"in {gen_time:.1f}s via {provider_used}"
+        "[emoji] Generated image (%spx) in %.1fs via %s",
+        payload.size,
+        gen_time,
+        provider_used,
     )
 
     return EmojiGenerateResponse(

@@ -451,13 +451,14 @@ class InstagramPrivateAPIClient:
         Mixed photo/video is supported.
         """
         import os
-        from contextlib import ExitStack
 
         data: dict[str, str] = {"caption": caption}
         if location:
             data["location"] = location
-        with ExitStack() as stack:
-            file_objs = [stack.enter_context(open(fp, "rb")) for fp in file_paths]
+        file_objs: list[Any] = []
+        try:
+            for fp in file_paths:
+                file_objs.append(open(fp, "rb"))
             files = [
                 ("files", (os.path.basename(fp), fobj, "application/octet-stream"))
                 for fp, fobj in zip(file_paths, file_objs)
@@ -470,6 +471,12 @@ class InstagramPrivateAPIClient:
                     headers=self._headers(session_id),
                 )
                 return self._raise_for_status(resp)
+        finally:
+            for fobj in file_objs:
+                try:
+                    fobj.close()
+                except Exception:
+                    pass
 
     async def upload_story(
         self,

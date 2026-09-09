@@ -36,6 +36,22 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
+class _Mutable:
+    """Tiny namespace so module caches avoid CodeQL unused-global findings."""
+
+    __slots__ = ("online", "last_check", "vram", "vram_check", "warmup_done")
+
+    def __init__(self) -> None:
+        self.online: bool | None = None
+        self.last_check: float = 0.0
+        self.vram: dict[str, Any] = {}
+        self.vram_check: float = 0.0
+        self.warmup_done: bool = False
+
+
+_state = _Mutable()
+
 # ── Connection pool (improvement #3) ─────────────────────────────────────────
 # Shared httpx.AsyncClient with keep-alive.  Created lazily on first use.
 _shared_client: httpx.AsyncClient | None = None
@@ -66,23 +82,20 @@ async def close_client() -> None:
 
 
 # ── Health check with caching (improvement #2) ───────────────────────────────
-_dmr_online: bool | None = None
-_dmr_last_check: float = 0.0
 _HEALTH_CACHE_TTL = 10.0  # seconds — avoid hammering the health endpoint
 
 
 async def _check_dmr_health() -> bool:
     """Quick pre-flight check: is DMR reachable?  Cached for 10 seconds."""
-    global _dmr_online, _dmr_last_check
     now = time.monotonic()
-    if _dmr_online is not None and (now - _dmr_last_check) < _HEALTH_CACHE_TTL:
-        return _dmr_online
+    if _state.online is not None and (now - _state.last_check) < _HEALTH_CACHE_TTL:
+        return _state.online
 
     url = settings.DMR_URL.replace("/engines/llama.cpp/v1", "").rstrip("/")
     # If DMR_URL is empty, DMR is disabled
     if not settings.DMR_URL:
-        _dmr_online = False
-        _dmr_last_check = now
+        _state.online = False
+        _state.last_check = now
         return False
 
     try:
@@ -91,17 +104,16 @@ async def _check_dmr_health() -> bool:
             f"{url}/engines/v1/models",
             timeout=httpx.Timeout(2.0, connect=1.0),  # fast fail
         )
-        _dmr_online = resp.status_code == 200
+        _state.online = resp.status_code == 200
     except Exception:
-        _dmr_online = False
-    _dmr_last_check = now
-    return _dmr_online
+        _state.online = False
+    _state.last_check = now
+    return bool(_state.online)
 
 
 def _invalidate_health_cache() -> None:
     """Force the next health check to re-probe (call after a failure)."""
-    global _dmr_last_check
-    _dmr_last_check = 0.0
+    _state.last_check = 0.0
 
 
 # ── CLI fallback (improvement #1) ─────────────────────────────────────────────
@@ -121,29 +133,25 @@ def _dmr_cli_run(model: str, prompt: str, timeout: int = 120) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-        logger.warning("DMR CLI fallback failed (rc=%s): %s", result.returncode, result.stderr[:200])
+        logger.warning("DMR CLI fallback failed (rc=%s)", result.returncode)
     except subprocess.TimeoutExpired:
         logger.warning("DMR CLI fallback timed out (%ss)", timeout)
     except FileNotFoundError:
         logger.warning("docker CLI not found — DMR CLI fallback unavailable")
     except Exception as exc:
-        logger.warning("DMR CLI fallback error: %s", exc)
+        logger.warning("DMR CLI fallback error (%s)", type(exc).__name__)
     return None
 
 
 # ── VRAM-aware routing (improvement #11) ──────────────────────────────────────
-
-_vram_cache: dict[str, Any] = {}
-_vram_last_check: float = 0.0
 _VRAM_CACHE_TTL = 5.0  # seconds
 
 
 def _get_vram_info() -> dict[str, int] | None:
     """Get GPU VRAM info via nvidia-smi.  Returns {used, free, total} in MiB or None."""
-    global _vram_cache, _vram_last_check
     now = time.monotonic()
-    if _vram_cache and (now - _vram_last_check) < _VRAM_CACHE_TTL:
-        return _vram_cache if _vram_cache else None
+    if _state.vram and (now - _state.vram_check) < _VRAM_CACHE_TTL:
+        return _state.vram
 
     try:
         result = subprocess.run(
@@ -159,17 +167,17 @@ def _get_vram_info() -> dict[str, int] | None:
         if result.returncode == 0:
             parts = result.stdout.strip().split(", ")
             if len(parts) >= 3:
-                _vram_cache = {
+                _state.vram = {
                     "used": int(parts[0]),
                     "free": int(parts[1]),
                     "total": int(parts[2]),
                 }
-                _vram_last_check = now
-                return _vram_cache
+                _state.vram_check = now
+                return _state.vram
     except Exception:
         pass
-    _vram_cache = {}
-    _vram_last_check = now
+    _state.vram = {}
+    _state.vram_check = now
     return None
 
 
@@ -201,7 +209,7 @@ async def _unload_idle_models() -> None:
         await client.post(f"{url}/inference/unload", json={"all": True}, timeout=5.0)
         logger.info("DMR: unloaded idle models to free VRAM")
     except Exception as exc:
-        logger.debug("DMR unload failed: %s", exc)
+        logger.debug("DMR unload failed (%s)", type(exc).__name__)
 
 
 # ── Per-request model routing (improvement #6) ────────────────────────────────
@@ -264,7 +272,7 @@ async def get_model_benchmark(model: str, force: bool = False) -> dict[str, floa
             _benchmark_cache[model] = {"tps": tps, "timestamp": now}
             return _benchmark_cache[model]
     except Exception as exc:
-        logger.debug("DMR benchmark failed for %s: %s", model, exc)
+        logger.debug("DMR benchmark failed (%s)", type(exc).__name__)
     return None
 
 
@@ -293,9 +301,9 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
         )
         if resp.status_code == 200:
             _keep_alive_configured.add(model)
-            logger.info("DMR: keep_alive=%s configured for %s", keep_alive, model)
+            logger.info("DMR: keep_alive configured")
     except Exception as exc:
-        logger.debug("DMR keep_alive config failed: %s", exc)
+        logger.debug("DMR keep_alive config failed (%s)", type(exc).__name__)
 
 
 # ── Speculative decoding (improvement #12) ────────────────────────────────────
@@ -326,17 +334,26 @@ async def configure_speculative_decoding(
         )
         if result.returncode == 0:
             _speculative_configured.add(key)
-            logger.info("DMR: speculative decoding configured: %s → %s", draft_model, model)
+            logger.info("DMR: speculative decoding configured")
         else:
-            logger.debug("DMR speculative decoding failed: %s", result.stderr[:200])
+            logger.debug("DMR speculative decoding failed (rc=%s)", result.returncode)
     except Exception as exc:
-        logger.debug("DMR speculative decoding error: %s", exc)
+        logger.debug("DMR speculative decoding error (%s)", type(exc).__name__)
 
 
 # ── Model warm-up (improvement #5) ───────────────────────────────────────────
 
-_warmup_done: bool = False
 _warmup_lock = asyncio.Lock()
+
+
+def reset_warmup() -> None:
+    """Allow warmup_models() to run again (used by the admin warmup endpoint)."""
+    _state.warmup_done = False
+
+
+def is_warmup_done() -> bool:
+    """Whether the startup warmup pass has completed (or been marked done)."""
+    return _state.warmup_done
 
 
 async def warmup_models() -> None:
@@ -345,13 +362,12 @@ async def warmup_models() -> None:
     Sends a trivial prompt to each model so they're loaded and ready
     for the first real request.  Runs in background, non-blocking.
     """
-    global _warmup_done
-    if _warmup_done:
+    if _state.warmup_done:
         return
     async with _warmup_lock:
-        if _warmup_done:
+        if _state.warmup_done:
             return
-        _warmup_done = True
+        _state.warmup_done = True
 
         if not await _check_dmr_health():
             logger.info("DMR warmup skipped — API offline")
@@ -377,9 +393,9 @@ async def warmup_models() -> None:
                     timeout=60.0,
                     _skip_health_check=True,
                 )
-                logger.info("DMR warmup: %s loaded", model)
+                logger.info("DMR warmup: model loaded")
             except Exception as exc:
-                logger.debug("DMR warmup failed for %s: %s", model, exc)
+                logger.debug("DMR warmup failed (%s)", type(exc).__name__)
 
 
 # ── Core chat with retry + CLI fallback (improvements #1, #4, #7, #9) ──────────
@@ -453,13 +469,13 @@ async def _call_dmr_chat_internal(
 
     # Improvement #11: VRAM-aware routing
     if not _has_vram_for_model(model):
-        logger.warning("DMR: insufficient VRAM for %s — unloading idle models", model)
+        logger.warning("DMR: insufficient VRAM — unloading idle models")
         await _unload_idle_models()
         if not _has_vram_for_model(model):
             # Fall back to tiny model
             tiny = settings.DMR_TINY_MODEL
             if _has_vram_for_model(tiny):
-                logger.warning("DMR: falling back to tiny model %s", tiny)
+                logger.warning("DMR: falling back to tiny model")
                 payload["model"] = tiny
                 model = tiny
 
@@ -495,13 +511,13 @@ async def _call_dmr_chat_internal(
             last_exc = exc
             if attempt == 0:
                 # Cold-start retry: model is now loading, wait and retry
-                logger.info("DMR cold-start retry (attempt %s): %s", attempt + 1, exc)
+                logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
                 await asyncio.sleep(2.0)
                 continue
             _invalidate_health_cache()
             # Improvement #1: CLI fallback on connection failure
             if isinstance(exc, httpx.ConnectError | ConnectionError):
-                logger.info("DMR API failed — falling back to CLI: %s", exc)
+                logger.info("DMR API failed — falling back to CLI")
                 cli_result = _dmr_cli_run(model, prompt, timeout=int(timeout))
                 if cli_result is not None:
                     if schema:
@@ -658,7 +674,7 @@ async def call_dmr_vision(
 
     # VRAM check — vision models are large
     if not _has_vram_for_model(model):
-        logger.warning("DMR vision: insufficient VRAM for %s", model)
+        logger.warning("DMR vision: insufficient VRAM")
         await _unload_idle_models()
 
     url = f"{settings.DMR_URL}/chat/completions"
@@ -670,7 +686,7 @@ async def call_dmr_vision(
             return msg.get("content") or msg.get("reasoning_content") or ""
         logger.warning("DMR vision returned %s", resp.status_code)
     except Exception as exc:
-        logger.warning("DMR vision failed: %s", exc)
+        logger.warning("DMR vision failed (%s)", type(exc).__name__)
     return None
 
 
@@ -710,7 +726,7 @@ async def get_dmr_requests(
                 requests.append({"raw": line})
         return requests
     except Exception as exc:
-        logger.debug("DMR requests fetch failed: %s", exc)
+        logger.debug("DMR requests fetch failed (%s)", type(exc).__name__)
         return []
 
 

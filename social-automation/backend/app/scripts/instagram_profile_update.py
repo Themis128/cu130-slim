@@ -30,16 +30,10 @@ import argparse
 import json
 import sys
 import time
-from typing import NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BRIDGE_URL = "http://localhost:9223"
-
-
-def _die(message: str) -> NoReturn:
-    print(message, file=sys.stderr)
-    raise SystemExit(1)
 
 
 def _post_json(path: str, data: dict) -> dict:
@@ -55,9 +49,11 @@ def _post_json(path: str, data: dict) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        _die(f"ERROR {exc.code}: {body}")
+        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
+        raise SystemExit(1) from None
     except URLError as exc:
-        _die(f"Connection error: {exc}")
+        print(f"Connection error: {type(exc).__name__}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def _patch_json(path: str, data: dict) -> dict:
@@ -73,9 +69,11 @@ def _patch_json(path: str, data: dict) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        _die(f"ERROR {exc.code}: {body}")
+        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
+        raise SystemExit(1) from None
     except URLError as exc:
-        _die(f"Connection error: {exc}")
+        print(f"Connection error: {type(exc).__name__}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def _get_json(path: str) -> dict:
@@ -86,9 +84,11 @@ def _get_json(path: str) -> dict:
             return json.loads(resp.read().decode())
     except HTTPError as exc:
         body = exc.read().decode() if exc.fp else ""
-        _die(f"ERROR {exc.code}: {body}")
+        print(f"ERROR {exc.code}: {body}", file=sys.stderr)
+        raise SystemExit(1) from None
     except URLError as exc:
-        _die(f"Connection error: {exc}")
+        print(f"Connection error: {type(exc).__name__}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def check_session() -> dict:
