@@ -51,6 +51,7 @@
  */
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -509,7 +510,15 @@ async function handleReadProfile(req, res) {
 
     // If redirected to home, try profile.php with the user ID from the page
     let profileUrl = page.url();
-    if (profileUrl === 'https://www.facebook.com/' || profileUrl.endsWith('facebook.com/')) {
+    let onFacebookHome = false;
+    try {
+      const homeUrl = new URL(profileUrl);
+      const homePath = homeUrl.pathname || '/';
+      onFacebookHome = isFacebookPageUrl(profileUrl) && (homePath === '/' || homePath === '');
+    } catch (_) {
+      onFacebookHome = false;
+    }
+    if (onFacebookHome) {
       // Try extracting user ID from cookies or page source
       const userId = await page.evaluate(() => {
         // Try to get user ID from the page's data

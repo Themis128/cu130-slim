@@ -47,6 +47,7 @@
  */
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -286,11 +287,28 @@ async function navigateAndCheck(url) {
   return isLoggedIn();
 }
 
+/** True only for linkedin.com or a subdomain (not evillinkedin.com). */
+function isLinkedInCookieDomain(domain) {
+  if (!domain) return false;
+  const d = String(domain).replace(/^\./, '').toLowerCase();
+  return d === 'linkedin.com' || d.endsWith('.linkedin.com');
+}
+
+/** True only when the page URL host is linkedin.com or a subdomain. */
+function isLinkedInPageUrl(urlStr) {
+  try {
+    const host = new URL(urlStr).hostname.toLowerCase();
+    return host === 'linkedin.com' || host.endsWith('.linkedin.com');
+  } catch (_) {
+    return false;
+  }
+}
+
 /** Check if we're logged in by looking at the current URL. */
 function isLoggedIn() {
   const url = page.url();
   return (
-    url.includes('linkedin.com') &&
+    isLinkedInPageUrl(url) &&
     !url.includes('/login') &&
     !url.includes('/checkpoint') &&
     !url.includes('authwall')
@@ -405,7 +423,7 @@ async function exportCookies() {
   const cookies = await context.cookies();
   const result = {};
   for (const c of cookies) {
-    if (c.domain && c.domain.includes('linkedin.com')) {
+    if (isLinkedInCookieDomain(c.domain)) {
       result[c.name] = c.value;
     }
   }
