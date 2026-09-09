@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,19 @@ from app.services.d1_client import d1_client
 logger = logging.getLogger(__name__)
 
 _ENV_FILE = Path("/app/.env")
+
+
+def _safe_log_key(key: str) -> str:
+    """Sanitize a secret key name for logs (no newlines/control chars)."""
+    return re.sub(r"[^\w.-]", "_", str(key))[:64]
+
+
+def _log_secret_failure(message: str, key: str | None, exc: BaseException) -> None:
+    """Log a secret-store failure without leaking key values or exception text."""
+    if key is None:
+        logger.warning("%s: %s", message, type(exc).__name__)
+    else:
+        logger.warning("%s for %s: %s", message, _safe_log_key(key), type(exc).__name__)
 
 
 class SecretStore:
@@ -59,7 +73,7 @@ class SecretStore:
             )
             return row["value"] if row else None
         except Exception as exc:
-            logger.warning("D1 secret read failed for %s: %s", key, exc)
+            _log_secret_failure("D1 secret read failed", key, exc)
             return None
 
     async def _set_in_d1(self, key: str, value: str) -> bool:
@@ -84,7 +98,7 @@ class SecretStore:
                 )
             return True
         except Exception as exc:
-            logger.warning("D1 secret write failed for %s: %s", key, exc)
+            _log_secret_failure("D1 secret write failed", key, exc)
             return False
 
     async def _ensure_d1_table(self) -> None:
@@ -103,7 +117,7 @@ class SecretStore:
                     """
                 )
         except Exception as exc:
-            logger.warning("D1 ensure table failed: %s", exc)
+            _log_secret_failure("D1 ensure table failed", None, exc)
 
     async def _get_from_postgres(self, key: str) -> str | None:
         try:
@@ -114,7 +128,7 @@ class SecretStore:
                 row = result.scalar_one_or_none()
                 return row.value if row else None
         except Exception as exc:
-            logger.warning("Postgres secret read failed for %s: %s", key, exc)
+            _log_secret_failure("Postgres secret read failed", key, exc)
             return None
 
     async def _set_in_postgres(self, key: str, value: str, description: str | None = None) -> bool:
@@ -142,7 +156,7 @@ class SecretStore:
                 await session.commit()
                 return True
         except Exception as exc:
-            logger.warning("Postgres secret write failed for %s: %s", key, exc)
+            _log_secret_failure("Postgres secret write failed", key, exc)
             return False
 
     def _get_from_env(self, key: str) -> str | None:
@@ -218,7 +232,7 @@ class SecretStore:
             _ENV_FILE.write_text("\n".join(new_lines) + "\n")
             return True
         except Exception as exc:
-            logger.warning("Could not sync %s to .env: %s", key, exc)
+            _log_secret_failure("Could not sync to .env", key, exc)
             return False
 
     async def list_keys(self) -> list[dict[str, Any]]:
@@ -232,7 +246,7 @@ class SecretStore:
                 for row in rows:
                     keys.add(row["key"])
             except Exception as exc:
-                logger.warning("D1 list keys failed: %s", exc)
+                _log_secret_failure("D1 list keys failed", None, exc)
 
         # Postgres
         try:
@@ -241,7 +255,7 @@ class SecretStore:
                 for row in result.all():
                     keys.add(str(row.key))
         except Exception as exc:
-            logger.warning("Postgres list keys failed: %s", exc)
+            _log_secret_failure("Postgres list keys failed", None, exc)
 
         # .env
         if _ENV_FILE.exists():

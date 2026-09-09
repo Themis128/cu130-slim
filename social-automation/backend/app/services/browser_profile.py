@@ -26,8 +26,24 @@ import logging
 import tempfile
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _is_facebook_logged_in_url(url: str) -> bool:
+    """True when hostname is facebook.com (or subdomain) and not a login/challenge page."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host != "facebook.com" and not host.endswith(".facebook.com"):
+            return False
+        path = parsed.path or "/"
+        if path.startswith(("/login", "/checkpoint", "/recover")):
+            return False
+        return path == "/" or path.startswith("/home") or "/home" in path
+    except Exception:
+        return False
 
 
 class BrowserProfileError(Exception):
@@ -138,7 +154,7 @@ class BrowserProfileService:
                     await page.fill("input#approvals_code", verification_code)
                     await page.press("input#approvals_code", "Enter")
                     await page.wait_for_load_state("networkidle")
-                    if "facebook.com" in page.url and ("home" in page.url or "/" in page.url):
+                    if _is_facebook_logged_in_url(page.url):
                         return {
                             "success": True,
                             "two_factor_required": False,
@@ -154,7 +170,7 @@ class BrowserProfileService:
                 }
 
             # Check if we made it home
-            if "facebook.com" in page.url and ("home" in page.url or "/" in page.url):
+            if _is_facebook_logged_in_url(page.url):
                 storage_state = await self._extract_storage_state(session)
                 return {
                     "success": True,
