@@ -9,13 +9,19 @@ echo ""
 if curl -sf http://localhost:12434/engines/v1/models >/dev/null 2>&1; then
     echo "  DMR API:      ONLINE (http://localhost:12434)"
 else
-    echo "  DMR API:      OFFLINE"
-    exit 1
+    # CLI fallback — check if docker model is running
+    if docker model status >/dev/null 2>&1; then
+        echo "  DMR API:      OFFLINE (TCP), CLI: ONLINE"
+    else
+        echo "  DMR API:      OFFLINE"
+        exit 1
+    fi
 fi
 
 echo ""
 echo "=== Loaded Models ==="
-curl -sf http://localhost:12434/engines/v1/models 2>/dev/null | python3 -c '
+if curl -sf http://localhost:12434/engines/v1/models >/dev/null 2>&1; then
+    curl -sf http://localhost:12434/engines/v1/models 2>/dev/null | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 models = d.get("data", [])
@@ -24,6 +30,10 @@ if not models:
 for m in models:
     print("  %s" % m.get("id", "?"))
 '
+else
+    # CLI fallback
+    docker model ps 2>/dev/null || echo "  (no models loaded or CLI unavailable)"
+fi
 
 echo ""
 echo "=== Local Models (pulled) ==="
