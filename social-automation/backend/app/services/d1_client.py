@@ -272,11 +272,11 @@ class D1Client:
             return None
         if isinstance(value, bool):
             return 1 if value else 0
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return value
         if isinstance(value, dict | list):
             return json.dumps(value, default=str)
-        if isinstance(value, (datetime, date)):
+        if isinstance(value, datetime | date):
             return value.isoformat()
         # UUIDs, enums, Decimal, and anything else → string
         return str(value)
