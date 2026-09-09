@@ -20,7 +20,25 @@ router = APIRouter()
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _get_team(user: User, db: AsyncSession) -> Team:
-    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
+    from sqlalchemy import case
+
+    from app.models.user import UserRole
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    result = await db.execute(
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
+    )
     team = result.scalars().first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
