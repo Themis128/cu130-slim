@@ -6,6 +6,7 @@ cd /home/tbaltzakis/cu130-slim
 
 TEXT=${1:-""}
 ACCOUNT_ID=${2:-""}
+TEAM_ID="88e2bab4-3581-4c04-b0ac-87aa27840025"
 ADMIN_PASSWORD=$(grep "^SOCIAL_ADMIN_PASSWORD=" .env | cut -d= -f2)
 API="http://localhost:8083"
 
@@ -14,13 +15,25 @@ if [ -z "$TEXT" ]; then
   exit 1
 fi
 
-echo "=== Logging in to SocialAuto ==="
-TOKEN=$(curl -s -X POST "$API/api/v1/auth/login" \
+echo "=== Logging in and switching to team $TEAM_ID ==="
+LOGIN=$(curl -s -X POST "$API/api/v1/auth/login" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d "username=tbaltzakis@cloudless.gr&password=${ADMIN_PASSWORD}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
+  -d "username=tbaltzakis@cloudless.gr&password=${ADMIN_PASSWORD}")
+TOKEN=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
 
 if [ -z "$TOKEN" ]; then
   echo "Could not log in to SocialAuto"
+  exit 1
+fi
+
+SWITCHED=$(curl -s -X POST "$API/api/v1/auth/switch-team" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"team_id\":\"$TEAM_ID\"}")
+TOKEN=$(echo "$SWITCHED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
+
+if [ -z "$TOKEN" ]; then
+  echo "Could not switch to team $TEAM_ID"
   exit 1
 fi
 

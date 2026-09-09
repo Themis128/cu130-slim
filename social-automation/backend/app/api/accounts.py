@@ -116,10 +116,10 @@ class ConnectResponse(BaseModel):
 
 @router.get("", response_model=list[SocialAccountResponse])
 async def list_accounts(
+    team_id: TeamId,
     platform: str | None = None,
     account_type: str | None = None,
     is_business: bool | None = None,
-    team_id: uuid.UUID = Depends(TeamId),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(SocialAccount).where(SocialAccount.team_id == team_id)

@@ -12,16 +12,29 @@ echo "=== Threads env configuration ==="
 grep -E "^(THREADS|FACEBOOK)_(CLIENT_ID|CLIENT_SECRET|REDIRECT_URI)" .env | sed -E 's/(SECRET)=.*/\1=****/'
 
 echo ""
-echo "=== Threads OAuth URL ==="
-TOKEN=$(curl -s -X POST "$API/api/v1/auth/login" \
+echo "=== Logging in and switching to team $TEAM_ID ==="
+LOGIN=$(curl -s -X POST "$API/api/v1/auth/login" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d "username=tbaltzakis@cloudless.gr&password=${ADMIN_PASSWORD}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
+  -d "username=tbaltzakis@cloudless.gr&password=${ADMIN_PASSWORD}")
+TOKEN=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
 
 if [ -z "$TOKEN" ]; then
   echo "Could not log in to SocialAuto"
   exit 1
 fi
 
+SWITCHED=$(curl -s -X POST "$API/api/v1/auth/switch-team" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"team_id\":\"$TEAM_ID\"}")
+TOKEN=$(echo "$SWITCHED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
+
+if [ -z "$TOKEN" ]; then
+  echo "Could not switch to team $TEAM_ID"
+  exit 1
+fi
+
+echo "=== Threads OAuth URL ==="
 curl -s -H "Authorization: Bearer $TOKEN" \
   "$API/api/v1/auth/oauth/threads/authorize?team_id=$TEAM_ID" | python3 -c "
 import sys, json, urllib.parse
