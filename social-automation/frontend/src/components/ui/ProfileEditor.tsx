@@ -81,7 +81,12 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
   }, [profile])
 
   const needsLogin = platform === 'instagram' || (platform === 'facebook' && !isBusiness) || platform === 'linkedin'
-  const isReadOnly = false
+  // Threads: bio and name are editable via browser bridge (no API write support)
+  // TikTok: no profile update API at all — truly read-only
+  const isReadOnly = platform === 'tiktok'
+  // Threads profile picture is synced from Instagram — cannot upload directly
+  const canUploadPicture = platform !== 'tiktok' && platform !== 'threads'
+  const canUploadCover = platform !== 'tiktok' && platform !== 'instagram' && platform !== 'threads'
 
   const handleSave = async () => {
     const data: Record<string, string> = {}
@@ -255,7 +260,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
 
         {isReadOnly ? (
           <div className="text-sm text-muted-foreground">
-            Threads does not support profile updates through the API.
+            TikTok does not support profile updates through the API.
           </div>
         ) : (
           <>
@@ -268,7 +273,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
                     No cover photo
                   </div>
                 )}
-                {platform !== 'tiktok' && platform !== 'instagram' && (
+                {canUploadCover && (
                   <button
                     onClick={() => coverRef.current?.click()}
                     disabled={coverMutation.isPending}
@@ -291,28 +296,40 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => profilePicRef.current?.click()}
-                    disabled={pictureMutation.isPending}
-                    className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-1 hover:bg-primary/90"
-                  >
-                    {pictureMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                  </button>
+                  {canUploadPicture && (
+                    <button
+                      onClick={() => profilePicRef.current?.click()}
+                      disabled={pictureMutation.isPending}
+                      className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-1 hover:bg-primary/90"
+                    >
+                      {pictureMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    </button>
+                  )}
                   <input ref={profilePicRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handlePicture} />
                 </div>
                 <div className="pb-1">
                   <Badge variant="secondary" className="text-xs capitalize">
                     {platform}
                   </Badge>
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Profile picture synced from Instagram
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
 
             <div className="space-y-3">
-              {(platform === 'linkedin' || platform === 'twitter' || platform === 'tiktok') && (
+              {(platform === 'linkedin' || platform === 'twitter' || platform === 'tiktok' || platform === 'threads') && (
                 <div className="space-y-1">
                   <Label className="text-sm">Full Name / Nickname</Label>
                   <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Display name" />
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground">
+                      Threads allows name changes only twice per 14 days.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -323,15 +340,20 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
                 </div>
               )}
 
-              {(platform === 'facebook' || platform === 'instagram' || platform === 'tiktok') && (
+              {(platform === 'facebook' || platform === 'instagram' || platform === 'tiktok' || platform === 'threads') && (
                 <div className="space-y-1">
-                  <Label className="text-sm">{platform === 'instagram' || platform === 'tiktok' ? 'Biography' : 'About'}</Label>
+                  <Label className="text-sm">{platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? 'Biography' : 'About'}</Label>
                   <Textarea
-                    value={platform === 'instagram' || platform === 'tiktok' ? biography : about}
-                    onChange={(e) => platform === 'instagram' || platform === 'tiktok' ? setBiography(e.target.value) : setAbout(e.target.value)}
-                    placeholder={platform === 'instagram' || platform === 'tiktok' ? 'Bio text' : 'About text'}
+                    value={platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? biography : about}
+                    onChange={(e) => platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? setBiography(e.target.value) : setAbout(e.target.value)}
+                    placeholder={platform === 'instagram' || platform === 'tiktok' || platform === 'threads' ? 'Bio text' : 'About text'}
                     rows={3}
                   />
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground">
+                      Bio is updated via the browser bridge (no official write API).
+                    </p>
+                  )}
                 </div>
               )}
 

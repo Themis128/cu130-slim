@@ -466,6 +466,28 @@ export const browserApi = {
   getTiktokSettings: () => api.get('/profile/tiktok/settings'),
 }
 
+// Threads-specific endpoints (profile, insights, posts, replies)
+export const threadsApi = {
+  getProfile: (accountId: string) =>
+    api.get('/threads/profile', { params: { account_id: accountId } }),
+  updateProfile: (accountId: string, data: { biography?: string; full_name?: string; website?: string }) =>
+    api.put('/threads/profile', data, { params: { account_id: accountId } }),
+  getInsights: (accountId: string, metric?: string) =>
+    api.get('/threads/insights', { params: { account_id: accountId, metric: metric || 'views' } }),
+  getFollowers: (accountId: string) =>
+    api.get('/threads/followers', { params: { account_id: accountId } }),
+  getQuota: (accountId: string) =>
+    api.get('/threads/quota', { params: { account_id: accountId } }),
+  listPosts: (accountId: string, limit?: number, after?: string) =>
+    api.get('/threads/posts', { params: { account_id: accountId, limit: limit || 25, after } }),
+  getPostInsights: (mediaId: string, accountId: string, metric?: string) =>
+    api.get(`/threads/posts/${mediaId}/insights`, { params: { account_id: accountId, metric: metric || 'views' } }),
+  replyToPost: (mediaId: string, accountId: string, text: string) =>
+    api.post(`/threads/posts/${mediaId}/reply`, { text }, { params: { account_id: accountId } }),
+  deletePost: (mediaId: string, accountId: string) =>
+    api.delete(`/threads/posts/${mediaId}`, { params: { account_id: accountId } }),
+}
+
 // Secret store endpoints (Cloudflare-first credentials)
 export const secretsApi = {
   list: () => api.get('/secrets'),
