@@ -83,7 +83,6 @@ async def get_usage_history(
     # Build the list of the last 12 months (oldest first)
     months: list[tuple[int, int]] = []
     for i in range(11, -1, -1):
-        year = now.year - (now.month - 1 - i < 0)  # not needed; compute below
         month_idx = now.month - 1 - i
         if month_idx < 0:
             month_idx += 12

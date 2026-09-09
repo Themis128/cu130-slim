@@ -16,7 +16,6 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
 from app.core.config import settings
-from app.core.log_sanitize import sanitize_log_text
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
@@ -623,10 +622,7 @@ async def generate_image(
         if cf_model and not cf_model.startswith("@cf/"):
             cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
         try:
-            logger.info(
-                "[media/generate] Trying Cloudflare Workers AI (%s)",
-                sanitize_log_text(str(cf_model)),
-            )
+            logger.info("[media/generate] Trying Cloudflare Workers AI")
             generated = await _call_workers_ai_image(
                 prompt=bg_prompt,
                 model=cf_model,

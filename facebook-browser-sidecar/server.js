@@ -55,7 +55,6 @@ import rateLimit from 'express-rate-limit';
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
 const PORT = process.env.FACEBOOK_SIDECAR_PORT || 9226;
 
@@ -128,8 +127,9 @@ async function settle(timeout = 20000) {
 }
 
 const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
+const TEMP_ROOT = path.join(path.dirname(process.env.SESSION_FILE || '/data/fb-session.json'), 'tmp');
 
-/** Save a Buffer to a private temp file (mkdtemp + mode 0o600). */
+/** Save a Buffer to a private temp file under /data (mkdtemp + mode 0o600). */
 function bufferToTempFile(buffer, filename) {
   if (!Buffer.isBuffer(buffer)) {
     throw new Error('Expected a Buffer');
@@ -142,17 +142,21 @@ function bufferToTempFile(buffer, filename) {
   if (!/^\.[A-Za-z0-9]{1,8}$/.test(ext)) {
     ext = '.bin';
   }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fb-sidecar-'));
+  fs.mkdirSync(TEMP_ROOT, { recursive: true, mode: 0o700 });
+  const dir = fs.mkdtempSync(path.join(TEMP_ROOT, 'fb-sidecar-'));
   fs.chmodSync(dir, 0o700);
   const tmp = path.join(dir, `upload${ext}`);
-  fs.writeFileSync(tmp, buffer, { mode: 0o600 });
+  // Copy into a fresh buffer so only length-validated bytes are written.
+  const safe = Buffer.alloc(buffer.length);
+  buffer.copy(safe);
+  fs.writeFileSync(tmp, safe, { mode: 0o600 });
   return tmp;
 }
 
 /** Remove a temp file created by bufferToTempFile and its private directory. */
 function cleanupTempFile(tmpPath) {
   if (!tmpPath) return;
-  try { cleanupTempFile(tmpPath); } catch (_) {}
+  try { fs.unlinkSync(tmpPath); } catch (_) {}
   try {
     const dir = path.dirname(tmpPath);
     if (path.basename(dir).startsWith('fb-sidecar-')) {

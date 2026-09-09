@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.core.log_sanitize import sanitize_log_text
 from app.services.email_digest import send_email
 
 if TYPE_CHECKING:
@@ -316,10 +315,7 @@ async def send_team_invite_email(
         await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[invitee_email])
         await _log_email(invitee_email, subject, "team_invite")
     except Exception as exc:
-        logger.exception(
-            "Failed to send team invite email to %s",
-            sanitize_log_text(invitee_email),
-        )
+        logger.exception("Failed to send team invite email")
         await _log_email(
             invitee_email,
             subject,

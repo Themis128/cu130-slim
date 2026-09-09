@@ -170,7 +170,7 @@ async def generate_image(req: ImageGenerationRequest):
         b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         data.append(ImageData(b64_json=b64))
 
-    logger.info("Generated %d image(s) %dx%d in %d steps — %s", len(data), w, h, req.steps, _vram_info())
+    logger.info("Generated %d image(s) %dx%d — %s", len(data), w, h, _vram_info())
     return ImageGenerationResponse(created=int(time.time()), data=data)
 
 

@@ -17,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.log_sanitize import sanitize_log_text
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
@@ -797,10 +796,9 @@ async def run_cloudless_carousel_pipeline(
             highlight = preprocess_for_render(await auto_correct(highlight))
 
         logger.info(
-            "[n8n-pipeline] slide %s/%s — generating background: %s…",
+            "[n8n-pipeline] slide %s/%s — generating background",
             i + 1,
             len(slides),
-            sanitize_log_text(image_prompt, max_len=60),
         )
         bg_img = await _cf_generate_background(image_prompt, txt2img_model)
         if bg_img:
@@ -844,7 +842,7 @@ async def run_cloudless_carousel_pipeline(
         ai_title = (title_result.get("title") or topic)[:80]
     except Exception:
         ai_title = topic[:80]
-    logger.info("[n8n-pipeline] AI carousel title: %s", sanitize_log_text(str(ai_title)))
+    logger.info("[n8n-pipeline] AI carousel title generated (%d chars)", len(str(ai_title)))
 
     # 5) Combine all slides into a single PDF — one media library entry
     safe_topic = re.sub(r"[^a-zA-Z0-9_-]", "-", topic)[:32]

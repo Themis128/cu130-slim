@@ -36,8 +36,8 @@ async def _check_http(url: str, timeout: float = 5.0) -> dict[str, Any]:
             except Exception:
                 data = {"text": resp.text[:200]}
             return {"online": ok, "status_code": resp.status_code, "data": data}
-    except Exception as e:
-        return {"online": False, "error": str(e)}
+    except Exception:
+        return {"online": False, "error": "unreachable"}
 
 
 def _parse_sse_response(text: str) -> dict[str, Any]:
@@ -140,8 +140,8 @@ async def _mcp_initialize_and_list_tools(url: str, timeout: float = 15.0) -> dic
                 "session_id": session_id[:12] + "..." if session_id else "none",
                 "tools": tools,
             }
-    except Exception as e:
-        return {"online": False, "error": str(e)}
+    except Exception:
+        return {"online": False, "error": "unreachable"}
 
 
 @router.get("/stack")

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -28,17 +27,11 @@ logger = logging.getLogger(__name__)
 _ENV_FILE = Path("/app/.env")
 
 
-def _safe_log_key(key: str) -> str:
-    """Sanitize a secret key name for logs (no newlines/control chars)."""
-    return re.sub(r"[^\w.-]", "_", str(key))[:64]
-
-
-def _log_secret_failure(message: str, key: str | None, exc: BaseException) -> None:
-    """Log a secret-store failure without leaking key values or exception text."""
-    if key is None:
-        logger.warning("%s: %s", message, type(exc).__name__)
-    else:
-        logger.warning("%s for %s: %s", message, _safe_log_key(key), type(exc).__name__)
+def _log_secret_failure(message: str, _key: str | None, exc: BaseException) -> None:
+    """Log a secret-store failure without leaking keys, values, or exception text."""
+    # Never log key names or exception messages — CodeQL treats both as sensitive /
+    # user-controlled. Exception type alone is enough for ops diagnostics.
+    logger.warning("%s (%s)", message, type(exc).__name__)
 
 
 class SecretStore:
