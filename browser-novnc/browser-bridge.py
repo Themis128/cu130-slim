@@ -13,8 +13,10 @@ The bridge runs on port 9223 inside the container.
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 from fastapi import FastAPI, HTTPException
@@ -24,6 +26,38 @@ import uvicorn
 
 COOKIE_DIR = Path("/app/cookies")
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_path_component(value: str | None, max_length: int = 128) -> str:
+    """Reduce an untrusted string to a single safe path component."""
+    if not value:
+        return "unnamed"
+    value = re.sub(r"[\x00-\x1f\\/]+", "_", str(value))
+    value = re.sub(r"[^\w.\-]", "_", value)
+    value = value.strip("._")
+    if value in ("", ".", ".."):
+        value = "unnamed"
+    return value[:max_length]
+
+
+def _cookie_file(*parts: str) -> Path:
+    """Resolve a path under COOKIE_DIR; raise if it escapes the cookie root."""
+    safe_parts = tuple(_safe_path_component(p) for p in parts)
+    base = COOKIE_DIR.resolve()
+    candidate = Path(base, *safe_parts).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Resolved path {candidate!r} escapes root {base!r}") from exc
+    return candidate
+
+
+def _is_instagram_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+        return host == "instagram.com" or host.endswith(".instagram.com")
+    except Exception:
+        return False
 
 SITES = {
     "instagram": {
@@ -246,7 +280,7 @@ async def extract_cookies_now():
         all_cookies = {c["name"]: c["value"] for c in cookies}
 
         # Save all cookies
-        all_file = COOKIE_DIR / f"{_state['platform']}_all_cookies.json"
+        all_file = _cookie_file(f"{_state['platform']}_all_cookies.json")
         all_file.write_text(json.dumps(all_cookies, indent=2))
 
         # Extract target cookies
@@ -254,13 +288,12 @@ async def extract_cookies_now():
         for name in site["cookies"]:
             if name in all_cookies:
                 found[name] = all_cookies[name]
-                cookie_file = COOKIE_DIR / f"{_state['platform']}_{name}.txt"
+                cookie_file = _cookie_file(f"{_state['platform']}_{name}.txt")
                 cookie_file.write_text(all_cookies[name])
 
         # Save storage state
-        state_file = COOKIE_DIR / f"{_state['platform']}_storage_state.json"
+        state_file = _cookie_file(f"{_state['platform']}_storage_state.json")
         await _state["context"].storage_state(path=str(state_file))
-
         _state["cookies"] = found
         _state["status"] = "done"
         _state["message"] = f"Extracted {len(found)}/{len(site['cookies'])} cookies"
@@ -820,10 +853,12 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
         # Detect username from current page if possible
         current_url = page.url
         username = None
-        if "instagram.com/" in current_url and "accounts" not in current_url:
-            parts = current_url.split("instagram.com/")[1].split("/")[0]
-            if parts and not parts.startswith("?"):
-                username = parts
+        if _is_instagram_host(current_url):
+            path = (urlparse(current_url).path or "/").strip("/")
+            if path and not path.startswith("accounts"):
+                parts = path.split("/")[0]
+                if parts and not parts.startswith("?"):
+                    username = parts
 
         # Natural navigation to edit profile page
         await _navigate_to_edit_profile(page, username)
@@ -983,7 +1018,7 @@ async def _run_browser(platform: str):
                 all_cookies = {c["name"]: c["value"] for c in cookies}
 
                 # Save all cookies
-                all_file = COOKIE_DIR / f"{platform}_all_cookies.json"
+                all_file = _cookie_file(f"{platform}_all_cookies.json")
                 all_file.write_text(json.dumps(all_cookies, indent=2))
 
                 # Extract target cookies
@@ -991,11 +1026,11 @@ async def _run_browser(platform: str):
                 for name in site["cookies"]:
                     if name in all_cookies:
                         found[name] = all_cookies[name]
-                        cookie_file = COOKIE_DIR / f"{platform}_{name}.txt"
+                        cookie_file = _cookie_file(f"{platform}_{name}.txt")
                         cookie_file.write_text(all_cookies[name])
 
                 # Save storage state
-                state_file = COOKIE_DIR / f"{platform}_storage_state.json"
+                state_file = _cookie_file(f"{platform}_storage_state.json")
                 await context.storage_state(path=str(state_file))
 
                 _state["cookies"] = found

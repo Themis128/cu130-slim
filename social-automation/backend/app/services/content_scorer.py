@@ -169,11 +169,25 @@ def _score_engagement(text: str) -> float:
     exclamations = text.count("!")
     score += min(exclamations * 5, 10)
 
-    # Numbers/stats (+10)
-    if re.search(r"\d+%", text) or re.search(r"\$\d+", text) or re.search(r"\b\d{4}\b", text):
+    # Numbers/stats (+10) — linear scan (avoid polynomial ReDoS on digit runs)
+    if _has_stats_signal(text):
         score += 10
 
     return min(score, 100.0)
+
+
+def _has_stats_signal(text: str) -> bool:
+    """Detect %, currency, or 4-digit year-like tokens without regex."""
+    for i, ch in enumerate(text):
+        if ch == "%" and i > 0 and text[i - 1].isdigit():
+            return True
+        if ch == "$" and i + 1 < len(text) and text[i + 1].isdigit():
+            return True
+    for token in text.split():
+        stripped = token.strip(".,!?;:")
+        if len(stripped) == 4 and stripped.isdigit():
+            return True
+    return False
 
 
 def _score_hashtags(hashtags: list[str], platform: str) -> float:
