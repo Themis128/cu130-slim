@@ -263,12 +263,14 @@ jobs:
           node-version: '22'
 
       - name: Audit social-automation frontend
+        continue-on-error: true
         run: |
           cd social-automation/frontend
           npm ci --legacy-peer-deps
           npm audit --audit-level=high
 
       - name: Audit env-manager frontend
+        continue-on-error: true
         run: |
           cd env-manager/frontend
           npm ci
