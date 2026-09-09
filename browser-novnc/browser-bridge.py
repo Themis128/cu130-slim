@@ -1001,13 +1001,14 @@ async def _run_browser(platform: str):
                 _state["cookies"] = found
                 _state["status"] = "done"
                 _state["message"] = f"Extracted {len(found)}/{len(site['cookies'])} cookies"
+                # Keep the browser context open so profile reads/navigations work
+                # The context is closed when a new session starts or session/stop is called
             else:
                 _state["status"] = "error"
                 _state["message"] = f"Timeout waiting for login. Current URL: {page.url}"
-
-            await context.close()
-            _state["browser"] = None
-            _state["context"] = None
+                await context.close()
+                _state["browser"] = None
+                _state["context"] = None
 
     except Exception as e:
         _state["status"] = "error"

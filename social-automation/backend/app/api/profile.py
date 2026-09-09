@@ -575,7 +575,34 @@ async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
 
 
 async def _get_threads_profile(account: SocialAccount) -> ProfileResponse:
-    """Read the Threads profile from the logged-in browser session."""
+    """Read the Threads profile.
+
+    Tries the official Threads Graph API first (reliable, no browser needed),
+    falls back to the browser bridge if the API token is unavailable.
+    """
+    # Try the Threads Graph API first
+    from app.core.security import decrypt_token
+    from app.services.threads_api import ThreadsAPIClient
+
+    token = decrypt_token(account.access_token_enc) if account.access_token_enc else None
+    if token and account.account_id:
+        try:
+            api = ThreadsAPIClient(access_token=token, user_id=account.account_id)
+            data = await api.get_profile()
+            return ProfileResponse(
+                platform="threads",
+                account_id=account.account_id or account.username,
+                username=data.get("username") or account.username,
+                full_name=data.get("name"),
+                biography=data.get("threads_biography"),
+                avatar_url=data.get("threads_profile_picture_url"),
+                is_verified=data.get("is_verified", False),
+                raw=data,
+            )
+        except Exception:
+            pass  # Fall through to browser bridge
+
+    # Fall back to browser bridge
     if not account.username:
         raise HTTPException(status_code=400, detail="Threads account has no username")
 
