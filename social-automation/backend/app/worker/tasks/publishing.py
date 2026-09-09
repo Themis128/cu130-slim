@@ -64,7 +64,7 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
                 if author:
                     prefs = author.notification_preferences or {}
                     if prefs.get("email_new_post", True):
-                        await send_post_published_email(author, post)
+                        await send_post_published_email(author, post, platform=account.platform)
         await engine.dispose()
     except Exception:
         logger.warning("Failed to send post-published email for post %s", post.id)
@@ -165,6 +165,7 @@ async def _process_publish_queue_async() -> None:
                 await db.commit()
 
             except Exception:
+                await db.rollback()
                 item.attempts += 1
                 item.status = QueueStatus.FAILED if item.attempts >= item.max_attempts else QueueStatus.PENDING
                 item.locked_at = None

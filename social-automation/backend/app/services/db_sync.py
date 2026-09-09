@@ -30,7 +30,7 @@ SYNC_TABLES: list[dict[str, str]] = [
     {"table": "team_members", "pk": "team_id,user_id"},
     {"table": "social_accounts", "pk": "id"},
     {"table": "posts", "pk": "id"},
-    {"table": "post_targets", "pk": "id"},
+    {"table": "post_targets", "pk": "post_id,social_account_id"},
     {"table": "media_assets", "pk": "id"},
     {"table": "media_collections", "pk": "id"},
     {"table": "publish_queue", "pk": "id"},
@@ -183,9 +183,17 @@ class SyncService:
                     stats["synced"] += 1
                     _consecutive_errors = 0
                 except Exception as exc:
+                    exc_str = str(exc)
                     logger.error("D1 sync row failed for %s: %s", table, exc)
                     stats["errors"] += 1
                     _consecutive_errors += 1
+                    # If D1 free tier daily limit is hit, skip all remaining tables
+                    if "exceeded" in exc_str.lower() and "daily" in exc_str.lower():
+                        logger.warning(
+                            "D1 daily write limit reached — skipping remaining tables for this sync cycle"
+                        )
+                        stats["skipped"] = stats.get("skipped", 0) + (len(rows) - stats["synced"] - stats["errors"])
+                        break
                     if _consecutive_errors >= 3:
                         logger.error(
                             "D1 sync for %s: aborting after %d consecutive errors",

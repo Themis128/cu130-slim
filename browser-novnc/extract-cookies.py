@@ -61,7 +61,7 @@ SITES = {
     },
     "threads": {
         "url": "https://www.threads.net/login",
-        "success_patterns": ["https://www.threads.net/", "threads.net/@"],
+        "success_patterns": ["https://www.threads.net/", "threads.net/@", "https://www.threads.com/", "threads.com/@"],
         "cookies": ["sessionid", "csrftoken", "ds_user_id", "ig_did"],
         "prefix": "threads",
     },

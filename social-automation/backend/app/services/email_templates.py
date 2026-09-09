@@ -178,11 +178,17 @@ async def send_password_reset_email(user: User, reset_link: str) -> None:
 
 # ── Post Published ──────────────────────────────────────────────────────────
 
-async def send_post_published_email(user: User, post: Post) -> None:
+async def send_post_published_email(user: User, post: Post, platform: str | None = None) -> None:
     """Send a notification when a scheduled post is published."""
-    platforms = ", ".join(
-        t.platform for t in getattr(post, "targets", []) if t.platform
-    ) or "your connected accounts"
+    if platform:
+        platforms = platform
+    else:
+        try:
+            platforms = ", ".join(
+                t.platform for t in getattr(post, "targets", []) if t.platform
+            ) or "your connected accounts"
+        except Exception:
+            platforms = "your connected accounts"
     snippet = (post.content_text or "")[:100]
     if len(post.content_text or "") > 100:
         snippet += "..."

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -127,7 +128,14 @@ class D1Client:
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 )
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    err_msg = err_data.get("errors", [{}])[0].get("message", resp.text[:500])
+                except Exception:
+                    err_msg = resp.text[:500]
+                logger.error("D1 HTTP %s: %s | SQL: %s | Params: %s", resp.status_code, err_msg, sql[:200], str(params)[:200])
+                raise RuntimeError(f"D1 HTTP {resp.status_code}: {err_msg}")
             data = resp.json()
 
         if not data.get("success"):
@@ -255,14 +263,23 @@ class D1Client:
 
     @staticmethod
     def _serialize_param(value: Any) -> Any:
-        """Serialize a Python value for D1 JSON transport."""
-        if isinstance(value, dict | list):
-            return json.dumps(value)
-        if isinstance(value, bool):
-            return 1 if value else 0
+        """Serialize a Python value for D1 JSON transport.
+
+        D1 REST API expects params as JSON-safe values. UUIDs, datetimes,
+        enums, and other non-primitives must be stringified.
+        """
         if value is None:
             return None
-        return value
+        if isinstance(value, bool):
+            return 1 if value else 0
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, dict | list):
+            return json.dumps(value, default=str)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        # UUIDs, enums, Decimal, and anything else → string
+        return str(value)
 
 
 # Singleton instance

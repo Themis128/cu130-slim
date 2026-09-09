@@ -53,7 +53,7 @@ SITES = {
     },
     "threads": {
         "url": "https://www.threads.net/login",
-        "success_patterns": ["threads.net/@", "threads.net/home"],
+        "success_patterns": ["threads.net/@", "threads.net/home", "threads.com/@", "threads.com/home"],
         "cookies": ["sessionid", "csrftoken", "ds_user_id", "ig_did"],
     },
     "reddit": {

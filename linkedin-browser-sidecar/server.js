@@ -604,24 +604,86 @@ async function handleReadProfile(req, res) {
       skills: [],
     };
 
-    // Name: try multiple selectors
+    // Name: LinkedIn profile pages use <a> tags, not <h1>, for the name
+    let nameFound = false;
+    // Try CSS selectors first
     const nameEl = await findElement([
       'h1.text-heading-xlarge',
       'h1',
-      'section h2',
-    ], { timeout: 5000 });
+      'section[class*="profile"] h1',
+      'div.ph5 h1',
+    ], { timeout: 3000 });
     if (nameEl) {
-      result.name = (await nameEl.innerText()).trim();
+      const nameText = (await nameEl.innerText()).trim();
+      if (!nameText.match(/^\d+ notifications?$/) && nameText.length < 100 && !nameText.includes('Skip to')) {
+        result.name = nameText.split('\n')[0].trim();
+        nameFound = true;
+      }
+    }
+    // Fallback: use page.evaluate to find the name in an <a> tag
+    if (!nameFound) {
+      try {
+        const nameFromEval = await page.evaluate(() => {
+          const a = document.querySelector('a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])');
+          if (a) {
+            const lines = a.innerText.trim().split('\n').filter(l => l.trim());
+            if (lines.length > 0) {
+              const name = lines[0].trim();
+              if (name && !name.includes('Skip to') && name.length < 100 && !name.match(/^\d+ notifications?$/)) {
+                return name;
+              }
+            }
+          }
+          return null;
+        });
+        if (nameFromEval) {
+          result.name = nameFromEval;
+        }
+      } catch (_) {}
     }
 
-    // Headline
+    // Headline — try CSS selectors, then fallback to eval
     const headlineEl = await findElement([
-      '.text-body-medium',
       'div.text-body-medium',
       'h2.text-body-medium',
+      'div.text-body-medium.break-words',
     ], { timeout: 3000 });
     if (headlineEl) {
-      result.headline = (await headlineEl.innerText()).trim();
+      const headlineText = (await headlineEl.innerText()).trim();
+      if (headlineText && !headlineText.includes('Skip to') && headlineText.length < 300) {
+        result.headline = headlineText;
+      }
+    } else {
+      // Fallback: extract headline from the same <a> tag or adjacent element
+      try {
+        const headlineFromEval = await page.evaluate(() => {
+          const a = document.querySelector('a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])');
+          if (a) {
+            const lines = a.innerText.trim().split('\n').filter(l => l.trim());
+            // The headline is usually the second line in the <a> tag
+            if (lines.length >= 2) {
+              const headline = lines[1].trim();
+              if (headline && !headline.includes('Skip to') && headline.length < 300) {
+                return headline;
+              }
+            }
+          }
+          // Also try finding a div with the headline text
+          const divs = document.querySelectorAll('div');
+          for (const d of divs) {
+            const t = d.innerText.trim();
+            if (t.includes('Founder @') || t.includes('| Serverless') || (t.includes('@') && t.includes('|') && t.length < 300 && t.length > 20)) {
+              if (!t.includes('Skip to') && !t.includes('notifications')) {
+                return t.split('\n')[0].trim();
+              }
+            }
+          }
+          return null;
+        });
+        if (headlineFromEval) {
+          result.headline = headlineFromEval;
+        }
+      } catch (_) {}
     }
 
     // Location
@@ -1278,46 +1340,96 @@ async function handleReadCompany(req, res) {
   const { vanity } = req.params;
   try {
     await ensureBrowser();
+    // Navigate to the public about page. If redirected to admin dashboard,
+    // try the edit page to read tagline/description instead.
     await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
+    await page.waitForTimeout(2000);
+    await settle();
 
-    const result = { vanity, url: page.url(), name: null, about: null, website: null, industry: null, specialties: null, logo_url: null, cover_url: null };
+    const currentUrl = page.url();
+    const isAdminRedirect = currentUrl.includes('/admin/');
 
-    // Name
-    const nameEl = page.locator('h1, h2.org-top-card-summary__title').first();
-    if (await nameEl.count() > 0) {
-      result.name = (await nameEl.innerText()).trim();
-    }
+    const result = { vanity, url: currentUrl, name: null, about: null, website: null, industry: null, specialties: null, logo_url: null, cover_url: null };
 
-    // About / description
-    const aboutEl = page.locator('p.org-about-us-organization-description__text, section:has(h2:has-text("About")) p, div[class*="organization-description"]').first();
-    if (await aboutEl.count() > 0) {
-      result.about = (await aboutEl.innerText()).trim();
-    }
+    if (isAdminRedirect) {
+      // Extract company numeric ID from the redirect URL
+      const companyIdMatch = currentUrl.match(/\/company\/(\d+)\//);
+      const companyId = companyIdMatch ? companyIdMatch[1] : null;
+      const editUrl = companyId
+        ? `https://www.linkedin.com/company/${companyId}/admin/edit/?editPageActiveTab=info`
+        : `https://www.linkedin.com/company/${vanity}/admin/edit/?editPageActiveTab=info`;
+      await navigate(editUrl);
+      await page.waitForTimeout(3000);
+      await settle();
 
-    // Website, industry, specialties from the details section
-    const detailsDl = page.locator('dl.org-page-details__definition-list').first();
-    if (await detailsDl.count() > 0) {
-      const dtElements = await detailsDl.locator('dt').all();
-      const ddElements = await detailsDl.locator('dd').all();
-      for (let i = 0; i < Math.min(dtElements.length, ddElements.length); i++) {
-        const label = (await dtElements[i].innerText()).trim().toLowerCase();
-        const value = (await ddElements[i].innerText()).trim();
-        if (label.includes('website')) result.website = value;
-        if (label.includes('industry')) result.industry = value;
-        if (label.includes('specialties')) result.specialties = value.split(',').map((s) => s.trim());
+      // Name
+      const nameInput = page.locator('#organization-name-field');
+      if (await nameInput.count() > 0) {
+        result.name = (await nameInput.inputValue()).trim();
       }
-    }
 
-    // Logo
-    const logoImg = page.locator('img.org-top-card-primary-content__logo, img[class*="company-logo"]').first();
-    if (await logoImg.count() > 0) {
-      result.logo_url = await logoImg.getAttribute('src');
-    }
+      // Tagline as headline
+      const taglineInput = page.locator('#organization-tagline-field');
+      if (await taglineInput.count() > 0) {
+        result.tagline = (await taglineInput.inputValue()).trim();
+      }
 
-    // Cover
-    const coverImg = page.locator('img.org-top-card-background-image, img[class*="cover"]').first();
-    if (await coverImg.count() > 0) {
-      result.cover_url = await coverImg.getAttribute('src');
+      // About / description
+      const descInput = page.locator('#organization-description-field');
+      if (await descInput.count() > 0) {
+        result.about = (await descInput.inputValue()).trim();
+      }
+
+      // Website
+      const websiteInput = page.locator('#organization-website-field');
+      if (await websiteInput.count() > 0) {
+        result.website = (await websiteInput.inputValue()).trim();
+      }
+
+      // Industry
+      const industryInput = page.locator('#organization-industry-typeahead');
+      if (await industryInput.count() > 0) {
+        result.industry = (await industryInput.inputValue()).trim();
+      }
+    } else {
+      // Public page parsing
+      // Name
+      const nameEl = page.locator('h1, h2.org-top-card-summary__title').first();
+      if (await nameEl.count() > 0) {
+        result.name = (await nameEl.innerText()).trim();
+      }
+
+      // About / description
+      const aboutEl = page.locator('p.org-about-us-organization-description__text, section:has(h2:has-text("About")) p, div[class*="organization-description"]').first();
+      if (await aboutEl.count() > 0) {
+        result.about = (await aboutEl.innerText()).trim();
+      }
+
+      // Website, industry, specialties from the details section
+      const detailsDl = page.locator('dl.org-page-details__definition-list').first();
+      if (await detailsDl.count() > 0) {
+        const dtElements = await detailsDl.locator('dt').all();
+        const ddElements = await detailsDl.locator('dd').all();
+        for (let i = 0; i < Math.min(dtElements.length, ddElements.length); i++) {
+          const label = (await dtElements[i].innerText()).trim().toLowerCase();
+          const value = (await ddElements[i].innerText()).trim();
+          if (label.includes('website')) result.website = value;
+          if (label.includes('industry')) result.industry = value;
+          if (label.includes('specialties')) result.specialties = value.split(',').map((s) => s.trim());
+        }
+      }
+
+      // Logo
+      const logoImg = page.locator('img.org-top-card-primary-content__logo, img[class*="company-logo"]').first();
+      if (await logoImg.count() > 0) {
+        result.logo_url = await logoImg.getAttribute('src');
+      }
+
+      // Cover
+      const coverImg = page.locator('img.org-top-card-background-image, img[class*="cover"]').first();
+      if (await coverImg.count() > 0) {
+        result.cover_url = await coverImg.getAttribute('src');
+      }
     }
 
     res.json({ status: 'ok', company: result });
