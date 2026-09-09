@@ -198,13 +198,13 @@ class InstagrapiClient:
         time.sleep(sleep)
 
     def _is_throttle(self, exc: Exception) -> bool:
-        return isinstance(exc, (ClientThrottledError, PleaseWaitFewMinutes, RateLimitError, FeedbackRequired))
+        return isinstance(exc, ClientThrottledError | PleaseWaitFewMinutes | RateLimitError | FeedbackRequired)
 
     def _is_proxy_block(self, exc: Exception) -> bool:
         return isinstance(exc, ProxyAddressIsBlocked)
 
     def _is_session_error(self, exc: Exception) -> bool:
-        if isinstance(exc, (LoginRequired, ChallengeRequired)):
+        if isinstance(exc, LoginRequired | ChallengeRequired):
             return True
         msg = str(exc).lower()
         return any(k in msg for k in ("login_required", "loginrequired", "not authorized", "403"))
