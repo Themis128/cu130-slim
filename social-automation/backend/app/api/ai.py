@@ -3311,6 +3311,8 @@ async def _remove_background_white(image_b64: str, tolerance: int = 30) -> str:
 
     # Get pixel data
     pixels = img.load()
+    if pixels is None:
+        raise RuntimeError("Failed to load image pixel data")
     width, height = img.size
 
     for y in range(height):
@@ -3351,7 +3353,11 @@ async def generate_emoji(
     """
     import time as _time
 
-    from app.services.inference import _call_local_diffusers_txt2img, _call_workers_ai_image
+    from app.services.inference import (
+        _call_local_diffusers_txt2img,
+        _call_workers_ai_image,
+        _get_provider_config,
+    )
 
     # Check quota
     team_result = await db.execute(
