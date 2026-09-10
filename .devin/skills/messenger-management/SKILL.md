@@ -56,8 +56,8 @@ Messenger Platform API) and personal accounts (via browser bridge).
 │           └──────────┬──────────────┘                    │
 │                      │                                    │
 │              ┌───────┴────────┐                           │
-│              │  MCP Server    │  25 tools total            │
-│              │  (13 Messenger)│  (4 personal + 9 Page)     │
+│              │  MCP Server    │  27 tools total            │
+│              │  (15 Messenger)│  (6 personal + 9 Page)     │
 │              └────────────────┘                           │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -115,9 +115,9 @@ Personal Messenger requires a logged-in Facebook browser session via noVNC
 POST /api/v1/profile/browser/start {"platform": "facebook"}
 ```
 
-## MCP server tools (13 Messenger tools)
+## MCP server tools (15 Messenger tools)
 
-The SocialAuto MCP server exposes 25 total tools, 13 for Messenger:
+The SocialAuto MCP server exposes 27 total tools, 15 for Messenger:
 
 ### Page Messenger tools (9)
 
@@ -133,7 +133,7 @@ The SocialAuto MCP server exposes 25 total tools, 13 for Messenger:
 | `messenger_set_auto_reply` | Enable/configure AI auto-reply |
 | `messenger_unsubscribe` | Remove app subscription |
 
-### Personal + unified tools (4)
+### Personal + unified tools (6)
 
 | Tool | Purpose |
 |------|---------|
@@ -141,6 +141,8 @@ The SocialAuto MCP server exposes 25 total tools, 13 for Messenger:
 | `messenger_personal_conversations` | List personal Messenger conversations |
 | `messenger_personal_messages` | Read personal thread messages |
 | `messenger_personal_send` | Send personal Messenger message |
+| `messenger_personal_get_auto_reply` | Get personal auto-reply config |
+| `messenger_personal_set_auto_reply` | Enable/configure personal auto-reply |
 
 ## Webhook sidecar
 
