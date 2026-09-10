@@ -200,6 +200,36 @@ const platforms: PlatformSetup[] = [
     ],
   },
   {
+    id: 'messenger',
+    name: 'Messenger',
+    icon: Facebook,
+    color: 'bg-blue-500',
+    textColor: 'text-blue-500',
+    description: 'Facebook Messenger for Pages — send/receive messages, auto-reply',
+    devPortalUrl: 'https://developers.facebook.com/apps',
+    scopes: ['pages_messaging', 'pages_manage_metadata', 'pages_show_list'],
+    envVars: ['FACEBOOK_CLIENT_ID', 'FACEBOOK_CLIENT_SECRET', 'MESSENGER_VERIFY_TOKEN'],
+    steps: [
+      {
+        text: 'Messenger uses the same Meta app as Facebook. Ensure "Messenger" product is added.',
+        code: 'https://developers.facebook.com/apps',
+      },
+      {
+        text: 'In the Messenger settings, set the webhook URL to:',
+        code: 'http://localhost:8083/api/v1/messenger/webhook',
+      },
+      {
+        text: 'Set the Verify Token to match MESSENGER_VERIFY_TOKEN in your .env (default: cloudless_messenger_verify).',
+      },
+      {
+        text: 'Subscribe to fields: messages, messaging_postbacks, message_echoes.',
+      },
+      {
+        text: 'After connecting a Facebook Page, use the Messenger Setup endpoint to subscribe the Page and configure the greeting, Get Started button, and persistent menu.',
+      },
+    ],
+  },
+  {
     id: 'threads',
     name: 'Threads',
     icon: ThreadsIcon,

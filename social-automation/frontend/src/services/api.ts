@@ -496,6 +496,34 @@ export const secretsApi = {
     api.post(`/secrets/${key}`, { value, description }),
 }
 
+// Messenger Platform endpoints
+export const messengerApi = {
+  setup: (accountId: string, data?: { greeting_text?: string; enable_persistent_menu?: boolean; enable_get_started?: boolean }) =>
+    api.post(`/messenger/${accountId}/setup`, data || {}),
+  getProfile: (accountId: string) =>
+    api.get(`/messenger/${accountId}/profile`),
+  updateProfile: (accountId: string, data: Partial<{ greeting: unknown[]; get_started: Record<string, unknown>; persistent_menu: unknown[]; whitelisted_domains: string[]; ice_breakers: unknown[] }>) =>
+    api.put(`/messenger/${accountId}/profile`, data),
+  deleteProfileFields: (accountId: string, fields: string[]) =>
+    api.delete(`/messenger/${accountId}/profile`, { params: { fields: fields.join(',') } }),
+  unsubscribe: (accountId: string) =>
+    api.post(`/messenger/${accountId}/unsubscribe`),
+  sendMessage: (accountId: string, data: { recipient_psid: string; text?: string; image_url?: string; messaging_type?: string }) =>
+    api.post(`/messenger/${accountId}/send`, data),
+  sendQuickReplies: (accountId: string, data: { recipient_psid: string; text: string; quick_replies: unknown[] }) =>
+    api.post(`/messenger/${accountId}/send-quick-replies`, data),
+  getConversations: (accountId: string, limit?: number) =>
+    api.get(`/messenger/${accountId}/conversations`, { params: { limit: limit || 25 } }),
+  getConversationMessages: (accountId: string, conversationId: string, limit?: number) =>
+    api.get(`/messenger/${accountId}/conversations/${conversationId}`, { params: { limit: limit || 20 } }),
+  getUserProfile: (accountId: string, psid: string) =>
+    api.get(`/messenger/${accountId}/user/${psid}`),
+  getAutoReplyConfig: (accountId: string) =>
+    api.get(`/messenger/${accountId}/auto-reply`),
+  updateAutoReplyConfig: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
+    api.put(`/messenger/${accountId}/auto-reply`, data),
+}
+
 // Publishing endpoints
 export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
