@@ -994,5 +994,8 @@ async def update_personal_auto_reply(
     meta = account.meta_data or {}
     meta["personal_messenger_auto_reply"] = config.model_dump()
     account.meta_data = meta
+    # Force SQLAlchemy to detect the JSONB mutation
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(account, "meta_data")
     await db.commit()
     return {"status": "ok", "config": config.model_dump()}
