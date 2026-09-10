@@ -945,3 +945,54 @@ async def send_personal_message(
         raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
 
     return result
+
+
+# ── Personal Messenger auto-reply config ────────────────────────────
+
+
+class PersonalAutoReplyConfig(BaseModel):
+    """Auto-reply configuration for personal Messenger (browser bridge)."""
+    enabled: bool = False
+    system_prompt: str = "You are a helpful assistant for {page_name}. Reply concisely and professionally."
+    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    fallback_text: str = "Thanks for your message! I'll get back to you soon."
+    max_tokens: int = 200
+
+
+@router.get("/{account_id}/personal/auto-reply")
+async def get_personal_auto_reply(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get personal Messenger AI auto-reply configuration."""
+    account = await _get_facebook_user_account(db, account_id, current_user)
+    meta = account.meta_data or {}
+    config = meta.get("personal_messenger_auto_reply", {})
+    return {
+        "enabled": config.get("enabled", False),
+        "system_prompt": config.get(
+            "system_prompt",
+            "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
+        ),
+        "model": config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        "fallback_text": config.get("fallback_text", "Thanks for your message! I'll get back to you soon."),
+        "max_tokens": config.get("max_tokens", 200),
+        "last_checked": meta.get("personal_messenger_last_checked"),
+    }
+
+
+@router.put("/{account_id}/personal/auto-reply")
+async def update_personal_auto_reply(
+    account_id: uuid.UUID,
+    config: PersonalAutoReplyConfig,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update personal Messenger AI auto-reply configuration."""
+    account = await _get_facebook_user_account(db, account_id, current_user)
+    meta = account.meta_data or {}
+    meta["personal_messenger_auto_reply"] = config.model_dump()
+    account.meta_data = meta
+    await db.commit()
+    return {"status": "ok", "config": config.model_dump()}

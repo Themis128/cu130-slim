@@ -125,6 +125,7 @@ celery_app.conf.update(
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
+        "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "default"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -169,6 +170,13 @@ celery_app.conf.update(
         "check-linkedin-sessions": {
             "task": "app.worker.tasks.linkedin_session_check.check_linkedin_sessions",
             "schedule": crontab(minute=45, hour="*/12"),  # every 12h at :45
+        },
+        # Poll personal Messenger conversations for new messages and send
+        # AI auto-replies via browser bridge. Personal Messenger has no
+        # webhook support, so polling is the only option.
+        "poll-personal-messenger": {
+            "task": "app.worker.tasks.personal_messenger.poll_personal_messenger",
+            "schedule": 120.0,  # every 2 minutes
         },
     },
 )
