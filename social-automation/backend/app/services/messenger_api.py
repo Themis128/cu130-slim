@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 
-from app.services.facebook_api import FacebookAPIError, _validate_id, _sanitize_log_text
+from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
 
 FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
 DEFAULT_API_VERSION = "v26.0"
@@ -492,7 +492,6 @@ class MessengerAPIClient:
 
 def _interpolate_menu(menu: list[dict], **kwargs: str) -> list[dict]:
     """Replace {placeholders} in persistent menu URLs and titles."""
-    import copy
     import json
 
     raw = json.dumps(menu)

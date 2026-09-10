@@ -20,20 +20,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.messenger_api import (
-    DEFAULT_GREETING,
-    DEFAULT_GET_STARTED,
-    DEFAULT_PERSISTENT_MENU,
     MessengerAPIClient,
     parse_webhook_event,
 )
