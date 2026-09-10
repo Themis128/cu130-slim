@@ -215,7 +215,9 @@ class MessengerAPIClient:
         """DELETE /{page-id}/messenger_profile — remove specific properties."""
         url = self._url(f"{self.page_id}/messenger_profile")
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.delete(
+            # httpx.AsyncClient.delete() does not accept json=; use request().
+            resp = await client.request(
+                "DELETE",
                 url,
                 params=self._params(),
                 json={"fields": fields},
