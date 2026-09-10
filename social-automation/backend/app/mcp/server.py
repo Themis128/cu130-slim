@@ -553,6 +553,16 @@ async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResul
             account_id = arguments["account_id"]
             body = {"thread_id": arguments["thread_id"], "text": arguments["text"]}
             result = await _api_request("POST", f"/api/v1/messenger/{account_id}/personal/send", json_body=body)
+        elif name == "messenger_personal_get_auto_reply":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/auto-reply")
+        elif name == "messenger_personal_set_auto_reply":
+            account_id = arguments["account_id"]
+            body = {"enabled": arguments["enabled"]}
+            for opt in ("system_prompt", "model", "fallback_text", "max_tokens"):
+                if opt in arguments:
+                    body[opt] = arguments[opt]
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/personal/auto-reply", json_body=body)
         else:
             return CallToolResult(
                 content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],

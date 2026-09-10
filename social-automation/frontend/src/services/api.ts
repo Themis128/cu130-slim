@@ -535,6 +535,10 @@ export const messengerApi = {
     api.get(`/messenger/${accountId}/personal/conversations/${threadId}`),
   sendPersonalMessage: (accountId: string, data: { thread_id: string; text: string }) =>
     api.post(`/messenger/${accountId}/personal/send`, data),
+  getPersonalAutoReply: (accountId: string) =>
+    api.get(`/messenger/${accountId}/personal/auto-reply`),
+  updatePersonalAutoReply: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
+    api.put(`/messenger/${accountId}/personal/auto-reply`, data),
 }
 
 // Publishing endpoints

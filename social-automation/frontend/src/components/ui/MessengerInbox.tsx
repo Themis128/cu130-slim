@@ -225,6 +225,16 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
             </>
           )}
           {isPersonal && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSettings(!showSettings)}
+            >
+              <Bot className="h-4 w-4" />
+              Auto-Reply
+            </Button>
+          )}
+          {isPersonal && (
             <a
               href="http://localhost:6080/vnc.html"
               target="_blank"
@@ -256,6 +266,9 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
 
       {/* Auto-reply settings (Page only) */}
       {!isPersonal && showSettings && <AutoReplySettings accountId={accountId} />}
+
+      {/* Personal auto-reply settings */}
+      {isPersonal && showSettings && <PersonalAutoReplySettings accountId={accountId} />}
 
       {/* Error banner */}
       {errorMsg && (

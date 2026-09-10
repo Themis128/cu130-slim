@@ -12,7 +12,7 @@ from app.mcp.server import TOOLS, _handle_call_tool, _handle_list_tools  # noqa:
 
 class TestTools:
     def test_tool_count(self):
-        assert len(TOOLS) == 25
+        assert len(TOOLS) == 27
 
     def test_required_tools_present(self):
         names = {t.name for t in TOOLS}
@@ -27,6 +27,7 @@ class TestTools:
             "messenger_set_auto_reply", "messenger_unsubscribe",
             "messenger_list_all_accounts", "messenger_personal_conversations",
             "messenger_personal_messages", "messenger_personal_send",
+            "messenger_personal_get_auto_reply", "messenger_personal_set_auto_reply",
         }
         assert required.issubset(names)
 
@@ -44,7 +45,7 @@ class TestHandleListTools:
     @pytest.mark.asyncio
     async def test_returns_all_tools(self):
         result = await _handle_list_tools(None, ListToolsRequest(method="tools/list"))
-        assert len(result.tools) == 25
+        assert len(result.tools) == 27
 
 
 class TestHandleCallTool:
