@@ -12,6 +12,9 @@ account_type="page", meta_data.page_token).
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 import os
 import uuid
@@ -554,6 +557,21 @@ def _get_verify_token() -> str:
     return settings.MESSENGER_VERIFY_TOKEN or "cloudless_messenger_verify"
 
 
+def _verify_webhook_signature(raw_body: bytes, signature_header: str, app_secret: str) -> bool:
+    """Verify the X-Hub-Signature-256 header using HMAC-SHA256.
+
+    Meta signs every webhook POST body with HMAC-SHA256 keyed by the app
+    secret.  The header format is ``sha256=<hex_digest>``.  We verify over
+    the raw bytes before JSON parsing — Meta signs an escaped-unicode form
+    of the payload, so a re-serialized JSON string will not match.
+    """
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+    sent_sig = signature_header.split("=", 1)[1].strip()
+    expected_sig = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sent_sig, expected_sig)
+
+
 @router.get("/webhook", response_model=str)
 async def verify_webhook(
     hub_mode: str = Query("", alias="hub.mode"),
@@ -578,11 +596,21 @@ async def receive_webhook(
     """Receive and process Messenger webhook events.
 
     This endpoint:
-    1. Parses incoming messages
-    2. If auto-reply is enabled, generates an AI response and sends it
-    3. Stores the conversation for the inbox UI
+    1. Verifies the X-Hub-Signature-256 header (if app secret is configured)
+    2. Parses incoming messages
+    3. If auto-reply is enabled, generates an AI response and sends it
+    4. Stores the conversation for the inbox UI
     """
-    body = await request.json()
+    raw_body = await request.body()
+
+    # Verify webhook signature if FACEBOOK_APP_SECRET is set
+    app_secret = os.getenv("FACEBOOK_APP_SECRET", "")
+    if app_secret:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if not _verify_webhook_signature(raw_body, signature, app_secret):
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+    body = json.loads(raw_body)
     events = parse_webhook_event(body)
 
     processed = 0
