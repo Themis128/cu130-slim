@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { MessageCircle, Send, Settings, Bot, RefreshCw, Loader2 } from 'lucide-react'
+import { MessageCircle, Send, Settings, Bot, RefreshCw, Loader2, AlertCircle, User, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Textarea } from '@/components/ui/Textarea'
@@ -9,7 +9,8 @@ import { messengerApi } from '@/services/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 
-interface Conversation {
+// ── Page Messenger types (Graph API) ──────────────────────────────
+interface PageConversation {
   id: string
   snippet: string | null
   updated_time: string | null
@@ -18,46 +19,82 @@ interface Conversation {
   participants: { id?: string; name?: string }[] | null
 }
 
-interface Message {
+interface PageMessage {
   id: string
   message: string | null
   from_id: string | null
   created_time: string | null
 }
 
-interface MessengerInboxProps {
-  accountId: string
+// ── Personal Messenger types (browser bridge) ─────────────────────
+interface PersonalConversation {
+  name: string
+  preview: string
+  thread_id: string | null
+  url: string
+  unread: boolean
 }
 
-export function MessengerInbox({ accountId }: MessengerInboxProps) {
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
+interface PersonalMessage {
+  text: string
+  sender: 'me' | 'them'
+  timestamp: string | null
+}
+
+interface MessengerInboxProps {
+  accountId: string
+  accountType: 'page' | 'user'
+}
+
+export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) {
+  const [selectedThread, setSelectedThread] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const queryClient = useQueryClient()
 
-  // Fetch conversations
-  const { data: conversations, isLoading: loadingConvos } = useQuery({
-    queryKey: ['messenger-conversations', accountId],
-    queryFn: () => messengerApi.getConversations(accountId),
+  const isPersonal = accountType === 'user'
+
+  // ── Fetch conversations ───────────────────────────────────────────
+  const { data: conversationsData, isLoading: loadingConvos, error: convosError } = useQuery({
+    queryKey: ['messenger-conversations', accountId, accountType],
+    queryFn: () =>
+      isPersonal
+        ? messengerApi.getPersonalConversations(accountId)
+        : messengerApi.getConversations(accountId),
     enabled: !!accountId,
     refetchInterval: 30000,
+    retry: 1,
   })
 
-  // Fetch messages for selected conversation
-  const { data: messages, isLoading: loadingMessages } = useQuery({
-    queryKey: ['messenger-messages', accountId, selectedConversation],
-    queryFn: () => messengerApi.getConversationMessages(accountId, selectedConversation!),
-    enabled: !!selectedConversation,
+  // ── Fetch messages for selected thread ───────────────────────────
+  const { data: messagesData, isLoading: loadingMessages, error: messagesError } = useQuery({
+    queryKey: ['messenger-messages', accountId, accountType, selectedThread],
+    queryFn: () =>
+      isPersonal
+        ? messengerApi.getPersonalMessages(accountId, selectedThread!)
+        : messengerApi.getConversationMessages(accountId, selectedThread!),
+    enabled: !!selectedThread,
     refetchInterval: 10000,
+    retry: 1,
   })
 
-  // Send message mutation
+  // ── Send message mutation ────────────────────────────────────────
   const sendMutation = useMutation({
-    mutationFn: (data: { recipient_psid: string; text: string }) =>
-      messengerApi.sendMessage(accountId, data),
+    mutationFn: async (data: { text: string; threadId: string; recipientPsid?: string }) => {
+      if (isPersonal) {
+        return messengerApi.sendPersonalMessage(accountId, {
+          thread_id: data.threadId,
+          text: data.text,
+        })
+      }
+      return messengerApi.sendMessage(accountId, {
+        recipient_psid: data.recipientPsid || data.threadId,
+        text: data.text,
+      })
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messenger-messages', accountId, selectedConversation] })
-      queryClient.invalidateQueries({ queryKey: ['messenger-conversations', accountId] })
+      queryClient.invalidateQueries({ queryKey: ['messenger-messages', accountId, accountType, selectedThread] })
+      queryClient.invalidateQueries({ queryKey: ['messenger-conversations', accountId, accountType] })
       setReplyText('')
       toast.success('Message sent')
     },
@@ -67,7 +104,7 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
     },
   })
 
-  // Setup mutation
+  // ── Setup mutation (Page only) ───────────────────────────────────
   const setupMutation = useMutation({
     mutationFn: () => messengerApi.setup(accountId),
     onSuccess: () => {
@@ -80,95 +117,200 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
     },
   })
 
-  // Get recipient PSID from conversation participants
-  const getRecipientPsid = useCallback((conv: Conversation | undefined) => {
+  // ── Get recipient PSID from Page conversation participants ───────
+  const getRecipientPsid = useCallback((conv: PageConversation | undefined) => {
     if (!conv?.participants) return ''
-    // The participant that's not the Page is the recipient
     const participant = conv.participants.find((p) => p.id && p.id !== accountId)
     return participant?.id || ''
   }, [accountId])
 
   const handleSend = () => {
-    if (!replyText.trim() || !selectedConversation) return
-    const conv = conversations?.data?.find((c: Conversation) => c.id === selectedConversation)
-    const psid = getRecipientPsid(conv)
-    if (!psid) {
-      toast.error('Could not determine recipient PSID')
-      return
+    if (!replyText.trim() || !selectedThread) return
+    if (isPersonal) {
+      sendMutation.mutate({ text: replyText.trim(), threadId: selectedThread })
+    } else {
+      const conv = (conversationsData?.data as PageConversation[] | undefined)?.find(
+        (c) => c.id === selectedThread
+      )
+      const psid = getRecipientPsid(conv)
+      if (!psid) {
+        toast.error('Could not determine recipient PSID')
+        return
+      }
+      sendMutation.mutate({ text: replyText.trim(), threadId: selectedThread, recipientPsid: psid })
     }
-    sendMutation.mutate({ recipient_psid: psid, text: replyText.trim() })
   }
+
+  // ── Normalize conversations for rendering ────────────────────────
+  const normalizedConvos = (() => {
+    if (isPersonal) {
+      const raw = conversationsData?.data as { conversations?: PersonalConversation[] } | undefined
+      return (raw?.conversations || []).filter((c) => c.thread_id).map((c) => ({
+        id: c.thread_id!,
+        name: c.name,
+        preview: c.preview,
+        unread: c.unread,
+      }))
+    }
+    const raw = conversationsData?.data as PageConversation[] | undefined
+    return (raw || []).map((c) => ({
+      id: c.id,
+      name: c.participants?.find((p) => p.id !== accountId)?.name || 'Unknown',
+      preview: c.snippet || '',
+      unread: !!c.unread_count,
+    }))
+  })()
+
+  // ── Normalize messages for rendering ────────────────────────────
+  const normalizedMessages = (() => {
+    if (!messagesData?.data) return []
+    if (isPersonal) {
+      const raw = messagesData.data as { messages?: PersonalMessage[] }
+      return (raw.messages || []).map((m, i) => ({
+        id: `msg-${i}`,
+        text: m.text,
+        isMe: m.sender === 'me',
+        timestamp: m.timestamp,
+      }))
+    }
+    const raw = messagesData.data as PageMessage[]
+    return (raw || []).map((m) => ({
+      id: m.id,
+      text: m.message || '',
+      isMe: m.from_id === accountId,
+      timestamp: m.created_time,
+    }))
+  })()
+
+  // ── Selected conversation name ──────────────────────────────────
+  const selectedConvoName = normalizedConvos.find((c) => c.id === selectedThread)?.name || 'Conversation'
+
+  // ── Error display ────────────────────────────────────────────────
+  const errorMsg = convosError
+    ? (convosError as Error)?.message || 'Failed to load conversations'
+    : null
 
   return (
     <div className="space-y-4">
-      {/* Setup button */}
+      {/* Header + actions */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           <MessageCircle className="h-5 w-5" />
-          Messenger Inbox
+          {isPersonal ? 'Personal Messenger' : 'Page Messenger'} Inbox
         </h3>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setupMutation.mutate()}
-            disabled={setupMutation.isPending}
-          >
-            {setupMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Settings className="h-4 w-4" />
-            )}
-            Setup Messenger
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSettings(!showSettings)}
-          >
-            <Bot className="h-4 w-4" />
-            Auto-Reply
-          </Button>
+          {!isPersonal && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setupMutation.mutate()}
+                disabled={setupMutation.isPending}
+              >
+                {setupMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Settings className="h-4 w-4" />
+                )}
+                Setup Messenger
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSettings(!showSettings)}
+              >
+                <Bot className="h-4 w-4" />
+                Auto-Reply
+              </Button>
+            </>
+          )}
+          {isPersonal && (
+            <a
+              href="http://localhost:6080/vnc.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+            >
+              <Monitor className="h-3 w-3" />
+              Open noVNC
+            </a>
+          )}
         </div>
       </div>
 
-      {showSettings && <AutoReplySettings accountId={accountId} />}
+      {/* Personal account browser bridge notice */}
+      {isPersonal && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-900 text-sm">
+          <AlertCircle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-medium text-blue-700 dark:text-blue-300">
+              Personal Messenger uses browser automation
+            </p>
+            <p className="text-blue-600 dark:text-blue-400 text-xs">
+              Requires a logged-in Facebook session via noVNC. If conversations don't load,
+              open the noVNC viewer and log in to Facebook.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-reply settings (Page only) */}
+      {!isPersonal && showSettings && <AutoReplySettings accountId={accountId} />}
+
+      {/* Error banner */}
+      {errorMsg && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 text-sm">
+          <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium text-red-700 dark:text-red-300">Error loading conversations</p>
+            <p className="text-red-600 dark:text-red-400 text-xs mt-1">{errorMsg}</p>
+            {isPersonal && (
+              <p className="text-red-600 dark:text-red-400 text-xs mt-1">
+                This usually means the browser session is not logged in. Open noVNC and log in to Facebook.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Inbox layout */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[500px]">
         {/* Conversation list */}
         <Card className="md:col-span-1 overflow-hidden">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Conversations</CardTitle>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <User className="h-3 w-3" />
+              Conversations
+            </CardTitle>
           </CardHeader>
           <CardContent className="p-0 overflow-y-auto h-[420px]">
             {loadingConvos ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-5 w-5 animate-spin" />
               </div>
-            ) : conversations?.data?.length === 0 ? (
-              <p className="text-sm text-muted-foreground p-4 text-center">No conversations yet</p>
+            ) : normalizedConvos.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4 text-center">
+                {isPersonal ? 'No conversations found (or browser session not logged in)' : 'No conversations yet'}
+              </p>
             ) : (
               <div className="space-y-1">
-                {conversations?.data?.map((conv: Conversation) => (
+                {normalizedConvos.map((conv) => (
                   <button
                     key={conv.id}
-                    onClick={() => setSelectedConversation(conv.id)}
+                    onClick={() => setSelectedThread(conv.id)}
                     className={`w-full text-left p-3 hover:bg-accent border-b transition-colors ${
-                      selectedConversation === conv.id ? 'bg-accent' : ''
+                      selectedThread === conv.id ? 'bg-accent' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">
-                        {conv.participants?.find((p: { id?: string; name?: string }) => p.id !== accountId)?.name || 'Unknown'}
-                      </span>
-                      {conv.unread_count ? (
+                      <span className="text-sm font-medium truncate">{conv.name}</span>
+                      {conv.unread && (
                         <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-0.5">
-                          {conv.unread_count}
+                          ●
                         </span>
-                      ) : null}
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">{conv.snippet}</p>
+                    <p className="text-xs text-muted-foreground truncate">{conv.preview}</p>
                   </button>
                 ))}
               </div>
@@ -178,36 +320,47 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
 
         {/* Message thread */}
         <Card className="md:col-span-2 overflow-hidden flex flex-col">
-          {selectedConversation ? (
+          {selectedThread ? (
             <>
               <CardHeader className="pb-2 border-b">
-                <CardTitle className="text-sm">
-                  {conversations?.data?.find((c: Conversation) => c.id === selectedConversation)?.participants?.find((p: { id?: string; name?: string }) => p.id !== accountId)?.name || 'Conversation'}
-                </CardTitle>
+                <CardTitle className="text-sm">{selectedConvoName}</CardTitle>
               </CardHeader>
               <CardContent className="p-0 overflow-y-auto flex-1">
                 {loadingMessages ? (
                   <div className="flex items-center justify-center p-8">
                     <Loader2 className="h-5 w-5 animate-spin" />
                   </div>
+                ) : messagesError ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-center">
+                    <AlertCircle className="h-8 w-8 text-red-400 mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      {isPersonal
+                        ? 'Could not read messages. Browser session may have expired.'
+                        : 'Could not load messages for this conversation.'}
+                    </p>
+                  </div>
+                ) : normalizedMessages.length === 0 ? (
+                  <div className="flex items-center justify-center p-8">
+                    <p className="text-sm text-muted-foreground">No messages in this conversation</p>
+                  </div>
                 ) : (
                   <div className="space-y-2 p-4">
-                    {messages?.data?.map((msg: Message) => (
+                    {normalizedMessages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex ${msg.from_id === accountId ? 'justify-end' : 'justify-start'}`}
+                        className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
                           className={`max-w-[70%] rounded-lg p-2 text-sm ${
-                            msg.from_id === accountId
+                            msg.isMe
                               ? 'bg-blue-500 text-white'
                               : 'bg-accent'
                           }`}
                         >
-                          <p>{msg.message}</p>
-                          {msg.created_time && (
+                          <p>{msg.text}</p>
+                          {msg.timestamp && (
                             <p className="text-xs opacity-60 mt-1">
-                              {new Date(msg.created_time).toLocaleString()}
+                              {msg.timestamp}
                             </p>
                           )}
                         </div>
@@ -254,7 +407,7 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
   )
 }
 
-// Auto-reply settings component
+// Auto-reply settings component (Page only)
 function AutoReplySettings({ accountId }: { accountId: string }) {
   const queryClient = useQueryClient()
   const [config, setConfig] = useState({

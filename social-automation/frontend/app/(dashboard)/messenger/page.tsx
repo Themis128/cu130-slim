@@ -48,6 +48,12 @@ export default function MessengerPage() {
       a.platform === 'facebook' && a.status === 'active' && a.account_type === 'user'
   )
 
+  // Determine the account type of the currently selected account
+  const selectedAccount = (accountsData?.data || []).find(
+    (a: { id: string; account_type?: string }) => a.id === selectedAccountId
+  )
+  const selectedAccountType = selectedAccount?.account_type === 'user' ? 'user' : 'page'
+
   const sidecarStatus = sidecarData?.data
   const isOnline = sidecarStatus?.status === 'online'
   const isOffline = sidecarStatus?.status === 'offline' || sidecarStatus?.status === 'error'
@@ -232,11 +238,11 @@ export default function MessengerPage() {
 
       {/* Messenger Inbox */}
       {selectedAccountId ? (
-        <MessengerInbox accountId={selectedAccountId} />
+        <MessengerInbox accountId={selectedAccountId} accountType={selectedAccountType} />
       ) : (
         <Card>
           <CardContent className="flex items-center justify-center h-[200px] text-muted-foreground text-sm">
-            Select a Facebook Page to view Messenger inbox
+            Select a Facebook account to view Messenger inbox
           </CardContent>
         </Card>
       )}
