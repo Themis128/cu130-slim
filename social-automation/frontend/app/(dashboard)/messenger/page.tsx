@@ -39,7 +39,8 @@ export default function MessengerPage() {
   }, [accountsData, selectedAccountId])
 
   const fbPageAccounts = (accountsData?.data || []).filter(
-    (a: { platform: string; status: string }) => a.platform === 'facebook' && a.status === 'active'
+    (a: { platform: string; status: string; account_type?: string }) =>
+      a.platform === 'facebook' && a.status === 'active' && a.account_type === 'page'
   )
 
   const sidecarStatus = sidecarData?.data
@@ -161,19 +162,31 @@ export default function MessengerPage() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {fbPageAccounts.map((account: { id: string; display_name?: string; account_id?: string }) => (
-                <button
-                  key={account.id}
-                  onClick={() => setSelectedAccountId(account.id)}
-                  className={`px-4 py-2 rounded-lg border text-sm transition-colors ${
-                    selectedAccountId === account.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-card hover:bg-accent border-border'
-                  }`}
-                >
-                  {account.display_name || account.account_id || 'Facebook Page'}
-                </button>
-              ))}
+              {fbPageAccounts.map((account: { id: string; display_name?: string; account_id?: string; meta_data?: { messenger_setup?: { subscribed?: boolean } } }) => {
+                const isSetup = account.meta_data?.messenger_setup?.subscribed === true
+                return (
+                  <button
+                    key={account.id}
+                    onClick={() => setSelectedAccountId(account.id)}
+                    className={`px-4 py-2 rounded-lg border text-sm transition-colors flex items-center gap-2 ${
+                      selectedAccountId === account.id
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-card hover:bg-accent border-border'
+                    }`}
+                  >
+                    {account.display_name || account.account_id || 'Facebook Page'}
+                    {isSetup && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        selectedAccountId === account.id
+                          ? 'bg-primary-foreground/20 text-primary-foreground'
+                          : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                      }`}>
+                        ●
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
         </CardContent>
