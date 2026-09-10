@@ -2,13 +2,10 @@
 # Read messages from a personal Messenger thread via browser bridge
 # Usage: ./personal-read.sh <account_id> <thread_id>
 set -euo pipefail
-cd "$(dirname "$0")/../../.."
+PROJECT_ROOT="/home/tbaltzakis/cu130-slim"
 
-set +u
-set -a
-source .env 2>/dev/null || true
-set +a
-set -u
+SOCIAL_ADMIN_EMAIL=$(grep -E "^SOCIAL_ADMIN_EMAIL=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
+SOCIAL_ADMIN_PASSWORD=$(grep -E "^SOCIAL_ADMIN_PASSWORD=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
 
 ACCOUNT_ID="${1:?Usage: $0 <account_id> <thread_id>}"
 THREAD_ID="${2:?Usage: $0 <account_id> <thread_id>}"

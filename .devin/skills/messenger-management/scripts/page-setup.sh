@@ -2,13 +2,10 @@
 # Set up Messenger on a Facebook Page
 # Usage: ./page-setup.sh <account_id> [greeting_text]
 set -euo pipefail
-cd "$(dirname "$0")/../../.."
+PROJECT_ROOT="/home/tbaltzakis/cu130-slim"
 
-set +u
-set -a
-source .env 2>/dev/null || true
-set +a
-set -u
+SOCIAL_ADMIN_EMAIL=$(grep -E "^SOCIAL_ADMIN_EMAIL=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
+SOCIAL_ADMIN_PASSWORD=$(grep -E "^SOCIAL_ADMIN_PASSWORD=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
 
 ACCOUNT_ID="${1:?Usage: $0 <account_id> [greeting_text]}"
 GREETING="${2:-}"

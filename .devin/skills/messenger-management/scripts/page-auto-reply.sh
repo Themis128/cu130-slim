@@ -2,13 +2,10 @@
 # Get or set AI auto-reply config for a Page
 # Usage: ./page-auto-reply.sh <account_id> [get|set] [enabled] [system_prompt]
 set -euo pipefail
-cd "$(dirname "$0")/../../.."
+PROJECT_ROOT="/home/tbaltzakis/cu130-slim"
 
-set +u
-set -a
-source .env 2>/dev/null || true
-set +a
-set -u
+SOCIAL_ADMIN_EMAIL=$(grep -E "^SOCIAL_ADMIN_EMAIL=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
+SOCIAL_ADMIN_PASSWORD=$(grep -E "^SOCIAL_ADMIN_PASSWORD=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
 
 ACCOUNT_ID="${1:?Usage: $0 <account_id> [get|set] [enabled] [system_prompt]}"
 ACTION="${2:-get}"

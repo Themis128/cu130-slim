@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # List all Messenger-capable accounts (Pages + personal)
 set -euo pipefail
-cd "$(dirname "$0")/../../.."
+PROJECT_ROOT="/home/tbaltzakis/cu130-slim"
 
 set +u
-set +u
-set -a
-source .env 2>/dev/null || true
-set +a
-set -u
+SOCIAL_ADMIN_EMAIL=$(grep -E "^SOCIAL_ADMIN_EMAIL=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
+SOCIAL_ADMIN_PASSWORD=$(grep -E "^SOCIAL_ADMIN_PASSWORD=" "$PROJECT_ROOT/.env" | cut -d= -f2-)
 set -u
 
 TOKEN=$(curl -sf -X POST http://localhost:8083/api/v1/auth/login \
