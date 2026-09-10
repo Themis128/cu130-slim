@@ -614,42 +614,76 @@ async def receive_webhook(
     events = parse_webhook_event(body)
 
     processed = 0
+    sidecar_url = os.getenv("MESSENGER_SIDECAR_URL", "")
+
     for event in events:
         page_id = event.get("page_id")
         sender_psid = event.get("sender_psid", "")
         message_text = event.get("message_text", "")
         message_type = event.get("message_type", "")
+        message_mid = event.get("message_id", "")
 
         if message_type in ("text", "postback") and sender_psid:
-            # Find the Facebook Page account for this page_id
-            result = await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "facebook",
-                    SocialAccount.account_id == page_id,
-                    SocialAccount.account_type == "page",
-                )
-            )
-            account = result.scalar_one_or_none()
-            if not account:
-                logger.warning("No Facebook Page account found for page_id=%s", page_id)
-                continue
-
-            # Check if auto-reply is enabled
-            meta = account.meta_data or {}
-            auto_reply = meta.get("messenger_auto_reply", {})
-            if not auto_reply.get("enabled", False):
-                continue
-
-            # Generate and send AI auto-reply
-            try:
-                await _generate_and_send_auto_reply(
-                    account, sender_psid, message_text, auto_reply
-                )
+            # Dispatch to sidecar for async processing (if configured)
+            if sidecar_url:
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=5) as client:
+                        await client.post(
+                            f"{sidecar_url}/process",
+                            json={
+                                "page_id": page_id,
+                                "sender_psid": sender_psid,
+                                "recipient_id": page_id,
+                                "message_text": message_text,
+                                "message_type": message_type,
+                                "message_mid": message_mid,
+                                "timestamp": event.get("timestamp", 0),
+                            },
+                        )
+                    processed += 1
+                except Exception as e:
+                    logger.warning("Sidecar dispatch failed, falling back to inline: %s", e)
+                    # Fall back to inline processing
+                    await _process_inline(db, page_id, sender_psid, message_text, message_type)
+                    processed += 1
+            else:
+                # No sidecar — process inline
+                await _process_inline(db, page_id, sender_psid, message_text, message_type)
                 processed += 1
-            except Exception as e:
-                logger.error("Auto-reply failed for page_id=%s: %s", page_id, e)
 
     return {"status": "ok", "events_received": len(events), "auto_replies_sent": processed}
+
+
+async def _process_inline(
+    db: AsyncSession,
+    page_id: str,
+    sender_psid: str,
+    message_text: str,
+    message_type: str,
+) -> None:
+    """Process a message inline (fallback when sidecar is unavailable)."""
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.platform == "facebook",
+            SocialAccount.account_id == page_id,
+            SocialAccount.account_type == "page",
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        logger.warning("No Facebook Page account found for page_id=%s", page_id)
+        return
+
+    meta = account.meta_data or {}
+    auto_reply = meta.get("messenger_auto_reply", {})
+    if not auto_reply.get("enabled", False):
+        return
+
+    try:
+        await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
+    except Exception as e:
+        logger.error("Auto-reply failed for page_id=%s: %s", page_id, e)
 
 
 async def _generate_and_send_auto_reply(

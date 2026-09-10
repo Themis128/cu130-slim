@@ -178,6 +178,8 @@ class Settings(BaseSettings):
 
     # Messenger Platform — webhook verification token (set in Meta app dashboard)
     MESSENGER_VERIFY_TOKEN: str = "cloudless_messenger_verify"
+    # Messenger webhook sidecar URL (async event processing)
+    MESSENGER_SIDECAR_URL: str = ""
 
     THREADS_CLIENT_ID: str = ""
     THREADS_CLIENT_SECRET: str = ""

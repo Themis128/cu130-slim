@@ -624,6 +624,8 @@ services:
     # Facebook Browser Automation sidecar (Playwright)
     # Personal-profile posting + profile edits the Graph API does not support.
     - FACEBOOK_BROWSER_SIDECAR_URL=http://facebook-browser-sidecar:9226
+    # Messenger webhook sidecar (async event processing)
+    - MESSENGER_SIDECAR_URL=http://messenger-sidecar:9229
     volumes:
     - ./.env:/app/.env:ro
     - ./social-automation/backend/app:/app/app
@@ -1100,6 +1102,38 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+    <<: *public-dns
+
+  # ── Messenger webhook sidecar ───────────────────────────────────────────
+  # Async webhook event processor for Facebook Messenger.  Receives events
+  # from social-api's /messenger/webhook POST endpoint and processes them
+  # (AI auto-reply, conversation persistence) without blocking the main API.
+  # Free, self-hosted — uses Cloudflare Workers AI (free) with DMR fallback.
+  messenger-sidecar:
+    build:
+      context: ./messenger-sidecar
+      dockerfile: Dockerfile
+    container_name: messenger-sidecar
+    networks:
+    - backend
+    ports:
+    - 9229:9229
+    environment:
+    - SOCIAL_API_URL=http://social-api:8083
+    - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL:-}
+    - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD:-}
+    - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+    - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+    - DMR_BASE_URL=http://host.docker.internal:12434
+    - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
+    - TZ=Europe/Athens
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9229/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
     <<: *public-dns
 

@@ -209,6 +209,119 @@ TOOLS: list[Tool] = [
         description="Get the brand profile (name, tagline, mission, values, visual identity)",
         input_schema={"type": "object", "properties": {}, "required": []},
     ),
+    # ── Messenger Platform tools ──────────────────────────────────────
+    Tool(
+        name="messenger_setup",
+        description="Set up Messenger on a Facebook Page (subscribe to webhooks + configure default profile with greeting, Get Started, persistent menu)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "greeting_text": {"type": "string", "description": "Custom greeting text (optional)"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_profile",
+        description="Get the Messenger Profile for a Facebook Page (greeting, menu, domains, subscription)",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_update_profile",
+        description="Update Messenger Profile properties. At least one field required.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "greeting": {"type": "array", "items": {"type": "object"}, "description": "Greeting messages (deprecated by Meta, use ice_breakers)"},
+                "get_started": {"type": "object", "description": "Get Started button config, e.g. {\"payload\": \"GET_STARTED\"}"},
+                "persistent_menu": {"type": "array", "items": {"type": "object"}, "description": "Persistent menu config"},
+                "whitelisted_domains": {"type": "array", "items": {"type": "string"}, "description": "Allowed domains for Messenger Extensions"},
+                "ice_breakers": {"type": "array", "items": {"type": "object"}, "description": "Ice breaker questions"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_send_message",
+        description="Send a text or image message to a person on Messenger. Must be within 24 hours of their last message (RESPONSE messaging type).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "recipient_psid": {"type": "string", "description": "Page-Scoped ID of the recipient"},
+                "text": {"type": "string", "description": "Text message content"},
+                "image_url": {"type": "string", "description": "Image URL to send"},
+                "messaging_type": {"type": "string", "description": "RESPONSE (default), UPDATE, MESSAGE_TAG"},
+            },
+            "required": ["account_id", "recipient_psid"],
+        },
+    ),
+    Tool(
+        name="messenger_list_conversations",
+        description="List Messenger conversations for a Facebook Page",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "limit": {"type": "integer", "description": "Max results (default 25)"},
+                "platform": {"type": "string", "description": "Filter: messenger (default), instagram"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_messages",
+        description="Get messages in a specific conversation thread",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "conversation_id": {"type": "string", "description": "Conversation thread ID"},
+                "limit": {"type": "integer", "description": "Max messages (default 20)"},
+            },
+            "required": ["account_id", "conversation_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_auto_reply",
+        description="Get the AI auto-reply configuration for a Messenger account",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_set_auto_reply",
+        description="Enable/disable or configure AI auto-reply for Messenger. Uses Cloudflare Workers AI (free) with DMR (local) fallback.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
+                "system_prompt": {"type": "string", "description": "System prompt for AI (supports {page_name} placeholder)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "fallback_text": {"type": "string", "description": "Fallback text if AI fails"},
+                "max_tokens": {"type": "integer", "description": "Max response tokens (default 200)"},
+            },
+            "required": ["account_id", "enabled"],
+        },
+    ),
+    Tool(
+        name="messenger_unsubscribe",
+        description="Remove the app's Messenger subscription from a Facebook Page",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
 ]
 
 
@@ -266,6 +379,56 @@ async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResul
             result = await _api_request("GET", f"/api/v1/profile/{arguments['account_id']}")
         elif name == "get_brand":
             result = await _api_request("GET", "/api/v1/brand")
+        # ── Messenger Platform handlers ───────────────────────────────
+        elif name == "messenger_setup":
+            account_id = arguments["account_id"]
+            body = {}
+            if "greeting_text" in arguments:
+                body["greeting_text"] = arguments["greeting_text"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/setup", json_body=body)
+        elif name == "messenger_get_profile":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/profile")
+        elif name == "messenger_update_profile":
+            account_id = arguments["account_id"]
+            body = {k: v for k, v in arguments.items() if k != "account_id" and v is not None}
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/profile", json_body=body)
+        elif name == "messenger_send_message":
+            account_id = arguments["account_id"]
+            body = {
+                "recipient_psid": arguments["recipient_psid"],
+                "messaging_type": arguments.get("messaging_type", "RESPONSE"),
+            }
+            if "text" in arguments:
+                body["text"] = arguments["text"]
+            if "image_url" in arguments:
+                body["image_url"] = arguments["image_url"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/send", json_body=body)
+        elif name == "messenger_list_conversations":
+            account_id = arguments["account_id"]
+            params = {"limit": arguments.get("limit", 25), "platform": arguments.get("platform", "messenger")}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations", params=params)
+        elif name == "messenger_get_messages":
+            account_id = arguments["account_id"]
+            conv_id = arguments["conversation_id"]
+            params = {"limit": arguments.get("limit", 20)}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations/{conv_id}", params=params)
+        elif name == "messenger_get_auto_reply":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/auto-reply")
+        elif name == "messenger_set_auto_reply":
+            account_id = arguments["account_id"]
+            body = {
+                "enabled": arguments["enabled"],
+                "system_prompt": arguments.get("system_prompt", "You are a helpful assistant for {page_name}. Reply concisely and professionally."),
+                "model": arguments.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+                "fallback_text": arguments.get("fallback_text", "Thanks for your message! We'll get back to you soon."),
+                "max_tokens": arguments.get("max_tokens", 200),
+            }
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/auto-reply", json_body=body)
+        elif name == "messenger_unsubscribe":
+            account_id = arguments["account_id"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/unsubscribe")
         else:
             return CallToolResult(
                 content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],
