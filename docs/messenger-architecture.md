@@ -15,12 +15,12 @@ processing, and unified MCP tool access across both channels.
 │   │  Frontend    │         │  SocialAuto  │         │  MCP Server  │     │
 │   │  (Next.js)   │         │  REST API    │         │  (27 tools)  │     │
 │   │              │         │  (FastAPI)   │         │              │     │
-│   │ /messenger   │────────▶│              │◀────────│  13 Messenger│     │
+│   │ /messenger   │────────▶│              │◀────────│  15 Messenger│     │
 │   │              │         │              │         │  tools       │     │
 │   │ Page inbox   │         │  /api/v1/    │         │              │     │
 │   │ Personal     │         │  messenger/* │         │  Page (9)    │     │
 │   │ inbox        │         │              │         │  Personal (4)│     │
-│   │ Auto-reply   │         │              │         │  Unified (2) │     │
+│   │ Auto-reply   │         │              │         │  AutoRply (2)│     │
 │   │ settings     │         │              │         │              │     │
 │   └──────────────┘         └──────┬───────┘         └──────────────┘     │
 │                                    │                                      │

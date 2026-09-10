@@ -234,12 +234,12 @@ Configuration is stored in `meta_data.messenger_auto_reply`:
 
 ## MCP server integration
 
-The SocialAuto MCP server (`app/mcp/server.py`) exposes 9 Messenger tools
-to AI agents (Claude, Cursor, ChatGPT). The server runs inside the
-`social-api` container and is configured in `.devin/mcp_config.json` as
-`socialauto`.
+The SocialAuto MCP server (`app/mcp/server.py`) exposes 15 Messenger tools
+(9 Page + 6 personal/unified) as part of 27 total tools. The server runs
+inside the `social-api` container and is configured in `.devin/mcp_config.json`
+as `socialauto`.
 
-### MCP tools
+### MCP tools — Page Messenger (9)
 
 | Tool | Purpose |
 |------|---------|
@@ -252,6 +252,20 @@ to AI agents (Claude, Cursor, ChatGPT). The server runs inside the
 | `messenger_get_auto_reply` | Get AI auto-reply config |
 | `messenger_set_auto_reply` | Enable/configure AI auto-reply |
 | `messenger_unsubscribe` | Remove app subscription from Page |
+
+### MCP tools — Personal Messenger (6)
+
+| Tool | Purpose |
+|------|---------|
+| `messenger_list_all_accounts` | List all Messenger-capable accounts (Pages + personal) |
+| `messenger_personal_conversations` | List personal Messenger conversations (browser bridge) |
+| `messenger_personal_messages` | Read personal thread messages (browser bridge) |
+| `messenger_personal_send` | Send personal Messenger message (browser bridge) |
+| `messenger_personal_get_auto_reply` | Get personal auto-reply config |
+| `messenger_personal_set_auto_reply` | Enable/configure personal auto-reply |
+
+See `.devin/skills/messenger-management/SKILL.md` for personal Messenger
+architecture, Celery polling task, and browser bridge details.
 
 ### Usage with Claude/Cursor
 
