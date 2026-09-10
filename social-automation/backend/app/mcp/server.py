@@ -371,6 +371,40 @@ TOOLS: list[Tool] = [
             "required": ["account_id", "thread_id", "text"],
         },
     ),
+    Tool(
+        name="messenger_personal_get_auto_reply",
+        description=(
+            "Get AI auto-reply configuration for a personal Messenger "
+            "account (browser bridge). Returns enabled state, system "
+            "prompt, model, and last-checked timestamp."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook personal (user) account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_set_auto_reply",
+        description=(
+            "Enable or configure AI auto-reply for a personal Messenger "
+            "account (browser bridge). When enabled, a Celery task polls "
+            "conversations every 2 minutes and sends AI-generated replies "
+            "to new inbound messages."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
+                "system_prompt": {"type": "string", "description": "AI system prompt ({page_name} is replaced)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "fallback_text": {"type": "string", "description": "Fallback if AI fails"},
+                "max_tokens": {"type": "integer", "description": "Max response tokens (default: 200)"},
+            },
+            "required": ["account_id", "enabled"],
+        },
+    ),
 ]
 
 
