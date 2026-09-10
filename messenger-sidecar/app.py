@@ -6,8 +6,9 @@ This keeps the main API responsive (Meta requires 200 within 5 seconds)
 while allowing heavier work like AI auto-reply, conversation persistence,
 and analytics.
 
-The sidecar runs as a Docker Compose service on port 9230 and is called
-by the main API's webhook handler via internal HTTP.
+The sidecar runs as a Docker Compose service on port 9230 (not 9229 —
+airbyte-mcp health) and is called by the main API's webhook handler via
+internal HTTP.
 
 Endpoints:
     POST /process  — Process a webhook event (called by social-api)
@@ -287,4 +288,4 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=9229)
+    uvicorn.run(app, host="0.0.0.0", port=9230)
