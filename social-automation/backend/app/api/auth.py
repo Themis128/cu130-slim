@@ -8,7 +8,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
 from httpx_oauth.clients.linkedin import LinkedInOAuth2
 from httpx_oauth.oauth2 import BaseOAuth2, GetAccessTokenError, OAuth2Token
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,8 +317,7 @@ class UserResponse(BaseModel):
     two_factor_enabled: bool = False
     onboarding_completed: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RefreshRequest(BaseModel):
