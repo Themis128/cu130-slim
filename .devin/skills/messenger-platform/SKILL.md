@@ -7,7 +7,8 @@ description: >-
   endpoints. Use when enabling Messenger on a Facebook Page, configuring
   greeting/menu/ice-breakers, sending replies, viewing conversations,
   debugging webhook verification, signature errors, rate limits, or
-  setting up AI auto-reply with Cloudflare Workers AI.
+  setting up AI auto-reply with Cloudflare Workers AI. For personal
+  Messenger management, see the messenger-management skill instead.
 allowed-tools:
   - read
   - exec
@@ -21,6 +22,10 @@ triggers:
 # Messenger Platform
 
 Manage Facebook Messenger for Pages through the SocialAuto backend API.
+
+> **For personal Messenger accounts**, see the `messenger-management` skill
+> which covers both Page Messenger (Graph API) and personal Messenger
+> (browser bridge).
 
 ## When to use
 
