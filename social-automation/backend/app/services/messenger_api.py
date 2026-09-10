@@ -29,7 +29,8 @@ import httpx
 from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
 
 FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
-DEFAULT_API_VERSION = "v26.0"
+# Keep in sync with app/services/facebook_api.py to avoid version drift.
+DEFAULT_API_VERSION = "v25.0"
 DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,10 @@ def _validate_psid(value: str) -> str:
 # Messenger Profile defaults
 # ------------------------------------------------------------------
 
+# NOTE: Meta silently deprecated the ``greeting`` field — the API accepts
+# the POST (returns ``{"result": "success"}``) but the GET no longer
+# returns it on v25.0+. We still send it for backward compatibility with
+# older API versions, but callers should not rely on it being persisted.
 DEFAULT_GREETING = [
     {"locale": "default", "text": "Hi! 👋 Welcome to {page_name}. How can we help you today?"},
 ]
