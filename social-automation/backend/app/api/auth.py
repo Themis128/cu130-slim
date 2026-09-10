@@ -704,8 +704,7 @@ class NotificationPreferencesResponse(BaseModel):
     push_new_post: bool
     push_scheduled: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)

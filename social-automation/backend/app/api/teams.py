@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,8 +54,7 @@ class MemberResponse(BaseModel):
     name: str | None
     role: UserRole
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamResponse(BaseModel):
@@ -65,8 +64,7 @@ class TeamResponse(BaseModel):
     member_count: int
     role: UserRole
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamDetailResponse(BaseModel):

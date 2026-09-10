@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -90,8 +90,7 @@ class MediaAssetResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MediaListResponse(BaseModel):
@@ -848,8 +847,7 @@ class MediaCollectionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CollectionListResponse(BaseModel):

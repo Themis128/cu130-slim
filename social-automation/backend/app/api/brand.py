@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -134,8 +134,7 @@ class BrandOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandVoiceOut(BaseModel):
@@ -150,8 +149,7 @@ class BrandVoiceOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandVisualOut(BaseModel):
@@ -170,8 +168,7 @@ class BrandVisualOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandGuidelinesOut(BaseModel):
@@ -183,8 +180,7 @@ class BrandGuidelinesOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandAssetOut(BaseModel):
@@ -197,8 +193,7 @@ class BrandAssetOut(BaseModel):
     asset_metadata: dict = {}
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandFullOut(BaseModel):
@@ -221,8 +216,7 @@ class BrandFullOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── Brand CRUD ────────────────────────────────────────────────────────────────
@@ -875,8 +869,7 @@ class MentionOut(BaseModel):
     mentioned_at: datetime | None = None
     extra_data: dict = {}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CompetitorSnapshotOut(BaseModel):
@@ -890,8 +883,7 @@ class CompetitorSnapshotOut(BaseModel):
     top_post_engagement: int | None = None
     snapshot_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HealthScoreOut(BaseModel):

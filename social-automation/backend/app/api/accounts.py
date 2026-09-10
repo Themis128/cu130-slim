@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,8 +108,7 @@ class SocialAccountResponse(BaseModel):
     parent_account_id: str | None = None
     meta_data: dict = {}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConnectResponse(BaseModel):
