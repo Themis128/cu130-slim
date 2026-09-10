@@ -3,10 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
+set +u
+set +u
 set -a
 source .env 2>/dev/null || true
 set +a
-export SOCIAL_ADMIN_EMAIL SOCIAL_ADMIN_PASSWORD 2>/dev/null || true
+set -u
+set -u
 
 TOKEN=$(curl -sf -X POST http://localhost:8083/api/v1/auth/login \
   -H 'Content-Type: application/x-www-form-urlencoded' \

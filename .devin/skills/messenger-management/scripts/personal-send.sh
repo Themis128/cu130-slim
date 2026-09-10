@@ -4,9 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
+set +u
 set -a
 source .env 2>/dev/null || true
 set +a
+set -u
 
 ACCOUNT_ID="${1:?Usage: $0 <account_id> <thread_id> <text>}"
 THREAD_ID="${2:?Usage: $0 <account_id> <thread_id> <text>}"
