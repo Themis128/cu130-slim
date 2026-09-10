@@ -1120,7 +1120,7 @@ services:
     ports:
     - 9229:9229
     environment:
-    - SOCIAL_API_URL=http://social-api:8083
+    - SOCIAL_API_URL=http://social-api:8000
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL:-}
     - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD:-}
     - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}

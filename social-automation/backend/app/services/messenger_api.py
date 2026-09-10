@@ -544,10 +544,12 @@ def parse_webhook_event(body: dict) -> list[dict]:
                 "message_text": "",
                 "message_attachments": [],
                 "postback_payload": "",
+                "message_id": "",
             }
 
             if "message" in messaging:
                 msg = messaging["message"]
+                event["message_id"] = msg.get("mid", "")
                 if "text" in msg:
                     event["message_type"] = "text"
                     event["message_text"] = msg["text"]
