@@ -159,6 +159,17 @@ async def _get_account_and_config(page_id: str) -> tuple[str, str, dict, str] | 
             f"{SOCIAL_API_URL}/api/v1/accounts",
             headers={"Authorization": f"Bearer {token}"},
         )
+        if resp.status_code == 401:
+            # Token expired — clear cache and retry once
+            global _api_token
+            _api_token = ""
+            token = await _get_admin_token()
+            if not token:
+                return None
+            resp = await client.get(
+                f"{SOCIAL_API_URL}/api/v1/accounts",
+                headers={"Authorization": f"Bearer {token}"},
+            )
         if resp.status_code != 200:
             logger.error("Failed to list accounts: %s", resp.status_code)
             return None
@@ -182,7 +193,7 @@ _api_token: str = ""
 
 
 async def _get_admin_token() -> str:
-    """Get admin token from social-api."""
+    """Get admin token from social-api (re-authenticates on expiry)."""
     global _api_token
     if _api_token:
         return _api_token
