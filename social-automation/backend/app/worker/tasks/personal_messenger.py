@@ -23,7 +23,6 @@ The task runs every 2 minutes via Celery beat. It is non-fatal — a single
 account or conversation failure does not abort the loop.
 """
 import asyncio
-import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime

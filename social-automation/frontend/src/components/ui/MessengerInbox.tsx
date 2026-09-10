@@ -509,3 +509,110 @@ function AutoReplySettings({ accountId }: { accountId: string }) {
     </Card>
   )
 }
+
+// Personal auto-reply settings component (browser bridge)
+function PersonalAutoReplySettings({ accountId }: { accountId: string }) {
+  const queryClient = useQueryClient()
+  const [config, setConfig] = useState({
+    enabled: false,
+    system_prompt: 'You are a helpful assistant for {page_name}. Reply concisely and professionally.',
+    model: '@cf/meta/llama-3.1-8b-instruct',
+    fallback_text: 'Thanks for your message! I\'ll get back to you soon.',
+    max_tokens: 200,
+  })
+  const [lastChecked, setLastChecked] = useState<string | null>(null)
+
+  const configQuery = useQuery({
+    queryKey: ['personal-messenger-auto-reply', accountId],
+    queryFn: async () => {
+      const resp = await messengerApi.getPersonalAutoReply(accountId)
+      return resp.data
+    },
+    enabled: !!accountId,
+  })
+
+  useEffect(() => {
+    if (configQuery.data) {
+      const data = configQuery.data as typeof config & { last_checked?: string }
+      setConfig({
+        enabled: data.enabled,
+        system_prompt: data.system_prompt,
+        model: data.model,
+        fallback_text: data.fallback_text,
+        max_tokens: data.max_tokens,
+      })
+      setLastChecked(data.last_checked || null)
+    }
+  }, [configQuery.data])
+
+  const updateMutation = useMutation({
+    mutationFn: (data: typeof config) => messengerApi.updatePersonalAutoReply(accountId, data),
+    onSuccess: () => {
+      toast.success('Personal auto-reply settings saved')
+      queryClient.invalidateQueries({ queryKey: ['personal-messenger-auto-reply', accountId] })
+    },
+    onError: () => toast.error('Failed to save settings'),
+  })
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            AI Auto-Reply (Personal)
+          </label>
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+            className="h-4 w-4"
+          />
+        </div>
+        <div className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded">
+          When enabled, a Celery task polls your conversations every 2 minutes
+          and sends AI-generated replies to new inbound messages via the browser bridge.
+        </div>
+        {lastChecked && (
+          <div className="text-xs text-muted-foreground">
+            Last checked: {new Date(lastChecked).toLocaleString()}
+          </div>
+        )}
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground">System Prompt</label>
+          <Textarea
+            value={config.system_prompt}
+            onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
+            className="min-h-[60px]"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground">Model (Cloudflare Workers AI)</label>
+          <input
+            type="text"
+            value={config.model}
+            onChange={(e) => setConfig({ ...config, model: e.target.value })}
+            className="w-full p-2 border rounded text-sm"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground">Fallback Text</label>
+          <input
+            type="text"
+            value={config.fallback_text}
+            onChange={(e) => setConfig({ ...config, fallback_text: e.target.value })}
+            className="w-full p-2 border rounded text-sm"
+          />
+        </div>
+        <Button
+          onClick={() => updateMutation.mutate(config)}
+          disabled={updateMutation.isPending}
+          size="sm"
+        >
+          {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Save Settings
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
