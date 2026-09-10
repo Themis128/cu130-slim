@@ -15,6 +15,7 @@ from app.api import (
     mcp,
     media,
     media_enhance,
+    messenger,
     ops,
     profile,
     publishing,
@@ -44,6 +45,7 @@ api_router.include_router(brand.router, prefix="/brand", tags=["brand"])
 api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
+api_router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])

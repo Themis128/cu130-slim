@@ -176,6 +176,9 @@ class Settings(BaseSettings):
     FACEBOOK_USERNAME: str = ""
     FACEBOOK_PASSWORD: str = ""
 
+    # Messenger Platform — webhook verification token (set in Meta app dashboard)
+    MESSENGER_VERIFY_TOKEN: str = "cloudless_messenger_verify"
+
     THREADS_CLIENT_ID: str = ""
     THREADS_CLIENT_SECRET: str = ""
     THREADS_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/threads/callback"
