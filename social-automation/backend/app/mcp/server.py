@@ -322,6 +322,46 @@ TOOLS: list[Tool] = [
             "required": ["account_id"],
         },
     ),
+    # ── Personal Messenger tools (browser bridge) ──────────────────────
+    Tool(
+        name="messenger_list_all_accounts",
+        description="List all Messenger-capable accounts (Facebook Pages with Messenger Platform API + personal Facebook accounts with browser bridge). Returns account type, setup status, and which method to use.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+    ),
+    Tool(
+        name="messenger_personal_conversations",
+        description="List personal Messenger conversations for a Facebook personal (user) account via the browser bridge. Requires a logged-in Facebook browser session (noVNC).",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook personal (user) account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_messages",
+        description="Get messages from a personal Messenger conversation thread via the browser bridge. Requires a logged-in Facebook browser session.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "thread_id": {"type": "string", "description": "Conversation thread ID (from messenger_personal_conversations)"},
+            },
+            "required": ["account_id", "thread_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_send",
+        description="Send a message in a personal Messenger conversation via the browser bridge. Requires a logged-in Facebook browser session.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "thread_id": {"type": "string", "description": "Conversation thread ID"},
+                "text": {"type": "string", "description": "Message text to send"},
+            },
+            "required": ["account_id", "thread_id", "text"],
+        },
+    ),
 ]
 
 
@@ -429,6 +469,47 @@ async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResul
         elif name == "messenger_unsubscribe":
             account_id = arguments["account_id"]
             result = await _api_request("POST", f"/api/v1/messenger/{account_id}/unsubscribe")
+        # ── Personal Messenger handlers (browser bridge) ────────────────
+        elif name == "messenger_list_all_accounts":
+            accounts = await _api_request("GET", "/api/v1/accounts")
+            if isinstance(accounts, dict):
+                accounts = accounts.get("data", accounts.get("accounts", []))
+            messenger_accounts = []
+            for acct in accounts:
+                if acct.get("platform") != "facebook":
+                    continue
+                meta = acct.get("meta_data", {})
+                if acct.get("account_type") == "page":
+                    ms = meta.get("messenger_setup", {})
+                    messenger_accounts.append({
+                        "id": acct.get("id"),
+                        "name": acct.get("display_name") or acct.get("username"),
+                        "type": "page",
+                        "method": "Messenger Platform API",
+                        "messenger_subscribed": ms.get("subscribed", False),
+                        "page_id": acct.get("account_id"),
+                    })
+                elif acct.get("account_type") == "user":
+                    messenger_accounts.append({
+                        "id": acct.get("id"),
+                        "name": acct.get("display_name") or acct.get("username"),
+                        "type": "personal",
+                        "method": "Browser Bridge (noVNC login required)",
+                        "browser_logged_in": bool(meta.get("browser_storage_state")),
+                        "facebook_user_id": acct.get("account_id"),
+                    })
+            result = {"accounts": messenger_accounts, "count": len(messenger_accounts)}
+        elif name == "messenger_personal_conversations":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/conversations")
+        elif name == "messenger_personal_messages":
+            account_id = arguments["account_id"]
+            thread_id = arguments["thread_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/conversations/{thread_id}")
+        elif name == "messenger_personal_send":
+            account_id = arguments["account_id"]
+            body = {"thread_id": arguments["thread_id"], "text": arguments["text"]}
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/personal/send", json_body=body)
         else:
             return CallToolResult(
                 content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],
