@@ -6,7 +6,7 @@ This keeps the main API responsive (Meta requires 200 within 5 seconds)
 while allowing heavier work like AI auto-reply, conversation persistence,
 and analytics.
 
-The sidecar runs as a Docker Compose service on port 9229 and is called
+The sidecar runs as a Docker Compose service on port 9230 and is called
 by the main API's webhook handler via internal HTTP.
 
 Endpoints:
@@ -118,7 +118,7 @@ async def _handle_message(event: WebhookEvent) -> None:
             logger.warning("No Facebook Page account found for page_id=%s", event.page_id)
             return
 
-        account_id, page_token, auto_reply_config = account_info
+        account_id, page_token, auto_reply_config, page_name = account_info
 
         if not auto_reply_config.get("enabled", False):
             logger.debug("Auto-reply disabled for page_id=%s", event.page_id)
@@ -129,7 +129,7 @@ async def _handle_message(event: WebhookEvent) -> None:
 
         # Generate AI response
         reply_text = await _generate_ai_response(
-            auto_reply_config, event.message_text, account_info[3]  # page_name
+            auto_reply_config, event.message_text, page_name
         )
 
         # Send the reply
@@ -287,4 +287,4 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=9229)
+    uvicorn.run(app, host="0.0.0.0", port=9230)

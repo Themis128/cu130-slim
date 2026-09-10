@@ -118,7 +118,7 @@ async def _handle_message(event: WebhookEvent) -> None:
             logger.warning("No Facebook Page account found for page_id=%s", event.page_id)
             return
 
-        account_id, page_token, auto_reply_config = account_info
+        account_id, page_token, auto_reply_config, page_name = account_info
 
         if not auto_reply_config.get("enabled", False):
             logger.debug("Auto-reply disabled for page_id=%s", event.page_id)
@@ -129,7 +129,7 @@ async def _handle_message(event: WebhookEvent) -> None:
 
         # Generate AI response
         reply_text = await _generate_ai_response(
-            auto_reply_config, event.message_text, account_info[3]  # page_name
+            auto_reply_config, event.message_text, page_name
         )
 
         # Send the reply
