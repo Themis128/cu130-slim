@@ -28,7 +28,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import httpx
-from celery import shared_task
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -86,7 +85,7 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
-@shared_task(name="app.worker.tasks.personal_messenger.poll_and_reply")
+@celery_app.task(name="app.worker.tasks.personal_messenger.poll_personal_messenger")
 def poll_personal_messenger() -> dict:
     """Poll personal Messenger conversations and send AI auto-replies."""
     return _run_async(_poll_personal_messenger_async())
