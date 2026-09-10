@@ -28,7 +28,7 @@ export interface TeamMember {
 export interface SocialAccount {
   id: string
   team_id: string
-  platform: 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'threads' | 'tiktok'
+  platform: 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'threads' | 'tiktok' | 'messenger'
   account_id: string
   username: string | null
   display_name: string | null

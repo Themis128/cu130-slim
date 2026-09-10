@@ -30,6 +30,7 @@ interface PlatformOption {
 const PLATFORMS: PlatformOption[] = [
   { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: 'bg-blue-600' },
   { id: 'facebook', name: 'Facebook', icon: Facebook, color: 'bg-blue-700' },
+  { id: 'messenger', name: 'Messenger', icon: Facebook, color: 'bg-blue-500' },
   { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'bg-gradient-to-br from-purple-500 to-pink-500' },
   { id: 'twitter', name: 'Twitter / X', icon: Twitter, color: 'bg-sky-500' },
   { id: 'threads', name: 'Threads', icon: ThreadsIcon, color: 'bg-gray-900' },
