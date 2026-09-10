@@ -447,6 +447,10 @@ export const profileApi = {
   },
   login: (id: string, data: { username?: string; password?: string; verification_code?: string }) =>
     api.post(`/profile/${id}/login`, data),
+  getThreadsSettings: (id: string) =>
+    api.get(`/profile/${id}/threads/settings`),
+  updateThreadsSettings: (id: string, data: { show_instagram_badge?: boolean; show_recent_views?: boolean }) =>
+    api.put(`/profile/${id}/threads/settings`, data),
 }
 
 // Browser bridge endpoints (noVNC visual login)

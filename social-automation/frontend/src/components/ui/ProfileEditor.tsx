@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/Label'
 import { Badge } from '@/components/ui/Badge'
 import toast from 'react-hot-toast'
 import type { SocialAccount } from '@/types'
+import { profileApi } from '@/services/api'
 import {
   useProfile,
   useUpdateProfile,
@@ -402,9 +403,121 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
               {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Profile
             </Button>
+
+            {platform === 'threads' && <ThreadsSettings accountId={accountId} />}
           </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+
+// Threads profile settings (Show Instagram badge, Show recent views)
+function ThreadsSettings({ accountId }: { accountId: string }) {
+  const [showInstagramBadge, setShowInstagramBadge] = useState<boolean | null>(null)
+  const [showRecentViews, setShowRecentViews] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const loadSettings = async () => {
+    setLoading(true)
+    try {
+      const resp = await profileApi.getThreadsSettings(accountId)
+      setShowInstagramBadge(resp.data.show_instagram_badge)
+      setShowRecentViews(resp.data.show_recent_views)
+    } catch (err) {
+      // Settings may not be available if browser bridge is not running
+      const msg = err instanceof Error ? err.message : 'Failed to load Threads settings'
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadSettings()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId])
+
+  const handleToggle = async (field: 'show_instagram_badge' | 'show_recent_views', value: boolean) => {
+    setSaving(true)
+    try {
+      await profileApi.updateThreadsSettings(accountId, { [field]: value })
+      if (field === 'show_instagram_badge') setShowInstagramBadge(value)
+      if (field === 'show_recent_views') setShowRecentViews(value)
+      toast.success('Threads setting updated')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update Threads setting'
+      toast.error(msg)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 pt-4 border-t">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Threads Profile Settings</Label>
+        <Button variant="ghost" size="sm" onClick={loadSettings} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These settings are managed through the Threads Edit profile page via the browser bridge.
+      </p>
+
+      {/* Show Instagram badge toggle */}
+      <div className="flex items-center justify-between p-3 rounded-lg border">
+        <div className="space-y-0.5">
+          <div className="text-sm font-medium">Show Instagram badge</div>
+          <div className="text-xs text-muted-foreground">
+            Display the Instagram badge on your Threads profile
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showInstagramBadge ?? false}
+          disabled={saving || showInstagramBadge === null}
+          onClick={() => handleToggle('show_instagram_badge', !showInstagramBadge)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+            showInstagramBadge ? 'bg-primary' : 'bg-muted'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+              showInstagramBadge ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Show recent views toggle */}
+      <div className="flex items-center justify-between p-3 rounded-lg border">
+        <div className="space-y-0.5">
+          <div className="text-sm font-medium">Show recent views</div>
+          <div className="text-xs text-muted-foreground">
+            This will be public on your profile when you get 10K+ recent views.
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showRecentViews ?? false}
+          disabled={saving || showRecentViews === null}
+          onClick={() => handleToggle('show_recent_views', !showRecentViews)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+            showRecentViews ? 'bg-primary' : 'bg-muted'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+              showRecentViews ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+    </div>
   )
 }

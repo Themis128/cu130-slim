@@ -498,6 +498,85 @@ async def platform_login(
     )
 
 
+# ── Threads profile settings (browser bridge) ───────────────────────────────
+
+
+class ThreadsSettingsResponse(BaseModel):
+    """Threads profile settings read from the Edit profile page."""
+    show_instagram_badge: bool | None = None
+    show_recent_views: bool | None = None
+
+
+class ThreadsSettingsUpdateRequest(BaseModel):
+    """Toggle Threads profile settings."""
+    show_instagram_badge: bool | None = None
+    show_recent_views: bool | None = None
+
+
+@router.get("/{account_id}/threads/settings", response_model=ThreadsSettingsResponse)
+async def get_threads_settings(
+    account_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read Threads profile settings (Show Instagram badge, Show recent views).
+
+    These settings have no official Threads API — they are read from the
+    Edit profile page via the browser bridge.
+    """
+    account = await _get_account(account_id, current_user, db)
+    if account.platform != "threads":
+        raise HTTPException(status_code=400, detail="This endpoint is for Threads accounts only")
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client()
+    try:
+        settings = await bridge.get_threads_settings(account.username)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads settings read failed: {e.detail}")
+
+    return ThreadsSettingsResponse(
+        show_instagram_badge=settings.get("show_instagram_badge"),
+        show_recent_views=settings.get("show_recent_views"),
+    )
+
+
+@router.put("/{account_id}/threads/settings", response_model=ProfileUpdateResponse)
+async def update_threads_settings(
+    account_id: uuid.UUID,
+    req: ThreadsSettingsUpdateRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle Threads profile settings (Show Instagram badge, Show recent views).
+
+    These settings have no official Threads API — they are toggled on the
+    Edit profile page via the browser bridge.
+    """
+    account = await _get_account(account_id, current_user, db)
+    if account.platform != "threads":
+        raise HTTPException(status_code=400, detail="This endpoint is for Threads accounts only")
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client()
+    try:
+        result = await bridge.update_threads_settings(
+            account.username,
+            show_instagram_badge=req.show_instagram_badge,
+            show_recent_views=req.show_recent_views,
+        )
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads settings update failed: {e.detail}")
+
+    return ProfileUpdateResponse(
+        success=result.get("status") == "updated",
+        updated_fields=result.get("updated_fields", []),
+        message="Threads settings updated via browser bridge",
+    )
+
+
 # ── Instagram (private API) ──────────────────────────────────────────────────
 
 
