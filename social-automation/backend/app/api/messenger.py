@@ -802,3 +802,45 @@ async def _generate_ai_response(
         logger.warning("DMR AI failed: %s", e)
 
     return fallback
+
+
+@router.get("/sidecar/status", response_model=dict)
+async def sidecar_status() -> dict:
+    """Check the Messenger webhook sidecar health and stats.
+
+    Returns sidecar health, processing statistics, and configuration.
+    If the sidecar is not configured or unreachable, returns status=offline.
+    """
+    sidecar_url = os.getenv("MESSENGER_SIDECAR_URL", "")
+    if not sidecar_url:
+        return {
+            "status": "not_configured",
+            "url": "",
+            "message": "MESSENGER_SIDECAR_URL not set — webhook events processed inline",
+        }
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            health_resp = await client.get(f"{sidecar_url}/health")
+            stats_resp = await client.get(f"{sidecar_url}/stats")
+
+        if health_resp.status_code == 200 and stats_resp.status_code == 200:
+            return {
+                "status": "online",
+                "url": sidecar_url,
+                "health": health_resp.json(),
+                "stats": stats_resp.json(),
+            }
+        return {
+            "status": "error",
+            "url": sidecar_url,
+            "message": f"Sidecar returned HTTP {health_resp.status_code}",
+        }
+    except Exception as e:
+        return {
+            "status": "offline",
+            "url": sidecar_url,
+            "message": f"Sidecar unreachable: {e}",
+        }

@@ -1,0 +1,216 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { MessengerInbox } from '@/components/ui/MessengerInbox'
+import { messengerApi, accountsApi } from '@/services/api'
+import { useQuery } from '@tanstack/react-query'
+
+export default function MessengerPage() {
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
+
+  // Fetch Facebook Page accounts
+  const { data: accountsData, isLoading: loadingAccounts } = useQuery({
+    queryKey: ['facebook-page-accounts'],
+    queryFn: () => accountsApi.list(),
+  })
+
+  // Fetch sidecar status
+  const { data: sidecarData, isLoading: loadingSidecar, refetch: refetchSidecar } = useQuery({
+    queryKey: ['messenger-sidecar-status'],
+    queryFn: () => messengerApi.getSidecarStatus(),
+    refetchInterval: 30000,
+  })
+
+  // Auto-select the first Facebook Page account
+  useEffect(() => {
+    if (!selectedAccountId && accountsData?.data) {
+      const accounts = accountsData.data
+      const fbPage = accounts.find(
+        (a: { platform: string; account_type?: string; status: string }) =>
+          a.platform === 'facebook' && a.status === 'active'
+      )
+      if (fbPage) {
+        setSelectedAccountId(fbPage.id)
+      }
+    }
+  }, [accountsData, selectedAccountId])
+
+  const fbPageAccounts = (accountsData?.data || []).filter(
+    (a: { platform: string; status: string }) => a.platform === 'facebook' && a.status === 'active'
+  )
+
+  const sidecarStatus = sidecarData?.data
+  const isOnline = sidecarStatus?.status === 'online'
+  const isOffline = sidecarStatus?.status === 'offline' || sidecarStatus?.status === 'error'
+  const isNotConfigured = sidecarStatus?.status === 'not_configured'
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <MessageCircle className="h-6 w-6" />
+          Messenger
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage Facebook Messenger for your Pages — send/receive messages, AI auto-reply, webhook events
+        </p>
+      </div>
+
+      {/* Sidecar status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Server className="h-4 w-4" />
+              Webhook Sidecar
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => refetchSidecar()}
+              disabled={loadingSidecar}
+            >
+              {loadingSidecar ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loadingSidecar ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking sidecar status...
+            </div>
+          ) : isOnline ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span className="font-medium text-green-600">Online</span>
+                <span className="text-muted-foreground">— {sidecarStatus?.url}</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                <StatCard
+                  label="Events Received"
+                  value={sidecarStatus?.stats?.events_received ?? 0}
+                  icon={<Activity className="h-3 w-3" />}
+                />
+                <StatCard
+                  label="Events Processed"
+                  value={sidecarStatus?.stats?.events_processed ?? 0}
+                  icon={<CheckCircle2 className="h-3 w-3" />}
+                />
+                <StatCard
+                  label="Auto-Replies Sent"
+                  value={sidecarStatus?.stats?.auto_replies_sent ?? 0}
+                  icon={<MessageCircle className="h-3 w-3" />}
+                />
+                <StatCard
+                  label="Errors"
+                  value={sidecarStatus?.stats?.errors ?? 0}
+                  icon={<AlertCircle className="h-3 w-3" />}
+                  error={sidecarStatus?.stats?.errors > 0}
+                />
+              </div>
+            </div>
+          ) : isNotConfigured ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4 text-yellow-500" />
+              <span>Sidecar not configured — webhook events are processed inline by the API</span>
+            </div>
+          ) : isOffline ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm">
+                <XCircle className="h-4 w-4 text-red-500" />
+                <span className="font-medium text-red-600">Offline</span>
+              </div>
+              <p className="text-xs text-muted-foreground">{sidecarStatus?.message}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Webhook events will fall back to inline processing in the API.
+              </p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Account selector */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Select Facebook Page</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingAccounts ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading accounts...
+            </div>
+          ) : fbPageAccounts.length === 0 ? (
+            <div className="text-sm text-muted-foreground space-y-2">
+              <p>No Facebook Page accounts connected.</p>
+              <p>
+                Connect a Facebook Page in the{' '}
+                <a href="/accounts" className="text-primary underline">Accounts</a> page first,
+                then use the Setup button below to enable Messenger.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {fbPageAccounts.map((account: { id: string; display_name?: string; account_id?: string }) => (
+                <button
+                  key={account.id}
+                  onClick={() => setSelectedAccountId(account.id)}
+                  className={`px-4 py-2 rounded-lg border text-sm transition-colors ${
+                    selectedAccountId === account.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-card hover:bg-accent border-border'
+                  }`}
+                >
+                  {account.display_name || account.account_id || 'Facebook Page'}
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Messenger Inbox */}
+      {selectedAccountId ? (
+        <MessengerInbox accountId={selectedAccountId} />
+      ) : (
+        <Card>
+          <CardContent className="flex items-center justify-center h-[200px] text-muted-foreground text-sm">
+            Select a Facebook Page to view Messenger inbox
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+  icon,
+  error,
+}: {
+  label: string
+  value: number
+  icon: React.ReactNode
+  error?: boolean
+}) {
+  return (
+    <div className={`p-3 rounded-lg border ${error ? 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950' : 'bg-accent/50'}`}>
+      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+        {icon}
+        {label}
+      </div>
+      <div className={`text-lg font-bold ${error ? 'text-red-600' : ''}`}>{value}</div>
+    </div>
+  )
+}

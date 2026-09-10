@@ -522,6 +522,8 @@ export const messengerApi = {
     api.get(`/messenger/${accountId}/auto-reply`),
   updateAutoReplyConfig: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
     api.put(`/messenger/${accountId}/auto-reply`, data),
+  getSidecarStatus: () =>
+    api.get('/messenger/sidecar/status'),
 }
 
 // Publishing endpoints

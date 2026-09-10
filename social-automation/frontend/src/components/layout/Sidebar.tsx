@@ -22,6 +22,7 @@ import {
   Palette,
   Monitor,
   Server,
+  MessageCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -39,6 +40,7 @@ const navigation = [
   { name: 'Workflows', href: '/workflows', icon: Zap },
   { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'Accounts', href: '/accounts', icon: Users },
+  { name: 'Messenger', href: '/messenger', icon: MessageCircle },
   { name: 'Team', href: '/team', icon: Users },
   { name: 'Browser Login', href: '/browser-login', icon: Monitor },
   { name: 'MCP Stack', href: '/mcp-stack', icon: Server },
