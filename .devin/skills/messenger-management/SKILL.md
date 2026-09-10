@@ -185,6 +185,50 @@ Config stored in `meta_data.messenger_auto_reply`:
 }
 ```
 
+### Personal Messenger auto-reply (Celery polling)
+
+Personal Messenger has **no webhook support** (Meta only provides the
+Messenger Platform API for Pages). Auto-reply uses a Celery polling task
+instead.
+
+**Task**: `app.worker.tasks.personal_messenger.poll_personal_messenger`
+**Schedule**: every 120 seconds (Celery beat)
+**Queue**: `default`
+
+Flow:
+1. Find Facebook personal accounts with auto-reply enabled
+2. Fetch conversations via browser bridge
+3. For each conversation with a thread_id:
+   - Read recent messages
+   - Find last inbound message (`sender: "them"`)
+   - Check if already replied (seen tracking)
+   - Generate AI response (CF Workers AI → DMR → fallback)
+   - Send reply via browser bridge
+   - Mark as seen, sleep 3s
+4. Update `last_checked` timestamp
+
+Config stored in `meta_data.personal_messenger_auto_reply`:
+```json
+{
+  "enabled": true,
+  "system_prompt": "You are Themistoklis Baltzakis from Cloudless.gr...",
+  "model": "@cf/meta/llama-3.1-8b-instruct",
+  "fallback_text": "Thanks for your message! I'll get back to you soon.",
+  "max_tokens": 200
+}
+```
+
+State tracking in `meta_data.personal_messenger_seen`:
+```json
+{
+  "1561707110777254": "last replied message text"
+}
+```
+
+API endpoints:
+- `GET  /api/v1/messenger/{id}/personal/auto-reply` — get config
+- `PUT  /api/v1/messenger/{id}/personal/auto-reply` — update config
+
 ## Scripts
 
 | Script | Purpose |
@@ -197,6 +241,7 @@ Config stored in `meta_data.messenger_auto_reply`:
 | `personal-conversations.sh` | List personal Messenger conversations |
 | `personal-send.sh` | Send personal Messenger message |
 | `personal-read.sh` | Read personal thread messages |
+| `personal-auto-reply.sh` | Get/set personal AI auto-reply config |
 | `webhook-test.sh` | Test webhook verification + event |
 | `sidecar-status.sh` | Check sidecar health + stats |
 
