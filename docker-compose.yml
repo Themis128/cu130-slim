@@ -1118,7 +1118,7 @@ services:
     networks:
     - backend
     ports:
-    - 9230:9230
+    - 9229:9229
     environment:
     - SOCIAL_API_URL=http://social-api:8000
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL:-}

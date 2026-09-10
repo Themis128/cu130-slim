@@ -287,4 +287,4 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=9230)
+    uvicorn.run(app, host="0.0.0.0", port=9229)

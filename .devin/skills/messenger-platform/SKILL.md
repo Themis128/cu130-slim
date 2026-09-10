@@ -221,3 +221,103 @@ Configuration is stored in `meta_data.messenger_auto_reply`:
 - [torgodly/messenger-bot](https://github.com/torgodly/messenger-bot) — Laravel Messenger webhooks with BotMan-style API
 - [captain-claw meta_webhook_bridge.py](https://github.com/kstevica/captain-claw) — Python webhook signature verification reference
 - [hookdeck/facebook-webhooks](https://hookdeck.com/webhooks/skills/facebook-webhooks) — Webhook verification skill reference
+- [Abdulrahman-Daney/Facebook_Messenger_MCP](https://github.com/Abdulrahman-Daney/Facebook_Messenger_MCP) — MCP tools for Messenger (send text/image/video/file/audio, get message details)
+- [anhln-embedded/fb-mcp-server](https://github.com/anhln-embedded/fb-mcp-server) — MCP bridge for personal Messenger via Chrome extension
+- [codustry/songmam](https://github.com/codustry/songmam) — Hypermodern Python Messenger library based on FastAPI with Pydantic models
+- [Prantho-das/ai-chat-bot](https://github.com/Prantho-das/ai-chat-bot) — FastAPI AI chatbot with FB Messenger + WhatsApp webhooks and Gemini AI
+- [trieu/leo-bot](https://github.com/trieu/leo-bot) — FastAPI AI chatbot with Messenger + Zalo OA, RAG, Redis rate limiting
+
+## MCP server integration
+
+The SocialAuto MCP server (`app/mcp/server.py`) exposes 9 Messenger tools
+to AI agents (Claude, Cursor, ChatGPT). The server runs inside the
+`social-api` container and is configured in `.devin/mcp_config.json` as
+`socialauto`.
+
+### MCP tools
+
+| Tool | Purpose |
+|------|---------|
+| `messenger_setup` | Set up Messenger on a Facebook Page |
+| `messenger_get_profile` | Get Messenger Profile |
+| `messenger_update_profile` | Update profile properties |
+| `messenger_send_message` | Send text/image message to a PSID |
+| `messenger_list_conversations` | List conversations |
+| `messenger_get_messages` | Get messages in a thread |
+| `messenger_get_auto_reply` | Get AI auto-reply config |
+| `messenger_set_auto_reply` | Enable/configure AI auto-reply |
+| `messenger_unsubscribe` | Remove app subscription from Page |
+
+### Usage with Claude/Cursor
+
+The MCP server is auto-configured via `.devin/mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "socialauto": {
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "-e", "SOCIALAUTO_URL=http://social-api:8000", "-e", "SOCIALAUTO_ADMIN_EMAIL=...", "-e", "SOCIALAUTO_ADMIN_PASSWORD=...", "social-api", "python3", "-m", "app.mcp.server"],
+      "cwd": "/home/tbaltzakis/cu130-slim"
+    }
+  }
+}
+```
+
+## Webhook sidecar
+
+The `messenger-sidecar` Docker Compose service (port 9229) is an async
+event processor that receives webhook events from the main API and
+processes them without blocking the webhook response (Meta requires 200
+within 5 seconds).
+
+### Architecture
+
+```
+Meta → social-api /messenger/webhook (POST)
+         ↓ (dispatch via HTTP, 5s timeout)
+    messenger-sidecar /process (POST)
+         ↓ (async background task)
+    ┌────────────────────────────────────┐
+    │ 1. Look up Facebook Page account   │
+    │ 2. Check auto-reply config         │
+    │ 3. Send typing_on indicator         │
+    │ 4. Generate AI response (CF/DMR)    │
+    │ 5. Send reply via Send API          │
+    │ 6. Send typing_off indicator        │
+    └────────────────────────────────────┘
+```
+
+### Features
+
+- **Idempotency**: Deduplicates by `message_mid` (10,000 entry cache)
+- **Fallback**: If sidecar is unavailable, main API processes inline
+- **AI chain**: Cloudflare Workers AI (free) → DMR (local) → fallback text
+- **Stats**: `GET /stats` shows events received, processed, auto-replies, errors
+- **Health**: `GET /health` for Docker healthcheck
+
+### Docker Compose
+
+```yaml
+messenger-sidecar:
+  build: ./messenger-sidecar
+  ports: ["9229:9229"]
+  environment:
+    - SOCIAL_API_URL=http://social-api:8000
+    - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+    - DMR_BASE_URL=http://host.docker.internal:12434
+```
+
+### GitHub repos evaluated for integration
+
+| Repo | Language | Integration | Status |
+|------|----------|-------------|--------|
+| `Abdulrahman-Daney/Facebook_Messenger_MCP` | Python | MCP tools for send/get messages | **Evaluated** — our MCP server already covers these tools with SocialAuto's authenticated endpoints |
+| `anhln-embedded/fb-mcp-server` | Python | Personal Messenger via Chrome extension | **Not integrated** — bypasses Facebook anti-bot, not policy-compliant for Page messaging |
+| `codustry/songmam` | Python | FastAPI + Pydantic Messenger library | **Evaluated** — our `messenger_api.py` already provides this with async httpx |
+| `tigerx500darkcore/Messenger-engagement-bot` | Python | FastAPI webhook listener + auto-reply | **Pattern adopted** — sidecar architecture inspired by this approach |
+| `trieu/leo-bot` | Python | FastAPI + RAG + Redis rate limiting | **Evaluated** — Redis rate limiting pattern considered for future |
+| `Prantho-das/ai-chat-bot` | Python | FastAPI + Gemini AI auto-reply | **Pattern adopted** — AI fallback chain concept |
+| `torgodly/messenger-bot` | PHP | Laravel BotMan-style webhook handlers | **Not integrated** — PHP/Laravel, different stack |
+| `@warriorteam/messenger-sdk` | TypeScript | Full SDK with webhook types | **Not integrated** — TypeScript, our backend is Python |
+| `captain-claw/meta_webhook_bridge.py` | Python | Webhook signature verification | **Pattern adopted** — HMAC-SHA256 verification implemented |
+| `hookdeck/facebook-webhooks` | Docs | Webhook verification skill | **Reference** — used for signature verification best practices |

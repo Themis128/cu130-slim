@@ -13,6 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the sidecar application
 COPY app.py .
 
-EXPOSE 9230
+EXPOSE 9229
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9230"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9229"]
