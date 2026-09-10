@@ -325,12 +325,21 @@ TOOLS: list[Tool] = [
     # ── Personal Messenger tools (browser bridge) ──────────────────────
     Tool(
         name="messenger_list_all_accounts",
-        description="List all Messenger-capable accounts (Facebook Pages with Messenger Platform API + personal Facebook accounts with browser bridge). Returns account type, setup status, and which method to use.",
+        description=(
+            "List all Messenger-capable accounts (Facebook Pages with "
+            "Messenger Platform API + personal Facebook accounts with "
+            "browser bridge). Returns account type, setup status, and "
+            "which method to use."
+        ),
         input_schema={"type": "object", "properties": {}, "required": []},
     ),
     Tool(
         name="messenger_personal_conversations",
-        description="List personal Messenger conversations for a Facebook personal (user) account via the browser bridge. Requires a logged-in Facebook browser session (noVNC).",
+        description=(
+            "List personal Messenger conversations for a Facebook personal "
+            "(user) account via the browser bridge. Requires a logged-in "
+            "Facebook browser session (noVNC)."
+        ),
         input_schema={
             "type": "object",
             "properties": {"account_id": {"type": "string", "description": "Facebook personal (user) account UUID"}},
