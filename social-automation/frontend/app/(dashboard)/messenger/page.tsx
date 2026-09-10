@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
+import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle, User } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { MessengerInbox } from '@/components/ui/MessengerInbox'
@@ -43,6 +43,11 @@ export default function MessengerPage() {
       a.platform === 'facebook' && a.status === 'active' && a.account_type === 'page'
   )
 
+  const fbPersonalAccounts = (accountsData?.data || []).filter(
+    (a: { platform: string; status: string; account_type?: string }) =>
+      a.platform === 'facebook' && a.status === 'active' && a.account_type === 'user'
+  )
+
   const sidecarStatus = sidecarData?.data
   const isOnline = sidecarStatus?.status === 'online'
   const isOffline = sidecarStatus?.status === 'offline' || sidecarStatus?.status === 'error'
@@ -57,7 +62,7 @@ export default function MessengerPage() {
           Messenger
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage Facebook Messenger for your Pages — send/receive messages, AI auto-reply, webhook events
+          Manage Facebook Messenger for your Pages and personal account — send/receive messages, AI auto-reply, webhook events
         </p>
       </div>
 
@@ -143,7 +148,7 @@ export default function MessengerPage() {
       {/* Account selector */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Select Facebook Page</CardTitle>
+          <CardTitle className="text-sm">Select Facebook Account</CardTitle>
         </CardHeader>
         <CardContent>
           {loadingAccounts ? (
@@ -151,42 +156,75 @@ export default function MessengerPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading accounts...
             </div>
-          ) : fbPageAccounts.length === 0 ? (
+          ) : fbPageAccounts.length === 0 && fbPersonalAccounts.length === 0 ? (
             <div className="text-sm text-muted-foreground space-y-2">
-              <p>No Facebook Page accounts connected.</p>
+              <p>No Facebook accounts connected.</p>
               <p>
-                Connect a Facebook Page in the{' '}
+                Connect a Facebook account in the{' '}
                 <a href="/accounts" className="text-primary underline">Accounts</a> page first,
                 then use the Setup button below to enable Messenger.
               </p>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {fbPageAccounts.map((account: { id: string; display_name?: string; account_id?: string; meta_data?: { messenger_setup?: { subscribed?: boolean } } }) => {
-                const isSetup = account.meta_data?.messenger_setup?.subscribed === true
-                return (
-                  <button
-                    key={account.id}
-                    onClick={() => setSelectedAccountId(account.id)}
-                    className={`px-4 py-2 rounded-lg border text-sm transition-colors flex items-center gap-2 ${
-                      selectedAccountId === account.id
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-card hover:bg-accent border-border'
-                    }`}
-                  >
-                    {account.display_name || account.account_id || 'Facebook Page'}
-                    {isSetup && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        selectedAccountId === account.id
-                          ? 'bg-primary-foreground/20 text-primary-foreground'
-                          : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                      }`}>
-                        ●
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
+            <div className="space-y-3">
+              {/* Page accounts (Messenger Platform API) */}
+              {fbPageAccounts.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground font-medium">Pages (Messenger Platform API)</div>
+                  <div className="flex flex-wrap gap-2">
+                    {fbPageAccounts.map((account: { id: string; display_name?: string; account_id?: string; meta_data?: { messenger_setup?: { subscribed?: boolean } } }) => {
+                      const isSetup = account.meta_data?.messenger_setup?.subscribed === true
+                      return (
+                        <button
+                          key={account.id}
+                          onClick={() => setSelectedAccountId(account.id)}
+                          className={`px-4 py-2 rounded-lg border text-sm transition-colors flex items-center gap-2 ${
+                            selectedAccountId === account.id
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card hover:bg-accent border-border'
+                          }`}
+                        >
+                          {account.display_name || account.account_id || 'Facebook Page'}
+                          {isSetup && (
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                              selectedAccountId === account.id
+                                ? 'bg-primary-foreground/20 text-primary-foreground'
+                                : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                            }`}>
+                              ●
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Personal accounts (browser bridge) */}
+              {fbPersonalAccounts.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground font-medium">
+                    Personal (Browser Bridge — requires noVNC login)
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {fbPersonalAccounts.map((account: { id: string; display_name?: string; account_id?: string }) => (
+                      <button
+                        key={account.id}
+                        onClick={() => setSelectedAccountId(account.id)}
+                        className={`px-4 py-2 rounded-lg border text-sm transition-colors flex items-center gap-2 ${
+                          selectedAccountId === account.id
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card hover:bg-accent border-border'
+                        }`}
+                      >
+                        <User className="h-3 w-3" />
+                        {account.display_name || account.account_id || 'Personal Account'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

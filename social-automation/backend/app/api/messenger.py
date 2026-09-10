@@ -844,3 +844,104 @@ async def sidecar_status() -> dict:
             "url": sidecar_url,
             "message": f"Sidecar unreachable: {e}",
         }
+
+
+# ------------------------------------------------------------------
+# Personal Facebook Messenger (browser bridge)
+# ------------------------------------------------------------------
+
+def _get_browser_bridge_url() -> str:
+    return os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+
+
+async def _get_facebook_user_account(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    user: User,
+) -> SocialAccount:
+    """Load a Facebook personal (user) account and verify ownership."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.platform != "facebook" or account.account_type != "user":
+        raise HTTPException(
+            status_code=400,
+            detail="Personal Messenger requires a Facebook personal (user) account",
+        )
+    if user.email != settings.SOCIAL_ADMIN_EMAIL and account.team_id != getattr(user, "team_id", None):
+        raise HTTPException(status_code=403, detail="Not authorized to manage this account")
+    return account
+
+
+class PersonalMessageSendRequest(BaseModel):
+    thread_id: str
+    text: str
+
+
+@router.get("/{account_id}/personal/conversations")
+async def get_personal_conversations(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List personal Messenger conversations via the browser bridge.
+
+    Navigates to facebook.com/messages and extracts the conversation list.
+    Requires a logged-in Facebook browser session (via noVNC).
+    """
+    account = await _get_facebook_user_account(db, account_id, current_user)
+
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient(_get_browser_bridge_url())
+    try:
+        result = await bridge.get_personal_messenger_conversations()
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
+
+    return result
+
+
+@router.get("/{account_id}/personal/conversations/{thread_id}")
+async def get_personal_messages(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read messages from a personal Messenger conversation thread."""
+    account = await _get_facebook_user_account(db, account_id, current_user)
+
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient(_get_browser_bridge_url())
+    try:
+        result = await bridge.get_personal_messenger_messages(thread_id)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
+
+    return result
+
+
+@router.post("/{account_id}/personal/send")
+async def send_personal_message(
+    account_id: uuid.UUID,
+    req: PersonalMessageSendRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a message in a personal Messenger conversation via the browser bridge."""
+    account = await _get_facebook_user_account(db, account_id, current_user)
+
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient(_get_browser_bridge_url())
+    try:
+        result = await bridge.send_personal_messenger_message(req.thread_id, req.text)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
+
+    return result

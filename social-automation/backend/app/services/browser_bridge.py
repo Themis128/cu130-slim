@@ -13,6 +13,7 @@ authenticated fetch to Instagram's internal web API.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -450,4 +451,162 @@ class BrowserBridgeClient:
             "platform": "threads",
             "status": "updated",
             "updated_fields": updated,
+        }
+
+    # ── Personal Facebook Messenger via browser ────────────────────────
+
+    async def get_personal_messenger_conversations(self) -> dict[str, Any]:
+        """Read conversation list from facebook.com/messages.
+
+        Navigates to the Messenger inbox and extracts the list of recent
+        conversations with names, preview text, and thread URLs.
+        Requires a logged-in Facebook browser session.
+        """
+        await self.navigate("https://www.facebook.com/messages/")
+        await asyncio.sleep(4)
+
+        result = await self.evaluate("""() => {
+            const conversations = [];
+            // Facebook Messenger conversation list items
+            const items = document.querySelectorAll(
+                '[role="navigation"] a[href*="/messages/"], ' +
+                'a[href*="/messages/t/"], ' +
+                '[role="listitem"] a[href*="/messages/"]'
+            );
+
+            items.forEach(item => {
+                const href = item.getAttribute('href') || '';
+                const text = item.innerText || '';
+                const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
+                if (lines.length === 0) return;
+
+                // Extract thread ID from URL
+                const match = href.match(/messages\\/t\\/([0-9]+)/);
+                const threadId = match ? match[1] : null;
+
+                conversations.push({
+                    name: lines[0] || 'Unknown',
+                    preview: lines[1] || '',
+                    thread_id: threadId,
+                    url: href,
+                    unread: text.includes('•') || item.querySelector('[aria-label*="unread"]') !== null,
+                });
+            });
+
+            return { conversations, count: conversations.length };
+        }""")
+        raw = result.get("result", {})
+        return {
+            "conversations": raw.get("conversations", []),
+            "count": raw.get("count", 0),
+        }
+
+    async def get_personal_messenger_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages from a specific conversation thread.
+
+        Navigates to the thread URL and extracts all visible messages.
+        """
+        await self.navigate(f"https://www.facebook.com/messages/t/{thread_id}/")
+        await asyncio.sleep(4)
+
+        result = await self.evaluate("""() => {
+            const messages = [];
+            // Facebook message containers
+            const msgElements = document.querySelectorAll(
+                '[role="main"] [data-scope="messages_table"] > div, ' +
+                '[role="main"] div[role="row"], ' +
+                'div[aria-label*="Message"] > div'
+            );
+
+            msgElements.forEach(el => {
+                const text = el.innerText || '';
+                if (!text.trim()) return;
+
+                // Try to determine sender — outgoing messages have different styling
+                const isOutgoing = el.closest('[style*="flex-end"]') !== null ||
+                                   el.parentElement?.style?.alignSelf === 'flex-end' ||
+                                   text.includes('You:');
+
+                const timeEl = el.querySelector('time, [data-absolute-time]');
+                const timestamp = timeEl ? timeEl.getAttribute('datetime') ||
+                                          timeEl.getAttribute('data-absolute-time') ||
+                                          timeEl.innerText : null;
+
+                messages.push({
+                    text: text.replace(/^You:\\s*/, '').trim(),
+                    sender: isOutgoing ? 'me' : 'them',
+                    timestamp: timestamp,
+                });
+            });
+
+            return { messages, count: messages.length };
+        }""")
+        raw = result.get("result", {})
+        return {
+            "messages": raw.get("messages", []),
+            "count": raw.get("count", 0),
+        }
+
+    async def send_personal_messenger_message(self, thread_id: str, text: str) -> dict[str, Any]:
+        """Send a message in a personal Facebook Messenger conversation.
+
+        Navigates to the thread, types in the message input, and presses Enter.
+        """
+        await self.navigate(f"https://www.facebook.com/messages/t/{thread_id}/")
+        await asyncio.sleep(4)
+
+        # Find the message input box and type
+        await self.evaluate(f"""(function() {{
+            // Facebook Messenger message input — contenteditable div
+            const input = document.querySelector(
+                '[contenteditable="true"][role="textbox"], ' +
+                'div[role="textbox"][contenteditable], ' +
+                '[data-contents="true"][contenteditable]'
+            );
+            if (!input) return {{ found: false }};
+
+            input.focus();
+            // Use execCommand for contenteditable
+            document.execCommand('insertText', false, {json.dumps(text)});
+            return {{ found: true }};
+        }})()""")
+
+        await asyncio.sleep(1)
+
+        # Press Enter to send
+        result = await self.evaluate("""(function() {
+            const input = document.querySelector(
+                '[contenteditable="true"][role="textbox"], ' +
+                'div[role="textbox"][contenteditable], ' +
+                '[data-contents="true"][contenteditable]'
+            );
+            if (!input) return { found: false };
+
+            input.focus();
+            // Simulate Enter keypress
+            const event = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                which: 13,
+                bubbles: true,
+                cancelable: true,
+            });
+            input.dispatchEvent(event);
+
+            // Also try pressing the send button as fallback
+            const sendBtn = document.querySelector(
+                '[aria-label="Send"], [aria-label="Press Enter to send"]'
+            );
+            if (sendBtn) sendBtn.click();
+
+            return { found: true, sent: true };
+        })()""")
+
+        await asyncio.sleep(2)
+        raw = result.get("result", {})
+        return {
+            "status": "sent" if raw.get("sent") else "failed",
+            "thread_id": thread_id,
+            "message": raw,
         }
