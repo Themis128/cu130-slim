@@ -892,7 +892,7 @@ async def get_personal_conversations(
     Navigates to facebook.com/messages and extracts the conversation list.
     Requires a logged-in Facebook browser session (via noVNC).
     """
-    account = await _get_facebook_user_account(db, account_id, current_user)
+    _account = await _get_facebook_user_account(db, account_id, current_user)
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
@@ -913,7 +913,7 @@ async def get_personal_messages(
     db: AsyncSession = Depends(get_db),
 ):
     """Read messages from a personal Messenger conversation thread."""
-    account = await _get_facebook_user_account(db, account_id, current_user)
+    _account = await _get_facebook_user_account(db, account_id, current_user)
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
@@ -934,7 +934,7 @@ async def send_personal_message(
     db: AsyncSession = Depends(get_db),
 ):
     """Send a message in a personal Messenger conversation via the browser bridge."""
-    account = await _get_facebook_user_account(db, account_id, current_user)
+    _account = await _get_facebook_user_account(db, account_id, current_user)
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
