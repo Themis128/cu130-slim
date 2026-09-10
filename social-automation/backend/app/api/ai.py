@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -3013,6 +3013,8 @@ async def dmr_status(
 
 class DmrChatRequest(BaseModel):
     """DMR chat request with streaming and tool calling support."""
+    model_config = ConfigDict(populate_by_name=True)
+
     prompt: str
     model: str | None = None
     system: str | None = None
@@ -3020,7 +3022,7 @@ class DmrChatRequest(BaseModel):
     temperature: float = 0.7
     stream: bool = False
     tools: list[dict] | None = None
-    schema: dict | None = None
+    response_schema: dict | None = Field(default=None, alias="schema")
 
 
 @router.post("/dmr/chat")
@@ -3039,7 +3041,7 @@ async def dmr_chat(
 
     result = await call_dmr_chat(
         payload.prompt,
-        schema=payload.schema,
+        schema=payload.response_schema,
         model_override=payload.model,
         max_tokens=payload.max_tokens,
         system=payload.system,
