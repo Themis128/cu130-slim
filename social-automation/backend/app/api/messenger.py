@@ -368,6 +368,9 @@ async def send_message(
     account = await _get_facebook_page_account(db, account_id, user)
     client = _get_messenger_client(account)
 
+    if not body.text and not body.image_url:
+        raise HTTPException(status_code=400, detail="Either text or image_url is required")
+
     try:
         if body.text:
             result = await client.send_text(
@@ -375,10 +378,8 @@ async def send_message(
                 body.text,
                 messaging_type=body.messaging_type,
             )
-        elif body.image_url:
-            result = await client.send_image_url(body.recipient_psid, body.image_url)
         else:
-            raise HTTPException(status_code=400, detail="Either text or image_url is required")
+            result = await client.send_image_url(body.recipient_psid, body.image_url)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send message: {e}")
 
