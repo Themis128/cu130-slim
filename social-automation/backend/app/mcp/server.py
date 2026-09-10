@@ -424,25 +424,35 @@ async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResul
         elif name == "get_account":
             result = await _api_request("GET", f"/api/v1/accounts/{arguments['account_id']}")
         elif name == "create_post":
-            result = await _api_request("POST", "/api/v1/content", json_body=arguments)
+            body = {"content_text": arguments["content"]}
+            if "media_ids" in arguments:
+                body["media_ids"] = arguments["media_ids"]
+            if "scheduled_at" in arguments:
+                body["scheduled_at"] = arguments["scheduled_at"]
+            result = await _api_request("POST", "/api/v1/content/posts", json_body=body)
         elif name == "list_posts":
             params: dict = {}
             if "status" in arguments:
                 params["status"] = arguments["status"]
             if "limit" in arguments:
                 params["page_size"] = arguments["limit"]
-            result = await _api_request("GET", "/api/v1/content", params=params)
+            result = await _api_request("GET", "/api/v1/content/posts", params=params)
         elif name == "publish_post":
-            result = await _api_request("POST", f"/api/v1/content/{arguments['post_id']}/publish")
+            result = await _api_request("POST", f"/api/v1/content/posts/{arguments['post_id']}/publish-now")
         elif name == "generate_content":
-            result = await _api_request("POST", "/api/v1/ai/generate", json_body=arguments)
+            body = {
+                "prompt": arguments["topic"],
+                "platform": arguments["platform"],
+                "tone": arguments.get("tone", "professional"),
+            }
+            result = await _api_request("POST", "/api/v1/ai/generate-content", json_body=body)
         elif name == "suggest_hashtags":
             body = {
                 "content": arguments["content"],
                 "platform": arguments["platform"],
                 "max_hashtags": arguments.get("max_hashtags", 5),
             }
-            result = await _api_request("POST", "/api/v1/ai/suggest-hashtags", json_body=body)
+            result = await _api_request("POST", "/api/v1/ai/generate-hashtags", json_body=body)
         elif name == "score_content":
             body = {
                 "content": arguments["content"],

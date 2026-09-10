@@ -129,9 +129,12 @@ async def _poll_personal_messenger_async() -> dict:
                 )
                 stats["replies_sent"] += replies
 
-                # Update last_checked timestamp
+                # Update last_checked timestamp and persist seen state
+                meta["personal_messenger_seen"] = seen
                 meta["personal_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(account, "meta_data")
                 await db.commit()
             except Exception as exc:
                 stats["errors"] += 1
