@@ -90,7 +90,7 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
 
   const handleSend = () => {
     if (!replyText.trim() || !selectedConversation) return
-    const conv = conversations?.data?.find((c) => c.id === selectedConversation)
+    const conv = conversations?.data?.find((c: Conversation) => c.id === selectedConversation)
     const psid = getRecipientPsid(conv)
     if (!psid) {
       toast.error('Could not determine recipient PSID')
@@ -160,7 +160,7 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium truncate">
-                        {conv.participants?.find((p) => p.id !== accountId)?.name || 'Unknown'}
+                        {conv.participants?.find((p: { id?: string; name?: string }) => p.id !== accountId)?.name || 'Unknown'}
                       </span>
                       {conv.unread_count ? (
                         <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-0.5">
@@ -182,7 +182,7 @@ export function MessengerInbox({ accountId }: MessengerInboxProps) {
             <>
               <CardHeader className="pb-2 border-b">
                 <CardTitle className="text-sm">
-                  {conversations?.data?.find((c) => c.id === selectedConversation)?.participants?.find((p) => p.id !== accountId)?.name || 'Conversation'}
+                  {conversations?.data?.find((c: Conversation) => c.id === selectedConversation)?.participants?.find((p: { id?: string; name?: string }) => p.id !== accountId)?.name || 'Conversation'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0 overflow-y-auto flex-1">
@@ -266,17 +266,20 @@ function AutoReplySettings({ accountId }: { accountId: string }) {
   })
 
   // Load config
-  useQuery({
+  const configQuery = useQuery({
     queryKey: ['messenger-auto-reply', accountId],
     queryFn: async () => {
       const resp = await messengerApi.getAutoReplyConfig(accountId)
       return resp.data
     },
     enabled: !!accountId,
-    onSuccess: (data) => {
-      if (data) setConfig(data as typeof config)
-    },
   })
+
+  useEffect(() => {
+    if (configQuery.data) {
+      setConfig(configQuery.data as typeof config)
+    }
+  }, [configQuery.data])
 
   const updateMutation = useMutation({
     mutationFn: (data: typeof config) => messengerApi.updateAutoReplyConfig(accountId, data),
