@@ -5,6 +5,22 @@ from fastapi import HTTPException
 from app.services import inference
 
 
+@pytest.fixture(autouse=True)
+def _mock_usage_tracker(monkeypatch):
+    """Prevent call_inference from opening real DB connections to Postgres.
+
+    call_inference() calls usage_tracker.track_inference() which creates its
+    own AsyncSession via a module-level engine. In unit tests we don't have a
+    transactional DB fixture, so the connection leaks and raises
+    ResourceWarning/RuntimeWarning. Mock it to a no-op for all tests in this
+    file.
+    """
+    async def _noop_track(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(inference.usage_tracker, "track_inference", _noop_track)
+
+
 @pytest.fixture
 def cf_settings(monkeypatch):
     """Point the module-level settings at a fake Cloudflare account."""
