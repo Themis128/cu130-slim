@@ -528,6 +528,13 @@ export const messengerApi = {
     api.put(`/messenger/${accountId}/auto-reply`, data),
   getSidecarStatus: () =>
     api.get('/messenger/sidecar/status'),
+  // Personal Messenger (browser bridge)
+  getPersonalConversations: (accountId: string) =>
+    api.get(`/messenger/${accountId}/personal/conversations`),
+  getPersonalMessages: (accountId: string, threadId: string) =>
+    api.get(`/messenger/${accountId}/personal/conversations/${threadId}`),
+  sendPersonalMessage: (accountId: string, data: { thread_id: string; text: string }) =>
+    api.post(`/messenger/${accountId}/personal/send`, data),
 }
 
 // Publishing endpoints
