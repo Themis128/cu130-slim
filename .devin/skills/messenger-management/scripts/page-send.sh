@@ -4,7 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
+set -a
 source .env 2>/dev/null || true
+set +a
 
 ACCOUNT_ID="${1:?Usage: $0 <account_id> <recipient_psid> <text>}"
 PSID="${2:?Usage: $0 <account_id> <recipient_psid> <text>}"
