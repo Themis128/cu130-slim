@@ -1943,4 +1943,3 @@ async def meta_data_deletion_callback(request: Request):
 
     # Return the confirmation code immediately (Meta requirement)
     return {"url": confirmation_code, "confirmation_code": confirmation_code}
-    await db.flush()
