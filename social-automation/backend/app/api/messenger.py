@@ -1309,17 +1309,6 @@ async def create_bot(
         system_prompt = preset.replace("{bot_name}", req.name).replace("{page_name}", page_name)
 
     # Build bot config
-    # #region agent log
-    try:
-        import json as _json, time as _time
-        open("/home/tbaltzakis/cu130-slim/.cursor/debug-d5a1cf.log", "a").write(
-            _json.dumps({"sessionId": "d5a1cf", "runId": "watch-3", "hypothesisId": "M1",
-                         "location": "messenger.py:bot_config", "message": "constructing BotConfig with Field(default=)",
-                         "timestamp": int(_time.time() * 1000), "data": {"name": req.name}}) + "\n"
-        )
-    except Exception:
-        pass
-    # #endregion
     bot_config = BotConfig(
         name=req.name,
         enabled=True,
