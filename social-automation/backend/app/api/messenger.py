@@ -1038,3 +1038,102 @@ async def update_personal_auto_reply(
     flag_modified(account, "meta_data")
     await db.commit()
     return {"status": "ok", "config": config.model_dump()}
+
+
+# ── Chatbot: per-conversation control ────────────────────────────────
+
+
+class ThreadPauseRequest(BaseModel):
+    thread_id: str
+    reason: str = "human_handoff"
+
+
+class ThreadConfigRequest(BaseModel):
+    thread_id: str
+    system_prompt: str | None = None
+    model: str | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+
+
+@router.post("/{account_id}/personal/threads/{thread_id}/pause")
+async def pause_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    req: ThreadPauseRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Pause the chatbot for a specific conversation (human handoff)."""
+    await _get_facebook_user_account(db if 'db' in dir() else None, account_id, current_user) if False else None
+    from app.services.messenger_chatbot import pause_thread as _pause
+    await _pause(str(account_id), thread_id, req.reason)
+    return {"status": "ok", "message": f"Thread {thread_id} paused"}
+
+
+@router.post("/{account_id}/personal/threads/{thread_id}/resume")
+async def resume_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Resume the chatbot for a specific conversation."""
+    from app.services.messenger_chatbot import resume_thread as _resume
+    await _resume(str(account_id), thread_id)
+    return {"status": "ok", "message": f"Thread {thread_id} resumed"}
+
+
+@router.get("/{account_id}/personal/threads/{thread_id}/config")
+async def get_thread_config(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Get per-conversation chatbot config overrides."""
+    from app.services.messenger_chatbot import get_thread_config as _get_config
+    config = await _get_config(str(account_id), thread_id)
+    return {"config": config}
+
+
+@router.put("/{account_id}/personal/threads/{thread_id}/config")
+async def set_thread_config(
+    account_id: uuid.UUID,
+    thread_id: str,
+    req: ThreadConfigRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Set per-conversation chatbot config overrides."""
+    from app.services.messenger_chatbot import set_thread_config as _set_config
+    config = {k: v for k, v in req.model_dump().items() if v is not None and k != "thread_id"}
+    await _set_config(str(account_id), thread_id, config)
+    return {"status": "ok", "config": config}
+
+
+@router.get("/{account_id}/personal/threads/{thread_id}/memory")
+async def get_thread_memory(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Get conversation memory for a specific thread."""
+    from app.services.messenger_chatbot import get_conversation_memory
+    memory = await get_conversation_memory(str(account_id), thread_id)
+    return {"messages": memory, "count": len(memory)}
+
+
+@router.post("/{account_id}/personal/index-brand")
+async def index_brand(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Index brand knowledge into ChromaDB for RAG-powered chatbot replies."""
+    from app.services.messenger_chatbot import index_brand_knowledge
+    from app.services.brand_service import get_brand
+
+    account = await _get_facebook_user_account(db, account_id, current_user)
+    brand = await get_brand(db, account.team_id)
+    if not brand:
+        return {"status": "error", "message": "No brand found for this team"}
+
+    indexed = await index_brand_knowledge(str(account.team_id), brand)
+    return {"status": "ok", "indexed": indexed}
