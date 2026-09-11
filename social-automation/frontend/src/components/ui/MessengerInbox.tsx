@@ -33,6 +33,7 @@ interface PersonalConversation {
   thread_id: string | null
   url: string
   unread: boolean
+  e2ee?: boolean
 }
 
 interface PersonalMessage {
@@ -48,6 +49,7 @@ interface MessengerInboxProps {
 
 export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) {
   const [selectedThread, setSelectedThread] = useState<string | null>(null)
+  const [selectedThreadIsE2ee, setSelectedThreadIsE2ee] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const queryClient = useQueryClient()
@@ -68,10 +70,10 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
 
   // ── Fetch messages for selected thread ───────────────────────────
   const { data: messagesData, isLoading: loadingMessages, error: messagesError } = useQuery({
-    queryKey: ['messenger-messages', accountId, accountType, selectedThread],
+    queryKey: ['messenger-messages', accountId, accountType, selectedThread, selectedThreadIsE2ee],
     queryFn: () =>
       isPersonal
-        ? messengerApi.getPersonalMessages(accountId, selectedThread!)
+        ? messengerApi.getPersonalMessages(accountId, selectedThread!, selectedThreadIsE2ee)
         : messengerApi.getConversationMessages(accountId, selectedThread!),
     enabled: !!selectedThread,
     refetchInterval: 10000,
