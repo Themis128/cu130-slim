@@ -274,13 +274,23 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
       {errorMsg && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 text-sm">
           <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-          <div>
+          <div className="space-y-2">
             <p className="font-medium text-red-700 dark:text-red-300">Error loading conversations</p>
             <p className="text-red-600 dark:text-red-400 text-xs mt-1">{errorMsg}</p>
             {isPersonal && (
-              <p className="text-red-600 dark:text-red-400 text-xs mt-1">
-                This usually means the browser session is not logged in. Open noVNC and log in to Facebook.
-              </p>
+              <div className="text-red-600 dark:text-red-400 text-xs mt-2 space-y-2">
+                <p>The browser session is not logged in. A login session has been started — open noVNC to log in to Facebook:</p>
+                <a
+                  href="http://localhost:6080/vnc.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors"
+                >
+                  <Monitor className="h-3 w-3" />
+                  Open noVNC & Log In
+                </a>
+                <p className="text-xs">After logging in, conversations will load automatically within 30 seconds.</p>
+              </div>
             )}
           </div>
         </div>

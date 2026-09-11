@@ -897,6 +897,16 @@ async def get_personal_conversations(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
     bridge = BrowserBridgeClient(_get_browser_bridge_url())
+
+    # Check session and auto-restart if needed
+    session = await bridge.ensure_session("facebook")
+    if session["status"] != "active":
+        raise HTTPException(
+            status_code=503,
+            detail=session["message"],
+            headers={"X-Novnc-Url": session.get("novnc_url", "")},
+        )
+
     try:
         result = await bridge.get_personal_messenger_conversations()
     except BrowserBridgeError as e:
@@ -918,6 +928,16 @@ async def get_personal_messages(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
     bridge = BrowserBridgeClient(_get_browser_bridge_url())
+
+    # Check session and auto-restart if needed
+    session = await bridge.ensure_session("facebook")
+    if session["status"] != "active":
+        raise HTTPException(
+            status_code=503,
+            detail=session["message"],
+            headers={"X-Novnc-Url": session.get("novnc_url", "")},
+        )
+
     try:
         result = await bridge.get_personal_messenger_messages(thread_id)
     except BrowserBridgeError as e:
@@ -939,6 +959,16 @@ async def send_personal_message(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
     bridge = BrowserBridgeClient(_get_browser_bridge_url())
+
+    # Check session and auto-restart if needed
+    session = await bridge.ensure_session("facebook")
+    if session["status"] != "active":
+        raise HTTPException(
+            status_code=503,
+            detail=session["message"],
+            headers={"X-Novnc-Url": session.get("novnc_url", "")},
+        )
+
     try:
         result = await bridge.send_personal_messenger_message(req.thread_id, req.text)
     except BrowserBridgeError as e:

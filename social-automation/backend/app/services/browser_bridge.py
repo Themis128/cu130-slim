@@ -62,6 +62,36 @@ class BrowserBridgeClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def ensure_session(self, platform: str = "facebook") -> dict[str, Any]:
+        """Check if a browser session is active and logged in.
+
+        If the session is down or not logged in, starts a new session
+        and returns a status dict with:
+            - status: "active" | "waiting" | "error"
+            - message: human-readable detail
+            - novnc_url: noVNC viewer URL (when waiting)
+        """
+        try:
+            status = await self.session_status()
+        except Exception:
+            status = {"status": "error", "message": "Bridge unreachable"}
+
+        # Session is active and logged in
+        if status.get("status") == "active" and status.get("cookies_found"):
+            return {"status": "active", "message": "Session active"}
+
+        # Session is waiting, error, or has no cookies — restart it
+        try:
+            await self.start_session(platform)
+        except BrowserBridgeError:
+            pass
+
+        return {
+            "status": "waiting",
+            "message": f"Browser session not logged in. Open noVNC and log in to {platform}.",
+            "novnc_url": "http://localhost:6080/vnc.html",
+        }
+
     async def session_login(self, username: str, password: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(

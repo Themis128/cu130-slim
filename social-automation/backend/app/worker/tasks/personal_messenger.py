@@ -163,6 +163,19 @@ async def _process_account(
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
+    # 0. Check browser session and auto-restart if needed
+    try:
+        session = await bridge.ensure_session("facebook")
+        if session["status"] != "active":
+            logger.info(
+                "Personal Messenger: browser session not active for account %s — %s",
+                account.id, session["message"],
+            )
+            return 0
+    except Exception as exc:
+        logger.warning("Browser session check failed for account %s: %s", account.id, exc)
+        return 0
+
     # 1. Fetch conversations
     try:
         convos_result = await bridge.get_personal_messenger_conversations()
