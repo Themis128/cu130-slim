@@ -4,23 +4,23 @@ Provides conversation memory, brand knowledge RAG, intent detection,
 per-conversation configuration, human handoff, and rate-limit-aware cooldowns
 for the personal Messenger auto-reply system.
 
-Services used (DMR-first, free/open-source):
-    - Docker Model Runner (Qwen3 8B, local) — primary reply generation + intent detection
-    - Cloudflare Workers AI (Llama 3.1 8B) — cloud fallback inference
+Services used (language-aware, free/open-source):
+    - Docker Model Runner (Llama 3.2 / Qwen3 8B, local) — English reply generation + intent detection
+    - Cloudflare Workers AI (Llama 3.1 8B) — Greek reply generation + fallback inference
     - ChromaDB (local) / Cloudflare Vectorize (cloud) — conversation memory + brand RAG
-    - Redis — per-conversation cooldown + paused-thread tracking
-    - PostgreSQL — per-conversation config + seen state
-    - Brand DNA API — brand voice, pillars, positioning
     - Redis — per-conversation cooldown + paused-thread tracking
     - PostgreSQL — per-conversation config + seen state
     - Brand DNA API — brand voice, pillars, positioning
 
 Architecture:
-    1. For each inbound message, detect intent (business, personal, spam, question)
+    1. For each inbound message, detect intent (business, personal, spam, question, greeting)
     2. Retrieve conversation memory (last 10 messages from ChromaDB)
     3. Retrieve brand knowledge (RAG from ChromaDB/Vectorize)
     4. Build a context-aware prompt with brand voice + memory + intent
-    5. Generate reply via CF Workers AI → DMR → static fallback
+    5. Generate reply via language-aware routing:
+       - Greek text → Cloudflare Workers AI (handles Greek correctly)
+       - English/other → DMR (local, free, private)
+       - Fallback: the other provider, then static text
     6. Check per-conversation cooldown (Redis, default 5 min)
     7. Check per-conversation pause (human handoff)
     8. Send reply and store in conversation memory
@@ -455,10 +455,12 @@ async def generate_contextual_reply(
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
-    Inference fallback chain (DMR-first per AGENTS.md):
-    1. Docker Model Runner (Qwen3 8B, local) — primary
-    2. Cloudflare Workers AI (Llama 3.1 8B) — cloud fallback
-    3. Static text — final fallback
+    Inference fallback chain (language-aware per AGENTS.md):
+    1. Greek text → Cloudflare Workers AI (Llama 3.1 8B) — handles Greek correctly
+       Fallback: DMR (local) → static text
+    2. English/other text → DMR (Llama 3.2, local, free) — primary
+       Fallback: Cloudflare Workers AI → static text
+    3. Final fallback: static text (with disclosure if first contact)
 
     Builds a rich system prompt that includes:
     - Base system prompt from config
@@ -517,10 +519,11 @@ async def generate_contextual_reply(
         )
 
     # Language-aware model routing:
-    # DMR Qwen3 8B produces gibberish for Greek text, but handles English well.
+    # DMR Qwen3 8B / Llama 3.2 produce poor Greek output, but handle English well.
     # Cloudflare Llama 3.1 8B handles Greek correctly.
     # Strategy: if the message contains Greek characters, try CF first.
     # Otherwise, try DMR first (free, local, private).
+    # Fallback: the other provider, then static text.
     has_greek = any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF
                     for c in user_message)
 

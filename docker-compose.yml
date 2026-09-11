@@ -862,7 +862,7 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: baltzakist/cu130-slim-social-frontend:v2.425
+    image: baltzakist/cu130-slim-social-frontend:v2.426
     pull_policy: if_not_present
     build:
       context: ./social-automation/frontend

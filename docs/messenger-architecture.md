@@ -79,12 +79,14 @@ processing, and unified MCP tool access across both channels.
        │ AI Fallback Chain:
        ▼
   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-  │  Cloudflare      │─▶│  Docker Model    │─▶│  Fallback text   │
-  │  Workers AI      │  │  Runner (DMR)    │  │  (static)        │
-  │  (free tier)     │  │  (local GPU)     │  │                  │
-  │                  │  │                  │  │                  │
-  │  llama-3.1-8b    │  │  qwen3:8b        │  │                  │
-  │  instruct        │  │  q4_K_M          │  │                  │
+  │  Language-aware  │  │  Docker Model    │  │  Fallback text   │
+  │  routing         │  │  Runner (DMR)    │  │  (static)        │
+  │                  │  │  (local GPU)     │  │                  │
+  │  Greek → CF     │  │                  │  │                  │
+  │  English → DMR  │  │  llama3.2 (3.2B) │  │                  │
+  │                  │  │  qwen3:8b (8B)   │  │                  │
+  │  CF: llama-3.1   │  │  ctx=8192        │  │                  │
+  │  DMR: llama3.2   │  │  flash-attn=on   │  │                  │
   └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
@@ -157,13 +159,19 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │  │  1. Find Facebook personal accounts with auto-reply enabled │   │
 │  │  2. For each account:                                       │   │
 │  │     a. Fetch conversations via browser bridge               │   │
-│  │     b. For each conversation with thread_id:               │   │
+│  │     b. Filter: only thread_id AND unread=True              │   │
+│  │     c. For each unread conversation:                        │   │
 │  │        - Read recent messages                               │   │
 │  │        - Find last inbound message ("them")                  │   │
 │  │        - Check if already replied (seen tracking)            │   │
-│  │        - Generate AI response (CF Workers AI → DMR → text)   │   │
+│  │        - Check cooldown (Redis, 5 min)                      │   │
+│  │        - Check human handoff pause                           │   │
+│  │        - Detect intent (DMR→CF fallback)                    │   │
+│  │        - Retrieve brand context (RAG) + memory              │   │
+│  │        - Generate reply (Greek→CF, English→DMR)             │   │
+│  │        - Send typing indicator (natural delay)              │   │
 │  │        - Send reply via browser bridge                       │   │
-│  │        - Mark as seen, sleep 3s                             │   │
+│  │        - Store in memory (ChromaDB) + set cooldown          │   │
 │  │  3. Update last_checked timestamp                          │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │

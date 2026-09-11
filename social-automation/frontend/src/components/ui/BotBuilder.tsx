@@ -113,9 +113,9 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Create an AI-powered auto-reply bot for your Messenger. The bot uses DMR (local Qwen3 8B) first,
-              with Cloudflare Workers AI as fallback. It supports brand knowledge RAG, conversation memory,
-              intent detection, per-conversation cooldowns, and human handoff.
+              Create an AI-powered auto-reply bot for your Messenger. The bot uses DMR (local Llama 3.2) first
+              for English, with Cloudflare Workers AI for Greek and as fallback. It supports brand knowledge RAG,
+              conversation memory, intent detection, per-conversation cooldowns, and human handoff.
             </p>
             <Button onClick={() => setShowCreate(!showCreate)} size="sm">
               <Plus className="h-4 w-4" />
@@ -421,12 +421,12 @@ function BotConfigEditor({
             onChange={(e) => setConfig({ ...config, model: e.target.value })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
           >
-            <option value="ai/qwen3:8b-q4_K_M">Qwen3 8B (DMR, local — recommended)</option>
-            <option value="ai/llama3.2:latest">Llama 3.2 (DMR, local)</option>
+            <option value="ai/llama3.2:latest">Llama 3.2 (DMR, local — recommended for English)</option>
+            <option value="ai/qwen3:8b-q4_K_M">Qwen3 8B (DMR, local — reasoning mode)</option>
             <option value="ai/gemma3:latest">Gemma 3 (DMR, local)</option>
             <option value="ai/phi4:latest">Phi-4 (DMR, local)</option>
             <option value="ai/qwen2.5:latest">Qwen 2.5 (DMR, local)</option>
-            <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Cloudflare, fallback)</option>
+            <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Cloudflare — recommended for Greek)</option>
           </select>
         </div>
         <div>

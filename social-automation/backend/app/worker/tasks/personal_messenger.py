@@ -11,20 +11,25 @@ Full chatbot features:
     - Per-conversation config (custom prompts, model, temperature)
     - Human handoff (pause bot for specific threads)
     - Per-conversation cooldown (Redis, 5 min between replies)
+    - Language-aware routing (Greek→CF, English→DMR, fallback chain)
+    - Unread-only processing (skip conversations already read on mobile)
 
 Flow:
     1. Find Facebook personal (user) accounts with auto-reply enabled
     2. For each account, fetch recent conversations via browser bridge
-    3. For each conversation with a thread_id, read the latest messages
-    4. Check per-conversation cooldown (skip if too recent)
-    5. Check human handoff pause (skip if paused)
-    6. Detect new inbound messages (not yet replied to)
-    7. Detect intent (business, personal, spam, question, greeting)
-    8. Retrieve brand knowledge (RAG) and conversation memory
-    9. Generate context-aware AI reply (CF Workers AI → DMR → fallback)
-    10. Send the reply via browser bridge
-    11. Store message in conversation memory (ChromaDB)
-    12. Set cooldown for this conversation
+    3. For each conversation with thread_id AND unread=True:
+       a. Read recent messages
+       b. Find last inbound message ("them")
+       c. Check if already replied (seen tracking)
+       d. Check per-conversation cooldown (Redis)
+       e. Check human handoff pause
+       f. Detect intent (DMR first, CF fallback)
+       g. Retrieve brand context (RAG) and conversation memory
+       h. Generate context-aware AI reply (language-aware routing)
+       i. Send typing indicator (natural delay)
+       j. Send reply via browser bridge
+       k. Store both messages in conversation memory (ChromaDB)
+       l. Mark as seen + set cooldown
 
 State tracking:
     ``meta_data.personal_messenger_auto_reply`` stores:
@@ -63,10 +68,6 @@ celery_app.set_default()
 celery_app.set_current()
 
 logger = logging.getLogger(__name__)
-
-# AI config
-DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct"
-DMR_MODEL = "ai/qwen3:8b-q4_K_M"
 
 
 @asynccontextmanager
