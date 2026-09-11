@@ -334,7 +334,14 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{conv.name}</span>
+                      <span className="text-sm font-medium truncate flex items-center gap-1.5">
+                        {conv.name}
+                        {conv.e2ee && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" title="End-to-end encrypted">
+                            E2EE
+                          </span>
+                        )}
+                      </span>
                       {conv.unread && (
                         <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-0.5">
                           ●

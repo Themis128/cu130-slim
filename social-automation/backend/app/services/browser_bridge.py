@@ -573,16 +573,52 @@ class BrowserBridgeClient:
             "count": raw.get("count", 0),
         }
 
+    async def _navigate_to_thread(self, thread_id: str, is_e2ee: bool = False) -> None:
+        """Navigate to a specific Messenger thread using Facebook's SPA routing.
+
+        Direct URL navigation to /messages/t/{id}/ gets redirected by Facebook's
+        SPA to a different conversation. Instead, we navigate to the inbox first,
+        then click on the conversation link in the sidebar.
+        """
+        path = "e2ee/t" if is_e2ee else "t"
+        target_url = f"https://www.facebook.com/messages/{path}/{thread_id}/"
+
+        # Check if we're already on the right thread
+        current = await self.evaluate("() => window.location.href")
+        current_url = current.get("result", "")
+        if current_url == target_url:
+            return  # Already on the right thread
+
+        # Navigate to inbox first if not already there
+        if "/messages/" not in current_url:
+            await self.navigate("https://www.facebook.com/messages/")
+            await asyncio.sleep(3)
+
+        # Try clicking the conversation link in the sidebar (SPA navigation)
+        await self.evaluate(f"""() => {{
+            const links = document.querySelectorAll('a[href*="/messages/t/{thread_id}"], a[href*="/messages/e2ee/t/{thread_id}"]');
+            if (links.length > 0) {{
+                links[0].click();
+                return {{ clicked: true }};
+            }}
+            return {{ clicked: false }};
+        }}""")
+        await asyncio.sleep(3)
+
+        # If clicking didn't work, try direct URL navigation as fallback
+        current = await self.evaluate("() => window.location.href")
+        if thread_id not in (current.get("result", "")):
+            await self.navigate(target_url)
+            await asyncio.sleep(4)
+
     async def get_personal_messenger_messages(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Read messages from a specific conversation thread.
 
         Navigates to the thread URL and extracts all visible messages.
         Supports both regular and E2EE threads.
         """
-        # Build the correct URL for regular vs E2EE threads
-        path = "e2ee/t" if is_e2ee else "t"
-        await self.navigate(f"https://www.facebook.com/messages/{path}/{thread_id}/")
-        await asyncio.sleep(4)
+        await self._navigate_to_thread(thread_id, is_e2ee=is_e2ee)
+        await asyncio.sleep(2)  # Extra time for messages to render
 
         result = await self.evaluate("""() => {
             const messages = [];
@@ -665,9 +701,8 @@ class BrowserBridgeClient:
         Navigates to the thread, types in the message input, and presses Enter.
         Supports both regular and E2EE threads.
         """
-        path = "e2ee/t" if is_e2ee else "t"
-        await self.navigate(f"https://www.facebook.com/messages/{path}/{thread_id}/")
-        await asyncio.sleep(4)
+        await self._navigate_to_thread(thread_id, is_e2ee=is_e2ee)
+        await asyncio.sleep(2)  # Extra time for input to render
 
         # Find the message input box and type using modern input events
         await self.evaluate(f"""(function() {{
