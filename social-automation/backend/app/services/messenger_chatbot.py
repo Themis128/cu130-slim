@@ -502,6 +502,20 @@ async def generate_contextual_reply(
 
     enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational. /no_think"
 
+    # Check if we need to disclose the bot's automated nature (Meta policy)
+    disclosed = await has_disclosed(account_id, thread_id)
+    disclosure_prefix = ""
+    if not disclosed:
+        disclosure_prefix = "🤖 Auto-reply: "
+        # Add disclosure instruction to the prompt
+        enhanced_prompt += (
+            "\n\nIMPORTANT: This is your first message in this conversation. "
+            "You must start your reply by briefly disclosing that you are an "
+            "automated assistant (e.g. 'Hi! This is an automated reply on behalf "
+            "of Themis.'). Keep it natural and brief, then proceed with your "
+            "normal response."
+        )
+
     # 1. Try DMR first (local, free, primary)
     try:
         from app.services.dmr import call_dmr_chat
@@ -513,7 +527,10 @@ async def generate_contextual_reply(
         )
         text = result.get("text", "").strip()
         if text:
-            return text
+            # Mark as disclosed after successful reply
+            if not disclosed:
+                await mark_disclosed(account_id, thread_id)
+            return f"{disclosure_prefix}{text}" if not disclosed else text
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
 
@@ -538,9 +555,15 @@ async def generate_contextual_reply(
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("result") and data["result"].get("response"):
-                        return data["result"]["response"].strip()
+                        text = data["result"]["response"].strip()
+                        if not disclosed:
+                            await mark_disclosed(account_id, thread_id)
+                        return f"{disclosure_prefix}{text}" if not disclosed else text
         except Exception as exc:
             logger.warning("Cloudflare AI failed: %s", exc)
 
-    # 3. Final fallback: static text
+    # 3. Final fallback: static text (with disclosure if first contact)
+    if not disclosed:
+        await mark_disclosed(account_id, thread_id)
+        return f"{disclosure_prefix}{fallback}"
     return fallback

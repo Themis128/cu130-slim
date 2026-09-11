@@ -270,7 +270,16 @@ async def _process_account(
                 brand_context=brand_context,
             )
 
-            # 10. Send the reply (pass is_e2ee for correct URL)
+            # 10. Typing indicator — pause to feel natural (Meta best practice:
+            # "Be Predictable" — users expect a brief pause before a reply)
+            # Scale delay with reply length: ~1s per 50 chars, capped at 5s
+            typing_delay = min(max(len(reply_text) / 50, 1.5), 5.0)
+            try:
+                await bridge.trigger_typing_indicator(thread_id, is_e2ee=is_e2ee, duration=typing_delay)
+            except Exception:
+                pass  # Non-fatal — typing indicator is a nice-to-have
+
+            # 11. Send the reply (pass is_e2ee for correct URL)
             await bridge.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
 
             # 11. Store both messages in conversation memory (ChromaDB)
