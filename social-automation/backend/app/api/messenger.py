@@ -1137,12 +1137,25 @@ async def index_brand(
 ):
     """Index brand knowledge into ChromaDB for RAG-powered chatbot replies."""
     from app.services.messenger_chatbot import index_brand_knowledge
-    from app.services.brand_service import get_brand
+    from app.models.brand import Brand
 
     account = await _get_facebook_user_account(db, account_id, current_user)
-    brand = await get_brand(db, account.team_id)
+    result = await db.execute(
+        select(Brand).where(Brand.team_id == account.team_id)
+    )
+    brand = result.scalars().first()
     if not brand:
         return {"status": "error", "message": "No brand found for this team"}
 
-    indexed = await index_brand_knowledge(str(account.team_id), brand)
+    brand_data = {
+        "name": brand.name,
+        "tagline": getattr(brand, "tagline", None),
+        "positioning_statement": getattr(brand, "positioning_statement", None),
+        "mission": getattr(brand, "mission", None),
+        "industry": getattr(brand, "industry", None),
+        "values": getattr(brand, "values", []),
+        "target_audience": getattr(brand, "target_audience", {}),
+        "competitor_names": getattr(brand, "competitor_names", []),
+    }
+    indexed = await index_brand_knowledge(str(account.team_id), brand_data)
     return {"status": "ok", "indexed": indexed}
