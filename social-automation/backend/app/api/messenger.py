@@ -1187,29 +1187,31 @@ async def index_brand(
 
 class BotConfig(BaseModel):
     """Configuration for a Messenger bot."""
-    name: str = Field("Cloudless Assistant", description="Bot display name")
-    enabled: bool = Field(False, description="Whether the bot is active")
+    name: str = Field(default="Cloudless Assistant", description="Bot display name")
+    enabled: bool = Field(default=False, description="Whether the bot is active")
     system_prompt: str = Field(
-        "You are a helpful assistant for {page_name}. Reply concisely and professionally "
-        "in the same language as the incoming message.",
+        default=(
+            "You are a helpful assistant for {page_name}. Reply concisely and professionally "
+            "in the same language as the incoming message."
+        ),
         description="System prompt for AI reply generation",
     )
-    model: str = Field("ai/qwen3:8b-q4_K_M", description="AI model (DMR-first)")
+    model: str = Field(default="ai/qwen3:8b-q4_K_M", description="AI model (DMR-first)")
     fallback_text: str = Field(
-        "Thanks for your message! I will get back to you soon.",
+        default="Thanks for your message! I will get back to you soon.",
         description="Fallback when AI is unavailable",
     )
-    max_tokens: int = Field(300, description="Max tokens for AI reply")
-    temperature: float = Field(0.7, description="AI temperature (0=deterministic, 1=creative)")
-    cooldown_seconds: int = Field(300, description="Min seconds between replies per conversation")
+    max_tokens: int = Field(default=300, description="Max tokens for AI reply")
+    temperature: float = Field(default=0.7, description="AI temperature (0=deterministic, 1=creative)")
+    cooldown_seconds: int = Field(default=300, description="Min seconds between replies per conversation")
     # Business hours (UTC). If set, bot only replies during these hours.
-    business_hours_start: str | None = Field(None, description="UTC hour (e.g. '07:00') — bot only replies after this time")
-    business_hours_end: str | None = Field(None, description="UTC hour (e.g. '22:00') — bot only replies before this time")
+    business_hours_start: str | None = Field(default=None, description="UTC hour (e.g. '07:00') — bot only replies after this time")
+    business_hours_end: str | None = Field(default=None, description="UTC hour (e.g. '22:00') — bot only replies before this time")
     # Auto-pause contacts (thread IDs that should never get auto-replies)
     paused_threads: list[str] = Field(default_factory=list, description="Thread IDs to skip (human handoff)")
     # Intent-based behavior
-    reply_to_spam: bool = Field(False, description="Whether to auto-reply to spam")
-    reply_to_greetings: bool = Field(True, description="Whether to auto-reply to greetings")
+    reply_to_spam: bool = Field(default=False, description="Whether to auto-reply to spam")
+    reply_to_greetings: bool = Field(default=True, description="Whether to auto-reply to greetings")
     # Quick replies (shown as suggestions in the inbox)
     quick_replies: list[dict] = Field(
         default_factory=lambda: [
@@ -1307,6 +1309,17 @@ async def create_bot(
         system_prompt = preset.replace("{bot_name}", req.name).replace("{page_name}", page_name)
 
     # Build bot config
+    # #region agent log
+    try:
+        import json as _json, time as _time
+        open("/home/tbaltzakis/cu130-slim/.cursor/debug-d5a1cf.log", "a").write(
+            _json.dumps({"sessionId": "d5a1cf", "runId": "watch-3", "hypothesisId": "M1",
+                         "location": "messenger.py:bot_config", "message": "constructing BotConfig with Field(default=)",
+                         "timestamp": int(_time.time() * 1000), "data": {"name": req.name}}) + "\n"
+        )
+    except Exception:
+        pass
+    # #endregion
     bot_config = BotConfig(
         name=req.name,
         enabled=True,
