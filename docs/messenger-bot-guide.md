@@ -28,15 +28,16 @@ accounts in SocialAuto.
 The SocialAuto Messenger Bot is an AI-powered auto-reply system that
 responds to incoming Messenger messages on your behalf. It uses:
 
-- **Docker Model Runner (DMR)** with Qwen3 8B (local, free) as primary inference
-- **Cloudflare Workers AI** with Llama 3.1 8B as cloud fallback
+- **Docker Model Runner (DMR)** with Llama 3.2 (local, free) as primary inference for English
+- **Cloudflare Workers AI** with Llama 3.1 8B as primary for Greek and fallback for English
 - **ChromaDB** for conversation memory and brand knowledge RAG
 - **Redis DB 1** for cooldowns, pause state, and disclosure tracking
 - **PostgreSQL** for persistent bot configuration
 
 The bot detects intent (business, personal, greeting, spam, question),
 retrieves brand context, builds a conversation-aware prompt, generates a
-reply, and sends it — all within a few seconds.
+reply using language-aware routing (Greek→Cloudflare, English→DMR), and
+sends it — all within a few seconds.
 
 ---
 

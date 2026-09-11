@@ -45,15 +45,16 @@ processing, and unified MCP tool access across both channels.
 │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
 │   │  Meta Graph API  │  │  Browser Bridge  │  │  Celery Beat     │      │
 │   │  v25.0           │  │  (port 9223)     │  │  (every 2 min)   │      │
-│   │                  │  │                  │  │                  │      │
-│   │  • /{page}/      │  │  • Chromium       │  │  poll_personal_  │      │
-│   │    messages      │  │  • facebook.com/  │  │  messenger()     │      │
-│   │  • /{page}/      │  │    messages      │  │                  │      │
-│   │    message_      │  │  • E2EE threads  │  │  Polls personal  │      │
-│   │    subscriptions │  │  • PIN handling   │  │  conversations   │      │
-│   │  • /me/          │  │                  │  │  → AI reply      │      │
-│   │    conversations │  │  (no API key)    │  │  → browser send  │      │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘      │
+│   │                  │  │                  │  │  Queue: messenger│      │
+│   │  • /{page}/      │  │  • Chromium       │  │                  │      │
+│   │    messages      │  │  • facebook.com/  │  │  poll_personal_  │      │
+│   │  • /{page}/      │  │    messages      │  │  messenger()     │      │
+│   │    message_      │  │  • E2EE threads  │  │                  │      │
+│   │    subscriptions │  │  • PIN handling   │  │  Polls personal  │      │
+│   │  • /me/          │  │                  │  │  conversations   │      │
+│   │    conversations │  │  (no API key)    │  │  → AI reply      │      │
+│   └──────────────────┘  └──────────────────┘  │  → browser send │      │
+│                                                └──────────────────┘      │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -76,18 +77,33 @@ processing, and unified MCP tool access across both channels.
 │    tags      │               │              │               │     off     │
 └─────────────┘               └─────────────┘               └─────────────┘
        │
-       │ AI Fallback Chain:
+       │ AI Fallback Chain (language-aware):
        ▼
-  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-  │  Language-aware  │  │  Docker Model    │  │  Fallback text   │
-  │  routing         │  │  Runner (DMR)    │  │  (static)        │
-  │                  │  │  (local GPU)     │  │                  │
-  │  Greek → CF     │  │                  │  │                  │
-  │  English → DMR  │  │  llama3.2 (3.2B) │  │                  │
-  │                  │  │  qwen3:8b (8B)   │  │                  │
-  │  CF: llama-3.1   │  │  ctx=8192        │  │                  │
-  │  DMR: llama3.2   │  │  flash-attn=on   │  │                  │
-  └──────────────────┘  └──────────────────┘  └──────────────────┘
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  1. Detect language (Greek Unicode range 0x0370-0x03FF, 0x1F00-1FFF) │
+  │                                                                  │
+  │  ┌─ Greek text ──────────────────────────────────────────────┐    │
+  │  │  Cloudflare Workers AI (Llama 3.1 8B)  ← handles Greek   │    │
+  │  │    ↓ on failure                                          │    │
+  │  │  DMR (Llama 3.2 / Qwen3 8B, local)                       │    │
+  │  │    ↓ on failure                                          │    │
+  │  │  Static fallback text (with bot disclosure)              │    │
+  │  └──────────────────────────────────────────────────────────┘    │
+  │                                                                  │
+  │  ┌─ English / other ─────────────────────────────────────────┐    │
+  │  │  DMR (Llama 3.2, local, free, private)  ← primary         │    │
+  │  │    ↓ on failure                                          │    │
+  │  │  Cloudflare Workers AI (Llama 3.1 8B)                    │    │
+  │  │    ↓ on failure                                          │    │
+  │  │  Static fallback text (with bot disclosure)              │    │
+  │  └──────────────────────────────────────────────────────────┘    │
+  │                                                                  │
+  │  DMR config (RTX 3070 8GB VRAM):                                │
+  │    llama3.2:   ctx=8192, flash-attn=on, n-gpu-layers=99         │
+  │    qwen3:8b:   ctx=8192, reasoning=on, flash-attn=on             │
+  │    smollm2:    ctx=2048 (intent detection)                       │
+  │    qwen3-emb:  embedding mode (RAG)                             │
+  └──────────────────────────────────────────────────────────────────┘
 ```
 
 **Connected Pages:**
@@ -150,7 +166,7 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  poll-personal-messenger (every 120s)                       │   │
-│  │  Queue: default                                             │   │
+│  │  Queue: messenger                                           │   │
 │  │  Task: app.worker.tasks.personal_messenger                   │   │
 │  │        .poll_personal_messenger                             │   │
 │  └──────────────────────┬──────────────────────────────────────┘   │
@@ -180,9 +196,10 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │  │  personal_messenger_auto_reply:                             │   │
 │  │    enabled: true                                            │   │
 │  │    system_prompt: "You are {name}..."                       │   │
-│  │    model: "@cf/meta/llama-3.1-8b-instruct"                  │   │
+│  │    model: "ai/qwen3:8b-q4_K_M"  (DMR)                      │   │
 │  │    fallback_text: "Thanks for your message!"                │   │
-│  │    max_tokens: 200                                          │   │
+│  │    max_tokens: 250                                          │   │
+│  │    cooldown_seconds: 300                                     │   │
 │  │                                                             │   │
 │  │  personal_messenger_seen:                                  │   │
 │  │    {thread_id: last_replied_message_text}                   │   │
@@ -191,6 +208,86 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Bot Architecture (messenger_chatbot.py)
+
+The bot engine is shared between Page webhook processing (sidecar) and
+personal polling (Celery). It provides intent detection, conversation
+memory, brand RAG, per-thread cooldowns, human handoff, and bot disclosure.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Messenger Bot Engine                              │
+│                    (app/services/messenger_chatbot.py)               │
+│                                                                     │
+│  ┌─ Intent Detection ──────────────────────────────────────────┐   │
+│  │  Categories: business, personal, question, spam, greeting    │   │
+│  │  Provider: DMR (smollm2 / llama3.2) → CF fallback             │   │
+│  │  Used to: skip spam/greetings (configurable), tune prompt    │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Conversation Memory (ChromaDB) ─────────────────────────────┐   │
+│  │  Collection: messenger_memory                                │   │
+│  │  Stores: last 10 messages per thread (user + assistant)      │   │
+│  │  Retrieval: thread_id metadata filter, last N messages      │   │
+│  │  Purpose: context-aware replies (remembers prior context)   │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Brand Knowledge RAG (ChromaDB) ────────────────────────────┐   │
+│  │  Collection: messenger_brand_knowledge                      │   │
+│  │  Source: Brand DNA API (voice, pillars, positioning)        │   │
+│  │  Indexing: POST /{id}/personal/index-brand                  │   │
+│  │  Retrieval: semantic search on incoming message             │   │
+│  │  Purpose: brand-consistent voice and accurate answers      │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Redis State (DB 1) ────────────────────────────────────────┐   │
+│  │  messenger:cooldown:{acct}:{thread}  TTL=cooldown_seconds    │   │
+│  │  messenger:paused:{acct}:{thread}     human handoff flag    │   │
+│  │  messenger:config:{acct}:{thread}     per-thread overrides  │   │
+│  │  messenger:disclosed:{acct}:{thread}  bot disclosure state  │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Prompt Construction ───────────────────────────────────────┐   │
+│  │  1. Base system prompt (per-thread or default)               │   │
+│  │  2. Intent-specific guidance                                 │   │
+│  │  3. Brand context (RAG results)                              │   │
+│  │  4. Last 5 messages from memory                              │   │
+│  │  5. Same-language response instruction                       │   │
+│  │  6. First-contact bot disclosure (if not yet disclosed)      │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Reply Generation (language-aware) ────────────────────────┐   │
+│  │  Greek text → Cloudflare Workers AI (Llama 3.1 8B)          │   │
+│  │  English    → DMR (Llama 3.2, local)                        │   │
+│  │  Fallback   → other provider → static text                  │   │
+│  │  Disclosure → "🤖 Auto-reply:" prefix on first contact      │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Typing Indicator ─────────────────────────────────────────┐   │
+│  │  Delay scales with reply length: ~1s per 50 chars           │   │
+│  │  Min 1.5s, max 5s (natural feel)                             │   │
+│  │  3s sleep between processed replies (rate safety)           │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Defaults:**
+- `DEFAULT_COOLDOWN_SECONDS = 300` (5 min between replies per thread)
+- `DEFAULT_MEMORY_MESSAGES = 10` (last 10 messages in ChromaDB)
+- Personal polling interval: 120 seconds (Celery beat)
+- Static fallback includes human handoff language
+
+**Bot disclosure:** On first contact, the bot prefixes the reply with
+`🤖 Auto-reply:` to comply with platform transparency policies. The
+disclosure state is tracked in Redis (`messenger:disclosed:{acct}:{thread}`)
+and persists per thread.
+
+**Human handoff:** A thread can be paused via
+`POST /{id}/bot/pause-thread/{tid}` or `POST /{id}/personal/threads/{tid}/pause`.
+While paused, the bot skips all inbound messages for that thread. Resume
+via the corresponding resume endpoint. Paused threads are listed in the
+Bot Builder UI with a Resume button.
 
 ## MCP Server (27 Tools)
 
@@ -305,26 +402,34 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │
 │  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐  ┌─────┴──────┐ │
-│  │ social-     │  │ browser-    │  │ messenger-  │  │ celery-beat│ │
-│  │ worker-     │  │ novnc       │  │ sidecar     │  │            │ │
-│  │ default     │  │ :6080 (VNC) │  │ :9230       │  │ Scheduler  │ │
-│  │             │  │ :9223 (CDP) │  │             │  │            │ │
-│  │ Celery      │  │             │  │ FastAPI     │  │ beat_      │ │
-│  │ default     │  │ Chromium    │  │ sidecar     │  │ schedule   │ │
+│  │ social-     │  │ social-     │  │ messenger-  │  │ celery-beat│ │
+│  │ worker-     │  │ worker-     │  │ sidecar     │  │            │ │
+│  │ default     │  │ messenger   │  │ :9230       │  │ Scheduler  │ │
 │  │             │  │             │  │             │  │            │ │
-│  │ poll_       │  │ facebook.com│  │ AI auto-    │  │ 120s:      │ │
-│  │ personal_   │  │ sessions    │  │ reply       │  │ poll       │ │
-│  │ messenger   │  │             │  │             │  │ personal   │ │
+│  │ Celery      │  │ Celery      │  │ FastAPI     │  │ beat_      │ │
+│  │ default     │  │ messenger   │  │ sidecar     │  │ schedule   │ │
+│  │             │  │             │  │             │  │            │ │
+│  │ analytics,  │  │ poll_       │  │ AI auto-    │  │ 120s:      │ │
+│  │ workflows   │  │ personal_   │  │ reply       │  │ poll       │ │
+│  │             │  │ messenger   │  │ (Page)      │  │ personal   │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
 │                                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │ redis       │  │ social-     │  │ warp-proxy  │  │ DMR (host) │ │
-│  │ :6379       │  │ postgres    │  │ :1080       │  │ :12434     │ │
-│  │             │  │             │  │             │  │            │ │
-│  │ Celery      │  │ social_     │  │ Cloudflare  │  │ Docker    │ │
-│  │ broker      │  │ automation  │  │ WARP SOCKS5 │  │ Model     │ │
-│  │             │  │ DB          │  │ (free proxy)│  │ Runner    │ │
+│  │ browser-    │  │ redis       │  │ social-     │  │ warp-proxy │ │
+│  │ novnc       │  │ :6379       │  │ postgres    │  │ :1080       │ │
+│  │ :6080 (VNC)│  │             │  │             │  │             │ │
+│  │ :9223 (CDP)│  │ Celery      │  │ social_     │  │ Cloudflare  │ │
+│  │             │  │ broker      │  │ automation  │  │ WARP SOCKS5 │ │
+│  │ Chromium    │  │             │  │ DB          │  │ (free proxy)│ │
+│  │ facebook.com│  │             │  │             │  │             │ │
+│  │ sessions    │  │             │  │             │  │             │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                     │
+│  ┌─────────────┐                                                    │
+│  │ DMR (host)  │  Host-level Docker engine (not a Compose service)  │
+│  │ :12434      │  Llama 3.2, Qwen3 8B, Qwen3-VL, Qwen3-embedding    │
+│  │             │  OpenAI + Anthropic + Ollama compatible APIs        │
+│  └─────────────┘                                                    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -348,9 +453,11 @@ to Facebook Page        (POST, 5s)          /webhook             /process
      │                    │                    │              7. Config check
      │                    │                    │              8. typing_on
      │                    │                    │              9. AI generate
-     │                    │                    │                 CF Workers AI
-     │                    │                    │                 → DMR
-     │                    │                    │                 → fallback
+     │                    │                    │                 Language-aware:
+     │                    │                    │                 Greek → CF Workers AI
+     │                    │                    │                 English → DMR (Llama 3.2)
+     │                    │                    │                 → other provider
+     │                    │                    │                 → static fallback
      │                    │                    │             10. Send reply
      │                    │                    │             11. typing_off
      │                    │                    │                    │
@@ -380,17 +487,32 @@ to personal Messenger   (Chromium)           (every 2 min)
      │                    │───────────────────▶│                    │
      │                    │  [{text, sender}]  │                    │
      │                    │                    │                    │
-     │                    │                    │  6. Find new "them"│
-     │                    │                    │  7. Check seen     │
-     │                    │                    │  8. AI generate   │
+     │                    │                    │  6. Find last "them" │
+     │                    │                    │  7. Check seen       │
+     │                    │                    │  8. Check cooldown   │
+     │                    │                    │     (Redis 5 min)    │
+     │                    │                    │  9. Check paused    │
+     │                    │                    │     (human handoff) │
+     │                    │                    │ 10. Detect intent   │
+     │                    │                    │     (DMR→CF)         │
+     │                    │                    │ 11. Retrieve brand  │
+     │                    │                    │     context (RAG)   │
+     │                    │                    │ 12. AI generate     │
      │                    │                    │───────────────────▶│
-     │                    │                    │  9. Reply text     │
+     │                    │                    │     Greek → CF      │
+     │                    │                    │     English → DMR   │
+     │                    │                    │     → other → static│
+     │                    │                    │ 13. Reply text      │
      │                    │                    │◀───────────────────│
-     │                    │                    │ 10. Send via bridge│
+     │                    │                    │ 14. Typing delay    │
+     │                    │                    │ 15. Send via bridge │
      │                    │◀───────────────────│                    │
-     │                    │  11. Type + Enter  │                    │
-     │  12. Reply appears │                    │                    │
+     │                    │ 16. Type + Enter   │                    │
+     │  17. Reply appears │                    │                    │
      │◀───────────────────│                    │                    │
+     │                    │                    │ 18. Store memory   │
+     │                    │                    │     (ChromaDB)      │
+     │                    │                    │ 19. Set cooldown   │
 ```
 
 ## API Endpoints
@@ -424,6 +546,25 @@ to personal Messenger   (Chromium)           (every 2 min)
 | POST | `/{id}/personal/send` | Bearer | Send a message |
 | GET | `/{id}/personal/auto-reply` | Bearer | Get auto-reply config |
 | PUT | `/{id}/personal/auto-reply` | Bearer | Update auto-reply config |
+| POST | `/{id}/personal/threads/{tid}/pause` | Bearer | Pause bot for a thread (human handoff) |
+| POST | `/{id}/personal/threads/{tid}/resume` | Bearer | Resume bot for a thread |
+| GET | `/{id}/personal/threads/{tid}/config` | Bearer | Get per-thread bot config |
+| PUT | `/{id}/personal/threads/{tid}/config` | Bearer | Set per-thread bot config |
+| GET | `/{id}/personal/threads/{tid}/memory` | Bearer | Get conversation memory |
+| POST | `/{id}/personal/index-brand` | Bearer | Index brand DNA into ChromaDB |
+
+### Bot Builder (Unified, both account types)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/{id}/bot/create` | Bearer | Create a bot (personality, language, business hours) |
+| GET | `/{id}/bot` | Bearer | Get bot config + status |
+| PUT | `/{id}/bot` | Bearer | Update bot config |
+| POST | `/{id}/bot/activate` | Bearer | Activate bot (start auto-replying) |
+| POST | `/{id}/bot/deactivate` | Bearer | Deactivate bot (pause auto-reply) |
+| POST | `/{id}/bot/pause-thread/{tid}` | Bearer | Pause bot for a thread (human handoff) |
+| POST | `/{id}/bot/resume-thread/{tid}` | Bearer | Resume bot for a thread |
+| GET | `/{id}/bot/personalities` | Bearer | List personality presets |
 
 ## Environment Variables
 
@@ -431,13 +572,16 @@ to personal Messenger   (Chromium)           (every 2 min)
 |----------|---------|---------|
 | `MESSENGER_VERIFY_TOKEN` | social-api | Webhook GET verification |
 | `FACEBOOK_APP_SECRET` | social-api | Webhook POST signature |
-| `BROWSER_BRIDGE_URL` | social-api, worker | Browser bridge URL |
+| `BROWSER_BRIDGE_URL` | social-api, worker-messenger | Browser bridge URL |
 | `MESSENGER_SIDECAR_URL` | social-api | Sidecar dispatch URL |
-| `CLOUDFLARE_API_TOKEN` | sidecar, worker | AI auto-reply (Workers AI) |
-| `CLOUDFLARE_ACCOUNT_ID` | sidecar, worker | AI auto-reply (account) |
-| `DMR_BASE_URL` | sidecar, worker | DMR fallback URL |
-| `SOCIAL_ADMIN_EMAIL` | sidecar, worker | Admin auth to social-api |
-| `SOCIAL_ADMIN_PASSWORD` | sidecar, worker | Admin auth to social-api |
+| `CLOUDFLARE_API_TOKEN` | sidecar, worker-messenger | AI auto-reply (Workers AI) |
+| `CLOUDFLARE_ACCOUNT_ID` | sidecar, worker-messenger | AI auto-reply (account) |
+| `DMR_URL` | sidecar, worker-messenger | DMR base URL (`http://host.docker.internal:12434/engines/llama.cpp/v1`) |
+| `DMR_TEXT_MODEL` | sidecar, worker-messenger | Primary text model (`ai/llama3.2`) |
+| `DMR_TINY_MODEL` | sidecar, worker-messenger | Intent detection model (`ai/smollm2`) |
+| `DMR_EMBEDDING_MODEL` | sidecar, worker-messenger | Embeddings for RAG (`ai/qwen3-embedding`) |
+| `SOCIAL_ADMIN_EMAIL` | sidecar, worker-messenger | Admin auth to social-api |
+| `SOCIAL_ADMIN_PASSWORD` | sidecar, worker-messenger | Admin auth to social-api |
 
 ## Security
 
