@@ -282,7 +282,7 @@ async def _process_account(
             # 11. Send the reply (pass is_e2ee for correct URL)
             await bridge.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
 
-            # 11. Store both messages in conversation memory (ChromaDB)
+            # 12. Store both messages in conversation memory (ChromaDB)
             await store_message_memory(
                 account.team_id, account.id, thread_id,
                 "them", last_text,
@@ -292,7 +292,7 @@ async def _process_account(
                 "me", reply_text,
             )
 
-            # 12. Mark as seen + set cooldown
+            # 13. Mark as seen + set cooldown
             seen[seen_key] = last_text
             await set_cooldown(account.id, thread_id, cooldown_seconds)
             replies_sent += 1
