@@ -62,9 +62,6 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
   const { data: conversationsData, isLoading: loadingConvos, error: convosError } = useQuery({
     queryKey: ['messenger-conversations', accountId, accountType],
     queryFn: async (): Promise<{ data: unknown }> => {
-      // #region agent log
-      fetch('http://127.0.0.1:7498/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d5a1cf'},body:JSON.stringify({sessionId:'d5a1cf',runId:'watch-3',hypothesisId:'F1',location:'MessengerInbox.tsx:conversations',message:'queryFn conversations',data:{isPersonal},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (isPersonal) {
         return messengerApi.getPersonalConversations(accountId)
       }
@@ -79,9 +76,6 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
   const { data: messagesData, isLoading: loadingMessages, error: messagesError } = useQuery({
     queryKey: ['messenger-messages', accountId, accountType, selectedThread, selectedThreadIsE2ee],
     queryFn: async (): Promise<{ data: unknown }> => {
-      // #region agent log
-      fetch('http://127.0.0.1:7498/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d5a1cf'},body:JSON.stringify({sessionId:'d5a1cf',runId:'watch-3',hypothesisId:'F1',location:'MessengerInbox.tsx:messages',message:'queryFn messages',data:{isPersonal,hasThread:!!selectedThread,selectedThreadIsE2ee},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (isPersonal) {
         return messengerApi.getPersonalMessages(accountId, selectedThread!, selectedThreadIsE2ee)
       }
