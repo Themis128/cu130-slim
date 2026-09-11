@@ -920,7 +920,8 @@ AI Request                Inference Router      CF Workers AI       DMR         
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis broker/cache connection |
+| `REDIS_URL` | Redis broker/cache connection (DB 0) |
+| `MESSENGER_REDIS_URL` | Redis DB 1 for bot state (cooldowns, pause, config) |
 | `ENCRYPTION_KEY` | Field-level encryption key |
 | `SOCIAL_ADMIN_EMAIL` | Admin user email |
 | `SOCIAL_ADMIN_PASSWORD` | Admin user password |
