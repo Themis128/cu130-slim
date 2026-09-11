@@ -208,7 +208,10 @@ async def _process_account(
 
     conversations = convos_result.get("conversations", [])
     # Process all conversations with a thread_id (both regular and E2EE)
-    threadable = [c for c in conversations if c.get("thread_id")]
+    # Only reply to conversations marked as unread by Facebook — this
+    # prevents the bot from replying to messages you've already read on
+    # your phone (Android/iOS) or another device.
+    threadable = [c for c in conversations if c.get("thread_id") and c.get("unread", False)]
 
     for convo in threadable[:20]:  # Increased from 10 to 20 conversations per poll
         thread_id = convo["thread_id"]
