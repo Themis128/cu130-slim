@@ -175,16 +175,15 @@ class SyncService:
             select_sql = f"SELECT * FROM {table}"
             if last_sync:
                 # Check if table has updated_at column
-                col_check = await engine.connect()
-                col_result = await col_check.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name = :tbl AND column_name = 'updated_at'"
-                    ),
-                    {"tbl": table},
-                )
-                has_updated_at = col_result.fetchone() is not None
-                col_check.close()
+                async with engine.connect() as col_check:
+                    col_result = await col_check.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name = :tbl AND column_name = 'updated_at'"
+                        ),
+                        {"tbl": table},
+                    )
+                    has_updated_at = col_result.fetchone() is not None
 
                 if has_updated_at:
                     select_sql += f" WHERE updated_at > '{last_sync.isoformat()}'"
