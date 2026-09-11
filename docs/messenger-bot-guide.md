@@ -295,7 +295,10 @@ Paused threads appear in the Bot Builder card under "Paused Threads
 │         ├─ 8. Skip if thread paused (human handoff)              │
 │         ├─ 9. Detect intent (DMR: business/personal/spam/etc.)   │
 │         ├─ 10. Retrieve brand context (ChromaDB RAG)             │
-│         ├─ 11. Generate reply (DMR first → CF fallback → static) │
+│         ├─ 11. Generate reply (language-aware):                  │
+│         │      Greek → CF Workers AI                             │
+│         │      English → DMR (Llama 3.2)                         │
+│         │      Fallback → other provider → static text           │
 │         ├─ 12. Typing indicator (1.5–5s, scales with reply)      │
 │         ├─ 13. Send reply via browser bridge                     │
 │         ├─ 14. Store in ChromaDB memory                         │
@@ -316,9 +319,12 @@ Paused threads appear in the Bot Builder card under "Paused Threads
 │             ├─ 1. Check bot enabled                              │
 │             ├─ 2. Check cooldown (Redis DB 1)                    │
 │             ├─ 3. Check thread pause (human handoff)            │
-│             ├─ 4. Detect intent (DMR)                           │
+│             ├─ 4. Detect intent (DMR→CF fallback)                │
 │             ├─ 5. Retrieve brand context (ChromaDB RAG)         │
-│             ├─ 6. Generate reply (DMR → CF → fallback)          │
+│             ├─ 6. Generate reply (language-aware):              │
+│             │      Greek → CF Workers AI                         │
+│             │      English → DMR (Llama 3.2)                     │
+│             │      Fallback → other provider → static text      │
 │             ├─ 7. Send via Graph API /me/messages               │
 │             ├─ 8. Store in ChromaDB memory                      │
 │             └─ 9. Set cooldown (Redis DB 1)                     │
@@ -328,7 +334,7 @@ Paused threads appear in the Bot Builder card under "Paused Threads
 ### Intent Detection
 
 The bot classifies each incoming message into one of five intents using
-DMR (Qwen3 8B) with Cloudflare fallback:
+DMR (smollm2 / Llama 3.2) with Cloudflare fallback:
 
 | Intent | Description | Bot behavior |
 |--------|-------------|-------------|
