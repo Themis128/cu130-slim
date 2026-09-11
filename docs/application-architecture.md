@@ -452,7 +452,7 @@ Beat Schedule:
 | TikTok | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Browser sidecar |
 | Threads | ✓ | ✓ | — | ✓ (API) | — | Instagram-based |
 
-## Docker Compose Stack (30 services)
+## Docker Compose Stack (32 services)
 
 ### Core Application
 
@@ -1024,6 +1024,7 @@ Admin team is auto-set to Enterprise with unlimited everything.
 | 8082 | social-frontend | Next.js |
 | 8083 | social-api | FastAPI |
 | 9000 | portainer | Container mgmt |
+| 5555 | flower | Celery monitor |
 | 9100/9101 | minio | S3 storage |
 | 9223 | browser-novnc | CDP bridge |
 | 9224 | tiktok-browser-sidecar | TikTok |
