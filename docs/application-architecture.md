@@ -291,6 +291,7 @@ app/services/
 ├── ── Messenger ─────────────────────────────────────────────
 │   ├── messenger_api.py      — Page Messenger Graph API
 │   ├── messenger_sidecar.py  — Webhook sidecar (AI auto-reply)
+│   ├── messenger_chatbot.py  — Chatbot service (memory, RAG, intent, cooldown)
 │   └── browser_bridge.py     — Personal Messenger (CDP + noVNC)
 │       ├── E2EE + regular thread support
 │       ├── ensure_session() — auto-recover + cookie extraction
@@ -394,6 +395,17 @@ app/mcp/server.py
     ├── messenger_personal_send             — Send personal message (E2EE + regular)
     ├── messenger_personal_get_auto_reply   — Get personal auto-reply
     └── messenger_personal_set_auto_reply   — Set personal auto-reply
+
+└── ── Bot Builder (9) ──────────────────────────────────────
+    ├── messenger_bot_create                — Create bot (personality, language, hours)
+    ├── messenger_bot_get                   — Get bot config
+    ├── messenger_bot_update                — Update bot config
+    ├── messenger_bot_activate              — Activate bot
+    ├── messenger_bot_deactivate            — Deactivate bot
+    ├── messenger_bot_pause_thread          — Pause bot for a thread
+    ├── messenger_bot_resume_thread         — Resume bot for a thread
+    ├── messenger_bot_personalities         — List personality presets
+    └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
 ### Celery Tasks (11 task modules, 9 beat schedules)
@@ -421,6 +433,7 @@ Beat Schedule:
 │ sync-analytics           │ analytics.sync_all_analytics   │ 300s     │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
+│                         │  (bot: memory+RAG+intent+cooldown)│          │
 │ refresh-expiring-tokens  │ token_refresh.refresh           │ hourly   │
 │ check-instagram-sessions │ instagram_session_check        │ 6h       │
 │ check-linkedin-sessions  │ linkedin_session_check          │ 12h      │
@@ -432,7 +445,7 @@ Beat Schedule:
 
 | Platform | OAuth | Publishing | Analytics | Profile | Messenger | Special |
 |----------|-------|-----------|-----------|---------|-----------|---------|
-| Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal (E2EE) | Page sidecar, browser bridge |
+| Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal (E2EE) + Bot Builder | Page sidecar, browser bridge |
 | Instagram | ✓ | ✓ | ✓ | ✓ (Graph + private) | — | Private API sidecar |
 | LinkedIn | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Company Page, browser sidecar |
 | Twitter/X | ✗ | ✓ | ✓ | ✓ (API) | — | API v2 |
@@ -700,6 +713,93 @@ Celery Beat (120s)        Worker               Browser Bridge        AI Provider
      │                       │ 17. Mark as seen    │                    │
      │                       │ 18. Persist state    │                    │
      │                       │     (flag_modified)  │                    │
+```
+
+### Bot Builder Flow (Create + Activate)
+
+```
+User creates bot           Frontend             Backend              Services
+     │                       │                   │                    │
+     │  1. Select account    │                   │                    │
+     │  2. Choose personality │                   │                    │
+     │  3. Set language/hours│                   │                    │
+     │──────────────────────▶│                   │                    │
+     │                       │  4. POST /bot/    │                    │
+     │                       │     create        │                    │
+     │                       │──────────────────▶│                    │
+     │                       │                   │  5. Build prompt   │
+     │                       │                   │     from preset   │
+     │                       │                   │  6. If Page:       │
+     │                       │                   │     subscribe +   │
+     │                       │                   │     setup profile  │
+     │                       │                   │───────────────────▶│ Messenger API
+     │                       │                   │  7. If personal:  │
+     │                       │                   │     set auto-reply│
+     │                       │                   │     config        │
+     │                       │                   │  8. Index brand   │
+     │                       │                   │     knowledge     │
+     │                       │                   │───────────────────▶│ ChromaDB
+     │                       │                   │  9. Store bot     │
+     │                       │                   │     config in    │
+     │                       │                   │     meta_data     │
+     │                       │ 10. Return config │                    │
+     │                       │◀──────────────────│                    │
+     │ 11. Show bot status   │                   │                    │
+     │◀──────────────────────│                   │                    │
+     │                       │                   │                    │
+     │ 12. Activate bot      │                   │                    │
+     │──────────────────────▶│  13. POST /bot/  │                    │
+     │                       │     activate      │                    │
+     │                       │──────────────────▶│                    │
+     │                       │                   │  14. Set enabled  │
+     │                       │                   │      = true       │
+     │                       │                   │  15. Sync auto-   │
+     │                       │                   │      reply config │
+     │                       │ 16. Return status │                    │
+     │                       │◀──────────────────│                    │
+     │ 17. Bot is live       │                   │                    │
+     │◀──────────────────────│                   │                    │
+```
+
+### Bot Reply Decision Flow (per inbound message)
+
+```
+Inbound message           Polling/             Chatbot Service       AI Provider
+     │                    Webhook                │                    │
+     │───────────────────▶│                     │                    │
+     │                    │  1. Check bot config │                    │
+     │                    │     (enabled?)       │                    │
+     │                    │  2. Check business  │                    │
+     │                    │     hours (UTC)     │                    │
+     │                    │  3. Check cooldown  │                    │
+     │                    │     (Redis, 5 min)  │                    │
+     │                    │  4. Check paused   │                    │
+     │                    │     threads list   │                    │
+     │                    │  5. Check seen     │                    │
+     │                    │     state          │                    │
+     │                    │  6. If all pass:   │                    │
+     │                    │     detect_intent()│                    │
+     │                    │───────────────────▶│                    │
+     │                    │                     │  7. DMR classify  │
+     │                    │                     │───────────────────▶│ Qwen3 8B
+     │                    │                     │  8. Retrieve RAG  │
+     │                    │                     │     brand context  │
+     │                    │                     │  9. Get memory    │
+     │                    │                     │     (last 10 msgs)│
+     │                    │                     │ 10. Build enhanced│
+     │                    │                     │     prompt        │
+     │                    │                     │ 11. Generate reply│
+     │                    │                     │───────────────────▶│ DMR (primary)
+     │                    │                     │                    │  CF Workers AI
+     │                    │                     │                    │  (fallback)
+     │                    │                     │ 12. Return reply  │
+     │                    │◀───────────────────│                    │
+     │                    │ 13. Send reply      │                    │
+     │                    │     (Graph API or  │                    │
+     │                    │      browser bridge)│                    │
+     │                    │ 14. Store in memory│                    │
+     │                    │ 15. Set cooldown   │                    │
+     │                    │ 16. Mark as seen   │                    │
 ```
 
 ### Database Fallback Chain
