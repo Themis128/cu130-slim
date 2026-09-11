@@ -574,12 +574,12 @@ class BrowserBridgeClient:
         }
 
     async def _navigate_to_thread(self, thread_id: str, is_e2ee: bool = False) -> None:
-        """Navigate to a specific Messenger thread using Facebook's SPA routing.
+        """Navigate to a specific Messenger thread.
 
-        Direct page navigation (CDP Page.navigate) to /messages/t/{id}/ gets
-        redirected by Facebook's SPA to a different conversation. Instead, we
-        use window.location.href assignment which triggers the SPA's route
-        handler and loads the correct thread.
+        Facebook's Messenger SPA intercepts URL changes and redirects to a
+        random conversation. To work around this, we navigate to about:blank
+        first to unload the SPA, then navigate to the thread URL. This forces
+        a fresh SPA load that respects the requested URL.
         """
         path = "e2ee/t" if is_e2ee else "t"
         target_url = f"https://www.facebook.com/messages/{path}/{thread_id}/"
@@ -590,20 +590,13 @@ class BrowserBridgeClient:
         if current_url == target_url:
             return  # Already on the right thread
 
-        # Use window.location.href for SPA navigation (not full page load)
-        # This triggers Facebook's client-side router and loads the correct thread
-        await self.evaluate(f"""() => {{
-            window.location.href = {json.dumps(target_url)};
-            return true;
-        }}""")
-        await asyncio.sleep(5)  # Wait for SPA to load the thread
+        # Step 1: Navigate to about:blank to unload the SPA
+        await self.navigate("about:blank")
+        await asyncio.sleep(1)
 
-        # Verify we're on the right thread
-        current = await self.evaluate("() => window.location.href")
-        if thread_id not in (current.get("result", "")):
-            # Fallback: try full page navigation
-            await self.navigate(target_url)
-            await asyncio.sleep(5)
+        # Step 2: Navigate to the thread URL (fresh SPA load)
+        await self.navigate(target_url)
+        await asyncio.sleep(5)  # Wait for SPA to load the thread
 
     async def get_personal_messenger_messages(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Read messages from a specific conversation thread.
