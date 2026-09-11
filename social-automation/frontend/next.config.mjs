@@ -19,10 +19,9 @@ const nextConfig = {
         source: '/api/v1/:path*',
         destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/api/v1/:path*`,
       },
-      // Proxy noVNC through the frontend so it's served over HTTPS
-      // (eliminates Mixed Content warnings when embedded in an iframe
-      // on https://social.cloudless.gr). The WebSocket upgrade for VNC
-      // traffic is handled by Cloudflare Tunnel which supports ws/wss.
+      // noVNC HTTP proxy (HTML, JS, CSS, images). The WebSocket upgrade
+      // for VNC traffic is handled by server.js (custom server) because
+      // Next.js rewrites don't support WS upgrades (issue #23147).
       {
         source: '/novnc/:path*',
         destination: `http://browser-novnc:6080/:path*`,
