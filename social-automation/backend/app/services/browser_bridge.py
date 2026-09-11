@@ -76,9 +76,22 @@ class BrowserBridgeClient:
         except Exception:
             status = {"status": "error", "message": "Bridge unreachable"}
 
-        # Session is active and logged in
-        if status.get("status") == "active" and status.get("cookies_found"):
+        # Session is active and logged in — bridge returns "active" or "done"
+        # (after cookie extraction) with cookies_found populated
+        if status.get("status") in ("active", "done") and status.get("cookies_found"):
             return {"status": "active", "message": "Session active"}
+
+        # Try extracting cookies — the browser may be logged in but the
+        # session status hasn't been updated yet
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(f"{self._base_url}/session/extract")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("cookies_found"):
+                        return {"status": "active", "message": "Session active"}
+        except Exception:
+            pass
 
         # Session is waiting, error, or has no cookies — restart it
         try:
