@@ -421,7 +421,7 @@ services:
     restart: unless-stopped
 
   flower:
-    image: mher/flower:latest
+    image: mher/flower:2.1.0
     container_name: flower
     networks:
     - backend

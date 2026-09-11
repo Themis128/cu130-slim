@@ -452,12 +452,14 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 | `publishing` | `social-worker-publishing` | 3 | 200 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
 | `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
 | `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
+| `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
-- Total: 7 concurrent prefork processes across 3 containers (was 4 in a single container before).
+- Total: 9 concurrent prefork processes across 4 containers (was 4 in a single container before).
 - Publishing gets 3 slots (I/O-bound, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
 - Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this 8GB-RAM host.
 - Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
+- Messenger gets 2 slots with `max-tasks-per-child=50` — AI inference (DMR Qwen3 8B) + ChromaDB RAG + intent detection is RAM-heavy, so processes recycle often. One slot for the 120s poller, one for ad-hoc bot tasks (brand indexing, thread pause/resume).
 - `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acked after completion — a worker crash triggers redelivery instead of silent loss.
 - `result_expires=3600`: Redis result backend auto-cleans after 1 hour.
 - Per-task time limits via `task_annotations` in `celery_app.py`:
@@ -468,8 +470,8 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
   - Digest: 5–10 min
 - Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
 - The `social-worker-default` container consumes both `default` and `celery` queues — the `celery` queue catches any task that wasn't explicitly routed.
-- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`.
-- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 3 nodes online.
+- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`, `messenger@%h`.
+- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 4 nodes online.
 - Verify queue routing: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues`.
 - Verify per-worker concurrency: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect stats | grep max-concurrency`.
 
