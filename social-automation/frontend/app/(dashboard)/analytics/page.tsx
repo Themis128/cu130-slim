@@ -449,7 +449,7 @@ export default function AnalyticsPage() {
                   <AreaChart>
                     <defs>
                       {followerData.map((fp, i) => (
-                        <linearGradient key={fp.platform} id={`folGrad-${fp.platform}`} x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient key={`grad-${fp.platform}-${i}`} id={`folGrad-${fp.platform}-${i}`} x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0.25} />
                           <stop offset="95%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0} />
                         </linearGradient>
@@ -470,7 +470,7 @@ export default function AnalyticsPage() {
                     />
                     {followerData.map((fp, i) => (
                       <Area
-                        key={`area-${fp.platform}`}
+                        key={`area-${fp.platform}-${i}`}
                         type="monotone"
                         dataKey="followers"
                         data={fp.series.map((s) => ({ date: s.date, followers: s.followers, platform: fp.platform }))}
@@ -478,7 +478,7 @@ export default function AnalyticsPage() {
                         stroke={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]}
                         strokeWidth={2}
                         fillOpacity={1}
-                        fill={`url(#folGrad-${fp.platform})`}
+                        fill={`url(#folGrad-${fp.platform}-${i})`}
                       />
                     ))}
                   </AreaChart>
@@ -486,7 +486,7 @@ export default function AnalyticsPage() {
                 {/* Follower summary chips */}
                 <div className="flex flex-wrap gap-3 mt-3">
                   {followerData.map((fp, i) => (
-                    <div key={`chip-${fp.platform}`} className="flex items-center gap-2 text-xs">
+                    <div key={`chip-${fp.platform}-${i}`} className="flex items-center gap-2 text-xs">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length] }}
@@ -569,8 +569,8 @@ export default function AnalyticsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {platformMetrics.map((p) => (
-                      <TableRow key={p.platform}>
+                    {platformMetrics.map((p, i) => (
+                      <TableRow key={`row-${p.platform}-${i}`}>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <div

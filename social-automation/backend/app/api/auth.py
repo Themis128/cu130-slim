@@ -1760,9 +1760,9 @@ _ROLE_LEVEL = {UserRole.VIEWER: 0, UserRole.EDITOR: 1, UserRole.ADMIN: 2, UserRo
 async def get_user_role(user: User, db: AsyncSession) -> UserRole:
     """Return the user's role in their team (defaults to VIEWER)."""
     result = await db.execute(
-        select(TeamMember.role).where(TeamMember.user_id == user.id)
+        select(TeamMember.role).where(TeamMember.user_id == user.id).limit(1)
     )
-    role = result.scalar_one_or_none()
+    role = result.scalars().first()
     return role or UserRole.VIEWER
 
 
