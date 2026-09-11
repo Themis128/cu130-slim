@@ -5,8 +5,8 @@
  * (https://github.com/vercel/next.js/issues/23147). noVNC needs a
  * WebSocket connection to websockify for VNC traffic. This custom server
  * intercepts WebSocket upgrade requests for /novnc/* and proxies them
- * to the browser-novnc container (port 6080), while all other HTTP
- * requests are delegated to Next.js normally.
+ * to the browser-novnc container (port 6080), while forwarding all
+ * other WebSocket upgrades (HMR, etc.) to Next.js's own upgrade handler.
  *
  * This keeps noVNC same-origin (HTTPS) — no Mixed Content warnings —
  * and the VNC WebSocket connection works through the Cloudflare Tunnel
@@ -20,6 +20,10 @@
  *   → Cloudflare Tunnel → social-frontend:8083 (this server)
  *   → http-proxy WS upgrade → browser-novnc:6080/websockify
  *   → websockify → x11vnc → Xvfb display
+ *
+ *   Browser → wss://social.cloudless.gr/_next/webpack-hmr
+ *   → Cloudflare Tunnel → social-frontend:8083 (this server)
+ *   → Next.js upgrade handler → HMR WebSocket
  */
 const { createServer } = require('http')
 const { parse } = require('url')
@@ -59,8 +63,6 @@ app.prepare().then(() => {
     const { pathname } = parsedUrl
 
     // Proxy noVNC HTTP requests (HTML, JS, CSS, images) to browser-novnc
-    // The Next.js rewrite also handles this, but we keep it here as a
-    // fallback in case rewrites don't fire in custom server mode.
     if (pathname && pathname.startsWith('/novnc/')) {
       // Strip /novnc prefix: /novnc/vnc.html → /vnc.html
       req.url = req.url.replace(/^\/novnc/, '') || '/'
@@ -73,25 +75,27 @@ app.prepare().then(() => {
   })
 
   // ── WebSocket upgrade handler ──────────────────────────────────────
-  // noVNC connects to /novnc/websockify for the VNC WebSocket.
-  // We proxy the upgrade to browser-novnc:6080 (websockify).
+  // We handle two types of WebSocket upgrades:
+  //   1. /novnc/* → proxy to browser-novnc:6080 (websockify for VNC)
+  //   2. everything else → Next.js's own upgrade handler (HMR in dev)
+  //
+  // Without forwarding non-novnc upgrades to Next.js, the HMR WebSocket
+  // fails in dev mode, which prevents the page from hydrating and
+  // leaves it stuck on the loading spinner.
+  const nextUpgradeHandler = app.getUpgradeHandler()
+
   server.on('upgrade', (req, socket, head) => {
     const { pathname } = parse(req.url, true)
 
-    // Only proxy noVNC WebSocket upgrades
-    if (!pathname || !pathname.startsWith('/novnc/')) {
-      // Not a noVNC WebSocket — Next.js dev server handles HMR etc.
-      return
+    if (pathname && pathname.startsWith('/novnc/')) {
+      // noVNC WebSocket → proxy to browser-novnc:6080
+      req.url = req.url.replace(/^\/novnc/, '') || '/'
+      console.log(`[novnc-proxy] WS upgrade: ${pathname} → ${NOVNC_UPSTREAM}${req.url}`)
+      novncProxy.ws(req, socket, head)
+    } else {
+      // All other WebSocket upgrades (HMR, etc.) → Next.js
+      nextUpgradeHandler(req, socket, head)
     }
-
-    // Strip /novnc prefix: /novnc/websockify → /websockify
-    req.url = req.url.replace(/^\/novnc/, '') || '/'
-
-    console.log(`[novnc-proxy] WS upgrade: ${pathname} → ${NOVNC_UPSTREAM}${req.url}`)
-
-    // http-proxy handles the full WebSocket handshake (101 Switching
-    // Protocols), header forwarding, and bidirectional piping.
-    novncProxy.ws(req, socket, head)
   })
 
   server.listen(PORT, HOSTNAME, () => {
