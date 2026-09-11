@@ -385,7 +385,7 @@ async def detect_intent(
 
 Message: "{message[:200]}"
 
-Reply with only the category name, nothing else. /no_think"""
+Reply with only the category name, nothing else."""
 
     # Try DMR first (local, free, primary)
     try:
@@ -500,7 +500,7 @@ async def generate_contextual_reply(
         memory_text = "\n".join(f"{'You' if m['sender'] == 'me' else 'Them'}: {m['text'][:100]}" for m in memory[-5:])
         enhanced_prompt += f"\n\nRecent conversation:\n{memory_text}"
 
-    enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational. /no_think"
+    enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational."
 
     # Check if we need to disclose the bot's automated nature (Meta policy)
     disclosed = await has_disclosed(account_id, thread_id)
