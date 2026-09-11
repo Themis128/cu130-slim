@@ -137,7 +137,7 @@ app/
 | Media Library | `/media` | media CRUD, AI alt text | Grid, search, filters, upload, AI alt text, bulk delete, viewer |
 | AI Image Gen | `/media/generate` | generate image | Text-to-image, aspect ratio, style presets, quality tuning, history |
 | Enhance Studio | `/media/enhance/[id]` | enhance APIs | Resize, upscale, remove-bg, smart-crop, convert, compress, watermark |
-| Messenger | `/messenger` | messenger, sidecar | Page/personal inbox, conversations, messages, auto-reply, sidecar status |
+| Messenger | `/messenger` | messenger, sidecar | Page/personal inbox, conversations, messages, auto-reply, sidecar status, E2EE support, noVNC session recovery |
 | Workflows | `/workflows` | templates, generate, deploy | Prompt gallery, n8n list, AI workflow gen, seed templates, executions |
 | Team | `/team` | teams, invite, roles | List teams, create, switch, members, invite, remove, role change |
 | Settings | `/settings` | auth, notifications, 2FA | Profile, password, 2FA, sessions, notifications, theme, export, delete |
@@ -232,7 +232,7 @@ app/api/
 ├── analytics.py     (11) — overview, platform, trends, export, sync
 ├── brand.py         (26) — brand, voice, visual, guidelines, assets, health
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
-├── messenger.py     (20) — Page + personal, setup, send, auto-reply, webhook
+├── messenger.py     (20) — Page + personal, setup, send, auto-reply, webhook, E2EE
 ├── messenger_api.py (14) — Graph API client for Page Messenger
 ├── profile.py       (29) — profile read/update across platforms
 ├── linkedin.py      (13) — LinkedIn AI post, improve, hashtags, publish
@@ -291,7 +291,10 @@ app/services/
 ├── ── Messenger ─────────────────────────────────────────────
 │   ├── messenger_api.py      — Page Messenger Graph API
 │   ├── messenger_sidecar.py  — Webhook sidecar (AI auto-reply)
-│   └── browser_bridge.py     — Personal Messenger (Playwright)
+│   └── browser_bridge.py     — Personal Messenger (CDP + noVNC)
+│       ├── E2EE + regular thread support
+│       ├── ensure_session() — auto-recover + cookie extraction
+│       └── _navigate_to_thread() — SPA-safe navigation
 │
 ├── ── Browser Automation ────────────────────────────────────
 │   ├── browser_profile.py    — Browser session management
@@ -386,9 +389,9 @@ app/mcp/server.py
 │
 └── ── Personal Messenger (6) ───────────────────────────────
     ├── messenger_list_all_accounts        — List all accounts
-    ├── messenger_personal_conversations    — List personal convos
-    ├── messenger_personal_messages         — Read personal messages
-    ├── messenger_personal_send             — Send personal message
+    ├── messenger_personal_conversations    — List personal convos (E2EE + regular)
+    ├── messenger_personal_messages         — Read personal messages (E2EE + regular)
+    ├── messenger_personal_send             — Send personal message (E2EE + regular)
     ├── messenger_personal_get_auto_reply   — Get personal auto-reply
     └── messenger_personal_set_auto_reply   — Set personal auto-reply
 ```
@@ -407,7 +410,7 @@ app/worker/tasks/
 ├── instagram_session_check.py — check_instagram_sessions
 ├── linkedin_session_check.py  — check_linkedin_sessions
 ├── workflows.py            — execute_workflow, deploy_workflow
-└── personal_messenger.py   — poll_personal_messenger (auto-reply)
+└── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
 
 Beat Schedule:
 ┌──────────────────────────┬────────────────────────────────┬──────────┐
@@ -429,7 +432,7 @@ Beat Schedule:
 
 | Platform | OAuth | Publishing | Analytics | Profile | Messenger | Special |
 |----------|-------|-----------|-----------|---------|-----------|---------|
-| Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal | Page sidecar |
+| Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal (E2EE) | Page sidecar, browser bridge |
 | Instagram | ✓ | ✓ | ✓ | ✓ (Graph + private) | — | Private API sidecar |
 | LinkedIn | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Company Page, browser sidecar |
 | Twitter/X | ✗ | ✓ | ✓ | ✓ (API) | — | API v2 |
@@ -606,6 +609,97 @@ User requests AI           Frontend             Backend              AI Provider
      │                       │◀──────────────────│                    │
      │  10. Review + edit    │                   │                    │
      │◀──────────────────────│                   │                    │
+```
+
+### Personal Messenger Flow (E2EE + Regular)
+
+```
+User opens /messenger      Frontend             Backend              Browser Bridge
+     │                       │                   │                    │
+     │  1. Select account    │                   │                    │
+     │──────────────────────▶│                   │                    │
+     │                       │  2. GET /messenger │                    │
+     │                       │     /personal/     │                    │
+     │                       │     conversations  │                    │
+     │                       │──────────────────▶│                    │
+     │                       │                   │  3. ensure_session │
+     │                       │                   │     (extract       │
+     │                       │                   │      cookies)      │
+     │                       │                   │───────────────────▶│
+     │                       │                   │                    │ 4. Check FB login
+     │                       │                   │  5. Navigate to   │
+     │                       │                   │     about:blank    │
+     │                       │                   │     then /messages/│
+     │                       │                   │───────────────────▶│
+     │                       │                   │                    │ 6. Extract convos
+     │                       │                   │                    │    (E2EE + regular)
+     │                       │                   │  7. Return convos  │
+     │                       │                   │◀───────────────────│
+     │                       │  8. Return list   │                    │
+     │                       │◀──────────────────│                    │
+     │  9. Display convos    │                   │                    │
+     │     with E2EE badges  │                   │                    │
+     │                       │                   │                    │
+     │ 10. Click thread      │                   │                    │
+     │──────────────────────▶│                   │                    │
+     │                       │ 11. GET messages  │                    │
+     │                       │     ?is_e2ee=true │                    │
+     │                       │──────────────────▶│                    │
+     │                       │                   │ 12. Navigate to   │
+     │                       │                   │     about:blank    │
+     │                       │                   │     then thread    │
+     │                       │                   │───────────────────▶│
+     │                       │                   │                    │ 13. Extract msgs
+     │                       │                   │ 14. Filter noise   │
+     │                       │                   │     (timestamps,   │
+     │                       │                   │      UI artifacts) │
+     │                       │ 15. Return msgs   │                    │
+     │                       │◀──────────────────│                    │
+     │ 16. Display msgs      │                   │                    │
+     │◀──────────────────────│                   │                    │
+```
+
+### Personal Messenger Auto-Reply Flow (Celery Polling)
+
+```
+Celery Beat (120s)        Worker               Browser Bridge        AI Provider
+     │                       │                     │                    │
+     │  1. Trigger poll       │                     │                    │
+     │──────────────────────▶│                     │                    │
+     │                       │  2. Load accounts   │                    │
+     │                       │     with auto-reply │                    │
+     │                       │     enabled         │                    │
+     │                       │  3. ensure_session │                    │
+     │                       │───────────────────▶│                    │
+     │                       │                     │  4. Check cookies  │
+     │                       │  5. Get convos      │                    │
+     │                       │───────────────────▶│                    │
+     │                       │                     │  6. Navigate +     │
+     │                       │                     │     extract       │
+     │                       │  7. For each thread │                    │
+     │                       │     (up to 20):     │                    │
+     │                       │  8. Read messages   │                    │
+     │                       │───────────────────▶│                    │
+     │                       │                     │  9. Navigate to   │
+     │                       │                     │     about:blank   │
+     │                       │                     │     then thread   │
+     │                       │                     │ 10. Extract msgs  │
+     │                       │ 11. Find last       │                    │
+     │                       │     inbound msg     │                    │
+     │                       │ 12. Check seen state │                    │
+     │                       │ 13. Generate reply  │                    │
+     │                       │─────────────────────────────────────────▶│
+     │                       │                     │                    │ 14. CF Workers AI
+     │                       │                     │                    │     (primary)
+     │                       │                     │                    │     OR DMR (local)
+     │                       │                     │                    │     OR static text
+     │                       │ 15. Send reply      │                    │
+     │                       │───────────────────▶│                    │
+     │                       │                     │ 16. Navigate +    │
+     │                       │                     │     type + Enter  │
+     │                       │ 17. Mark as seen    │                    │
+     │                       │ 18. Persist state    │                    │
+     │                       │     (flag_modified)  │                    │
 ```
 
 ### Database Fallback Chain
