@@ -419,6 +419,28 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock
     - portainer_data:/data
     restart: unless-stopped
+
+  flower:
+    image: mher/flower:2.3.0
+    container_name: flower
+    networks:
+    - backend
+    ports:
+    - 5555:5555
+    environment:
+    - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
+    - FLOWER_PORT=5555
+    - FLOWER_BASIC_AUTH=${ENV_MANAGER_USER}:${ENV_MANAGER_PASS}
+    depends_on:
+    - redis
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5555/')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
   env-manager-backend:
     image: baltzakist/cu130-slim-env-manager-backend:v2.417
     pull_policy: if_not_present
