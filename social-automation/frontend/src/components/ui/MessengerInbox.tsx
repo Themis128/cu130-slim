@@ -82,11 +82,12 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
 
   // ── Send message mutation ────────────────────────────────────────
   const sendMutation = useMutation({
-    mutationFn: async (data: { text: string; threadId: string; recipientPsid?: string }) => {
+    mutationFn: async (data: { text: string; threadId: string; recipientPsid?: string; isE2ee?: boolean }) => {
       if (isPersonal) {
         return messengerApi.sendPersonalMessage(accountId, {
           thread_id: data.threadId,
           text: data.text,
+          is_e2ee: data.isE2ee,
         })
       }
       return messengerApi.sendMessage(accountId, {
@@ -95,7 +96,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messenger-messages', accountId, accountType, selectedThread] })
+      queryClient.invalidateQueries({ queryKey: ['messenger-messages', accountId, accountType, selectedThread, selectedThreadIsE2ee] })
       queryClient.invalidateQueries({ queryKey: ['messenger-conversations', accountId, accountType] })
       setReplyText('')
       toast.success('Message sent')
@@ -129,7 +130,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
   const handleSend = () => {
     if (!replyText.trim() || !selectedThread) return
     if (isPersonal) {
-      sendMutation.mutate({ text: replyText.trim(), threadId: selectedThread })
+      sendMutation.mutate({ text: replyText.trim(), threadId: selectedThread, isE2ee: selectedThreadIsE2ee })
     } else {
       const conv = (conversationsData?.data as PageConversation[] | undefined)?.find(
         (c) => c.id === selectedThread
@@ -152,6 +153,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
         name: c.name,
         preview: c.preview,
         unread: c.unread,
+        e2ee: c.e2ee || false,
       }))
     }
     const raw = conversationsData?.data as PageConversation[] | undefined
@@ -160,6 +162,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
       name: c.participants?.find((p) => p.id !== accountId)?.name || 'Unknown',
       preview: c.snippet || '',
       unread: !!c.unread_count,
+      e2ee: false,
     }))
   })()
 
@@ -322,7 +325,10 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
                 {normalizedConvos.map((conv) => (
                   <button
                     key={conv.id}
-                    onClick={() => setSelectedThread(conv.id)}
+                    onClick={() => {
+                      setSelectedThread(conv.id)
+                      setSelectedThreadIsE2ee(conv.e2ee || false)
+                    }}
                     className={`w-full text-left p-3 hover:bg-accent border-b transition-colors ${
                       selectedThread === conv.id ? 'bg-accent' : ''
                     }`}
