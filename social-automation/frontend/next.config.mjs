@@ -6,7 +6,14 @@ const nextConfig = {
   // Allow requests from the Cloudflare Tunnel domain in dev mode.
   // Without this, Next.js dev server rejects cross-origin requests
   // from social.cloudless.gr, preventing the app from loading in the browser.
-  allowedDevOrigins: ['social.cloudless.gr'],
+  allowedDevOrigins: [
+    'social.cloudless.gr',
+    'https://social.cloudless.gr',
+    'localhost',
+    '127.0.0.1',
+    'http://localhost:8082',
+    'http://127.0.0.1:8082',
+  ],
   images: {
     remotePatterns: [
       { protocol: 'http',  hostname: 'localhost' },
