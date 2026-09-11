@@ -102,7 +102,7 @@ class BrowserBridgeClient:
         return {
             "status": "waiting",
             "message": f"Browser session not logged in. Open noVNC and log in to {platform}.",
-            "novnc_url": "http://localhost:6080/vnc.html",
+            "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
         }
 
     async def session_login(self, username: str, password: str) -> dict[str, Any]:
