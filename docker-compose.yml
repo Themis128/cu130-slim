@@ -752,6 +752,36 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+  social-worker-messenger:
+    image: baltzakist/cu130-slim-social-worker:v2.417
+    pull_policy: if_not_present
+    build:
+      context: ./social-automation/backend
+      dockerfile: Dockerfile.worker
+    container_name: social-worker-messenger
+    networks:
+    - backend
+    - db
+    environment: *worker-env
+    volumes: *worker-volumes
+    extra_hosts:
+    - host.docker.internal:host-gateway
+    depends_on: *worker-depends
+    <<: *public-dns
+    # Dedicated queue for Messenger bot tasks: personal Messenger polling
+    # (every 120s) does heavy AI work — DMR inference, RAG retrieval, intent
+    # detection, ChromaDB memory storage.  conc=2: one slot for the poller,
+    # one for ad-hoc bot tasks (brand indexing, thread pause/resume).
+    # max-tasks-per-child=50: AI calls are RAM-heavy, recycle often.
+    command: celery -A app.worker.celery_app worker -Q messenger --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=messenger@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d messenger@$$HOSTNAME | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
   celery-beat:
     image: baltzakist/cu130-slim-social-worker:v2.417
     pull_policy: if_not_present

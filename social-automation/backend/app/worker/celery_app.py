@@ -127,7 +127,7 @@ celery_app.conf.update(
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
-        "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "default"},
+        "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -179,6 +179,7 @@ celery_app.conf.update(
         "poll-personal-messenger": {
             "task": "app.worker.tasks.personal_messenger.poll_personal_messenger",
             "schedule": 120.0,  # every 2 minutes
+            "options": {"queue": "messenger"},
         },
     },
 )
