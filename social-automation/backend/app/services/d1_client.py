@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -22,6 +22,11 @@ settings = get_settings()
 
 class D1Client:
     """Async client for Cloudflare D1 REST API."""
+
+    # D1 free tier: 100,000 rows written per day. We track writes and
+    # throttle when approaching the limit to avoid hard errors.
+    D1_DAILY_WRITE_LIMIT = 100_000
+    D1_WRITE_BUDGET_HEADROOM = 5_000  # stop writing at 95K to leave margin
 
     def __init__(self) -> None:
         self.account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
@@ -42,6 +47,10 @@ class D1Client:
         # Set when ALL tokens return 403 (permission denied, not just expired).
         # Avoids hammering the API on every row when the token lacks D1 scope.
         self._auth_dead: bool = False
+        # Daily write budget tracking
+        self._write_count: int = 0
+        self._write_count_date: date | None = None
+        self._write_throttled: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -117,6 +126,22 @@ class D1Client:
         if not self.enabled:
             raise RuntimeError("D1 client is not configured (missing account_id, token, or db_id)")
 
+        # Daily write budget: throttle writes when approaching free tier limit
+        if self._is_write(sql):
+            self._maybe_reset_daily_counter()
+            if self._write_count >= self.D1_DAILY_WRITE_LIMIT - self.D1_WRITE_BUDGET_HEADROOM:
+                if not self._write_throttled:
+                    logger.warning(
+                        "D1 daily write budget nearly exhausted (%d/%d writes). "
+                        "Throttling writes until UTC midnight reset.",
+                        self._write_count, self.D1_DAILY_WRITE_LIMIT,
+                    )
+                    self._write_throttled = True
+                raise RuntimeError(
+                    f"D1 daily write budget exhausted ({self._write_count}/"
+                    f"{self.D1_DAILY_WRITE_LIMIT} writes). Resets at UTC midnight."
+                )
+
         body: dict[str, Any] = {"sql": sql}
         if params:
             body["params"] = [self._serialize_param(p) for p in params]
@@ -135,6 +160,10 @@ class D1Client:
                 except Exception:
                     err_msg = resp.text[:500]
                 logger.error("D1 HTTP %s: %s | SQL: %s | Params: %s", resp.status_code, err_msg, sql[:200], str(params)[:200])
+                # Detect free tier limit exceeded
+                if "limit" in err_msg.lower() and "write" in err_msg.lower():
+                    self._write_throttled = True
+                    self._write_count_date = (datetime.now(UTC) + timedelta(hours=24)).date()
                 raise RuntimeError(f"D1 HTTP {resp.status_code}: {err_msg}")
             data = resp.json()
 
@@ -144,12 +173,47 @@ class D1Client:
             logger.error("D1 query failed: %s | SQL: %s", msg, sql[:200])
             raise RuntimeError(f"D1 error: {msg}")
 
+        # Track write
+        if self._is_write(sql):
+            self._write_count += 1
+            self._write_throttled = False
+
         results = data.get("result", [])
         if not results:
             return []
 
         # D1 returns [{"results": [...], "success": true, "meta": {...}}]
         return results[0].get("results", [])
+
+    @staticmethod
+    def _is_write(sql: str) -> bool:
+        """Check if a SQL statement is a write (INSERT/UPDATE/DELETE/REPLACE)."""
+        sql_stripped = sql.lstrip().upper()
+        return sql_stripped.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE"))
+
+    def _maybe_reset_daily_counter(self) -> None:
+        """Reset the daily write counter if it's a new UTC day."""
+        today = datetime.now(UTC).date()
+        if self._write_count_date != today:
+            if self._write_count > 0:
+                logger.info(
+                    "D1 daily write counter reset (was %d writes on %s)",
+                    self._write_count, self._write_count_date,
+                )
+            self._write_count = 0
+            self._write_count_date = today
+            self._write_throttled = False
+
+    @property
+    def write_budget(self) -> dict[str, Any]:
+        """Return daily write budget status for health checks."""
+        self._maybe_reset_daily_counter()
+        return {
+            "writes_today": self._write_count,
+            "limit": self.D1_DAILY_WRITE_LIMIT,
+            "remaining": max(0, self.D1_DAILY_WRITE_LIMIT - self._write_count),
+            "throttled": self._write_throttled,
+        }
 
     async def execute_many(self, sql: str, params_list: list[list[Any]]) -> int:
         """Execute a SQL statement with multiple parameter sets.

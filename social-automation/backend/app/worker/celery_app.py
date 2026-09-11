@@ -136,7 +136,7 @@ celery_app.conf.update(
         },
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
-            "schedule": 300.0,
+            "schedule": 1800.0,
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",

@@ -36,6 +36,7 @@ async def cf_db_health() -> dict:
         "kv": await kv_client.health(),
         "vectorize": await vectorize_client.health(),
         "router": await db_router.health(),
+        "d1_write_budget": d1_client.write_budget,
         "tokens_available": tokens_available,
         "account_id_configured": bool((s.CLOUDFLARE_ACCOUNT_ID or "").strip()),
         "d1_db_id_configured": bool((getattr(s, "D1_SOCIAL_AUTOMATION_ID", "") or "").strip()),

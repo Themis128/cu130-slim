@@ -23,7 +23,15 @@ from app.services.d1_client import d1_client
 
 logger = logging.getLogger(__name__)
 
-# Tables to sync, with their primary key column(s)
+# Tables to sync to D1, with their primary key column(s).
+#
+# Only LOW-VOLUME tables are synced to D1 to stay within the free tier
+# limit of 100,000 rows written per day. High-volume append-heavy tables
+# (analytics_events, post_analytics_snapshots, ai_usage_logs) use
+# PostgreSQL as their primary and are NOT synced to D1.
+#
+# D1 free tier: 100K writes/day. With ~30 low-volume rows synced
+# incrementally (only changed rows), daily writes stay well under 1K.
 SYNC_TABLES: list[dict[str, str]] = [
     {"table": "users", "pk": "id"},
     {"table": "teams", "pk": "id"},
@@ -35,12 +43,19 @@ SYNC_TABLES: list[dict[str, str]] = [
     {"table": "media_collections", "pk": "id"},
     {"table": "publish_queue", "pk": "id"},
     {"table": "ai_providers", "pk": "id"},
-    {"table": "ai_usage_logs", "pk": "id"},
-    {"table": "analytics_events", "pk": "id"},
     {"table": "prompt_templates", "pk": "id"},
     {"table": "generated_workflows", "pk": "id"},
-    {"table": "post_analytics_snapshots", "pk": "id"},
 ]
+
+# High-volume tables that stay Postgres-primary (NOT synced to D1).
+# These are append-only analytics/audit tables that would blow past the
+# D1 free tier (100K writes/day) if synced every 5 minutes.
+POSTGRES_ONLY_TABLES = frozenset({
+    "analytics_events",
+    "post_analytics_snapshots",
+    "ai_usage_logs",
+    "follower_snapshots",
+})
 
 # Whitelist of allowed table names — used to prevent SQL injection in
 # sync_table_to_d1 / sync_table_to_postgres where the table name is
@@ -117,10 +132,13 @@ class SyncService:
         pk: str = "id",
         batch_size: int = 100,
     ) -> dict[str, int]:
-        """Sync all rows from local PostgreSQL to D1.
+        """Sync changed rows from local PostgreSQL to D1.
 
         Reads from Postgres and upserts into D1.
         Uses INSERT OR REPLACE for SQLite/D1.
+
+        Incremental: only syncs rows with updated_at > last_sync_at.
+        Falls back to full sync on first run or if table has no updated_at.
         """
         if table not in _ALLOWED_TABLES:
             logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
@@ -152,14 +170,35 @@ class SyncService:
 
         engine = create_async_engine(settings.DATABASE_URL)
         try:
-            # Get all rows from Postgres
+            # Incremental sync: only fetch rows changed since last sync
+            last_sync = self._last_sync.get(table)
+            select_sql = f"SELECT * FROM {table}"
+            if last_sync:
+                # Check if table has updated_at column
+                col_check = await engine.connect()
+                col_result = await col_check.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :tbl AND column_name = 'updated_at'"
+                    ),
+                    {"tbl": table},
+                )
+                has_updated_at = col_result.fetchone() is not None
+                col_check.close()
+
+                if has_updated_at:
+                    select_sql += f" WHERE updated_at > '{last_sync.isoformat()}'"
+                    logger.debug("Incremental sync for %s (since %s)", table, last_sync.isoformat())
+                # else: full sync (no updated_at column)
+
             async with engine.connect() as conn:
-                result = await conn.execute(text(f"SELECT * FROM {table}"))
+                result = await conn.execute(text(select_sql))
                 columns = list(result.keys())
                 rows = result.fetchall()
 
             if not rows:
-                logger.debug("No rows in %s to sync", table)
+                logger.debug("No changed rows in %s to sync", table)
+                self._last_sync[table] = datetime.now(UTC)
                 return stats
 
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
