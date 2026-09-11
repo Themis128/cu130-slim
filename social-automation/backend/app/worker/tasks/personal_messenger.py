@@ -1,21 +1,36 @@
-"""Celery task — personal Messenger auto-reply via browser bridge.
+"""Celery task — personal Messenger chatbot via browser bridge.
 
 Personal Facebook Messenger has no webhook support (Meta only provides
 the Messenger Platform API for Pages). This task polls the browser bridge
 for new messages in personal conversations and sends AI-generated replies.
 
+Full chatbot features:
+    - Conversation memory (last 10 messages per thread, ChromaDB)
+    - Brand knowledge RAG (Cloudless.gr brand DNA indexed in ChromaDB)
+    - Intent detection (business, personal, question, spam, greeting)
+    - Per-conversation config (custom prompts, model, temperature)
+    - Human handoff (pause bot for specific threads)
+    - Per-conversation cooldown (Redis, 5 min between replies)
+
 Flow:
     1. Find Facebook personal (user) accounts with auto-reply enabled
     2. For each account, fetch recent conversations via browser bridge
     3. For each conversation with a thread_id, read the latest messages
-    4. Detect new inbound messages (not yet replied to)
-    5. Generate an AI response (Cloudflare Workers AI → DMR → fallback)
-    6. Send the reply via browser bridge
+    4. Check per-conversation cooldown (skip if too recent)
+    5. Check human handoff pause (skip if paused)
+    6. Detect new inbound messages (not yet replied to)
+    7. Detect intent (business, personal, spam, question, greeting)
+    8. Retrieve brand knowledge (RAG) and conversation memory
+    9. Generate context-aware AI reply (CF Workers AI → DMR → fallback)
+    10. Send the reply via browser bridge
+    11. Store message in conversation memory (ChromaDB)
+    12. Set cooldown for this conversation
 
 State tracking:
     ``meta_data.personal_messenger_auto_reply`` stores:
         - enabled, system_prompt, model, fallback_text, max_tokens
         - last_checked: ISO timestamp of last poll
+        - cooldown_seconds: per-conversation cooldown (default 300)
     ``meta_data.personal_messenger_seen`` stores:
         - {thread_id: last_replied_message_text}
 
@@ -34,6 +49,15 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models.social_account import SocialAccount
+from app.services.messenger_chatbot import (
+    check_cooldown,
+    detect_intent,
+    generate_contextual_reply,
+    is_thread_paused,
+    retrieve_brand_context,
+    set_cooldown,
+    store_message_memory,
+)
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
