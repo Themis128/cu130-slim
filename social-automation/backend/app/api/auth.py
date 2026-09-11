@@ -1,6 +1,8 @@
+import json
 import logging
 import uuid
 from datetime import UTC
+from urllib.parse import parse_qs
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -1822,4 +1824,124 @@ async def log_action(
         meta=meta or {},
     )
     db.add(entry)
+
+
+# ---------------------------------------------------------------------------
+# Meta Data Deletion Callback
+# ---------------------------------------------------------------------------
+# Meta requires apps to provide a data deletion callback endpoint that receives
+# a signed request when a user removes the app from their Facebook/Instagram
+# settings. The request contains a user identifier so we can delete their data.
+# See: https://developers.facebook.com/docs/development/create-an-app/data-deletion-callback
+
+
+@router.post("/data-deletion")
+async def meta_data_deletion_callback(request: Request):
+    """Handle Meta's data deletion callback.
+
+    Meta sends a signed request when a user removes the app from their
+    Facebook/Instagram settings. The request body is a JSON object with:
+    - algorithm: HMAC-SHA256
+    - issued_at: timestamp
+    - user_id: the Facebook user ID
+    - page_id: (optional) the Page ID if applicable
+
+    We verify the signature using the Facebook App Secret, then delete all
+    data associated with the user's social accounts.
+    """
+    import base64
+    import hashlib
+    import hmac
+
+    body = await request.body()
+    app_secret = settings.FACEBOOK_APP_SECRET or settings.FACEBOOK_CLIENT_SECRET
+
+    if not app_secret:
+        logger.error("FACEBOOK_APP_SECRET not configured for data deletion callback")
+        raise HTTPException(status_code=500, detail="Data deletion callback not configured")
+
+    # Parse the signed request
+    try:
+        payload = json.loads(body)
+        signed_request = payload.get("signed_request", "")
+        if not signed_request:
+            raise ValueError("No signed_request in payload")
+    except Exception as exc:
+        logger.warning("Data deletion callback: invalid payload: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid payload") from exc
+
+    # Verify the signed request (HMAC-SHA256)
+    try:
+        encoded_sig, encoded_payload = signed_request.split(".", 1)
+        # Facebook uses base64url encoding without padding
+        def _b64decode(s: str) -> bytes:
+            padded = s + "=" * (4 - len(s) % 4)
+            return base64.urlsafe_b64decode(padded)
+
+        sig = _b64decode(encoded_sig)
+        expected_sig = hmac.new(
+            app_secret.encode("utf-8"),
+            encoded_payload.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+
+        if not hmac.compare_digest(sig, expected_sig):
+            raise ValueError("Signature mismatch")
+
+        data = json.loads(_b64decode(encoded_payload))
+    except Exception as exc:
+        logger.warning("Data deletion callback: signature verification failed: %s", exc)
+        raise HTTPException(status_code=403, detail="Invalid signature") from exc
+
+    user_id = data.get("user_id")
+    page_id = data.get("page_id")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="No user_id in signed request")
+
+    # Generate a confirmation code
+    confirmation_code = f"deleted_{uuid.uuid4().hex[:16]}"
+
+    # Delete data asynchronously (don't block the response)
+    # Meta requires a response within seconds
+    import asyncio
+
+    async def _delete_user_data():
+        from app.db.session import async_session_factory
+        async with async_session_factory() as db:
+            # Find social accounts linked to this Facebook user
+            result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_id == str(user_id),
+                )
+            )
+            accounts = result.scalars().all()
+            for account in accounts:
+                await db.delete(account)
+
+            # Also check Page accounts if page_id is provided
+            if page_id:
+                result = await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "facebook",
+                        SocialAccount.account_id == str(page_id),
+                    )
+                )
+                page_accounts = result.scalars().all()
+                for account in page_accounts:
+                    await db.delete(account)
+
+            await db.commit()
+            logger.info(
+                "Data deletion callback: deleted %d accounts for user_id=%s page_id=%s",
+                len(accounts),
+                user_id,
+                page_id,
+            )
+
+    asyncio.create_task(_delete_user_data())
+
+    # Return the confirmation code immediately (Meta requirement)
+    return {"url": confirmation_code, "confirmation_code": confirmation_code}
     await db.flush()
