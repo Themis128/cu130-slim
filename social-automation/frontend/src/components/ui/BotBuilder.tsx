@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Bot, Plus, Power, PowerOff, Save, Loader2, Clock, MessageSquare, Sparkles, Play } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Bot, Plus, Power, PowerOff, Save, Loader2, Clock, MessageSquare, Sparkles, Play, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Textarea } from '@/components/ui/Textarea'
@@ -49,6 +49,7 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
       return resp.data
     },
     enabled: !!accountId,
+    retry: 1,
   })
 
   // Fetch personalities
@@ -59,6 +60,7 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
       return resp.data
     },
     enabled: !!accountId,
+    staleTime: 5 * 60 * 1000, // personalities rarely change
   })
 
   const activateMutation = useMutation({
@@ -86,12 +88,50 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
   const bot = botQuery.data?.bot as BotConfig | undefined
   const exists = botQuery.data?.exists === true
   const isLoading = botQuery.isLoading
+  const isError = botQuery.isError
 
   if (isLoading) {
     return (
       <Card>
         <CardContent className="p-6 flex items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Error state — don't confuse errors with "no bot exists"
+  if (isError && !botQuery.data) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            Bot Builder
+            <span className="text-xs text-muted-foreground font-normal">
+              ({accountType === 'page' ? 'Business Page' : 'Personal Account'})
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 text-sm">
+            <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+            <div className="space-y-2">
+              <p className="font-medium text-red-700 dark:text-red-300">Failed to load bot</p>
+              <p className="text-red-600 dark:text-red-400 text-xs">
+                {(botQuery.error as Error)?.message || 'Could not reach the API. Check that social-api is running.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => botQuery.refetch()}
+                disabled={botQuery.isFetching}
+              >
+                {botQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Retry
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     )
@@ -128,6 +168,7 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
           <CreateBotForm
             accountId={accountId}
             personalities={personalitiesQuery.data?.personalities || []}
+            personalitiesLoading={personalitiesQuery.isLoading}
             onSuccess={() => {
               setShowCreate(false)
               queryClient.invalidateQueries({ queryKey: ['messenger-bot', accountId] })
@@ -189,7 +230,12 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <BotConfigEditor accountId={accountId} bot={bot} accountType={accountType} />
+        <BotConfigEditor
+          accountId={accountId}
+          bot={bot}
+          accountType={accountType}
+          pausedThreadsStatus={botQuery.data?.paused_threads_status}
+        />
       </CardContent>
     </Card>
   )
@@ -200,10 +246,12 @@ export function BotBuilder({ accountId, accountType }: BotBuilderProps) {
 function CreateBotForm({
   accountId,
   personalities,
+  personalitiesLoading,
   onSuccess,
 }: {
   accountId: string
   personalities: Personality[]
+  personalitiesLoading: boolean
   onSuccess: () => void
 }) {
   const [name, setName] = useState('Cloudless Assistant')
@@ -212,6 +260,8 @@ function CreateBotForm({
   const [businessHoursStart, setBusinessHoursStart] = useState('')
   const [businessHoursEnd, setBusinessHoursEnd] = useState('')
   const [customPrompt, setCustomPrompt] = useState('')
+
+  const businessHoursValid = !businessHoursStart || !businessHoursEnd || businessHoursStart < businessHoursEnd
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -259,24 +309,35 @@ function CreateBotForm({
         {/* Personality preset */}
         <div>
           <label className="text-sm font-medium block mb-1">Personality</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {personalities.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setPersonality(p.id)}
-                className={`text-left p-3 rounded-lg border text-sm transition-colors ${
-                  personality === p.id
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card hover:bg-accent border-border'
-                }`}
-              >
-                <div className="font-medium">{p.name}</div>
-                <div className={`text-xs mt-1 ${personality === p.id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                  {p.description}
-                </div>
-              </button>
-            ))}
-          </div>
+          {personalitiesLoading ? (
+            <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              Loading personalities...
+            </div>
+          ) : personalities.length === 0 ? (
+            <div className="p-3 rounded-lg border bg-accent/50 text-sm text-muted-foreground">
+              No personality presets available. A default will be used.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {personalities.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setPersonality(p.id)}
+                  className={`text-left p-3 rounded-lg border text-sm transition-colors ${
+                    personality === p.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-card hover:bg-accent border-border'
+                  }`}
+                >
+                  <div className="font-medium">{p.name}</div>
+                  <div className={`text-xs mt-1 ${personality === p.id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                    {p.description}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Language */}
@@ -320,6 +381,11 @@ function CreateBotForm({
             />
           </div>
         </div>
+        {!businessHoursValid && (
+          <p className="text-xs text-red-500">
+            End time must be after start time.
+          </p>
+        )}
 
         {/* Custom prompt (optional) */}
         <div>
@@ -339,7 +405,7 @@ function CreateBotForm({
         <div className="flex gap-2">
           <Button
             onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending || !name}
+            disabled={createMutation.isPending || !name || !businessHoursValid}
             size="sm"
           >
             {createMutation.isPending ? (
@@ -361,22 +427,38 @@ function BotConfigEditor({
   accountId,
   bot,
   accountType,
+  pausedThreadsStatus,
 }: {
   accountId: string
   bot: BotConfig
   accountType: 'page' | 'user'
+  pausedThreadsStatus?: Record<string, boolean>
 }) {
   const queryClient = useQueryClient()
   const [config, setConfig] = useState<BotConfig>(bot)
+  // Track whether the user has unsaved edits — prevents refetch from overwriting
+  const [isDirty, setIsDirty] = useState(false)
+  const lastBotRef = useRef(bot)
 
   useEffect(() => {
-    setConfig(bot)
-  }, [bot])
+    // Only sync from server if the bot reference actually changed AND user has no unsaved edits
+    // This prevents activate/deactivate refetches from wiping in-progress edits
+    if (lastBotRef.current !== bot && !isDirty) {
+      setConfig(bot)
+      lastBotRef.current = bot
+    }
+  }, [bot, isDirty])
+
+  const updateConfig = (patch: Partial<BotConfig>) => {
+    setConfig((prev) => ({ ...prev, ...patch }))
+    setIsDirty(true)
+  }
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<BotConfig>) => messengerApi.updateBot(accountId, data),
     onSuccess: () => {
       toast.success('Bot settings saved')
+      setIsDirty(false)
       queryClient.invalidateQueries({ queryKey: ['messenger-bot', accountId] })
     },
     onError: () => toast.error('Failed to save bot settings'),
@@ -384,6 +466,11 @@ function BotConfigEditor({
 
   const handleSave = () => {
     updateMutation.mutate(config)
+  }
+
+  const handleReset = () => {
+    setConfig(bot)
+    setIsDirty(false)
   }
 
   return (
@@ -395,6 +482,16 @@ function BotConfigEditor({
           : 'Personal account bot — replies via browser bridge (CDP + noVNC)'}
       </div>
 
+      {/* Dirty indicator */}
+      {isDirty && (
+        <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 text-xs">
+          <span className="text-amber-700 dark:text-amber-300">You have unsaved changes</span>
+          <button onClick={handleReset} className="text-amber-700 dark:text-amber-300 underline">
+            Discard
+          </button>
+        </div>
+      )}
+
       {/* System prompt */}
       <div>
         <label className="text-sm font-medium block mb-1 flex items-center gap-1">
@@ -403,7 +500,7 @@ function BotConfigEditor({
         </label>
         <Textarea
           value={config.system_prompt}
-          onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
+          onChange={(e) => updateConfig({ system_prompt: e.target.value })}
           rows={4}
           className="text-sm"
         />
@@ -418,7 +515,7 @@ function BotConfigEditor({
           <label className="text-sm font-medium block mb-1">AI Model</label>
           <select
             value={config.model}
-            onChange={(e) => setConfig({ ...config, model: e.target.value })}
+            onChange={(e) => updateConfig({ model: e.target.value })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
           >
             <option value="ai/llama3.2:latest">Llama 3.2 (DMR, local — recommended for English)</option>
@@ -439,7 +536,7 @@ function BotConfigEditor({
             max="1"
             step="0.1"
             value={config.temperature}
-            onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) })}
+            onChange={(e) => updateConfig({ temperature: parseFloat(e.target.value) })}
             className="w-full"
           />
           <div className="flex justify-between text-xs text-muted-foreground">
@@ -456,7 +553,7 @@ function BotConfigEditor({
           <input
             type="number"
             value={config.max_tokens}
-            onChange={(e) => setConfig({ ...config, max_tokens: parseInt(e.target.value) || 300 })}
+            onChange={(e) => updateConfig({ max_tokens: parseInt(e.target.value) || 300 })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
             min="50"
             max="1000"
@@ -467,7 +564,7 @@ function BotConfigEditor({
           <input
             type="number"
             value={config.cooldown_seconds}
-            onChange={(e) => setConfig({ ...config, cooldown_seconds: parseInt(e.target.value) || 300 })}
+            onChange={(e) => updateConfig({ cooldown_seconds: parseInt(e.target.value) || 300 })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
             min="0"
             max="3600"
@@ -485,7 +582,7 @@ function BotConfigEditor({
           <input
             type="time"
             value={config.business_hours_start || ''}
-            onChange={(e) => setConfig({ ...config, business_hours_start: e.target.value || null })}
+            onChange={(e) => updateConfig({ business_hours_start: e.target.value || null })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
           />
         </div>
@@ -497,11 +594,14 @@ function BotConfigEditor({
           <input
             type="time"
             value={config.business_hours_end || ''}
-            onChange={(e) => setConfig({ ...config, business_hours_end: e.target.value || null })}
+            onChange={(e) => updateConfig({ business_hours_end: e.target.value || null })}
             className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
           />
         </div>
       </div>
+      {config.business_hours_start && config.business_hours_end && config.business_hours_start >= config.business_hours_end && (
+        <p className="text-xs text-red-500">End time must be after start time.</p>
+      )}
 
       {/* Fallback text */}
       <div>
@@ -509,7 +609,7 @@ function BotConfigEditor({
         <input
           type="text"
           value={config.fallback_text}
-          onChange={(e) => setConfig({ ...config, fallback_text: e.target.value })}
+          onChange={(e) => updateConfig({ fallback_text: e.target.value })}
           className="w-full px-3 py-2 rounded-lg border bg-card text-sm"
           placeholder="Used when AI is unavailable"
         />
@@ -523,7 +623,7 @@ function BotConfigEditor({
           <input
             type="checkbox"
             checked={config.reply_to_greetings}
-            onChange={(e) => setConfig({ ...config, reply_to_greetings: e.target.checked })}
+            onChange={(e) => updateConfig({ reply_to_greetings: e.target.checked })}
           />
         </div>
         <div className="flex items-center justify-between p-2 rounded-lg border bg-card">
@@ -531,46 +631,80 @@ function BotConfigEditor({
           <input
             type="checkbox"
             checked={config.reply_to_spam}
-            onChange={(e) => setConfig({ ...config, reply_to_spam: e.target.checked })}
+            onChange={(e) => updateConfig({ reply_to_spam: e.target.checked })}
           />
         </div>
       </div>
 
-      {/* Paused threads (human handoff) */}
-      {config.paused_threads.length > 0 && (
+      {/* Quick replies (Page only — personal accounts don't support Graph API quick replies) */}
+      {accountType === 'page' && config.quick_replies.length > 0 && (
         <div>
-          <label className="text-sm font-medium block mb-1">Paused Threads (Human Handoff)</label>
+          <label className="text-sm font-medium block mb-1">Quick Replies (Page only)</label>
           <div className="space-y-1">
-            {config.paused_threads.map((threadId) => (
-              <div key={threadId} className="flex items-center justify-between p-2 rounded-lg border bg-card">
-                <span className="text-xs font-mono">{threadId}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      await messengerApi.resumeBotThread(accountId, threadId)
-                      toast.success('Thread resumed')
-                      queryClient.invalidateQueries({ queryKey: ['messenger-bot', accountId] })
-                    } catch {
-                      toast.error('Failed to resume thread')
-                    }
-                  }}
-                >
-                  <Play className="h-3 w-3" />
-                  Resume
-                </Button>
+            {config.quick_replies.map((qr, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 rounded-lg border bg-card text-sm">
+                <span className="font-medium">{qr.title}</span>
+                <span className="text-xs text-muted-foreground font-mono">{qr.payload}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
+      {/* Paused threads (human handoff) */}
+      {config.paused_threads.length > 0 && (
+        <div>
+          <label className="text-sm font-medium block mb-1">Paused Threads (Human Handoff)</label>
+          <div className="space-y-1">
+            {config.paused_threads.map((threadId) => {
+              const isActuallyPaused = pausedThreadsStatus?.[threadId] ?? true
+              return (
+                <div key={threadId} className="flex items-center justify-between p-2 rounded-lg border bg-card">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono">{threadId}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isActuallyPaused
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                        : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                    }`}>
+                      {isActuallyPaused ? 'paused' : 'stale'}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await messengerApi.resumeBotThread(accountId, threadId)
+                        toast.success('Thread resumed')
+                        queryClient.invalidateQueries({ queryKey: ['messenger-bot', accountId] })
+                      } catch {
+                        toast.error('Failed to resume thread')
+                      }
+                    }}
+                  >
+                    <Play className="h-3 w-3" />
+                    Resume
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Save button */}
-      <Button onClick={handleSave} disabled={updateMutation.isPending} size="sm">
-        {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-        Save Bot Settings
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={handleSave} disabled={updateMutation.isPending || !isDirty} size="sm">
+          {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Save Bot Settings
+        </Button>
+        {isDirty && (
+          <Button onClick={handleReset} variant="outline" size="sm" disabled={updateMutation.isPending}>
+            Discard
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
