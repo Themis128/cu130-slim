@@ -880,7 +880,6 @@ services:
     volumes:
     - ./social-automation/frontend:/app
     - /app/node_modules
-    - /app/.next
     networks:
     - backend
     - frontend
