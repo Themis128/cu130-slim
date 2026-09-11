@@ -27,7 +27,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
@@ -96,6 +96,21 @@ def _get_whatsapp_client(account: SocialAccount) -> WhatsAppAPIClient:
 
 class WhatsAppSetupRequest(BaseModel):
     greeting_text: str | None = Field(None, description="Custom greeting/about text for the business profile")
+
+
+class WhatsAppCredentialsUpdate(BaseModel):
+    """Update WhatsApp Cloud API credentials (Step 5 of Get Started).
+
+    After creating a System User in Meta Business Settings and generating a
+    permanent access token with whatsapp_business_messaging,
+    whatsapp_business_management, and business_management permissions,
+    store the token here so the app can send messages and receive webhooks.
+    """
+    access_token: str = Field(..., description="Permanent System User access token")
+    phone_number_id: str = Field(..., description="WhatsApp Business phone number ID")
+    waba_id: str | None = Field(None, description="WhatsApp Business Account ID")
+    display_phone_number: str | None = Field(None, description="Display phone number (E.164)")
+    subscribe_webhooks: bool = Field(True, description="Subscribe app to WABA webhooks after updating credentials")
 
 
 class WhatsAppProfileResponse(BaseModel):
@@ -249,6 +264,151 @@ async def setup_whatsapp(
         "display_phone_number": display_phone,
         "verified_name": verified_name,
     }
+
+
+@router.put("/{account_id}/credentials", response_model=dict)
+async def update_whatsapp_credentials(
+    account_id: uuid.UUID,
+    body: WhatsAppCredentialsUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Store permanent WhatsApp Cloud API credentials (Get Started Step 5).
+
+    After creating a System User in Meta Business Settings and generating a
+    permanent access token, call this endpoint to store the token, phone
+    number ID, and WABA ID so the app can send messages and process webhooks.
+
+    If ``subscribe_webhooks`` is true (default), also subscribes the app to
+    webhooks on the WABA so incoming messages are delivered.
+    """
+    account = await _get_whatsapp_account(db, account_id, user)
+
+    # Encrypt the access token before storing
+    encrypted_token = encrypt_token(body.access_token)
+    # encrypt_token returns bytes — decode for JSON storage in meta_data
+    encrypted_token_str = encrypted_token.decode() if isinstance(encrypted_token, bytes) else encrypted_token
+
+    meta = account.meta_data or {}
+    meta["access_token"] = encrypted_token_str
+    meta["phone_number_id"] = body.phone_number_id
+    if body.waba_id:
+        meta["waba_id"] = body.waba_id
+    if body.display_phone_number:
+        meta["display_phone_number"] = body.display_phone_number
+    meta["credentials_configured"] = True
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+
+    # Also update the encrypted token column for consistency
+    account.access_token_enc = encrypted_token
+
+    await db.commit()
+
+    # Optionally subscribe to WABA webhooks
+    webhook_result = None
+    if body.subscribe_webhooks and body.waba_id:
+        try:
+            client = _get_whatsapp_client(account)
+            webhook_result = await client.subscribe_app_to_waba(body.waba_id)
+        except Exception as e:
+            logger.warning(
+                "WABA webhook subscription failed: %s", _sanitize_log_text(str(e))
+            )
+            webhook_result = {"success": False, "error": str(e)}
+
+    return {
+        "status": "ok",
+        "credentials_stored": True,
+        "phone_number_id": body.phone_number_id,
+        "waba_id": body.waba_id,
+        "webhook_subscription": webhook_result,
+    }
+
+
+@router.get("/{account_id}/setup-status", response_model=dict)
+async def get_setup_status(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Check WhatsApp Cloud API setup status (Get Started checklist).
+
+    Returns which Get Started steps are complete:
+    - account_exists: SocialAuto WhatsApp account exists
+    - credentials_configured: access token + phone_number_id stored
+    - waba_id_configured: WABA ID is known
+    - webhook_subscribed: app is subscribed to WABA webhooks
+    - phone_number_registered: phone number is registered for API use
+    - business_profile_set: business profile (about/description) configured
+    - can_send_messages: credentials are present and phone is registered
+    """
+    account = await _get_whatsapp_account(db, account_id, user)
+    meta = account.meta_data or {}
+
+    access_token = meta.get("access_token", "")
+    phone_number_id = meta.get("phone_number_id", "")
+    waba_id = meta.get("waba_id", "")
+    has_credentials = bool(access_token and phone_number_id)
+
+    # Check live phone number status if credentials are present
+    phone_info = None
+    phone_registered = False
+    webhook_subscribed = False
+    if has_credentials:
+        try:
+            client = _get_whatsapp_client(account)
+            phone_info = await client.get_phone_number_info()
+            # code_verification_status = VERIFIED means registered
+            phone_registered = phone_info.get("code_verification_status") == "VERIFIED"
+        except Exception as e:
+            logger.debug("Phone number info check failed: %s", _sanitize_log_text(str(e)))
+
+        # Check webhook subscription
+        if waba_id:
+            try:
+                client = _get_whatsapp_client(account)
+                subs = await client.list_waba_subscriptions(waba_id)
+                webhook_subscribed = len(subs) > 0
+            except Exception as e:
+                logger.debug("WABA subscription check failed: %s", _sanitize_log_text(str(e)))
+
+    setup_data = meta.get("whatsapp_setup", {})
+    profile_set = bool(setup_data.get("setup_complete"))
+
+    return {
+        "account_exists": True,
+        "credentials_configured": has_credentials,
+        "waba_id_configured": bool(waba_id),
+        "webhook_subscribed": webhook_subscribed,
+        "phone_number_registered": phone_registered,
+        "business_profile_set": profile_set,
+        "can_send_messages": has_credentials and phone_registered,
+        "phone_number_info": phone_info,
+        "display_phone_number": meta.get("display_phone_number", ""),
+        "waba_id": waba_id,
+        "phone_number_id": phone_number_id,
+        "next_step": _next_setup_step(
+            has_credentials, bool(waba_id), webhook_subscribed, phone_registered, profile_set
+        ),
+    }
+
+
+def _next_setup_step(
+    has_creds: bool, has_waba: bool, webhook_sub: bool, phone_reg: bool, profile_set: bool
+) -> str:
+    """Return the next incomplete Get Started step."""
+    if not has_creds:
+        return "Create a System User in Meta Business Settings and generate a permanent access token, then PUT /credentials"
+    if not has_waba:
+        return "Set the WABA ID via PUT /credentials (waba_id field)"
+    if not phone_reg:
+        return "Register the phone number via the 4-step registration flow (POST /register/*)"
+    if not webhook_sub:
+        return "Subscribe to WABA webhooks: POST /webhooks/subscribe"
+    if not profile_set:
+        return "Set up the business profile: POST /{account_id}/setup"
+    return "setup_complete"
 
 
 @router.get("/{account_id}/profile", response_model=WhatsAppProfileResponse)
