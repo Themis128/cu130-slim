@@ -49,7 +49,7 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _encode_state(team_id: uuid.UUID, code_verifier: str | None = None) -> str:
+def _encode_state(team_id: uuid.UUID, code_verifier: str | None = None, platform: str | None = None) -> str:
     """Create an HMAC-signed OAuth state parameter.
 
     Uses the same signing scheme as ``app.api.auth.sign_oauth_state`` so the
@@ -59,6 +59,8 @@ def _encode_state(team_id: uuid.UUID, code_verifier: str | None = None) -> str:
     payload: dict = {"t": str(team_id)}
     if code_verifier is not None:
         payload["cv"] = code_verifier
+    if platform is not None:
+        payload["p"] = platform
     return sign_oauth_state(payload)
 
 
@@ -249,7 +251,7 @@ async def connect_account_body(
     if data.platform in ("twitter", "tiktok"):
         code_verifier, code_challenge = _pkce_pair()
 
-    state = _encode_state(team_id, code_verifier)
+    state = _encode_state(team_id, code_verifier, platform=data.platform)
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
@@ -324,7 +326,7 @@ async def connect_account(
     if platform in ("twitter", "tiktok"):
         code_verifier, code_challenge = _pkce_pair()
 
-    state = _encode_state(team_id, code_verifier)
+    state = _encode_state(team_id, code_verifier, platform=platform)
 
     authorization_url = await client.get_authorization_url(
         redirect_uri,

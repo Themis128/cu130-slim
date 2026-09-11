@@ -1092,9 +1092,14 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
     team_id = uuid.UUID(state_data["t"])
     code_verifier: str | None = state_data.get("cv")
+    # The state may carry the original platform alias (e.g. "whatsapp" uses Facebook OAuth)
+    original_platform: str | None = state_data.get("p")
 
-    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
-    client = globals()[f"{platform}_client"]
+    # Resolve the OAuth client and redirect URI.
+    # WhatsApp and Messenger use the Facebook OAuth client and redirect URI.
+    oauth_platform = "facebook" if platform in ("whatsapp", "messenger") else platform
+    redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI")
+    client = globals()[f"{oauth_platform}_client"]
 
     try:
         token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
@@ -1209,6 +1214,60 @@ async def oauth_callback(
                     "ads_management", "ads_read", "business_management",
                     "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
                 ]
+
+            # If this was a WhatsApp connect, fetch WABA and phone numbers
+            if original_platform == "whatsapp":
+                # Get the user's businesses (WABA is nested under business)
+                biz_resp = await http.get(
+                    "https://graph.facebook.com/v25.0/me/businesses",
+                    params={"access_token": long_lived_token, "fields": "id,name"},
+                )
+                businesses = biz_resp.json().get("data", [])
+                waba_id = None
+                waba_phone_numbers = []
+
+                for biz in businesses:
+                    biz_id = biz["id"]
+                    # Try to get the WABA for this business
+                    waba_resp = await http.get(
+                        f"https://graph.facebook.com/v25.0/{biz_id}/owned_whatsapp_business_accounts",
+                        params={"access_token": long_lived_token},
+                    )
+                    if waba_resp.status_code == 200:
+                        waba_data = waba_resp.json().get("data", [])
+                        if waba_data:
+                            waba_id = waba_data[0]["id"]
+                            # Get phone numbers for this WABA
+                            phones_resp = await http.get(
+                                f"https://graph.facebook.com/v25.0/{waba_id}/phone_numbers",
+                                params={
+                                    "access_token": long_lived_token,
+                                    "fields": "id,display_phone_number,verified_name,quality_rating",
+                                },
+                            )
+                            if phones_resp.status_code == 200:
+                                waba_phone_numbers = phones_resp.json().get("data", [])
+                            break
+
+                # Store as a WhatsApp account
+                account_id = user_info["id"]
+                username = user_info.get("email") or user_info.get("name")
+                display_name = "Cloudless WhatsApp"
+                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+                access_token = long_lived_token
+                # Override platform to "whatsapp" for storage
+                platform = "whatsapp"
+                scopes = [
+                    "whatsapp_business_messaging", "whatsapp_business_management",
+                    "business_management", "pages_show_list",
+                ]
+                # Stash WABA info for the account metadata
+                wa_info = {
+                    "waba_id": waba_id,
+                    "phone_numbers": waba_phone_numbers,
+                    "businesses": businesses,
+                }
+                fb_pages = []  # Don't create Facebook Page accounts for WhatsApp connect
         elif platform == "threads":
             # Threads token response includes user_id — use it if /me fails
             threads_user_id = token.get("user_id")
