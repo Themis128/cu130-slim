@@ -516,6 +516,44 @@ async def generate_contextual_reply(
             "normal response."
         )
 
+    # Language-aware model routing:
+    # DMR Qwen3 8B produces gibberish for Greek text, but handles English well.
+    # Cloudflare Llama 3.1 8B handles Greek correctly.
+    # Strategy: if the message contains Greek characters, try CF first.
+    # Otherwise, try DMR first (free, local, private).
+    has_greek = any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF
+                    for c in user_message)
+
+    if has_greek and cf_token and cf_account:
+        # Greek message — Cloudflare handles Greek better
+        model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
+        try:
+            url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {cf_token}"},
+                    json={
+                        "messages": [
+                            {"role": "system", "content": enhanced_prompt},
+                            {"role": "user", "content": user_message},
+                        ],
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("result") and data["result"].get("response"):
+                        text = data["result"]["response"].strip()
+                        if text:
+                            if not disclosed:
+                                await mark_disclosed(account_id, thread_id)
+                            return f"{disclosure_prefix}{text}" if not disclosed else text
+        except Exception as exc:
+            logger.warning("Cloudflare AI (Greek) failed: %s", exc)
+        # Fall through to DMR if CF failed
+
     # 1. Try DMR first (local, free, primary)
     try:
         from app.services.dmr import call_dmr_chat
@@ -534,9 +572,9 @@ async def generate_contextual_reply(
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
 
-    # 2. Fallback: Cloudflare Workers AI
+    # 2. Fallback: Cloudflare Workers AI (skip if already tried for Greek)
     model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
-    if cf_token and cf_account:
+    if cf_token and cf_account and not has_greek:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
             async with httpx.AsyncClient(timeout=30) as client:
