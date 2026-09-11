@@ -605,7 +605,7 @@ async def receive_webhook(
     raw_body = await request.body()
 
     # Verify webhook signature if FACEBOOK_APP_SECRET is set
-    app_secret = os.getenv("FACEBOOK_APP_SECRET", "")
+    app_secret = settings.FACEBOOK_APP_SECRET or os.getenv("FACEBOOK_APP_SECRET", "")
     if app_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")
         if not _verify_webhook_signature(raw_body, signature, app_secret):
@@ -615,7 +615,7 @@ async def receive_webhook(
     events = parse_webhook_event(body)
 
     processed = 0
-    sidecar_url = os.getenv("MESSENGER_SIDECAR_URL", "")
+    sidecar_url = settings.MESSENGER_SIDECAR_URL or os.getenv("MESSENGER_SIDECAR_URL", "")
 
     for event in events:
         page_id = event.get("page_id")
