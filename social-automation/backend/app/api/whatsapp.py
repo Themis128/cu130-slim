@@ -132,6 +132,40 @@ class SendMessageRequest(BaseModel):
     messaging_type: str = "RESPONSE"
 
 
+# ── Phone number registration schemas (4-step flow) ──────────────────
+
+class CreatePhoneNumberRequest(BaseModel):
+    """Step 1: Create a business phone number on a WABA."""
+    waba_id: str = Field(..., description="WhatsApp Business Account ID")
+    cc: str = Field(..., description="Country calling code (e.g. '30' for Greece)")
+    phone_number: str = Field(..., description="Phone number without country code")
+    verified_name: str = Field(..., description="Display name for the business")
+
+
+class RequestCodeRequest(BaseModel):
+    """Step 2: Request a verification code."""
+    phone_number_id: str = Field(..., description="Phone number ID from step 1")
+    code_method: str = Field("SMS", description="Delivery method: 'SMS' or 'VOICE'")
+    language: str = Field("en_US", description="Language code (e.g. 'en_US', 'el_GR')")
+
+
+class VerifyCodeRequest(BaseModel):
+    """Step 3: Verify the phone number with the code."""
+    phone_number_id: str = Field(..., description="Phone number ID from step 1")
+    code: str = Field(..., description="Verification code (with or without hyphen)")
+
+
+class RegisterNumberRequest(BaseModel):
+    """Step 4: Register the verified phone number for API use."""
+    phone_number_id: str = Field(..., description="Verified phone number ID")
+    pin: str = Field(..., description="6-digit two-step verification PIN")
+
+
+class DeregisterNumberRequest(BaseModel):
+    """Deregister a phone number (stops API use)."""
+    phone_number_id: str = Field(..., description="Phone number ID to deregister")
+
+
 class SendTemplateRequest(BaseModel):
     to: str = Field(..., description="Recipient phone number")
     template_name: str = Field(..., description="Approved template name")
@@ -267,6 +301,155 @@ async def update_whatsapp_profile(
         result = await client.update_business_profile(updates)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to update WhatsApp profile: {e}")
+
+    return result
+
+
+# ------------------------------------------------------------------
+# Phone number registration (4-step flow)
+# https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/registering-phone-numbers
+# ------------------------------------------------------------------
+
+@router.post("/register/create-number", response_model=dict)
+async def create_phone_number(
+    body: CreatePhoneNumberRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Step 1: Create a business phone number on a WABA.
+
+    Returns the new phone number ID (unverified). Use /register/request-code next.
+    """
+    # Use any WhatsApp account's token for the WABA-level call
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found — connect one first")
+    client = _get_whatsapp_client(account)
+
+    try:
+        result = await client.create_phone_number(
+            waba_id=body.waba_id,
+            cc=body.cc,
+            phone_number=body.phone_number,
+            verified_name=body.verified_name,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to create phone number: {e}")
+
+    return result
+
+
+@router.post("/register/request-code", response_model=dict)
+async def request_verification_code(
+    body: RequestCodeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Step 2: Request a verification code sent via SMS or voice call.
+
+    Meta sends a code like 'WhatsApp code 123-830' to the phone number.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        result = await client.request_verification_code(
+            phone_number_id=body.phone_number_id,
+            code_method=body.code_method,
+            language=body.language,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to request verification code: {e}")
+
+    return result
+
+
+@router.post("/register/verify-code", response_model=dict)
+async def verify_phone_code(
+    body: VerifyCodeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Step 3: Verify the phone number with the code received via SMS/voice.
+
+    The code should be numeric (hyphen stripped automatically, e.g. '123-830' → '123830').
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        result = await client.verify_code(
+            phone_number_id=body.phone_number_id,
+            code=body.code,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to verify code: {e}")
+
+    return result
+
+
+@router.post("/register/number", response_model=dict)
+async def register_phone_number(
+    body: RegisterNumberRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Step 4: Register the verified phone number for API use.
+
+    Sets the 6-digit two-step verification PIN. After this, the number
+    can send/receive messages via the Cloud API.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        result = await client.register_number(
+            phone_number_id=body.phone_number_id,
+            pin=body.pin,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to register number: {e}")
+
+    return result
+
+
+@router.post("/register/deregister", response_model=dict)
+async def deregister_phone_number(
+    body: DeregisterNumberRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Deregister a business phone number (stops API use)."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        result = await client.deregister_number(body.phone_number_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to deregister number: {e}")
 
     return result
 

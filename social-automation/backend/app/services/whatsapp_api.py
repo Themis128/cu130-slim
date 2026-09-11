@@ -408,6 +408,143 @@ class WhatsAppAPIClient:
             self._raise_for_status(resp, url)
             return resp.json().get("data", [])
 
+    # ------------------------------------------------------------------
+    # Phone number registration (4-step flow)
+    # https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/registering-phone-numbers
+    # ------------------------------------------------------------------
+
+    async def create_phone_number(
+        self,
+        waba_id: str,
+        cc: str,
+        phone_number: str,
+        verified_name: str,
+    ) -> dict:
+        """Step 1: Create a business phone number on a WABA.
+
+        POST /{waba_id}/phone_numbers
+
+        Args:
+            waba_id: WhatsApp Business Account ID.
+            cc: Country calling code (e.g. "1", "30").
+            phone_number: Phone number without country code (e.g. "15551234").
+            verified_name: Display name for the business.
+
+        Returns: {"id": "<phone_number_id>"}
+        """
+        waba = _validate_id(waba_id, "waba_id")
+        url = self._url(f"{waba}/phone_numbers")
+        body = {
+            "cc": cc,
+            "phone_number": phone_number,
+            "verified_name": verified_name,
+        }
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                params=self._params(),
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def request_verification_code(
+        self,
+        phone_number_id: str,
+        code_method: str = "SMS",
+        language: str = "en_US",
+    ) -> dict:
+        """Step 2: Request a verification code sent to the business phone number.
+
+        POST /{phone_number_id}/request_code?code_method=SMS&language=en_US
+
+        Args:
+            phone_number_id: The phone number ID from step 1.
+            code_method: "SMS" or "VOICE".
+            language: Language code (e.g. "en_US", "el_GR").
+
+        Returns: {"success": true}
+        """
+        pnid = _validate_id(phone_number_id, "phone_number_id")
+        if code_method not in ("SMS", "VOICE"):
+            raise ValueError("code_method must be 'SMS' or 'VOICE'")
+        url = self._url(f"{pnid}/request_code")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                params=self._params({"code_method": code_method, "language": language}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def verify_code(self, phone_number_id: str, code: str) -> dict:
+        """Step 3: Verify the business phone number with the code.
+
+        POST /{phone_number_id}/verify_code?code=123830
+
+        Args:
+            phone_number_id: The phone number ID from step 1.
+            code: Verification code received via SMS/voice, without hyphen.
+
+        Returns: {"success": true}
+        """
+        pnid = _validate_id(phone_number_id, "phone_number_id")
+        # Strip any hyphens/spaces from the code
+        clean_code = re.sub(r"[\s\-]", "", code)
+        if not clean_code.isdigit():
+            raise ValueError("Verification code must be numeric")
+        url = self._url(f"{pnid}/verify_code")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                params=self._params({"code": clean_code}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def register_number(self, phone_number_id: str, pin: str) -> dict:
+        """Step 4: Register the verified phone number for API use.
+
+        POST /{phone_number_id}/register
+
+        Args:
+            phone_number_id: The verified phone number ID.
+            pin: 6-digit two-step verification PIN.
+
+        Returns: {"success": true}
+        """
+        pnid = _validate_id(phone_number_id, "phone_number_id")
+        clean_pin = re.sub(r"[\s\-]", "", pin)
+        if not (clean_pin.isdigit() and len(clean_pin) == 6):
+            raise ValueError("PIN must be exactly 6 digits")
+        url = self._url(f"{pnid}/register")
+        body = {
+            "messaging_product": "whatsapp",
+            "pin": clean_pin,
+        }
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                params=self._params(),
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def deregister_number(self, phone_number_id: str) -> dict:
+        """Deregister a business phone number (stops API use).
+
+        POST /{phone_number_id}/deregister
+        """
+        pnid = _validate_id(phone_number_id, "phone_number_id")
+        url = self._url(f"{pnid}/deregister")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(url, params=self._params())
+            self._raise_for_status(resp, url)
+            return resp.json()
+
 
 # ------------------------------------------------------------------
 # Webhook event helpers

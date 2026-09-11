@@ -71,6 +71,16 @@ different permissions and webhook fields.
 | POST | `/{account_id}/send` | Send text, image, or document message |
 | POST | `/{account_id}/send-template` | Send template message (for initiating conversations) |
 
+### Phone number registration (4-step flow)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/register/create-number` | Step 1: Create a business phone number on a WABA |
+| POST | `/register/request-code` | Step 2: Request verification code via SMS or voice |
+| POST | `/register/verify-code` | Step 3: Verify the phone number with the code |
+| POST | `/register/number` | Step 4: Register the verified number for API use |
+| POST | `/register/deregister` | Deregister a phone number (stops API use) |
+
 ### Auto-reply
 
 | Method | Path | Purpose |
