@@ -1136,8 +1136,8 @@ async def index_brand(
     db: AsyncSession = Depends(get_db),
 ):
     """Index brand knowledge into ChromaDB for RAG-powered chatbot replies."""
-    from app.services.messenger_chatbot import index_brand_knowledge
     from app.models.brand import Brand
+    from app.services.messenger_chatbot import index_brand_knowledge
 
     account = await _get_facebook_user_account(db, account_id, current_user)
     result = await db.execute(

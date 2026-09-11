@@ -163,7 +163,7 @@ async def store_message_memory(
     Uses a per-thread collection so we can retrieve the last N messages
     for a specific conversation.
     """
-    from app.services.chroma_client import _get_embedding, _get_collection_id, _collection_base_url, _CHROMA_TIMEOUT
+    from app.services.chroma_client import _CHROMA_TIMEOUT, _collection_base_url, _get_collection_id, _get_embedding
 
     # Combine account + thread for a unique collection name
     col_name = f"messenger_{account_id}_{thread_id}".replace("-", "_")
@@ -200,7 +200,7 @@ async def get_conversation_memory(
 
     Returns a list of {"sender": "me"|"them", "text": "..."} dicts.
     """
-    from app.services.chroma_client import _get_collection_id, _collection_base_url, _CHROMA_TIMEOUT
+    from app.services.chroma_client import _CHROMA_TIMEOUT, _collection_base_url, _get_collection_id
 
     col_name = f"messenger_{account_id}_{thread_id}".replace("-", "_")
 
@@ -242,7 +242,7 @@ async def index_brand_knowledge(team_id: str, brand_data: dict) -> int:
     Stores brand DNA, positioning, values, services, and FAQs as
     searchable documents. Returns the number of documents indexed.
     """
-    from app.services.chroma_client import _get_embedding, _get_collection_id, _collection_base_url, _CHROMA_TIMEOUT
+    from app.services.chroma_client import _CHROMA_TIMEOUT, _collection_base_url, _get_collection_id, _get_embedding
 
     col_name = _BRAND_COLLECTION
     documents = []
@@ -300,7 +300,7 @@ async def retrieve_brand_context(query: str, n_results: int = 3) -> str:
     Returns a formatted string with brand context to include in the
     system prompt.
     """
-    from app.services.chroma_client import _get_embedding, _get_collection_id, _collection_base_url, _CHROMA_TIMEOUT
+    from app.services.chroma_client import _CHROMA_TIMEOUT, _collection_base_url, _get_collection_id, _get_embedding
 
     embedding = await _get_embedding(query)
     if not embedding:
