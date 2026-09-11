@@ -12,6 +12,11 @@ RUN npm ci --legacy-peer-deps --omit=dev && \
     npm install --legacy-peer-deps --no-save \
         typescript@^5.3.3 @types/react@^18.2.43 @types/node@^20.10.0
 
+# Copy the custom server (WebSocket proxy for noVNC) into the image.
+# This is baked in rather than volume-mounted so it's always available
+# even if the volume mount fails or is delayed.
+COPY novnc-server.js ./novnc-server.js
+
 # Remove bundled npm/corepack; they are not needed at runtime and carry
 # CVE-heavy packages such as tar and sigstore.
 RUN rm -rf /usr/local/lib/node_modules/npm \
@@ -24,5 +29,4 @@ EXPOSE 8083
 
 # Custom server: proxies noVNC WebSocket upgrades to browser-novnc:6080
 # (Next.js rewrites don't support WS upgrades — see issue #23147).
-# server.js is volume-mounted from the source tree.
-CMD ["node", "server.js"]
+CMD ["node", "novnc-server.js"]
