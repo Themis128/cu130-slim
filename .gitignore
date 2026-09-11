@@ -110,3 +110,9 @@ slack-apps/*/.slack/
 
 # Local Diffusers model cache (downloaded HF weights, ~2GB)
 diffusers-server/models/
+
+# Meta App Review support artifacts (screenshots, screencasts, icons)
+meta-support-screenshots/
+screencast-frames/
+cloudless-screencast.mp4
+cloudless-app-icon.png
