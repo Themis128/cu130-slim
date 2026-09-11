@@ -361,6 +361,10 @@ async def warmup_models() -> None:
 
     Sends a trivial prompt to each model so they're loaded and ready
     for the first real request.  Runs in background, non-blocking.
+
+    VRAM-aware: on 8GB GPUs, only warm the text model (largest, most used).
+    The tiny model (smollm2, 256MB) loads near-instantly on first request.
+    Vision model is only warmed if there's enough VRAM headroom.
     """
     if _state.warmup_done:
         return
@@ -373,18 +377,26 @@ async def warmup_models() -> None:
             logger.info("DMR warmup skipped — API offline")
             return
 
-        models_to_warm = [
-            settings.DMR_TEXT_MODEL,
-            settings.DMR_TINY_MODEL,
-        ]
-        # Vision model is large — only warm if VRAM allows
+        # Apply best-practice runtime configurations before warming.
+        # These match the `docker model configure` settings and ensure
+        # the configs are applied even after a DMR restart.
+        await apply_best_practice_configs()
+
+        # Only warm the primary text model — it's the most frequently used
+        # and the largest.  Other models load near-instantly on first request.
+        models_to_warm = [settings.DMR_TEXT_MODEL]
+
+        # Vision model is large — only warm if VRAM allows AND we have headroom
         if _has_vram_for_model(settings.DMR_VISION_MODEL):
-            models_to_warm.append(settings.DMR_VISION_MODEL)
+            free_mb = _state.vram.get("free_mb", 0)
+            if free_mb > 6000:  # Need ~5GB for vision model + headroom
+                models_to_warm.append(settings.DMR_VISION_MODEL)
 
         for model in models_to_warm:
             try:
-                # Configure keep-alive so the model stays loaded
-                await configure_keep_alive(model, keep_alive="10m")
+                # Keep-alive is already set via apply_best_practice_configs,
+                # but set it here too in case the config was reset.
+                await configure_keep_alive(model, keep_alive="5m")
                 # Send a trivial prompt to trigger model load
                 await _call_dmr_chat_internal(
                     "Hi",
@@ -393,9 +405,100 @@ async def warmup_models() -> None:
                     timeout=60.0,
                     _skip_health_check=True,
                 )
-                logger.info("DMR warmup: model loaded")
+                logger.info("DMR warmup: %s loaded", model)
             except Exception as exc:
-                logger.debug("DMR warmup failed (%s)", type(exc).__name__)
+                logger.debug("DMR warmup failed for %s (%s)", model, type(exc).__name__)
+
+
+# ── Best-practice configuration (applied on startup) ────────────────────────────
+
+# Best-practice runtime configs per model.
+# These are applied via `docker model configure` CLI on startup to ensure
+# optimal performance on the RTX 3070 8GB VRAM laptop.
+#
+# Key decisions (based on llama.cpp + Qwen3 best practices):
+# - Context size 8192: enough for bot conversations with memory + brand RAG
+# - n-gpu-layers 99: offload all layers to GPU (model fits in 8GB VRAM)
+# - threads 8: match physical CPU cores
+# - batch-size 1024: faster prompt processing
+# - flash-attn on: reduces KV cache memory, speeds long contexts
+# - keep-alive 5m: shorter than 10m to free VRAM faster on 8GB card
+# - think mode for qwen3: enables reasoning mode (qwen3 is a thinking model)
+
+_BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
+    "ai/qwen3:8b-q4_K_M": {
+        "context_size": 8192,
+        "keep_alive": "5m",
+        "think": True,
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+    },
+    "ai/llama3.2": {
+        "context_size": 8192,
+        "keep_alive": "5m",
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+    },
+    "ai/qwen3-vl": {
+        "context_size": 4096,
+        "keep_alive": "5m",
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
+    },
+    "ai/qwen3-embedding": {
+        "keep_alive": "5m",
+        "mode": "embedding",
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],
+    },
+    "ai/smollm2": {
+        "context_size": 2048,
+        "keep_alive": "5m",
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
+    },
+}
+
+_config_applied: bool = False
+
+
+async def apply_best_practice_configs() -> None:
+    """Apply best-practice DMR configurations via CLI on startup.
+
+    Uses `docker model configure` CLI (not the HTTP API) because the HTTP
+    API is unreachable on WSL2/Docker Desktop.  Idempotent — only runs once.
+    """
+    global _config_applied
+    if _config_applied:
+        return
+    _config_applied = True
+
+    for model, cfg in _BEST_PRACTICE_CONFIGS.items():
+        try:
+            cmd = ["docker", "model", "configure"]
+            if "context_size" in cfg:
+                cmd += [f"--context-size={cfg['context_size']}"]
+            if "keep_alive" in cfg:
+                cmd += [f"--keep-alive={cfg['keep_alive']}"]
+            if cfg.get("think"):
+                cmd += ["--think=true"]
+            if "mode" in cfg:
+                cmd += [f"--mode={cfg['mode']}"]
+            cmd.append(model)
+            if "runtime_flags" in cfg:
+                cmd.append("--")
+                cmd += cfg["runtime_flags"]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("DMR: configured %s (ctx=%s, keep-alive=%s)",
+                            model, cfg.get("context_size", "default"),
+                            cfg.get("keep_alive", "default"))
+            else:
+                logger.debug("DMR config failed for %s: %s",
+                             model, stderr.decode()[:200] if stderr else "")
+        except Exception as exc:
+            logger.debug("DMR config error for %s: %s", model, exc)
 
 
 # ── Core chat with retry + CLI fallback (improvements #1, #4, #7, #9) ──────────
