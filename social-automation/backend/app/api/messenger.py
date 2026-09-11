@@ -1308,6 +1308,12 @@ async def create_bot(
         preset = PERSONALITY_PRESETS.get(req.personality, PERSONALITY_PRESETS["professional_friendly"])
         system_prompt = preset.replace("{bot_name}", req.name).replace("{page_name}", page_name)
 
+    # Apply language constraint: if not "auto", force the reply language
+    if req.language and req.language != "auto":
+        lang_names = {"en": "English", "el": "Greek (Ελληνικά)", "es": "Spanish", "de": "German", "fr": "French"}
+        lang_name = lang_names.get(req.language, req.language)
+        system_prompt += f" You must always reply in {lang_name}, regardless of the incoming message language."
+
     # Build bot config
     bot_config = BotConfig(
         name=req.name,

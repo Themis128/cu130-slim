@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bot, Plus, Power, PowerOff, Save, Loader2, Clock, MessageSquare, Sparkles, Pause, Play, Trash2 } from 'lucide-react'
+import { Bot, Plus, Power, PowerOff, Save, Loader2, Clock, MessageSquare, Sparkles, Play } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Textarea } from '@/components/ui/Textarea'
@@ -206,7 +206,6 @@ function CreateBotForm({
   personalities: Personality[]
   onSuccess: () => void
 }) {
-  const queryClient = useQueryClient()
   const [name, setName] = useState('Cloudless Assistant')
   const [personality, setPersonality] = useState('professional_friendly')
   const [language, setLanguage] = useState('auto')
@@ -229,7 +228,6 @@ function CreateBotForm({
       toast.success(
         `Bot created! ${data.brand_indexed ? `Brand knowledge indexed (${data.brand_indexed} docs).` : ''} Activate it to start auto-replying.`
       )
-      queryClient.invalidateQueries({ queryKey: ['messenger-bot', accountId] })
       onSuccess()
     },
     onError: (err: unknown) => {
@@ -390,6 +388,13 @@ function BotConfigEditor({
 
   return (
     <div className="space-y-4">
+      {/* Account type banner */}
+      <div className="text-xs text-muted-foreground bg-accent/50 rounded-lg p-2">
+        {accountType === 'page'
+          ? 'Business Page bot — replies via Messenger Platform API (Graph API)'
+          : 'Personal account bot — replies via browser bridge (CDP + noVNC)'}
+      </div>
+
       {/* System prompt */}
       <div>
         <label className="text-sm font-medium block mb-1 flex items-center gap-1">
