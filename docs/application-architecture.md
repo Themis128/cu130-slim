@@ -1046,7 +1046,7 @@ All components verified live:
 | Frontend (local) | HTTP 200 |
 | Frontend (production) | HTTP 200 |
 | Sidecar health | ok |
-| Celery workers | 3 nodes |
+| Celery workers | 4 nodes (publishing, media, default, messenger) |
 | Celery beat | running |
 | MCP tools | 27 registered |
 | Backend tests | 559 passed, 1 skipped |
