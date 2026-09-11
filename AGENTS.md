@@ -16,7 +16,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
 5. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
-6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 3 nodes (publishing, media, default).
+6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 4 nodes (publishing, media, default, messenger).
 7. Validate all Mermaid diagrams in `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (e.g. via mermaid.ink) when they change.
 8. Frontend: `tsc --noEmit --incremental false` in `social-automation/frontend` using local `./node_modules/.bin/tsc` — no TS errors. The frontend container only ships the built output, so run tsc on the host.
 9. If n8n workflows changed: import, publish, and trigger a dry run.
@@ -36,7 +36,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
-- `social-worker-publishing`, `social-worker-media`, `social-worker-default` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The three queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
 - `comfyui` — restart after CLI args or env changes.
 - **Docker Model Runner (DMR)** — not a Compose container; it's a host-level Docker engine (`docker model *` CLI). No restart needed after app code changes. After `docker model configure --context-size N` or runtime flag changes, the model reloads on the next request. Use `docker model status` to verify the engine is running.
@@ -55,8 +55,8 @@ docker compose exec -T social-api python -m ruff check <paths>
 # validate compose
 docker compose config --quiet
 
-# restart key containers (3 queue-dedicated workers + beat)
-docker compose restart social-api social-worker-publishing social-worker-media social-worker-default celery-beat
+# restart key containers (4 queue-dedicated workers + beat)
+docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat
 
 # health
 curl http://localhost:8083/health
