@@ -21,6 +21,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -573,7 +574,7 @@ def _verify_webhook_signature(raw_body: bytes, signature_header: str, app_secret
     return hmac.compare_digest(sent_sig, expected_sig)
 
 
-@router.get("/webhook", response_model=str)
+@router.get("/webhook", response_class=PlainTextResponse)
 async def verify_webhook(
     hub_mode: str = Query("", alias="hub.mode"),
     hub_verify_token: str = Query("", alias="hub.verify_token"),
@@ -582,10 +583,10 @@ async def verify_webhook(
     """Verify the webhook endpoint with Meta.
 
     Meta sends a GET request with hub.mode=subscribe and a verify token.
-    We must echo back the hub.challenge value.
+    We must echo back the hub.challenge value as plain text (not JSON).
     """
     if hub_mode == "subscribe" and hub_verify_token == _get_verify_token():
-        return hub_challenge
+        return PlainTextResponse(hub_challenge)
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
