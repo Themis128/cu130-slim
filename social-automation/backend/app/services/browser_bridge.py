@@ -576,9 +576,10 @@ class BrowserBridgeClient:
     async def _navigate_to_thread(self, thread_id: str, is_e2ee: bool = False) -> None:
         """Navigate to a specific Messenger thread using Facebook's SPA routing.
 
-        Direct URL navigation to /messages/t/{id}/ gets redirected by Facebook's
-        SPA to a different conversation. Instead, we navigate to the inbox first,
-        then click on the conversation link in the sidebar.
+        Direct page navigation (CDP Page.navigate) to /messages/t/{id}/ gets
+        redirected by Facebook's SPA to a different conversation. Instead, we
+        use window.location.href assignment which triggers the SPA's route
+        handler and loads the correct thread.
         """
         path = "e2ee/t" if is_e2ee else "t"
         target_url = f"https://www.facebook.com/messages/{path}/{thread_id}/"
@@ -589,27 +590,20 @@ class BrowserBridgeClient:
         if current_url == target_url:
             return  # Already on the right thread
 
-        # Navigate to inbox first if not already there
-        if "/messages/" not in current_url:
-            await self.navigate("https://www.facebook.com/messages/")
-            await asyncio.sleep(3)
-
-        # Try clicking the conversation link in the sidebar (SPA navigation)
+        # Use window.location.href for SPA navigation (not full page load)
+        # This triggers Facebook's client-side router and loads the correct thread
         await self.evaluate(f"""() => {{
-            const links = document.querySelectorAll('a[href*="/messages/t/{thread_id}"], a[href*="/messages/e2ee/t/{thread_id}"]');
-            if (links.length > 0) {{
-                links[0].click();
-                return {{ clicked: true }};
-            }}
-            return {{ clicked: false }};
+            window.location.href = {json.dumps(target_url)};
+            return true;
         }}""")
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)  # Wait for SPA to load the thread
 
-        # If clicking didn't work, try direct URL navigation as fallback
+        # Verify we're on the right thread
         current = await self.evaluate("() => window.location.href")
         if thread_id not in (current.get("result", "")):
+            # Fallback: try full page navigation
             await self.navigate(target_url)
-            await asyncio.sleep(4)
+            await asyncio.sleep(5)
 
     async def get_personal_messenger_messages(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Read messages from a specific conversation thread.
