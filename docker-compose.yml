@@ -862,7 +862,7 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: baltzakist/cu130-slim-social-frontend:v2.432
+    image: baltzakist/cu130-slim-social-frontend:v2.433
     pull_policy: if_not_present
     build:
       context: ./social-automation/frontend
@@ -875,7 +875,7 @@ services:
     - TZ=Europe/Athens
     - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
     - API_INTERNAL_URL=http://social-api:8000
-    - NEXT_PUBLIC_API_URL=https://social.cloudless.gr/api/v1
+    - NEXT_PUBLIC_API_URL=/api/v1
     - PORT=8083
     - HOSTNAME=0.0.0.0
     volumes:

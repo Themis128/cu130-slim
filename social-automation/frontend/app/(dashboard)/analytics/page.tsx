@@ -417,7 +417,7 @@ export default function AnalyticsPage() {
                     />
                     <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]}>
                       {platformMetrics.map((p, i) => (
-                        <Cell key={i} fill={p.color} />
+                        <Cell key={`eng-${p.platform}-${i}`} fill={p.color} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -470,7 +470,7 @@ export default function AnalyticsPage() {
                     />
                     {followerData.map((fp, i) => (
                       <Area
-                        key={fp.platform}
+                        key={`area-${fp.platform}`}
                         type="monotone"
                         dataKey="followers"
                         data={fp.series.map((s) => ({ date: s.date, followers: s.followers, platform: fp.platform }))}
@@ -486,7 +486,7 @@ export default function AnalyticsPage() {
                 {/* Follower summary chips */}
                 <div className="flex flex-wrap gap-3 mt-3">
                   {followerData.map((fp, i) => (
-                    <div key={fp.platform} className="flex items-center gap-2 text-xs">
+                    <div key={`chip-${fp.platform}`} className="flex items-center gap-2 text-xs">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length] }}
@@ -532,7 +532,7 @@ export default function AnalyticsPage() {
                     />
                     <Bar dataKey="total_impressions" radius={[4, 4, 0, 0]}>
                       {platformMetrics.map((p, i) => (
-                        <Cell key={i} fill={p.color} />
+                        <Cell key={`imp-${p.platform}-${i}`} fill={p.color} />
                       ))}
                     </Bar>
                   </BarChart>

@@ -48,10 +48,11 @@ async def list_audit_logs(
     db: AsyncSession = Depends(get_db),
 ):
     """List audit log entries (admin/owner only)."""
+    # User may belong to multiple teams — use the first membership
     result = await db.execute(
-        select(TeamMember.team_id).where(TeamMember.user_id == current_user.id)
+        select(TeamMember.team_id).where(TeamMember.user_id == current_user.id).limit(1)
     )
-    team_id = result.scalar_one_or_none()
+    team_id = result.scalars().first()
     if not team_id:
         raise HTTPException(status_code=404, detail="Team not found")
 

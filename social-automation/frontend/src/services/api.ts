@@ -6,6 +6,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 /** Return a displayable URL for any media asset storage_path (abs or relative). */
 export function mediaUrl(storagePath?: string | null): string {
   if (!storagePath) return ''
+  // If already a full URL or API path, return as-is to avoid double-encoding
+  if (storagePath.startsWith('http')) return storagePath
+  if (storagePath.startsWith('/api/v1/media/view')) return storagePath
   return `${API_BASE}/media/view?path=${encodeURIComponent(storagePath)}`
 }
 

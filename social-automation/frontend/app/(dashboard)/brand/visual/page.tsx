@@ -120,13 +120,12 @@ export default function BrandVisualPage() {
     }
   }
 
-  // Resolve logo URL for preview — media view paths need the full API base
+  // Resolve logo URL for preview — handles both relative and absolute paths
   const resolveLogoUrl = (url: string) => {
     if (!url) return ''
     if (url.startsWith('http')) return url
-    if (url.startsWith('/api/v1/media/view/')) {
-      return `${process.env.NEXT_PUBLIC_API_URL || ''}${url}`
-    }
+    // Already a full API path — return as-is (same-origin via Next.js rewrite)
+    if (url.startsWith('/api/v1/media/view')) return url
     return mediaUrl(url)
   }
 

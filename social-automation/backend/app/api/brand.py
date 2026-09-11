@@ -970,10 +970,14 @@ async def get_brand_health(
     brand = await _get_brand(current_user, db)
 
     # Get mentions from last 30 days
-    thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
+    # Note: brand_mentions.mentioned_at is timestamp without time zone (naive),
+    # while posts.created_at is timestamp with time zone (aware).
+    # Use naive UTC for the mentions comparison and aware UTC for posts.
+    thirty_days_ago_aware = datetime.now(UTC) - timedelta(days=30)
+    thirty_days_ago_naive = datetime.utcnow() - timedelta(days=30)
     mentions_result = await db.execute(
         select(BrandMention)
-        .where(BrandMention.brand_id == brand.id, BrandMention.mentioned_at >= thirty_days_ago)
+        .where(BrandMention.brand_id == brand.id, BrandMention.mentioned_at >= thirty_days_ago_naive)
     )
     mentions = mentions_result.scalars().all()
 
@@ -989,7 +993,7 @@ async def get_brand_health(
         .where(
             Post.team_id == brand.team_id,
             Post.status == PostStatus.PUBLISHED,
-            Post.created_at >= thirty_days_ago,
+            Post.created_at >= thirty_days_ago_aware,
         )
     )
     post_count = posts_result.scalar() or 0
