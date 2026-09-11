@@ -188,6 +188,21 @@ Language-aware routing:
 | `app/services/whatsapp_api.py` | WhatsApp Cloud API client + webhook parser |
 | `app/api/whatsapp.py` | FastAPI router with all endpoints |
 | `app/api/__init__.py` | Router registration (prefix=`/whatsapp`) |
+| `ARCHITECTURE.md` | Full architecture with 10 Mermaid diagrams |
+
+## Architecture diagrams
+
+See `ARCHITECTURE.md` for:
+- System overview
+- Registration flow (4-step sequence)
+- Webhook message flow
+- Bot lifecycle state diagram
+- File architecture
+- Endpoint map
+- AI reply decision tree
+- Data model (ER diagram)
+- Messenger vs WhatsApp comparison
+- Deployment topology
 
 ## Scripts
 
