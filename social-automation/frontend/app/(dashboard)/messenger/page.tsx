@@ -237,18 +237,18 @@ export default function MessengerPage() {
         </CardContent>
       </Card>
 
-      {/* Bot Builder */}
-      {selectedAccountId && (
+      {/* Bot Builder — only render when account type is confirmed */}
+      {selectedAccountId && selectedAccount && (
         <BotBuilder accountId={selectedAccountId} accountType={selectedAccountType} />
       )}
 
-      {/* Messenger Inbox */}
-      {selectedAccountId ? (
+      {/* Messenger Inbox — only render when account type is confirmed */}
+      {selectedAccountId && selectedAccount ? (
         <MessengerInbox accountId={selectedAccountId} accountType={selectedAccountType} />
       ) : (
         <Card>
           <CardContent className="flex items-center justify-center h-[200px] text-muted-foreground text-sm">
-            Select a Facebook account to view Messenger inbox
+            {selectedAccountId ? 'Loading account details...' : 'Select a Facebook account to view Messenger inbox'}
           </CardContent>
         </Card>
       )}
