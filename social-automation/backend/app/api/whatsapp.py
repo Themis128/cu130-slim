@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
@@ -373,7 +372,7 @@ async def update_auto_reply_config(
 # ------------------------------------------------------------------
 
 def _get_verify_token() -> str:
-    return settings.MESSENGER_VERIFY_TOKEN or os.getenv("WHATSAPP_VERIFY_TOKEN", "cloudless_whatsapp_verify")
+    return getattr(settings, "WHATSAPP_VERIFY_TOKEN", "") or "cloudless_whatsapp_verify"
 
 
 def _verify_webhook_signature(raw_body: bytes, signature_header: str, app_secret: str) -> bool:

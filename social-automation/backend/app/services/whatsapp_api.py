@@ -482,25 +482,51 @@ def parse_webhook_event(body: dict) -> list[dict]:
                     media = msg.get(msg_type, {})
                     event["media_id"] = media.get("id", "")
                     event["mime_type"] = media.get("mime_type", "")
-                    if msg_type == "image" or msg_type == "video":
+                    if msg_type in ("image", "video", "document"):
                         event["caption"] = media.get("caption", "")
                 elif msg_type == "location":
                     loc = msg.get("location", {})
                     event["latitude"] = loc.get("latitude")
                     event["longitude"] = loc.get("longitude")
                     event["address"] = loc.get("name", "") or loc.get("address", "")
+                elif msg_type == "contacts":
+                    # Contacts message — list of shared contact cards
+                    event["contacts"] = msg.get("contacts", [])
+                elif msg_type == "reaction":
+                    reaction = msg.get("reaction", {})
+                    event["reaction_emoji"] = reaction.get("emoji", "")
+                    event["reaction_message_id"] = reaction.get("message_id", "")
+                elif msg_type == "sticker":
+                    sticker = msg.get("sticker", {})
+                    event["media_id"] = sticker.get("id", "")
+                    event["animated"] = sticker.get("animated", False)
+                elif msg_type == "system":
+                    event["message_text"] = msg.get("system", {}).get("body", "")
+                elif msg_type == "unknown":
+                    event["message_text"] = msg.get("errors", [{}])[0].get("message", "unsupported message type")
+
+                # Context (if this message is a reply to another message)
+                context = msg.get("context", {})
+                if context:
+                    event["context_message_id"] = context.get("id", "")
+                    event["context_from"] = context.get("from", "")
 
                 events.append(event)
 
             # Status updates (sent, delivered, read)
             for status in value.get("statuses", []):
+                status_ts = status.get("timestamp", "0")
+                try:
+                    status_ts_int = int(status_ts) if status_ts else 0
+                except (ValueError, TypeError):
+                    status_ts_int = 0
                 events.append({
                     "phone_number_id": phone_number_id,
                     "sender_phone": status.get("recipient_id", ""),
                     "message_type": "status",
                     "message_id": status.get("id", ""),
                     "status": status.get("status", ""),
-                    "timestamp": int(status.get("timestamp", "0")) if status.get("timestamp") else 0,
+                    "timestamp": status_ts_int,
                 })
 
     return events

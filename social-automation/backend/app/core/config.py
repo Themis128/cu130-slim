@@ -182,6 +182,8 @@ class Settings(BaseSettings):
 
     # Messenger Platform — webhook verification token (set in Meta app dashboard)
     MESSENGER_VERIFY_TOKEN: str = "cloudless_messenger_verify"
+    # WhatsApp Business Cloud API — webhook verification token
+    WHATSAPP_VERIFY_TOKEN: str = "cloudless_whatsapp_verify"
     # Facebook App Secret for webhook signature verification (same as FACEBOOK_CLIENT_SECRET for Meta apps)
     FACEBOOK_APP_SECRET: str = ""
     # Messenger webhook sidecar URL (async event processing)
