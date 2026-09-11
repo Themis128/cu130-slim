@@ -3,6 +3,10 @@ const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   transpilePackages: ['@hello-pangea/dnd'],
+  // Allow requests from the Cloudflare Tunnel domain in dev mode.
+  // Without this, Next.js dev server rejects cross-origin requests
+  // from social.cloudless.gr, preventing the app from loading in the browser.
+  allowedDevOrigins: ['social.cloudless.gr'],
   images: {
     remotePatterns: [
       { protocol: 'http',  hostname: 'localhost' },
