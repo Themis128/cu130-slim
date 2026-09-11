@@ -94,6 +94,11 @@ PLATFORM_CLIENTS = {
     # with pages_messaging scope, then the Messenger setup endpoint
     # subscribes the Page to webhooks.
     "messenger": facebook_client,
+    # WhatsApp uses the same Facebook OAuth client with WhatsApp Business scopes.
+    # The connect flow initiates Facebook OAuth with whatsapp_business_management
+    # and whatsapp_business_messaging scopes, then the WhatsApp registration
+    # endpoint registers the phone number.
+    "whatsapp": facebook_client,
 }
 
 
@@ -226,6 +231,13 @@ async def connect_account_body(
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         # Messenger uses the same Facebook scopes (pages_messaging is the key one)
         "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        # WhatsApp Business Cloud API scopes
+        "whatsapp": [
+            "whatsapp_business_messaging",
+            "whatsapp_business_management",
+            "business_management",
+            "pages_show_list",
+        ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
@@ -287,6 +299,12 @@ async def connect_account(
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        "whatsapp": [
+            "whatsapp_business_messaging",
+            "whatsapp_business_management",
+            "business_management",
+            "pages_show_list",
+        ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
