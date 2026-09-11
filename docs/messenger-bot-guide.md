@@ -158,6 +158,15 @@ and can be edited via the Bot Builder UI or the `PUT /bot` API endpoint.
 | `system_prompt` | string | (from personality) | AI system prompt |
 | `model` | string | `ai/qwen3:8b-q4_K_M` | AI model (DMR or Cloudflare) |
 | `fallback_text` | string | "Thanks for your message..." | Used when AI is unavailable |
+| `cooldown_seconds` | int | 300 | Min seconds between replies per thread |
+| `temperature` | float | 0.6 | Reply creativity (0=deterministic, 1=creative) |
+| `max_tokens` | int | 250 | Max reply length in tokens |
+| `business_hours_start` | string\|null | null | UTC HH:MM (bot replies only in this window) |
+| `business_hours_end` | string\|null | null | UTC HH:MM (bot replies only in this window) |
+| `reply_to_greetings` | bool | true | Reply to "hi"/"hello" messages |
+| `reply_to_spam` | bool | false | Reply to detected spam |
+| `paused_threads` | string[] | [] | Threads paused for human handoff |
+| `quick_replies` | object[] | [] | Quick reply buttons (Page only) |
 | `max_tokens` | int | 250 | Max tokens for AI reply |
 | `temperature` | float | 0.6 | 0=deterministic, 1=creative |
 | `cooldown_seconds` | int | 300 | Min seconds between replies per conversation |
@@ -172,12 +181,12 @@ and can be edited via the Bot Builder UI or the `PUT /bot` API endpoint.
 
 | Model | Provider | Notes |
 |-------|----------|-------|
-| `ai/qwen3:8b-q4_K_M` | DMR (local) | **Recommended** — best quality, free, private |
-| `ai/llama3.2:latest` | DMR (local) | Smaller, faster |
+| `ai/llama3.2:latest` | DMR (local) | **Recommended for English** — fast, free, private |
+| `ai/qwen3:8b-q4_K_M` | DMR (local) | Reasoning mode — best quality, free, private |
 | `ai/gemma3:latest` | DMR (local) | Google model |
 | `ai/phi4:latest` | DMR (local) | Microsoft model |
 | `ai/qwen2.5:latest` | DMR (local) | Older Qwen version |
-| `@cf/meta/llama-3.1-8b-instruct` | Cloudflare | Cloud fallback |
+| `@cf/meta/llama-3.1-8b-instruct` | Cloudflare | **Recommended for Greek** — handles Greek correctly |
 
 ### Language Enforcement
 
