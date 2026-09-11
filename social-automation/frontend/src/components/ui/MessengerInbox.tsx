@@ -247,7 +247,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
           )}
           {isPersonal && (
             <a
-              href="http://localhost:6080/vnc.html"
+              href="/novnc/vnc.html?autoconnect=1&resize=scale"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
@@ -292,7 +292,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
               <div className="text-red-600 dark:text-red-400 text-xs mt-2 space-y-2">
                 <p>The browser session is not logged in. A login session has been started — open noVNC to log in to Facebook:</p>
                 <a
-                  href="http://localhost:6080/vnc.html"
+                  href="/novnc/vnc.html?autoconnect=1&resize=scale"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors"
