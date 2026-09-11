@@ -241,21 +241,53 @@ async def _process_account(
             if last_seen == last_text:
                 continue  # Already replied
 
-            # 5. Generate AI response
-            reply_text = await _generate_ai_response(
-                config, last_text, account_name,
-                cf_token, cf_account, dmr_url,
+            # 5. Check per-conversation cooldown (Redis)
+            cooldown_seconds = config.get("cooldown_seconds", 300)
+            if not await check_cooldown(account.id, thread_id, cooldown_seconds):
+                continue  # Cooldown active, skip
+
+            # 6. Check human handoff (paused thread)
+            if await is_thread_paused(account.id, thread_id):
+                logger.debug("Thread %s paused (human handoff), skipping", thread_id)
+                continue
+
+            # 7. Detect intent (DMR first, CF fallback)
+            intent = await detect_intent(
+                last_text, cf_token, cf_account, dmr_url,
             )
 
-            # 6. Send the reply (pass is_e2ee for correct URL)
+            # 8. Retrieve brand context (RAG)
+            brand_context = await retrieve_brand_context(last_text)
+
+            # 9. Generate context-aware reply (DMR first, CF fallback)
+            reply_text = await generate_contextual_reply(
+                config, last_text, account_name,
+                account.id, thread_id,
+                cf_token, cf_account, dmr_url,
+                intent=intent,
+                brand_context=brand_context,
+            )
+
+            # 10. Send the reply (pass is_e2ee for correct URL)
             await bridge.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
 
-            # 7. Mark as seen
+            # 11. Store both messages in conversation memory (ChromaDB)
+            await store_message_memory(
+                account.team_id, account.id, thread_id,
+                "them", last_text,
+            )
+            await store_message_memory(
+                account.team_id, account.id, thread_id,
+                "me", reply_text,
+            )
+
+            # 12. Mark as seen + set cooldown
             seen[seen_key] = last_text
+            await set_cooldown(account.id, thread_id, cooldown_seconds)
             replies_sent += 1
             logger.info(
-                "Personal auto-reply sent to '%s' (thread %s, e2ee=%s) for account %s",
-                convo_name, thread_id, is_e2ee, account.id,
+                "Personal auto-reply sent to '%s' (thread %s, e2ee=%s, intent=%s) for account %s",
+                convo_name, thread_id, is_e2ee, intent, account.id,
             )
 
             # Be gentle — wait between replies

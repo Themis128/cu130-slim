@@ -4,10 +4,13 @@ Provides conversation memory, brand knowledge RAG, intent detection,
 per-conversation configuration, human handoff, and rate-limit-aware cooldowns
 for the personal Messenger auto-reply system.
 
-Services used (all free/open-source, Cloudflare-first):
+Services used (DMR-first, free/open-source):
+    - Docker Model Runner (Qwen3 8B, local) — primary reply generation + intent detection
+    - Cloudflare Workers AI (Llama 3.1 8B) — cloud fallback inference
     - ChromaDB (local) / Cloudflare Vectorize (cloud) — conversation memory + brand RAG
-    - Cloudflare Workers AI (Llama 3.1 8B) — reply generation + intent detection
-    - Docker Model Runner (Qwen3 8B, local) — fallback inference
+    - Redis — per-conversation cooldown + paused-thread tracking
+    - PostgreSQL — per-conversation config + seen state
+    - Brand DNA API — brand voice, pillars, positioning
     - Redis — per-conversation cooldown + paused-thread tracking
     - PostgreSQL — per-conversation config + seen state
     - Brand DNA API — brand voice, pillars, positioning
@@ -333,7 +336,7 @@ async def detect_intent(
     """Classify the intent of an inbound message.
 
     Returns one of: business, personal, question, spam, greeting.
-    Uses a fast LLM call with a short prompt.
+    Uses DMR (local, primary) then CF Workers AI (cloud fallback).
     """
     prompt = f"""Classify the intent of this message into exactly one category:
 - business: asking about services, pricing, products, business inquiry
@@ -344,9 +347,24 @@ async def detect_intent(
 
 Message: "{message[:200]}"
 
-Reply with only the category name, nothing else."""
+Reply with only the category name, nothing else. /no_think"""
 
-    # Try CF Workers AI first (fast model)
+    # Try DMR first (local, free, primary)
+    try:
+        from app.services.dmr import call_dmr_chat
+        result = await call_dmr_chat(
+            prompt,
+            max_tokens=10,
+            temperature=0,
+        )
+        result_text = result.get("text", "").strip().lower()
+        for intent in (INTENT_BUSINESS, INTENT_PERSONAL, INTENT_QUESTION, INTENT_SPAM, INTENT_GREETING):
+            if intent in result_text:
+                return intent
+    except Exception as exc:
+        logger.debug("DMR intent detection failed: %s", exc)
+
+    # Fallback: CF Workers AI
     if cf_token and cf_account:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/@cf/meta/llama-3.1-8b-instruct"
@@ -355,9 +373,7 @@ Reply with only the category name, nothing else."""
                     url,
                     headers={"Authorization": f"Bearer {cf_token}"},
                     json={
-                        "messages": [
-                            {"role": "user", "content": prompt},
-                        ],
+                        "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 10,
                         "temperature": 0,
                     },
@@ -371,7 +387,7 @@ Reply with only the category name, nothing else."""
         except Exception:
             pass
 
-    # Fallback: simple keyword detection
+    # Final fallback: simple keyword detection
     msg_lower = message.lower()
     if any(w in msg_lower for w in ["price", "cost", "service", "offer", "business", "company", "hire", "work"]):
         return INTENT_BUSINESS
@@ -401,6 +417,11 @@ async def generate_contextual_reply(
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
+    Inference fallback chain (DMR-first per AGENTS.md):
+    1. Docker Model Runner (Qwen3 8B, local) — primary
+    2. Cloudflare Workers AI (Llama 3.1 8B) — cloud fallback
+    3. Static text — final fallback
+
     Builds a rich system prompt that includes:
     - Base system prompt from config
     - Detected intent
@@ -415,7 +436,6 @@ async def generate_contextual_reply(
         "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
     )).replace("{page_name}", account_name)
 
-    model = thread_config.get("model", config.get("model", "@cf/meta/llama-3.1-8b-instruct"))
     max_tokens = thread_config.get("max_tokens", config.get("max_tokens", 200))
     temperature = thread_config.get("temperature", 0.7)
     fallback = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
@@ -442,9 +462,25 @@ async def generate_contextual_reply(
         memory_text = "\n".join(f"{'You' if m['sender'] == 'me' else 'Them'}: {m['text'][:100]}" for m in memory[-5:])
         enhanced_prompt += f"\n\nRecent conversation:\n{memory_text}"
 
-    enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational."
+    enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational. /no_think"
 
-    # Try Cloudflare Workers AI
+    # 1. Try DMR first (local, free, primary)
+    try:
+        from app.services.dmr import call_dmr_chat
+        result = await call_dmr_chat(
+            user_message,
+            system=enhanced_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = result.get("text", "").strip()
+        if text:
+            return text
+    except Exception as exc:
+        logger.warning("DMR chatbot reply failed: %s", exc)
+
+    # 2. Fallback: Cloudflare Workers AI
+    model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
     if cf_token and cf_account:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
@@ -468,27 +504,5 @@ async def generate_contextual_reply(
         except Exception as exc:
             logger.warning("Cloudflare AI failed: %s", exc)
 
-    # Try DMR
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{dmr_url}/engines/v1/chat/completions",
-                json={
-                    "model": "ai/qwen3:8b-q4_K_M",
-                    "messages": [
-                        {"role": "system", "content": enhanced_prompt},
-                        {"role": "user", "content": user_message},
-                    ],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                choices = data.get("choices", [])
-                if choices:
-                    return choices[0].get("message", {}).get("content", fallback).strip()
-    except Exception as exc:
-        logger.warning("DMR AI failed: %s", exc)
-
+    # 3. Final fallback: static text
     return fallback
