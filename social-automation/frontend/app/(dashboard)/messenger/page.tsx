@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle, User } from 'lucide-react'
+import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle, User, Bot } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { MessengerInbox } from '@/components/ui/MessengerInbox'
+import { BotBuilder } from '@/components/ui/BotBuilder'
 import { messengerApi, accountsApi } from '@/services/api'
 import { useQuery } from '@tanstack/react-query'
 
@@ -235,6 +236,11 @@ export default function MessengerPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bot Builder */}
+      {selectedAccountId && (
+        <BotBuilder accountId={selectedAccountId} accountType={selectedAccountType} />
+      )}
 
       {/* Messenger Inbox */}
       {selectedAccountId ? (
