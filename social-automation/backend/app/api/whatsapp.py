@@ -868,6 +868,14 @@ async def receive_webhook(
     # https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
     waba_fields_processed = _process_waba_level_events(body)
 
+    # Process Flow response messages (interactive messages with nfm_context)
+    flow_responses: list[dict] = []
+    try:
+        from app.api.whatsapp_flows import process_flow_responses
+        flow_responses = await process_flow_responses(body, db)
+    except Exception as e:
+        logger.debug("Flow response parsing skipped: %s", e)
+
     processed = 0
     for event in events:
         phone_number_id = event.get("phone_number_id")
@@ -888,6 +896,7 @@ async def receive_webhook(
         "events_received": len(events),
         "auto_replies_sent": processed,
         "waba_fields_processed": waba_fields_processed,
+        "flow_responses": len(flow_responses),
     }
 
 

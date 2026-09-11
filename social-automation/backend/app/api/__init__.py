@@ -24,6 +24,7 @@ from app.api import (
     threads,
     usage,
     whatsapp,
+    whatsapp_flows,
     workflows,
 )
 
@@ -48,6 +49,7 @@ api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])
 api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
+api_router.include_router(whatsapp_flows.router, prefix="/whatsapp", tags=["whatsapp-flows"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
