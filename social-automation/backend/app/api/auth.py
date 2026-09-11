@@ -2,7 +2,6 @@ import json
 import logging
 import uuid
 from datetime import UTC
-from urllib.parse import parse_qs
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
