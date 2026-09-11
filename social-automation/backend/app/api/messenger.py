@@ -993,9 +993,11 @@ class PersonalAutoReplyConfig(BaseModel):
     """Auto-reply configuration for personal Messenger (browser bridge)."""
     enabled: bool = False
     system_prompt: str = "You are a helpful assistant for {page_name}. Reply concisely and professionally."
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    model: str = "ai/qwen3:8b-q4_K_M"
     fallback_text: str = "Thanks for your message! I'll get back to you soon."
-    max_tokens: int = 200
+    max_tokens: int = 300
+    cooldown_seconds: int = 300
+    temperature: float = 0.7
 
 
 @router.get("/{account_id}/personal/auto-reply")
@@ -1014,9 +1016,11 @@ async def get_personal_auto_reply(
             "system_prompt",
             "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
         ),
-        "model": config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        "model": config.get("model", "ai/qwen3:8b-q4_K_M"),
         "fallback_text": config.get("fallback_text", "Thanks for your message! I'll get back to you soon."),
-        "max_tokens": config.get("max_tokens", 200),
+        "max_tokens": config.get("max_tokens", 300),
+        "cooldown_seconds": config.get("cooldown_seconds", 300),
+        "temperature": config.get("temperature", 0.7),
         "last_checked": meta.get("personal_messenger_last_checked"),
     }
 
