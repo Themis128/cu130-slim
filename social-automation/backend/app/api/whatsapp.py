@@ -616,12 +616,13 @@ async def receive_webhook(
     for event in events:
         phone_number_id = event.get("phone_number_id")
         sender_phone = event.get("sender_phone", "")
+        sender_name = event.get("sender_name", "")
         message_text = event.get("message_text", "")
         message_type = event.get("message_type", "")
         message_id = event.get("message_id", "")
 
         if message_type in ("text", "button", "interactive") and sender_phone:
-            await _process_inline(db, phone_number_id, sender_phone, message_text, message_type, message_id)
+            await _process_inline(db, phone_number_id, sender_phone, sender_name, message_text, message_type, message_id)
             processed += 1
         elif message_type == "status":
             logger.debug("WhatsApp status: %s for message %s", event.get("status"), _sanitize_log_text(message_id))
@@ -633,11 +634,12 @@ async def _process_inline(
     db: AsyncSession,
     phone_number_id: str,
     sender_phone: str,
+    sender_name: str,
     message_text: str,
     message_type: str,
     message_id: str,
 ) -> None:
-    """Process a message inline — generate AI reply and send it."""
+    """Process a message inline — full chatbot pipeline."""
     result = await db.execute(
         select(SocialAccount).where(
             SocialAccount.platform == "whatsapp",
@@ -654,115 +656,50 @@ async def _process_inline(
     if not auto_reply.get("enabled", False):
         return
 
+    # Mark message as read
     try:
-        await _generate_and_send_auto_reply(account, sender_phone, message_text, auto_reply, message_id)
+        client = _get_whatsapp_client(account)
+        await client.mark_message_read(message_id)
+    except Exception:
+        pass
+
+    # Run the full chatbot pipeline
+    try:
+        from app.services.whatsapp_chatbot import process_inbound_message
+
+        bot_result = await process_inbound_message(
+            account_id=str(account.id),
+            team_id=str(account.team_id) if account.team_id else "",
+            phone=sender_phone,
+            sender_name=sender_name,
+            message_text=message_text,
+            message_id=message_id,
+            config=auto_reply,
+            account_name=account.display_name or "Cloudless",
+        )
+
+        if bot_result.get("skipped"):
+            logger.info(
+                "WhatsApp reply skipped for %s: %s",
+                _sanitize_log_text(sender_phone),
+                bot_result.get("reason", "unknown"),
+            )
+            return
+
+        reply_text = bot_result.get("reply")
+        if not reply_text:
+            return
+
+        # Send the reply via Cloud API (within the 24h customer service window)
+        client = _get_whatsapp_client(account)
+        await client.send_text(sender_phone, reply_text, messaging_type="RESPONSE")
+
     except Exception as e:
         logger.error(
             "WhatsApp auto-reply failed for phone_number_id=%s: %s",
             _sanitize_log_text(str(phone_number_id or "")),
             _sanitize_log_text(str(e)),
         )
-
-
-async def _generate_and_send_auto_reply(
-    account: SocialAccount,
-    sender_phone: str,
-    incoming_text: str,
-    config: dict,
-    message_id: str,
-) -> None:
-    """Generate an AI response and send it via WhatsApp."""
-    client = _get_whatsapp_client(account)
-
-    # Mark message as read
-    try:
-        await client.mark_message_read(message_id)
-    except Exception:
-        pass
-
-    # Generate AI response
-    try:
-        business_name = account.display_name or "Cloudless"
-        system_prompt = config.get(
-            "system_prompt",
-            "You are a helpful assistant for {business_name}. Reply concisely and professionally.",
-        ).replace("{business_name}", business_name)
-
-        model = config.get("model", "ai/qwen3:8b-q4_K_M")
-        max_tokens = config.get("max_tokens", 300)
-        fallback_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
-
-        reply_text = await _generate_ai_response(
-            system_prompt, incoming_text, model, max_tokens, fallback_text
-        )
-    except Exception as e:
-        logger.error("AI response generation failed: %s", e)
-        reply_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
-
-    # Send the reply (within the 24-hour customer service window)
-    await client.send_text(sender_phone, reply_text, messaging_type="RESPONSE")
-
-
-async def _generate_ai_response(
-    system_prompt: str,
-    user_message: str,
-    model: str,
-    max_tokens: int,
-    fallback: str,
-) -> str:
-    """Generate an AI response using DMR (local, free-first) then Cloudflare Workers AI."""
-    import httpx
-
-    # Try DMR (local Docker Model Runner) first — free, private, no rate limits
-    dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12434")
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{dmr_url}/engines/v1/chat/completions",
-                json={
-                    "model": model if model.startswith("ai/") else "ai/qwen3:8b-q4_K_M",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message},
-                    ],
-                    "max_tokens": max_tokens,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                choices = data.get("choices", [])
-                if choices:
-                    return choices[0].get("message", {}).get("content", fallback).strip()
-    except Exception as e:
-        logger.warning("DMR AI failed, trying Cloudflare: %s", e)
-
-    # Fallback: Cloudflare Workers AI (free tier)
-    cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
-    cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
-    if cf_api_token and cf_account_id:
-        try:
-            cf_model = "@cf/meta/llama-3.1-8b-instruct"
-            url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/run/{cf_model}"
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    url,
-                    headers={"Authorization": f"Bearer {cf_api_token}"},
-                    json={
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_message},
-                        ],
-                        "max_tokens": max_tokens,
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("result") and data["result"].get("response"):
-                        return data["result"]["response"].strip()
-        except Exception as e:
-            logger.warning("Cloudflare AI failed: %s", e)
-
-    return fallback
 
 
 # ------------------------------------------------------------------
@@ -903,10 +840,36 @@ async def create_bot(
     flag_modified(account, "meta_data")
     await db.commit()
 
+    # Index brand knowledge for RAG
+    brand_indexed = 0
+    try:
+        from app.models.brand import Brand
+        from app.services.whatsapp_chatbot import index_brand_knowledge
+
+        brand_result = await db.execute(
+            select(Brand).where(Brand.team_id == account.team_id)
+        )
+        brand = brand_result.scalars().first()
+        if brand:
+            brand_data = {
+                "name": brand.name,
+                "tagline": getattr(brand, "tagline", None),
+                "positioning_statement": getattr(brand, "positioning_statement", None),
+                "mission": getattr(brand, "mission", None),
+                "industry": getattr(brand, "industry", None),
+                "values": getattr(brand, "values", []),
+                "target_audience": getattr(brand, "target_audience", {}),
+                "competitor_names": getattr(brand, "competitor_names", []),
+            }
+            brand_indexed = await index_brand_knowledge(str(account.team_id), brand_data)
+    except Exception as e:
+        logger.warning("Brand indexing failed: %s", _sanitize_log_text(str(e)))
+
     return {
         "status": "ok",
         "bot": bot_config.model_dump(),
         "profile": profile_result,
+        "brand_indexed": brand_indexed,
     }
 
 
@@ -1013,3 +976,146 @@ async def get_bot_personalities(
             for key, desc in PERSONALITY_PRESETS.items()
         ]
     }
+
+
+# ── Per-conversation control (human handoff) ─────────────────────────
+
+
+class ThreadPauseRequest(BaseModel):
+    phone: str = Field(..., description="Customer phone number to pause")
+    reason: str = "human_handoff"
+
+
+class ThreadConfigRequest(BaseModel):
+    phone: str = Field(..., description="Customer phone number")
+    system_prompt: str | None = None
+    model: str | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+
+
+@router.post("/{account_id}/threads/pause")
+async def pause_thread(
+    account_id: uuid.UUID,
+    req: ThreadPauseRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pause the bot for a specific phone number (human handoff)."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import pause_thread as _pause
+    await _pause(str(account_id), req.phone, req.reason)
+    return {"status": "ok", "message": f"Thread for {req.phone} paused"}
+
+
+@router.post("/{account_id}/threads/resume")
+async def resume_thread(
+    account_id: uuid.UUID,
+    req: ThreadPauseRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resume the bot for a specific phone number."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import resume_thread as _resume
+    await _resume(str(account_id), req.phone)
+    return {"status": "ok", "message": f"Thread for {req.phone} resumed"}
+
+
+@router.get("/{account_id}/threads/{phone}/config")
+async def get_thread_config(
+    account_id: uuid.UUID,
+    phone: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get per-conversation config overrides."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import get_thread_config as _get_config
+    config = await _get_config(str(account_id), phone)
+    return {"config": config}
+
+
+@router.put("/{account_id}/threads/{phone}/config")
+async def set_thread_config(
+    account_id: uuid.UUID,
+    phone: str,
+    req: ThreadConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set per-conversation config overrides."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import set_thread_config as _set_config
+    config = {k: v for k, v in req.model_dump().items() if v is not None and k != "phone"}
+    await _set_config(str(account_id), phone, config)
+    return {"status": "ok", "config": config}
+
+
+@router.get("/{account_id}/threads/{phone}/memory")
+async def get_thread_memory(
+    account_id: uuid.UUID,
+    phone: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get conversation memory for a specific phone number."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import get_conversation_memory
+    memory = await get_conversation_memory(str(account_id), phone)
+    return {"messages": memory, "count": len(memory)}
+
+
+@router.get("/{account_id}/threads/{phone}/window")
+async def get_service_window(
+    account_id: uuid.UUID,
+    phone: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check the 24-hour customer service window status for a phone number."""
+    await _get_whatsapp_account(db, account_id, current_user)
+    from app.services.whatsapp_chatbot import get_window_remaining, is_in_service_window
+    remaining = await get_window_remaining(str(account_id), phone)
+    in_window = await is_in_service_window(str(account_id), phone)
+    return {
+        "phone": phone,
+        "in_window": in_window,
+        "seconds_remaining": remaining,
+        "hours_remaining": round(remaining / 3600, 1) if remaining > 0 else 0,
+    }
+
+
+# ── Brand knowledge indexing ─────────────────────────────────────────
+
+
+@router.post("/{account_id}/index-brand")
+async def index_brand(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Index brand knowledge into ChromaDB for RAG-powered chatbot replies."""
+    from app.models.brand import Brand
+    from app.services.whatsapp_chatbot import index_brand_knowledge
+
+    account = await _get_whatsapp_account(db, account_id, current_user)
+    result = await db.execute(
+        select(Brand).where(Brand.team_id == account.team_id)
+    )
+    brand = result.scalars().first()
+    if not brand:
+        return {"status": "error", "message": "No brand found for this team"}
+
+    brand_data = {
+        "name": brand.name,
+        "tagline": getattr(brand, "tagline", None),
+        "positioning_statement": getattr(brand, "positioning_statement", None),
+        "mission": getattr(brand, "mission", None),
+        "industry": getattr(brand, "industry", None),
+        "values": getattr(brand, "values", []),
+        "target_audience": getattr(brand, "target_audience", {}),
+        "competitor_names": getattr(brand, "competitor_names", []),
+    }
+    indexed = await index_brand_knowledge(str(account.team_id), brand_data)
+    return {"status": "ok", "indexed": indexed}
