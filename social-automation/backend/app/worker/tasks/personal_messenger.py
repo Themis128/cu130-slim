@@ -184,16 +184,17 @@ async def _process_account(
         return 0
 
     conversations = convos_result.get("conversations", [])
-    # Only process conversations with a thread_id (skip E2EE-only ones for now)
+    # Process all conversations with a thread_id (both regular and E2EE)
     threadable = [c for c in conversations if c.get("thread_id")]
 
-    for convo in threadable[:10]:  # Limit to 10 conversations per poll
+    for convo in threadable[:20]:  # Increased from 10 to 20 conversations per poll
         thread_id = convo["thread_id"]
         convo_name = convo.get("name", "Unknown")
+        is_e2ee = convo.get("e2ee", False)
 
         try:
-            # 2. Read recent messages
-            msgs_result = await bridge.get_personal_messenger_messages(thread_id)
+            # 2. Read recent messages (pass is_e2ee for correct URL)
+            msgs_result = await bridge.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
             messages = msgs_result.get("messages", [])
             if not messages:
                 continue
@@ -222,15 +223,15 @@ async def _process_account(
                 cf_token, cf_account, dmr_url,
             )
 
-            # 6. Send the reply
-            await bridge.send_personal_messenger_message(thread_id, reply_text)
+            # 6. Send the reply (pass is_e2ee for correct URL)
+            await bridge.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
 
             # 7. Mark as seen
             seen[seen_key] = last_text
             replies_sent += 1
             logger.info(
-                "Personal auto-reply sent to '%s' (thread %s) for account %s",
-                convo_name, thread_id, account.id,
+                "Personal auto-reply sent to '%s' (thread %s, e2ee=%s) for account %s",
+                convo_name, thread_id, is_e2ee, account.id,
             )
 
             # Be gentle — wait between replies

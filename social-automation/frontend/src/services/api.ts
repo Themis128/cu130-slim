@@ -531,9 +531,9 @@ export const messengerApi = {
   // Personal Messenger (browser bridge)
   getPersonalConversations: (accountId: string) =>
     api.get(`/messenger/${accountId}/personal/conversations`),
-  getPersonalMessages: (accountId: string, threadId: string) =>
-    api.get(`/messenger/${accountId}/personal/conversations/${threadId}`),
-  sendPersonalMessage: (accountId: string, data: { thread_id: string; text: string }) =>
+  getPersonalMessages: (accountId: string, threadId: string, isE2ee: boolean = false) =>
+    api.get(`/messenger/${accountId}/personal/conversations/${threadId}`, { params: { is_e2ee: isE2ee } }),
+  sendPersonalMessage: (accountId: string, data: { thread_id: string; text: string; is_e2ee?: boolean }) =>
     api.post(`/messenger/${accountId}/personal/send`, data),
   getPersonalAutoReply: (accountId: string) =>
     api.get(`/messenger/${accountId}/personal/auto-reply`),

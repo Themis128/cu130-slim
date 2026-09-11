@@ -879,6 +879,7 @@ async def _get_facebook_user_account(
 class PersonalMessageSendRequest(BaseModel):
     thread_id: str
     text: str
+    is_e2ee: bool = False
 
 
 @router.get("/{account_id}/personal/conversations")
@@ -890,6 +891,7 @@ async def get_personal_conversations(
     """List personal Messenger conversations via the browser bridge.
 
     Navigates to facebook.com/messages and extracts the conversation list.
+    Supports both regular and E2EE (end-to-end encrypted) threads.
     Requires a logged-in Facebook browser session (via noVNC).
     """
     _account = await _get_facebook_user_account(db, account_id, current_user)
@@ -919,10 +921,14 @@ async def get_personal_conversations(
 async def get_personal_messages(
     account_id: uuid.UUID,
     thread_id: str,
+    is_e2ee: bool = Query(False, description="True for E2EE threads"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Read messages from a personal Messenger conversation thread."""
+    """Read messages from a personal Messenger conversation thread.
+
+    Supports both regular and E2EE threads.
+    """
     _account = await _get_facebook_user_account(db, account_id, current_user)
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
@@ -939,7 +945,7 @@ async def get_personal_messages(
         )
 
     try:
-        result = await bridge.get_personal_messenger_messages(thread_id)
+        result = await bridge.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
     except BrowserBridgeError as e:
         raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
 
@@ -953,7 +959,10 @@ async def send_personal_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Send a message in a personal Messenger conversation via the browser bridge."""
+    """Send a message in a personal Messenger conversation via the browser bridge.
+
+    Supports both regular and E2EE threads.
+    """
     _account = await _get_facebook_user_account(db, account_id, current_user)
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
@@ -970,7 +979,7 @@ async def send_personal_message(
         )
 
     try:
-        result = await bridge.send_personal_messenger_message(req.thread_id, req.text)
+        result = await bridge.send_personal_messenger_message(req.thread_id, req.text, is_e2ee=req.is_e2ee)
     except BrowserBridgeError as e:
         raise HTTPException(status_code=503, detail=f"Browser bridge error: {e.detail}")
 

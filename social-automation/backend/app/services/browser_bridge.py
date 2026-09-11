@@ -503,6 +503,7 @@ class BrowserBridgeClient:
 
         Navigates to the Messenger inbox and extracts the list of recent
         conversations with names, preview text, and thread URLs.
+        Supports both regular (/messages/t/) and E2EE (/messages/e2ee/t/) threads.
         Requires a logged-in Facebook browser session.
         """
         await self.navigate("https://www.facebook.com/messages/")
@@ -510,29 +511,57 @@ class BrowserBridgeClient:
 
         result = await self.evaluate("""() => {
             const conversations = [];
-            // Facebook Messenger conversation list items
+            const seen = new Set();
+
+            // Match both regular and E2EE conversation links
             const items = document.querySelectorAll(
-                '[role="navigation"] a[href*="/messages/"], ' +
                 'a[href*="/messages/t/"], ' +
-                '[role="listitem"] a[href*="/messages/"]'
+                'a[href*="/messages/e2ee/t/"]'
             );
 
             items.forEach(item => {
                 const href = item.getAttribute('href') || '';
+                // Skip "New message" and other non-conversation links
+                if (href.includes('/messages/new/') || href.includes('/messages/?')) return;
+                if (seen.has(href)) return;
+                seen.add(href);
+
                 const text = item.innerText || '';
                 const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
                 if (lines.length === 0) return;
 
-                // Extract thread ID from URL
-                const match = href.match(/messages\\/t\\/([0-9]+)/);
+                // Extract thread ID from URL (both /messages/t/ and /messages/e2ee/t/)
+                const match = href.match(/messages\\/(?:e2ee\\/)?t\\/([0-9]+)/);
                 const threadId = match ? match[1] : null;
+                const isE2EE = href.includes('/e2ee/');
+
+                // First line is the name; skip "Active now" status indicators
+                let name = lines[0] || 'Unknown';
+                if (name === 'Active now' && lines.length > 1) {
+                    name = lines[1] || 'Unknown';
+                }
+
+                // Preview is the next non-status line
+                let preview = '';
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === 'Active now' || line === '\\u00a0' || line === '\\u00b7') continue;
+                    preview = line;
+                    break;
+                }
+
+                // Unread detection: Facebook uses bold text and/or a blue dot
+                const isUnread = item.querySelector('span[style*="font-weight"], span[style*="600"]') !== null ||
+                                item.querySelector('[aria-label*="unread"], [aria-label*="Unread"]') !== null ||
+                                item.querySelector('circle[fill], [style*="background-color: var(--accent)"]') !== null;
 
                 conversations.push({
-                    name: lines[0] || 'Unknown',
-                    preview: lines[1] || '',
+                    name: name,
+                    preview: preview,
                     thread_id: threadId,
                     url: href,
-                    unread: text.includes('•') || item.querySelector('[aria-label*="unread"]') !== null,
+                    unread: isUnread,
+                    e2ee: isE2EE,
                 });
             });
 
@@ -544,39 +573,79 @@ class BrowserBridgeClient:
             "count": raw.get("count", 0),
         }
 
-    async def get_personal_messenger_messages(self, thread_id: str) -> dict[str, Any]:
+    async def get_personal_messenger_messages(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Read messages from a specific conversation thread.
 
         Navigates to the thread URL and extracts all visible messages.
+        Supports both regular and E2EE threads.
         """
-        await self.navigate(f"https://www.facebook.com/messages/t/{thread_id}/")
+        # Build the correct URL for regular vs E2EE threads
+        path = "e2ee/t" if is_e2ee else "t"
+        await self.navigate(f"https://www.facebook.com/messages/{path}/{thread_id}/")
         await asyncio.sleep(4)
 
         result = await self.evaluate("""() => {
             const messages = [];
-            // Facebook message containers
-            const msgElements = document.querySelectorAll(
-                '[role="main"] [data-scope="messages_table"] > div, ' +
-                '[role="main"] div[role="row"], ' +
-                'div[aria-label*="Message"] > div'
-            );
 
-            msgElements.forEach(el => {
-                const text = el.innerText || '';
-                if (!text.trim()) return;
+            // Messages are in div[data-scope="messages_table"] containers
+            const tables = document.querySelectorAll('div[data-scope="messages_table"]');
 
-                // Try to determine sender — outgoing messages have different styling
-                const isOutgoing = el.closest('[style*="flex-end"]') !== null ||
-                                   el.parentElement?.style?.alignSelf === 'flex-end' ||
-                                   text.includes('You:');
+            tables.forEach(table => {
+                const text = (table.innerText || '').trim();
+                if (!text) return;
 
-                const timeEl = el.querySelector('time, [data-absolute-time]');
-                const timestamp = timeEl ? timeEl.getAttribute('datetime') ||
-                                          timeEl.getAttribute('data-absolute-time') ||
-                                          timeEl.innerText : null;
+                // Skip timestamp-only entries (e.g. "Jul 14, 2026, 12:10 PM")
+                // These have childCount === 1 and only contain a date/time
+                if (table.children.length === 1) {
+                    const childText = (table.children[0].innerText || '').trim();
+                    // Check if it looks like a timestamp
+                    if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Today|Yesterday|\\d{1,2}:\\d{2})/.test(childText)) {
+                        return;
+                    }
+                }
+
+                // Filter out "Enter, Message sent..." UI artifacts
+                let cleanText = text;
+                const noisePatterns = [
+                    /^Enter,\\s*Message sent.*$/m,
+                    /^Enter,?$/m,
+                ];
+                noisePatterns.forEach(pattern => {
+                    cleanText = cleanText.replace(pattern, '').trim();
+                });
+
+                // Remove duplicate URL lines (Facebook shows both raw URL and preview)
+                const lines = cleanText.split('\\n').filter(l => l.trim());
+                const deduped = [];
+                const seenLines = new Set();
+                lines.forEach(line => {
+                    const trimmed = line.trim();
+                    if (!seenLines.has(trimmed)) {
+                        seenLines.add(trimmed);
+                        deduped.push(trimmed);
+                    }
+                });
+                cleanText = deduped.join('\\n').trim();
+
+                if (!cleanText) return;
+
+                // Determine sender: check parent container alignment
+                // Outgoing messages are right-aligned, incoming are left-aligned
+                const parent = table.parentElement;
+                const gp = parent ? parent.parentElement : null;
+                const isOutgoing = false; // TODO: detect via DOM when we have outgoing msgs
+
+                // Try to find a timestamp element
+                const timeEl = table.querySelector('time, [data-absolute-time], [datetime]');
+                let timestamp = null;
+                if (timeEl) {
+                    timestamp = timeEl.getAttribute('datetime') ||
+                               timeEl.getAttribute('data-absolute-time') ||
+                               timeEl.innerText;
+                }
 
                 messages.push({
-                    text: text.replace(/^You:\\s*/, '').trim(),
+                    text: cleanText,
                     sender: isOutgoing ? 'me' : 'them',
                     timestamp: timestamp,
                 });
@@ -590,44 +659,62 @@ class BrowserBridgeClient:
             "count": raw.get("count", 0),
         }
 
-    async def send_personal_messenger_message(self, thread_id: str, text: str) -> dict[str, Any]:
+    async def send_personal_messenger_message(self, thread_id: str, text: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Send a message in a personal Facebook Messenger conversation.
 
         Navigates to the thread, types in the message input, and presses Enter.
+        Supports both regular and E2EE threads.
         """
-        await self.navigate(f"https://www.facebook.com/messages/t/{thread_id}/")
+        path = "e2ee/t" if is_e2ee else "t"
+        await self.navigate(f"https://www.facebook.com/messages/{path}/{thread_id}/")
         await asyncio.sleep(4)
 
-        # Find the message input box and type
+        # Find the message input box and type using modern input events
         await self.evaluate(f"""(function() {{
             // Facebook Messenger message input — contenteditable div
             const input = document.querySelector(
                 '[contenteditable="true"][role="textbox"], ' +
                 'div[role="textbox"][contenteditable], ' +
-                '[data-contents="true"][contenteditable]'
+                '[data-contents="true"][contenteditable], ' +
+                'div[contenteditable="true"][data-contents="true"]'
             );
-            if (!input) return {{ found: false }};
+            if (!input) return {{ found: false, error: 'Input not found' }};
 
             input.focus();
-            // Use execCommand for contenteditable
-            document.execCommand('insertText', false, {json.dumps(text)});
-            return {{ found: true }};
+
+            // Method 1: Try execCommand (works in most browsers)
+            const inserted = document.execCommand('insertText', false, {json.dumps(text)});
+
+            // Method 2: If execCommand failed, use InputEvent (modern approach)
+            if (!inserted) {{
+                const inputData = new InputEvent('beforeinput', {{
+                    inputType: 'insertText',
+                    data: {json.dumps(text)},
+                    bubbles: true,
+                    cancelable: true,
+                }});
+                input.dispatchEvent(inputData);
+            }}
+
+            return {{ found: true, inserted: inserted }};
         }})()""")
 
         await asyncio.sleep(1)
 
-        # Press Enter to send
+        # Press Enter to send using modern KeyboardEvent
         result = await self.evaluate("""(function() {
             const input = document.querySelector(
                 '[contenteditable="true"][role="textbox"], ' +
                 'div[role="textbox"][contenteditable], ' +
-                '[data-contents="true"][contenteditable]'
+                '[data-contents="true"][contenteditable], ' +
+                'div[contenteditable="true"][data-contents="true"]'
             );
-            if (!input) return { found: false };
+            if (!input) return { found: false, sent: false };
 
             input.focus();
-            // Simulate Enter keypress
-            const event = new KeyboardEvent('keydown', {
+
+            // Simulate Enter keypress with modern KeyboardEvent
+            const enterEvent = new KeyboardEvent('keydown', {
                 key: 'Enter',
                 code: 'Enter',
                 keyCode: 13,
@@ -635,11 +722,12 @@ class BrowserBridgeClient:
                 bubbles: true,
                 cancelable: true,
             });
-            input.dispatchEvent(event);
+            input.dispatchEvent(enterEvent);
 
             // Also try pressing the send button as fallback
             const sendBtn = document.querySelector(
-                '[aria-label="Send"], [aria-label="Press Enter to send"]'
+                '[aria-label="Send"], [aria-label="Press Enter to send"], ' +
+                'div[role="button"][aria-label*="Send"]'
             );
             if (sendBtn) sendBtn.click();
 
