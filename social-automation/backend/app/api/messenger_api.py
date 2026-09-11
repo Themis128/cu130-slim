@@ -28,8 +28,8 @@ from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
-from app.services.facebook_api import _sanitize_log_text
 from app.models.user import User
+from app.services.facebook_api import _sanitize_log_text
 from app.services.messenger_api import (
     MessengerAPIClient,
     parse_webhook_event,
