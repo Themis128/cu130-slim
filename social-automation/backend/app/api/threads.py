@@ -248,7 +248,15 @@ async def get_threads_post_insights(
     """Fetch insights for a specific Threads post."""
     _, client = await _get_threads_client(db, team_id, account_id)
     import httpx
-    url = f"https://graph.threads.net/v1.0/{media_id}/insights"
+
+    from app.services.threads_api import _validate_media_id
+
+    try:
+        safe_media_id = _validate_media_id(media_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    url = f"https://graph.threads.net/v1.0/{safe_media_id}/insights"
     async with httpx.AsyncClient(timeout=30.0) as http:
         resp = await http.get(
             url,

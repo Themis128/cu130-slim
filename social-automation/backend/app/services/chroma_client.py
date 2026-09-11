@@ -3,6 +3,9 @@
 Embeddings use Docker Model Runner (Qwen3-Embedding-8B, local) as the primary
 provider with Cloudflare Workers AI BGE-M3 as cloud failover.
 """
+import re
+from urllib.parse import quote, urljoin, urlparse
+
 import httpx
 
 from app.core.config import get_settings
@@ -15,6 +18,16 @@ _CHROMA_TIMEOUT = 10.0
 
 # Chroma v2 API base path (Chroma 1.x uses tenant/database structure)
 _CHROMA_API_BASE = "/api/v2/tenants/default_tenant/databases/default_database"
+
+# team_<uuid-with-underscores>_content — blocks path traversal / SSRF via collection name
+_COLLECTION_RE = re.compile(r"^team_[0-9a-f_]+_content$")
+
+
+def _validate_collection_name(col: str) -> str:
+    """Reject collection names that could rewrite the Chroma request path."""
+    if not _COLLECTION_RE.match(col):
+        raise ValueError(f"Invalid Chroma collection name: {col[:80]}")
+    return col
 
 
 def _cf_ai_token() -> str:
@@ -79,14 +92,31 @@ def _collection_name(team_id: str) -> str:
 
 
 def _collection_base_url() -> str:
-    return f"{settings.CHROMA_URL}{_CHROMA_API_BASE}/collections"
+    """Return the collections API root, constrained to the configured Chroma host."""
+    base = (settings.CHROMA_URL or "").rstrip("/")
+    parsed = urlparse(base)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("CHROMA_URL must be an absolute http(s) URL")
+    return f"{base}{_CHROMA_API_BASE}/collections"
+
+
+def _collection_item_url(col: str) -> str:
+    """Build a safe GET URL for a validated collection name."""
+    safe_col = _validate_collection_name(col)
+    # quote keeps the name a single path segment (no ../ or host injection)
+    return urljoin(f"{_collection_base_url()}/", quote(safe_col, safe=""))
 
 
 async def _get_collection_id(client: httpx.AsyncClient, col: str) -> str | None:
     """Get collection UUID by name, creating if needed."""
     try:
+        safe_col = _validate_collection_name(col)
+    except ValueError:
+        return None
+
+    try:
         # Try to get existing collection
-        resp = await client.get(f"{_collection_base_url()}/{col}")
+        resp = await client.get(_collection_item_url(safe_col))
         if resp.status_code == 200:
             return resp.json().get("id")
     except Exception:
@@ -96,7 +126,7 @@ async def _get_collection_id(client: httpx.AsyncClient, col: str) -> str | None:
     try:
         resp = await client.post(
             _collection_base_url(),
-            json={"name": col, "get_or_create": True},
+            json={"name": safe_col, "get_or_create": True},
         )
         if resp.status_code in (200, 201):
             return resp.json().get("id")

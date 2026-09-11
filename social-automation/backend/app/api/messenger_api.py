@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
+from app.services.facebook_api import _sanitize_log_text
 from app.models.user import User
 from app.services.messenger_api import (
     MessengerAPIClient,
@@ -603,7 +604,10 @@ async def receive_webhook(
             )
             account = result.scalar_one_or_none()
             if not account:
-                logger.warning("No Facebook Page account found for page_id=%s", page_id)
+                logger.warning(
+                    "No Facebook Page account found for page_id=%s",
+                    _sanitize_log_text(str(page_id or "")),
+                )
                 continue
 
             # Check if auto-reply is enabled
@@ -619,7 +623,11 @@ async def receive_webhook(
                 )
                 processed += 1
             except Exception as e:
-                logger.error("Auto-reply failed for page_id=%s: %s", page_id, e)
+                logger.error(
+                    "Auto-reply failed for page_id=%s: %s",
+                    _sanitize_log_text(str(page_id or "")),
+                    _sanitize_log_text(str(e)),
+                )
 
     return {"status": "ok", "events_received": len(events), "auto_replies_sent": processed}
 

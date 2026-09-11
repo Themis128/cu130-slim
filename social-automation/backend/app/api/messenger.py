@@ -28,6 +28,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
+from app.services.facebook_api import _sanitize_log_text
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
@@ -672,7 +673,7 @@ async def _process_inline(
     )
     account = result.scalar_one_or_none()
     if not account:
-        logger.warning("No Facebook Page account found for page_id=%s", page_id)
+        logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(str(page_id or "")))
         return
 
     meta = account.meta_data or {}
@@ -683,7 +684,11 @@ async def _process_inline(
     try:
         await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
     except Exception as e:
-        logger.error("Auto-reply failed for page_id=%s: %s", page_id, e)
+        logger.error(
+            "Auto-reply failed for page_id=%s: %s",
+            _sanitize_log_text(str(page_id or "")),
+            _sanitize_log_text(str(e)),
+        )
 
 
 async def _generate_and_send_auto_reply(
@@ -839,10 +844,11 @@ async def sidecar_status() -> dict:
             "message": f"Sidecar returned HTTP {health_resp.status_code}",
         }
     except Exception as e:
+        logger.warning("Sidecar unreachable: %s", _sanitize_log_text(str(e)))
         return {
             "status": "offline",
             "url": sidecar_url,
-            "message": f"Sidecar unreachable: {e}",
+            "message": "Sidecar unreachable",
         }
 
 
@@ -1351,11 +1357,11 @@ async def create_bot(
                     greeting_text=greeting_text,
                 )
             except Exception as e:
-                logger.warning("Messenger Profile setup failed: %s", e)
-                setup_result = {"result": "partial", "detail": str(e)}
+                logger.warning("Messenger Profile setup failed: %s", _sanitize_log_text(str(e)))
+                setup_result = {"result": "partial", "detail": "Messenger Profile setup failed"}
         except Exception as e:
-            logger.warning("Page setup failed: %s", e)
-            setup_result = {"result": "error", "detail": str(e)}
+            logger.warning("Page setup failed: %s", _sanitize_log_text(str(e)))
+            setup_result = {"result": "error", "detail": "Page setup failed"}
 
     # Store bot config in account meta_data
     meta = account.meta_data or {}
@@ -1404,7 +1410,7 @@ async def create_bot(
             }
             brand_indexed = await index_brand_knowledge(str(account.team_id), brand_data)
     except Exception as e:
-        logger.warning("Brand indexing failed: %s", e)
+        logger.warning("Brand indexing failed: %s", _sanitize_log_text(str(e)))
 
     return {
         "status": "ok",

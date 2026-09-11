@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from collections import deque
 
@@ -52,6 +53,32 @@ _stats = {
 }
 _recent_events: deque = deque(maxlen=100)
 _seen_message_ids: deque = deque(maxlen=10000)  # idempotency
+
+# Facebook object ids are numeric (optional underscore compound ids).
+_FB_ID_RE = re.compile(r"^[0-9]{1,64}(_[0-9]{1,64})?$")
+_GRAPH_MESSAGES_TMPL = "https://graph.facebook.com/v25.0/{page_id}/messages"
+
+
+def _sanitize_log_text(text: str, max_len: int = 200) -> str:
+    """Strip newlines/control chars before logging untrusted identifiers."""
+    cleaned = (text or "").replace("\n", "\\n").replace("\r", "\\r")
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
+    return cleaned[:max_len]
+
+
+def _validate_fb_id(value: str, label: str = "id") -> str:
+    """Validate Graph path ids to prevent partial SSRF via crafted identifiers."""
+    value = (value or "").strip()
+    if not value:
+        raise ValueError(f"Facebook {label} is empty")
+    if not _FB_ID_RE.match(value):
+        raise ValueError(f"Invalid Facebook {label} format")
+    return value
+
+
+def _graph_messages_url(page_id: str) -> str:
+    safe_page_id = _validate_fb_id(page_id, "page_id")
+    return _GRAPH_MESSAGES_TMPL.format(page_id=safe_page_id)
 
 
 class WebhookEvent(BaseModel):
@@ -85,7 +112,7 @@ async def process_event(event: WebhookEvent) -> JSONResponse:
 
     # Idempotency: skip duplicate message IDs
     if event.message_mid and event.message_mid in _seen_message_ids:
-        logger.info("Skipping duplicate message_mid=%s", event.message_mid)
+        logger.info("Skipping duplicate message_mid=%s", _sanitize_log_text(event.message_mid))
         return JSONResponse({"status": "duplicate", "message_id": event.message_mid})
     if event.message_mid:
         _seen_message_ids.append(event.message_mid)
@@ -116,13 +143,13 @@ async def _handle_message(event: WebhookEvent) -> None:
         # Find the Facebook Page account and check auto-reply config
         account_info = await _get_account_and_config(event.page_id)
         if not account_info:
-            logger.warning("No Facebook Page account found for page_id=%s", event.page_id)
+            logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(event.page_id))
             return
 
         account_id, page_token, auto_reply_config, page_name = account_info
 
         if not auto_reply_config.get("enabled", False):
-            logger.debug("Auto-reply disabled for page_id=%s", event.page_id)
+            logger.debug("Auto-reply disabled for page_id=%s", _sanitize_log_text(event.page_id))
             return
 
         # Send typing indicator
@@ -140,7 +167,11 @@ async def _handle_message(event: WebhookEvent) -> None:
         await _send_sender_action(page_token, event.page_id, event.sender_psid, "typing_off")
 
         _stats["auto_replies_sent"] += 1
-        logger.info("Auto-reply sent to psid=%s for page_id=%s", event.sender_psid, event.page_id)
+        logger.info(
+            "Auto-reply sent to psid=%s for page_id=%s",
+            _sanitize_log_text(event.sender_psid),
+            _sanitize_log_text(event.page_id),
+        )
 
     except Exception as exc:
         _stats["errors"] += 1
@@ -212,12 +243,14 @@ async def _get_admin_token() -> str:
 
 async def _send_sender_action(page_token: str, page_id: str, psid: str, action: str) -> None:
     """Send a sender action (typing_on, typing_off, mark_seen)."""
+    url = _graph_messages_url(page_id)
+    safe_psid = _validate_fb_id(psid, "psid")
     async with httpx.AsyncClient(timeout=10) as client:
         await client.post(
-            f"https://graph.facebook.com/v25.0/{page_id}/messages",
+            url,
             params={"access_token": page_token},
             json={
-                "recipient": {"id": psid},
+                "recipient": {"id": safe_psid},
                 "sender_action": action,
             },
         )
@@ -225,18 +258,24 @@ async def _send_sender_action(page_token: str, page_id: str, psid: str, action: 
 
 async def _send_text_message(page_token: str, page_id: str, psid: str, text: str) -> None:
     """Send a text message via the Send API."""
+    url = _graph_messages_url(page_id)
+    safe_psid = _validate_fb_id(psid, "psid")
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
-            f"https://graph.facebook.com/v25.0/{page_id}/messages",
+            url,
             params={"access_token": page_token},
             json={
-                "recipient": {"id": psid},
+                "recipient": {"id": safe_psid},
                 "messaging_type": "RESPONSE",
                 "message": {"text": text},
             },
         )
         if resp.status_code != 200:
-            logger.error("Send API error: %s %s", resp.status_code, resp.text[:200])
+            logger.error(
+                "Send API error: %s %s",
+                resp.status_code,
+                _sanitize_log_text(resp.text[:200]),
+            )
 
 
 async def _generate_ai_response(config: dict, user_message: str, page_name: str) -> str:

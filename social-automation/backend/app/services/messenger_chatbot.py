@@ -54,7 +54,6 @@ _CONFIG_KEY = "messenger:config:{account_id}:{thread_id}"
 _DISCLOSED_KEY = "messenger:disclosed:{account_id}:{thread_id}"
 
 # ChromaDB collection names
-_MEMORY_COLLECTION = "messenger_memory"
 _BRAND_COLLECTION = "messenger_brand_knowledge"
 
 DEFAULT_COOLDOWN_SECONDS = 300  # 5 minutes

@@ -454,19 +454,15 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
-_config_applied: bool = False
-
-
 async def apply_best_practice_configs() -> None:
     """Apply best-practice DMR configurations via CLI on startup.
 
     Uses `docker model configure` CLI (not the HTTP API) because the HTTP
     API is unreachable on WSL2/Docker Desktop.  Idempotent — only runs once.
     """
-    global _config_applied
-    if _config_applied:
+    if getattr(apply_best_practice_configs, "_done", False):
         return
-    _config_applied = True
+    apply_best_practice_configs._done = True  # type: ignore[attr-defined]
 
     for model, cfg in _BEST_PRACTICE_CONFIGS.items():
         try:
