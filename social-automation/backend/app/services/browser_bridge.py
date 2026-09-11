@@ -763,3 +763,24 @@ class BrowserBridgeClient:
             "thread_id": thread_id,
             "message": raw,
         }
+
+    async def trigger_typing_indicator(self, thread_id: str, is_e2ee: bool = False, duration: float = 2.0) -> None:
+        """Simulate a typing indicator by focusing the input and waiting.
+
+        Facebook Messenger shows "X is typing..." when the input is focused.
+        This makes the bot feel more natural and follows Meta's "Be Predictable"
+        best practice — users expect a brief pause before a reply.
+        """
+        try:
+            await self._navigate_to_thread(thread_id, is_e2ee=is_e2ee)
+            await self.evaluate("""(function() {
+                const input = document.querySelector(
+                    '[contenteditable="true"][role="textbox"], ' +
+                    'div[role="textbox"][contenteditable], ' +
+                    '[data-contents="true"][contenteditable]'
+                );
+                if (input) input.focus();
+            })()""")
+            await asyncio.sleep(duration)
+        except Exception as exc:
+            logger.debug("Typing indicator failed (non-fatal): %s", exc)

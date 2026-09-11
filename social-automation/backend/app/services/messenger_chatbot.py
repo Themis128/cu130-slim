@@ -51,6 +51,7 @@ INTENT_GREETING = "greeting"
 _COOLDOWN_KEY = "messenger:cooldown:{account_id}:{thread_id}"
 _PAUSED_KEY = "messenger:paused:{account_id}:{thread_id}"
 _CONFIG_KEY = "messenger:config:{account_id}:{thread_id}"
+_DISCLOSED_KEY = "messenger:disclosed:{account_id}:{thread_id}"
 
 # ChromaDB collection names
 _MEMORY_COLLECTION = "messenger_memory"
@@ -121,6 +122,40 @@ async def resume_thread(account_id: str, thread_id: str) -> None:
         r = await _get_redis()
         key = _PAUSED_KEY.format(account_id=account_id, thread_id=thread_id)
         await r.delete(key)
+    except Exception:
+        pass
+
+
+# ── First-contact disclosure (Meta policy) ──────────────────────────
+
+
+async def has_disclosed(account_id: str, thread_id: str) -> bool:
+    """Check if the bot has already disclosed its automated nature in this thread.
+
+    Meta's Messenger Platform policy requires that automated chat experiences
+    disclose they are automated:
+    - at the beginning of any conversation or message thread,
+    - after a significant lapse of time, or
+    - when a chat moves from human interaction to automated experience.
+    """
+    try:
+        r = await _get_redis()
+        key = _DISCLOSED_KEY.format(account_id=account_id, thread_id=thread_id)
+        return bool(await r.exists(key))
+    except Exception:
+        return False
+
+
+async def mark_disclosed(account_id: str, thread_id: str) -> None:
+    """Mark that the bot has disclosed its automated nature in this thread.
+
+    The key expires after 24 hours, so the bot re-discloses after a significant
+    lapse of time (per Meta policy).
+    """
+    try:
+        r = await _get_redis()
+        key = _DISCLOSED_KEY.format(account_id=account_id, thread_id=thread_id)
+        await r.setex(key, 86400, "1")  # 24-hour TTL
     except Exception:
         pass
 
