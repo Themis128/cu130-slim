@@ -292,6 +292,12 @@ app/services/
 │   ├── messenger_api.py      — Page Messenger Graph API
 │   ├── messenger_sidecar.py  — Webhook sidecar (AI auto-reply)
 │   ├── messenger_chatbot.py  — Chatbot service (memory, RAG, intent, cooldown)
+│   │   ├── DMR-first intent detection (Qwen3 8B)
+│   │   ├── ChromaDB conversation memory (last 10 msgs/thread)
+│   │   ├── ChromaDB brand knowledge RAG
+│   │   ├── Redis DB 1 cooldowns (5 min/conversation)
+│   │   ├── Redis DB 1 per-thread pause (human handoff)
+│   │   └── Redis DB 1 per-thread config overrides
 │   └── browser_bridge.py     — Personal Messenger (CDP + noVNC)
 │       ├── E2EE + regular thread support
 │       ├── ensure_session() — auto-recover + cookie extraction
@@ -800,6 +806,99 @@ Inbound message           Polling/             Chatbot Service       AI Provider
      │                    │ 14. Store in memory│                    │
      │                    │ 15. Set cooldown   │                    │
      │                    │ 16. Mark as seen   │                    │
+```
+
+### Bot Builder Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Messenger Bot Builder                             │
+│                                                                     │
+│  ┌─────────────┐                                                    │
+│  │ Frontend    │  BotBuilder.tsx                                    │
+│  │             │  ├── Create form (personality, language, hours)   │
+│  │             │  ├── Config editor (prompt, model, temp, cooldown)│
+│  │             │  ├── Activate/Deactivate toggle                    │
+│  │             │  └── Per-thread pause/resume (human handoff)       │
+│  └──────┬──────┘                                                    │
+│         │                                                           │
+│  ┌──────┴──────┐                                                    │
+│  │ Backend API │  /api/v1/messenger/{id}/bot/*                     │
+│  │             │  ├── POST /bot/create (personality preset)        │
+│  │             │  ├── GET /bot (status + config)                   │
+│  │             │  ├── PUT /bot (update config)                     │
+│  │             │  ├── POST /bot/activate                           │
+│  │             │  ├── POST /bot/deactivate                         │
+│  │             │  ├── POST /bot/pause-thread/{tid}                 │
+│  │             │  ├── POST /bot/resume-thread/{tid}                │
+│  │             │  └── GET /bot/personalities (5 presets)           │
+│  └──────┬──────┘                                                    │
+│         │                                                           │
+│  ┌──────┴──────────────────────────────────────────────────────┐   │
+│  │ Bot Config (stored in social_accounts.meta_data.messenger_bot)│   │
+│  │ ├── name, enabled, system_prompt, model, fallback_text       │   │
+│  │ ├── max_tokens, temperature, cooldown_seconds                │   │
+│  │ ├── business_hours_start/end (UTC, optional)                │   │
+│  │ ├── paused_threads[] (human handoff list)                    │   │
+│  │ ├── reply_to_spam, reply_to_greetings (intent filters)       │   │
+│  │ └── quick_replies[] (suggestion buttons)                     │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ Personality Presets (5)                                       │   │
+│  │ ├── professional_friendly — balanced, brand-aware             │   │
+│  │ ├── casual              — fun, approachable, emojis           │   │
+│  │ ├── formal              — precise, complete sentences        │   │
+│  │ ├── support             — patient, helpful, escalates        │   │
+│  │ └── sales               — enthusiastic, qualifying questions │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ Language Enforcement                                          │   │
+│  │ ├── auto  — match incoming message language (default)         │   │
+│  │ ├── en    — force English replies                             │   │
+│  │ ├── el    — force Greek replies (Ελληνικά)                    │   │
+│  │ └── *     — any ISO code, appended to system prompt           │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ Account Type Routing                                          │   │
+│  │ ├── Page (business) → Messenger Platform API (Graph API)     │   │
+│  │ │   ├── Subscribe Page to webhooks                            │   │
+│  │ │   ├── Set Messenger Profile (greeting, Get Started, menu)  │   │
+│  │ │   └── Send via Graph API /me/messages                      │   │
+│  │ └── Personal (user) → Browser Bridge (CDP + noVNC)           │   │
+│  │       ├── Sync personal_messenger_auto_reply config          │   │
+│  │       ├── Index brand knowledge (ChromaDB)                   │   │
+│  │       └── Send via browser bridge (E2EE + regular)           │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Bot Infrastructure (Dedicated Resources)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Bot Infrastructure                                │
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │ social-     │  │ Redis       │  │ ChromaDB    │  │ DMR        │ │
+│  │ worker-     │  │ DB 1        │  │             │  │ (host)     │ │
+│  │ messenger   │  │             │  │ Collections:│  │            │ │
+│  │             │  │ Keys:       │  │ • memory_*  │  │ Models:    │ │
+│  │ Queue:      │  │ • cooldown  │  │ • brand_know │  │ • qwen3:8B │ │
+│  │ messenger   │  │ • paused    │  │             │  │ • qwen3-emb│ │
+│  │             │  │ • config    │  │ Embeddings:  │  │            │ │
+│  │ conc=2      │  │             │  │ DMR-first   │  │ Primary    │ │
+│  │ recycle=50  │  │ Isolated    │  │ CF fallback │  │ inference  │ │
+│  │             │  │ from DB 0   │  │             │  │            │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                     │
+│  ┌─────────────┐                                                    │
+│  │ Flower      │  Celery monitoring dashboard (:5555)              │
+│  │             │  Auth-protected, monitors all 4 worker queues     │
+│  └─────────────┘                                                    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Database Fallback Chain
