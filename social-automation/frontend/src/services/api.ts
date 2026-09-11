@@ -539,6 +539,23 @@ export const messengerApi = {
     api.get(`/messenger/${accountId}/personal/auto-reply`),
   updatePersonalAutoReply: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
     api.put(`/messenger/${accountId}/personal/auto-reply`, data),
+  // Bot Builder
+  createBot: (accountId: string, data: { name?: string; personality?: string; language?: string; business_hours_start?: string; business_hours_end?: string; custom_prompt?: string }) =>
+    api.post(`/messenger/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/messenger/${accountId}/bot`),
+  updateBot: (accountId: string, data: { name?: string; enabled?: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number; temperature?: number; cooldown_seconds?: number; business_hours_start?: string | null; business_hours_end?: string | null; paused_threads?: string[]; reply_to_spam?: boolean; reply_to_greetings?: boolean; quick_replies?: unknown[] }) =>
+    api.put(`/messenger/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/messenger/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/messenger/${accountId}/bot/deactivate`),
+  pauseBotThread: (accountId: string, threadId: string) =>
+    api.post(`/messenger/${accountId}/bot/pause-thread/${threadId}`),
+  resumeBotThread: (accountId: string, threadId: string) =>
+    api.post(`/messenger/${accountId}/bot/resume-thread/${threadId}`),
+  getBotPersonalities: (accountId: string) =>
+    api.get(`/messenger/${accountId}/bot/personalities`),
 }
 
 // Publishing endpoints

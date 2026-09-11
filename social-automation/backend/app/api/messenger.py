@@ -1163,3 +1163,466 @@ async def index_brand(
     }
     indexed = await index_brand_knowledge(str(account.team_id), brand_data)
     return {"status": "ok", "indexed": indexed}
+
+
+# ── Bot Builder: create and manage Messenger bots ───────────────────
+#
+# A "bot" in SocialAuto is a configurable auto-reply persona that can be
+# created, customized, activated, and deactivated per account. Bots
+# support:
+#   - Custom personality (system prompt, tone, language)
+#   - Intent-based responses (business, personal, spam, greeting, question)
+#   - Brand knowledge RAG (ChromaDB)
+#   - Conversation memory (last N messages)
+#   - Per-conversation cooldown (Redis)
+#   - Human handoff (pause/resume per thread)
+#   - Quick-reply suggestions
+#   - Business hours (only reply during configured hours)
+#   - Auto-pause for specific contacts (e.g. family, VIP clients)
+#
+# For Page (business) accounts, the bot uses the Messenger Platform API
+# (Graph API) for sending replies. For personal accounts, the bot uses
+# the browser bridge.
+
+
+class BotConfig(BaseModel):
+    """Configuration for a Messenger bot."""
+    name: str = Field("Cloudless Assistant", description="Bot display name")
+    enabled: bool = Field(False, description="Whether the bot is active")
+    system_prompt: str = Field(
+        "You are a helpful assistant for {page_name}. Reply concisely and professionally "
+        "in the same language as the incoming message.",
+        description="System prompt for AI reply generation",
+    )
+    model: str = Field("ai/qwen3:8b-q4_K_M", description="AI model (DMR-first)")
+    fallback_text: str = Field(
+        "Thanks for your message! I will get back to you soon.",
+        description="Fallback when AI is unavailable",
+    )
+    max_tokens: int = Field(300, description="Max tokens for AI reply")
+    temperature: float = Field(0.7, description="AI temperature (0=deterministic, 1=creative)")
+    cooldown_seconds: int = Field(300, description="Min seconds between replies per conversation")
+    # Business hours (UTC). If set, bot only replies during these hours.
+    business_hours_start: str | None = Field(None, description="UTC hour (e.g. '07:00') — bot only replies after this time")
+    business_hours_end: str | None = Field(None, description="UTC hour (e.g. '22:00') — bot only replies before this time")
+    # Auto-pause contacts (thread IDs that should never get auto-replies)
+    paused_threads: list[str] = Field(default_factory=list, description="Thread IDs to skip (human handoff)")
+    # Intent-based behavior
+    reply_to_spam: bool = Field(False, description="Whether to auto-reply to spam")
+    reply_to_greetings: bool = Field(True, description="Whether to auto-reply to greetings")
+    # Quick replies (shown as suggestions in the inbox)
+    quick_replies: list[dict] = Field(
+        default_factory=lambda: [
+            {"title": "Services", "payload": "BOT_SERVICES"},
+            {"title": "Pricing", "payload": "BOT_PRICING"},
+            {"title": "Contact", "payload": "BOT_CONTACT"},
+        ],
+        description="Quick-reply suggestions for the bot",
+    )
+
+
+class BotCreateRequest(BaseModel):
+    """Request to create a new bot for an account."""
+    name: str = Field("Cloudless Assistant", description="Bot display name")
+    personality: str = Field(
+        "professional_friendly",
+        description="Bot personality preset: professional_friendly, casual, formal, support, sales",
+    )
+    language: str = Field("auto", description="Primary language: auto, en, el, or ISO code")
+    business_hours_start: str | None = None
+    business_hours_end: str | None = None
+    custom_prompt: str | None = Field(None, description="Override the personality preset with a custom system prompt")
+
+
+# Personality presets
+PERSONALITY_PRESETS = {
+    "professional_friendly": (
+        "You are {bot_name} for {page_name}. You are professional yet friendly. "
+        "Reply in the same language as the incoming message (Greek or English). "
+        "Be concise (2-3 sentences). For business inquiries, mention {page_name} services briefly. "
+        "For personal messages, be warm. Never make up facts or prices — if unsure, say you will follow up."
+    ),
+    "casual": (
+        "You are {bot_name} for {page_name}. You are casual, fun, and approachable. "
+        "Reply in the same language as the incoming message. Keep it short and natural. "
+        "Use emojis sparingly. Be yourself — like texting a friend."
+    ),
+    "formal": (
+        "You are {bot_name} for {page_name}. You are formal, precise, and professional. "
+        "Reply in the same language as the incoming message. Use complete sentences. "
+        "Address the person by name if known. Be thorough but concise."
+    ),
+    "support": (
+        "You are {bot_name}, a customer support assistant for {page_name}. "
+        "Reply in the same language as the incoming message. Be helpful and patient. "
+        "Ask clarifying questions if needed. For complex issues, offer to escalate to a human. "
+        "Never make up information — if you don't know, say you'll check and follow up."
+    ),
+    "sales": (
+        "You are {bot_name}, a sales assistant for {page_name}. "
+        "Reply in the same language as the incoming message. Be enthusiastic but not pushy. "
+        "Highlight benefits, not features. Ask qualifying questions. "
+        "Offer to schedule a call or share more info. Never make up prices."
+    ),
+}
+
+
+@router.post("/{account_id}/bot/create")
+async def create_bot(
+    account_id: uuid.UUID,
+    req: BotCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new Messenger bot for an account (personal or business).
+
+    For Page accounts, this also:
+    1. Subscribes the Page to webhooks (if not already)
+    2. Sets up the Messenger Profile (greeting, Get Started, persistent menu)
+    3. Configures the bot persona
+
+    For personal accounts, this:
+    1. Configures the auto-reply system prompt
+    2. Indexes brand knowledge for RAG
+    3. Enables the chatbot polling task
+    """
+    # Determine account type
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.platform != "facebook":
+        raise HTTPException(status_code=400, detail="Bot creation is only supported for Facebook accounts")
+
+    is_page = account.account_type == "page"
+    page_name = account.display_name or "Cloudless"
+
+    # Build system prompt from personality preset
+    if req.custom_prompt:
+        system_prompt = req.custom_prompt.replace("{page_name}", page_name)
+    else:
+        preset = PERSONALITY_PRESETS.get(req.personality, PERSONALITY_PRESETS["professional_friendly"])
+        system_prompt = preset.replace("{bot_name}", req.name).replace("{page_name}", page_name)
+
+    # Build bot config
+    bot_config = BotConfig(
+        name=req.name,
+        enabled=True,
+        system_prompt=system_prompt,
+        business_hours_start=req.business_hours_start,
+        business_hours_end=req.business_hours_end,
+    )
+
+    # For Page accounts: set up Messenger Platform
+    setup_result = None
+    if is_page:
+        try:
+            client = _get_messenger_client(account)
+            page_info = await client.get_page_info()
+            page_name = page_info.get("name", page_name)
+            page_url = page_info.get("website", "") or ""
+            if page_url:
+                page_url = page_url.split(",")[0].strip()
+                if not page_url.startswith("http"):
+                    page_url = f"https://{page_url}"
+
+            # Subscribe Page to webhooks
+            try:
+                await client.subscribe_page()
+            except Exception as e:
+                logger.warning("Page subscription failed (may already be subscribed): %s", e)
+
+            # Set up Messenger Profile with bot greeting
+            greeting_text = f"Hi! 👋 I'm {req.name}. How can I help you today?"
+            try:
+                setup_result = await client.setup_default_profile(
+                    page_name=page_name,
+                    page_url=page_url,
+                    greeting_text=greeting_text,
+                )
+            except Exception as e:
+                logger.warning("Messenger Profile setup failed: %s", e)
+                setup_result = {"result": "partial", "detail": str(e)}
+        except Exception as e:
+            logger.warning("Page setup failed: %s", e)
+            setup_result = {"result": "error", "detail": str(e)}
+
+    # Store bot config in account meta_data
+    meta = account.meta_data or {}
+    meta["messenger_bot"] = bot_config.model_dump()
+    if is_page:
+        meta["messenger_setup"] = {
+            "subscribed": True,
+            "bot_enabled": True,
+            "bot_name": req.name,
+        }
+    else:
+        # For personal accounts, also set auto-reply config
+        meta["personal_messenger_auto_reply"] = {
+            "enabled": True,
+            "system_prompt": system_prompt,
+            "model": bot_config.model,
+            "fallback_text": bot_config.fallback_text,
+            "max_tokens": bot_config.max_tokens,
+            "cooldown_seconds": bot_config.cooldown_seconds,
+            "temperature": bot_config.temperature,
+        }
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+
+    # Index brand knowledge for RAG
+    brand_indexed = 0
+    try:
+        from app.models.brand import Brand
+        from app.services.messenger_chatbot import index_brand_knowledge
+
+        brand_result = await db.execute(
+            select(Brand).where(Brand.team_id == account.team_id)
+        )
+        brand = brand_result.scalars().first()
+        if brand:
+            brand_data = {
+                "name": brand.name,
+                "tagline": getattr(brand, "tagline", None),
+                "positioning_statement": getattr(brand, "positioning_statement", None),
+                "mission": getattr(brand, "mission", None),
+                "industry": getattr(brand, "industry", None),
+                "values": getattr(brand, "values", []),
+                "target_audience": getattr(brand, "target_audience", {}),
+                "competitor_names": getattr(brand, "competitor_names", []),
+            }
+            brand_indexed = await index_brand_knowledge(str(account.team_id), brand_data)
+    except Exception as e:
+        logger.warning("Brand indexing failed: %s", e)
+
+    return {
+        "status": "ok",
+        "bot": bot_config.model_dump(),
+        "account_type": "page" if is_page else "user",
+        "page_setup": setup_result,
+        "brand_indexed": brand_indexed,
+    }
+
+
+@router.get("/{account_id}/bot")
+async def get_bot(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current bot configuration for an account."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    bot_config = meta.get("messenger_bot")
+    if not bot_config:
+        return {"exists": False, "bot": None}
+
+    # Check paused threads status from Redis
+    paused_status = {}
+    for thread_id in bot_config.get("paused_threads", []):
+        try:
+            from app.services.messenger_chatbot import is_thread_paused
+            paused_status[thread_id] = await is_thread_paused(str(account_id), thread_id)
+        except Exception:
+            paused_status[thread_id] = False
+
+    return {
+        "exists": True,
+        "bot": bot_config,
+        "paused_threads_status": paused_status,
+        "account_type": account.account_type,
+    }
+
+
+@router.put("/{account_id}/bot")
+async def update_bot(
+    account_id: uuid.UUID,
+    config: BotConfig,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the bot configuration for an account."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    meta["messenger_bot"] = config.model_dump()
+
+    # Sync auto-reply config for personal accounts
+    if account.account_type == "user":
+        meta["personal_messenger_auto_reply"] = {
+            "enabled": config.enabled,
+            "system_prompt": config.system_prompt,
+            "model": config.model,
+            "fallback_text": config.fallback_text,
+            "max_tokens": config.max_tokens,
+            "cooldown_seconds": config.cooldown_seconds,
+            "temperature": config.temperature,
+        }
+
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {"status": "ok", "bot": config.model_dump()}
+
+
+@router.post("/{account_id}/bot/activate")
+async def activate_bot(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Activate the bot for an account."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    bot_config = meta.get("messenger_bot")
+    if not bot_config:
+        raise HTTPException(status_code=400, detail="No bot found — create one first")
+
+    bot_config["enabled"] = True
+    meta["messenger_bot"] = bot_config
+
+    if account.account_type == "user":
+        auto_reply = meta.get("personal_messenger_auto_reply", {})
+        auto_reply["enabled"] = True
+        meta["personal_messenger_auto_reply"] = auto_reply
+
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {"status": "ok", "enabled": True}
+
+
+@router.post("/{account_id}/bot/deactivate")
+async def deactivate_bot(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate the bot for an account (stops auto-replies)."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    bot_config = meta.get("messenger_bot")
+    if not bot_config:
+        raise HTTPException(status_code=400, detail="No bot found")
+
+    bot_config["enabled"] = False
+    meta["messenger_bot"] = bot_config
+
+    if account.account_type == "user":
+        auto_reply = meta.get("personal_messenger_auto_reply", {})
+        auto_reply["enabled"] = False
+        meta["personal_messenger_auto_reply"] = auto_reply
+
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {"status": "ok", "enabled": False}
+
+
+@router.post("/{account_id}/bot/pause-thread/{thread_id}")
+async def bot_pause_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pause the bot for a specific conversation (human handoff)."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    bot_config = meta.get("messenger_bot", {})
+    paused = bot_config.get("paused_threads", [])
+    if thread_id not in paused:
+        paused.append(thread_id)
+        bot_config["paused_threads"] = paused
+        meta["messenger_bot"] = bot_config
+        account.meta_data = meta
+        flag_modified(account, "meta_data")
+        await db.commit()
+
+    # Also set Redis pause for the polling task
+    from app.services.messenger_chatbot import pause_thread as _pause
+    await _pause(str(account_id), thread_id, "bot_paused")
+
+    return {"status": "ok", "thread_id": thread_id, "paused": True}
+
+
+@router.post("/{account_id}/bot/resume-thread/{thread_id}")
+async def bot_resume_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resume the bot for a specific conversation."""
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    meta = account.meta_data or {}
+    bot_config = meta.get("messenger_bot", {})
+    paused = bot_config.get("paused_threads", [])
+    if thread_id in paused:
+        paused.remove(thread_id)
+        bot_config["paused_threads"] = paused
+        meta["messenger_bot"] = bot_config
+        account.meta_data = meta
+        flag_modified(account, "meta_data")
+        await db.commit()
+
+    from app.services.messenger_chatbot import resume_thread as _resume
+    await _resume(str(account_id), thread_id)
+
+    return {"status": "ok", "thread_id": thread_id, "paused": False}
+
+
+@router.get("/{account_id}/bot/personalities")
+async def get_bot_personalities(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """List available bot personality presets."""
+    return {
+        "personalities": [
+            {
+                "id": key,
+                "name": key.replace("_", " ").title(),
+                "description": desc[:120] + "..." if len(desc) > 120 else desc,
+            }
+            for key, desc in PERSONALITY_PRESETS.items()
+        ]
+    }

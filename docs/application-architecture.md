@@ -137,7 +137,7 @@ app/
 | Media Library | `/media` | media CRUD, AI alt text | Grid, search, filters, upload, AI alt text, bulk delete, viewer |
 | AI Image Gen | `/media/generate` | generate image | Text-to-image, aspect ratio, style presets, quality tuning, history |
 | Enhance Studio | `/media/enhance/[id]` | enhance APIs | Resize, upscale, remove-bg, smart-crop, convert, compress, watermark |
-| Messenger | `/messenger` | messenger, sidecar | Page/personal inbox, conversations, messages, auto-reply, sidecar status, E2EE support, noVNC session recovery |
+| Messenger | `/messenger` | messenger, sidecar | Page/personal inbox, conversations, messages, auto-reply, sidecar status, E2EE support, noVNC session recovery, **Bot Builder** |
 | Workflows | `/workflows` | templates, generate, deploy | Prompt gallery, n8n list, AI workflow gen, seed templates, executions |
 | Team | `/team` | teams, invite, roles | List teams, create, switch, members, invite, remove, role change |
 | Settings | `/settings` | auth, notifications, 2FA | Profile, password, 2FA, sessions, notifications, theme, export, delete |
@@ -232,7 +232,7 @@ app/api/
 ├── analytics.py     (11) — overview, platform, trends, export, sync
 ├── brand.py         (26) — brand, voice, visual, guidelines, assets, health
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
-├── messenger.py     (20) — Page + personal, setup, send, auto-reply, webhook, E2EE
+├── messenger.py     (29) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
 ├── profile.py       (29) — profile read/update across platforms
 ├── linkedin.py      (13) — LinkedIn AI post, improve, hashtags, publish
