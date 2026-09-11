@@ -218,8 +218,8 @@ async def connect_account_body(
 
     await check_quota("social_accounts", team_id, db)
 
-    # Messenger uses Facebook OAuth — resolve the alias for redirect_uri and scopes
-    oauth_platform = "facebook" if data.platform == "messenger" else data.platform
+    # Messenger and WhatsApp use Facebook OAuth — resolve the alias for redirect_uri and scopes
+    oauth_platform = "facebook" if data.platform in ("messenger", "whatsapp") else data.platform
     redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI", None)
     client = PLATFORM_CLIENTS.get(data.platform)
 
@@ -288,8 +288,8 @@ async def connect_account(
     await check_quota("social_accounts", team_id, db)
 
     # Redirect to auth endpoint
-    # Messenger uses Facebook OAuth — resolve the alias
-    oauth_platform = "facebook" if platform == "messenger" else platform
+    # Messenger and WhatsApp use Facebook OAuth — resolve the alias
+    oauth_platform = "facebook" if platform in ("messenger", "whatsapp") else platform
     redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI")
     client = PLATFORM_CLIENTS.get(platform)
 

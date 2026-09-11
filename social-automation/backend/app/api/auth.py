@@ -1065,6 +1065,8 @@ def _platform_account_type(platform: str, account_id: str, token: dict, ctx: dic
     if platform == "instagram":
         # IG publishing requires a business/creator account
         return ("business", True)
+    if platform == "whatsapp":
+        return ("business", True)
     if platform == "tiktok":
         return ("person", False)
     # twitter, threads, and any future platform
@@ -1473,6 +1475,17 @@ async def oauth_callback(
                 "account_type": _acct_type,
                 "page_id": account_id if _is_biz else None,
             }
+        elif platform == "whatsapp":
+            wa_info = locals().get("wa_info", {})
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": "business",
+                "waba_id": wa_info.get("waba_id"),
+                "phone_numbers": wa_info.get("phone_numbers", []),
+                "display_phone_number": "+306977777838",
+                "phone_number_id": "",
+                "access_token": "",
+            }
         elif platform == "instagram":
             account.meta_data = {
                 **(account.meta_data or {}),
@@ -1486,6 +1499,16 @@ async def oauth_callback(
             _meta = {"open_id": token.get("open_id", account_id)}
         elif platform == "facebook":
             _meta = {"account_type": "page" if account_id != locals().get("fb_info", {}).get("id") else "user"}
+        elif platform == "whatsapp":
+            wa_info = locals().get("wa_info", {})
+            _meta = {
+                "account_type": "business",
+                "waba_id": wa_info.get("waba_id"),
+                "phone_numbers": wa_info.get("phone_numbers", []),
+                "display_phone_number": "+306977777838",
+                "phone_number_id": "",
+                "access_token": "",
+            }
         elif platform == "instagram":
             _meta = {"account_type": "business"}
         _expires_in = token.get("expires_in")

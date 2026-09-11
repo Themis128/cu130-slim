@@ -545,6 +545,63 @@ class WhatsAppAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    # ------------------------------------------------------------------
+    # WABA webhook subscriptions (Subscribed Apps API)
+    # https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
+    # ------------------------------------------------------------------
+
+    async def subscribe_app_to_waba(self, waba_id: str) -> dict:
+        """Subscribe the app to webhooks on a WABA.
+
+        POST /{waba_id}/subscribed_apps
+
+        After fetching the client's WABA ID, subscribe your app to the ID
+        to start receiving webhooks for that WABA. Webhook notifications are
+        sent to the app's callback URL configured in the App Dashboard.
+
+        Returns: {"success": true}
+        """
+        waba = _validate_id(waba_id, "waba_id")
+        url = self._url(f"{waba}/subscribed_apps")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.post(url, params=self._params())
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def list_waba_subscriptions(self, waba_id: str) -> list[dict]:
+        """List all apps subscribed to webhooks on a WABA.
+
+        GET /{waba_id}/subscribed_apps
+
+        Returns an array of apps with ``id``, ``link``, and ``name`` properties
+        for each subscribed app.
+        """
+        waba = _validate_id(waba_id, "waba_id")
+        url = self._url(f"{waba}/subscribed_apps")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.get(url, params=self._params())
+            self._raise_for_status(resp, url)
+            data = resp.json().get("data", [])
+            # Normalize: each entry has "whatsapp_business_api_data" with id/link/name
+            return [
+                item.get("whatsapp_business_api_data", item)
+                for item in data
+            ]
+
+    async def unsubscribe_app_from_waba(self, waba_id: str) -> dict:
+        """Unsubscribe the app from webhooks for a WABA.
+
+        DELETE /{waba_id}/subscribed_apps
+
+        Returns: {"success": true}
+        """
+        waba = _validate_id(waba_id, "waba_id")
+        url = self._url(f"{waba}/subscribed_apps")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            resp = await client.delete(url, params=self._params())
+            self._raise_for_status(resp, url)
+            return resp.json()
+
 
 # ------------------------------------------------------------------
 # Webhook event helpers

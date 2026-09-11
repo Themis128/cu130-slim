@@ -166,6 +166,11 @@ class DeregisterNumberRequest(BaseModel):
     phone_number_id: str = Field(..., description="Phone number ID to deregister")
 
 
+class WabaSubscriptionRequest(BaseModel):
+    """Subscribe or unsubscribe the app to webhooks on a WABA."""
+    waba_id: str = Field(..., description="WhatsApp Business Account ID")
+
+
 class SendTemplateRequest(BaseModel):
     to: str = Field(..., description="Recipient phone number")
     template_name: str = Field(..., description="Approved template name")
@@ -455,6 +460,91 @@ async def deregister_phone_number(
 
 
 # ------------------------------------------------------------------
+# WABA webhook subscriptions (Subscribed Apps API)
+# https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
+# ------------------------------------------------------------------
+
+@router.post("/webhooks/subscribe", response_model=dict)
+async def subscribe_app_to_waba(
+    body: WabaSubscriptionRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Subscribe the app to webhooks on a WABA.
+
+    POST /{waba_id}/subscribed_apps — subscribes your app to the WABA so
+    Facebook sends webhook notifications to the app's callback URL for
+    the subscribed fields (messages, account_update, etc.).
+
+    The WABA ID comes from the Embedded Signup flow or the WhatsApp
+    Business Account lookup. The callback URL is configured in the App
+    Dashboard Webhooks panel.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        return await client.subscribe_app_to_waba(body.waba_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to subscribe app to WABA: {e}")
+
+
+@router.get("/webhooks/subscriptions/{waba_id}", response_model=list)
+async def list_waba_subscriptions(
+    waba_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List all apps subscribed to webhooks on a WABA.
+
+    GET /{waba_id}/subscribed_apps — returns an array of apps with
+    ``id``, ``link``, and ``name`` properties for each subscribed app.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        return await client.list_waba_subscriptions(waba_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to list WABA subscriptions: {e}")
+
+
+@router.delete("/webhooks/subscribe", response_model=dict)
+async def unsubscribe_app_from_waba(
+    body: WabaSubscriptionRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Unsubscribe the app from webhooks for a WABA.
+
+    DELETE /{waba_id}/subscribed_apps — stops webhook notifications for
+    this WABA from being sent to the app's callback URL.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=400, detail="No WhatsApp account found")
+    client = _get_whatsapp_client(account)
+
+    try:
+        return await client.unsubscribe_app_from_waba(body.waba_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to unsubscribe app from WABA: {e}")
+
+
+# ------------------------------------------------------------------
 # Send API
 # ------------------------------------------------------------------
 
@@ -612,6 +702,12 @@ async def receive_webhook(
     body = json.loads(raw_body)
     events = parse_webhook_event(body)
 
+    # Process WABA-level webhook fields (account_update, phone_number_*_update,
+    # message_template_status_update, etc.) — these are not message events but
+    # business/account notifications documented at:
+    # https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
+    waba_fields_processed = _process_waba_level_events(body)
+
     processed = 0
     for event in events:
         phone_number_id = event.get("phone_number_id")
@@ -627,7 +723,122 @@ async def receive_webhook(
         elif message_type == "status":
             logger.debug("WhatsApp status: %s for message %s", event.get("status"), _sanitize_log_text(message_id))
 
-    return {"status": "ok", "events_received": len(events), "auto_replies_sent": processed}
+    return {
+        "status": "ok",
+        "events_received": len(events),
+        "auto_replies_sent": processed,
+        "waba_fields_processed": waba_fields_processed,
+    }
+
+
+def _process_waba_level_events(body: dict) -> int:
+    """Process WABA-level webhook fields (non-message events).
+
+    These events notify about changes to WABAs, phone numbers, message
+    templates, account status, etc. They are logged and tracked but do
+    not trigger auto-reply. See:
+    https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
+
+    Supported fields:
+    - account_update: WABA verification, ban, offboarding, reconnection
+    - account_review_update: WABA policy review decision
+    - account_alerts: phone number messaging limit / OBA status changes
+    - business_capability_update: WABA capability changes (limits, etc.)
+    - phone_number_name_update: display name verification outcome
+    - phone_number_quality_update: phone number throughput level changes
+    - message_template_status_update: template approval/rejection
+    - message_template_quality_update: template quality score changes
+    - message_template_components_update: template component changes
+    - template_category_update: template category reclassification
+    - security: phone number security setting changes
+    """
+    if body.get("object") != "whatsapp_business_account":
+        return 0
+
+    count = 0
+    for entry in body.get("entry", []):
+        waba_id = entry.get("id", "")
+        for change in entry.get("changes", []):
+            field = change.get("field", "")
+            value = change.get("value", {})
+
+            # Skip message events — those are handled by parse_webhook_event
+            if field == "messages":
+                continue
+
+            count += 1
+            if field == "account_update":
+                event = value.get("event", "UNKNOWN")
+                logger.info(
+                    "WhatsApp WABA %s account_update: event=%s",
+                    _sanitize_log_text(waba_id), event,
+                )
+                # Log ban info if present
+                ban_info = value.get("ban_info")
+                if ban_info:
+                    logger.warning(
+                        "WhatsApp WABA %s ban: state=%s date=%s",
+                        _sanitize_log_text(waba_id),
+                        ban_info.get("waba_ban_state"),
+                        ban_info.get("waba_ban_date"),
+                    )
+            elif field == "account_review_update":
+                decision = value.get("decision", "UNKNOWN")
+                logger.info(
+                    "WhatsApp WABA %s account_review_update: decision=%s",
+                    _sanitize_log_text(waba_id), decision,
+                )
+            elif field == "account_alerts":
+                logger.info(
+                    "WhatsApp WABA %s account_alerts: %s",
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(json.dumps(value)),
+                )
+            elif field == "business_capability_update":
+                logger.info(
+                    "WhatsApp WABA %s business_capability_update: %s",
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(json.dumps(value)),
+                )
+            elif field == "phone_number_name_update":
+                decision = value.get("decision", "UNKNOWN")
+                name = value.get("requested_verified_name", "")
+                logger.info(
+                    "WhatsApp WABA %s phone_number_name_update: decision=%s name=%s",
+                    _sanitize_log_text(waba_id), decision, _sanitize_log_text(name),
+                )
+            elif field == "phone_number_quality_update":
+                event = value.get("event", "UNKNOWN")
+                limit = value.get("current_limit", "")
+                logger.info(
+                    "WhatsApp WABA %s phone_number_quality_update: event=%s limit=%s",
+                    _sanitize_log_text(waba_id), event, limit,
+                )
+            elif field in (
+                "message_template_status_update",
+                "message_template_quality_update",
+                "message_template_components_update",
+                "template_category_update",
+            ):
+                event = value.get("event", "UNKNOWN")
+                template_name = value.get("message_template_name", "")
+                logger.info(
+                    "WhatsApp WABA %s %s: event=%s template=%s",
+                    _sanitize_log_text(waba_id), field, event, _sanitize_log_text(template_name),
+                )
+            elif field == "security":
+                logger.info(
+                    "WhatsApp WABA %s security update: %s",
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(json.dumps(value)),
+                )
+            else:
+                logger.info(
+                    "WhatsApp WABA %s unhandled webhook field: %s",
+                    _sanitize_log_text(waba_id), field,
+                )
+
+    return count
 
 
 async def _process_inline(
