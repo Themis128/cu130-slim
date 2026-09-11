@@ -162,16 +162,21 @@ class StartRequest(BaseModel):
 async def health():
     return {
         "status": "ok",
-        "novnc_url": f"http://localhost:{os.environ.get('NOVNC_PORT', 6080)}/vnc.html",
+        "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
         "supported_platforms": list(SITES.keys()),
     }
 
 
 @app.get("/novnc-url")
 async def novnc_url():
-    """Return the noVNC web URL (with audio support) for embedding in an iframe."""
+    """Return the noVNC web URL for embedding in an iframe.
+
+    Returns a same-origin relative path (/novnc/vnc.html) that is proxied
+    by the social-frontend custom server (novnc-server.cjs) to eliminate
+    Mixed Content warnings when embedded on https://social.cloudless.gr.
+    """
     port = os.environ.get("NOVNC_PORT", "6080")
-    return {"url": f"http://localhost:{port}/vnc-audio.html", "vnc_port": port}
+    return {"url": "/novnc/vnc.html?autoconnect=1&resize=scale", "vnc_port": port}
 
 
 @app.get("/platforms")
@@ -215,7 +220,7 @@ async def start_session(req: StartRequest):
             "platform": platform,
             "status": "waiting",
             "message": _state["message"],
-            "novnc_url": f"http://localhost:{os.environ.get('NOVNC_PORT', '6080')}/vnc.html",
+            "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
         }
 
 
@@ -826,7 +831,7 @@ async def _navigate_to_edit_profile(page, username: str | None = None):
         raise HTTPException(
             401,
             "Instagram redirected to login — session may be stale. "
-            "Re-login via VNC (http://localhost:6080/vnc.html) and retry.",
+            "Re-login via VNC (/novnc/vnc.html) and retry.",
         )
 
     if "accounts/edit" not in page.url:
