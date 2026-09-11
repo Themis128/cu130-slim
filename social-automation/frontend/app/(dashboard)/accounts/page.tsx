@@ -466,9 +466,11 @@ export default function AccountsPage() {
   }
 
   const handleConnect = async (platformId: string) => {
+    // Messenger uses Facebook OAuth — redirect to Facebook connect
+    const connectPlatform = platformId === 'messenger' ? 'facebook' : platformId
     setConnectingPlatform(platformId)
     try {
-      const result = await connectMutation.mutateAsync({ platform: platformId, teamId: 'default' })
+      const result = await connectMutation.mutateAsync({ platform: connectPlatform, teamId: 'default' })
       const authUrl = (result as { data?: { authorization_url?: string } })?.data?.authorization_url
       if (authUrl) {
         window.location.href = authUrl
@@ -520,7 +522,17 @@ export default function AccountsPage() {
 
   const getAccountStatus = (platformId: string) => {
     // Return ALL accounts for this platform (not just the first)
-    const accounts = connectedAccounts.filter((a: SocialAccount) => a.platform === platformId)
+    // Messenger is a Facebook Page channel — check for Facebook Page accounts
+    // that have Messenger set up, not a separate "messenger" platform account.
+    let accounts: SocialAccount[]
+    if (platformId === 'messenger') {
+      // Messenger uses Facebook Page accounts with messenger_setup in meta_data
+      accounts = connectedAccounts.filter(
+        (a: SocialAccount) => a.platform === 'facebook' && a.is_business
+      )
+    } else {
+      accounts = connectedAccounts.filter((a: SocialAccount) => a.platform === platformId)
+    }
     if (accounts.length === 0) return { connected: false as const, expired: false, expiringSoon: false, daysLeft: null as number | null, account: null, accounts: [] as SocialAccount[] }
     // Aggregate health: if any account is expired, show expired; if any is expiring soon, show warning
     const now = new Date()
@@ -829,8 +841,17 @@ export default function AccountsPage() {
                       <div className="text-center py-4">
                         <p className="text-sm text-muted-foreground mb-1">Not connected</p>
                         <p className="text-xs text-amber-600 mb-3">
-                          Configure credentials first →{' '}
-                          <button className="underline" onClick={() => setActiveTab('setup')}>Setup Guide</button>
+                          {platform.id === 'messenger' ? (
+                            <>
+                              Connect a Facebook Page first →{' '}
+                              <button className="underline" onClick={() => handleConnect('facebook')}>Connect Facebook</button>
+                            </>
+                          ) : (
+                            <>
+                              Configure credentials first →{' '}
+                              <button className="underline" onClick={() => setActiveTab('setup')}>Setup Guide</button>
+                            </>
+                          )}
                         </p>
                         <Button
                           className="w-full"

@@ -89,6 +89,11 @@ PLATFORM_CLIENTS = {
     "instagram": instagram_client,
     "threads": threads_client,
     "tiktok": tiktok_client,
+    # Messenger uses the same Facebook OAuth client — it's a Page channel,
+    # not a standalone platform. The connect flow initiates Facebook OAuth
+    # with pages_messaging scope, then the Messenger setup endpoint
+    # subscribes the Page to webhooks.
+    "messenger": facebook_client,
 }
 
 
@@ -206,7 +211,9 @@ async def connect_account_body(
 
     await check_quota("social_accounts", team_id, db)
 
-    redirect_uri = getattr(settings, f"{data.platform.upper()}_REDIRECT_URI", None)
+    # Messenger uses Facebook OAuth — resolve the alias for redirect_uri and scopes
+    oauth_platform = "facebook" if data.platform == "messenger" else data.platform
+    redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI", None)
     client = PLATFORM_CLIENTS.get(data.platform)
 
     if not client or not redirect_uri:
@@ -217,6 +224,8 @@ async def connect_account_body(
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        # Messenger uses the same Facebook scopes (pages_messaging is the key one)
+        "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
@@ -265,8 +274,9 @@ async def connect_account(
     await check_quota("social_accounts", team_id, db)
 
     # Redirect to auth endpoint
-
-    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
+    # Messenger uses Facebook OAuth — resolve the alias
+    oauth_platform = "facebook" if platform == "messenger" else platform
+    redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI")
     client = PLATFORM_CLIENTS.get(platform)
 
     if not client:
@@ -276,6 +286,7 @@ async def connect_account(
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "tiktok": ["user.info.basic", "video.publish", "video.upload"],
