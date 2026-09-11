@@ -65,7 +65,10 @@ DEFAULT_MEMORY_MESSAGES = 10  # Last 10 messages as context
 
 async def _get_redis() -> Any:
     import redis.asyncio as aioredis
-    return aioredis.from_url(settings.REDIS_URL)
+    # Use dedicated Redis DB for bot state (cooldowns, pause, config)
+    # Falls back to main REDIS_URL if MESSENGER_REDIS_URL is not set
+    url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
+    return aioredis.from_url(url)
 
 
 async def check_cooldown(account_id: str, thread_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> bool:

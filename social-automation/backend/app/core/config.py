@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     # Redis (for Celery/queue)
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # Redis DB for Messenger bot state (cooldowns, pause, per-thread config)
+    # Uses DB 1 to isolate from Celery/app state on DB 0
+    MESSENGER_REDIS_URL: str = "redis://redis:6379/1"
+
     # CORS - stored as comma-separated string in env, parsed to list
     CORS_ORIGINS_STR: str = "http://localhost:8083,http://localhost:3000,http://localhost:3001,http://localhost:8082"
 
