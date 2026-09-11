@@ -526,7 +526,7 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
-    image: baltzakist/cu130-slim-social-api:v2.417
+    image: baltzakist/cu130-slim-social-api:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -693,7 +693,7 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: baltzakist/cu130-slim-social-worker:v2.417
+    image: baltzakist/cu130-slim-social-worker:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -722,7 +722,7 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: baltzakist/cu130-slim-social-worker:v2.417
+    image: baltzakist/cu130-slim-social-worker:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -750,7 +750,7 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: baltzakist/cu130-slim-social-worker:v2.417
+    image: baltzakist/cu130-slim-social-worker:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -778,7 +778,7 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: baltzakist/cu130-slim-social-worker:v2.417
+    image: baltzakist/cu130-slim-social-worker:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -807,7 +807,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   celery-beat:
-    image: baltzakist/cu130-slim-social-worker:v2.417
+    image: baltzakist/cu130-slim-social-worker:v2.418
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
