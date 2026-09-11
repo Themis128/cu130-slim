@@ -862,12 +862,13 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: baltzakist/cu130-slim-social-frontend:v2.429
+    image: baltzakist/cu130-slim-social-frontend:v2.430
     pull_policy: if_not_present
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile.dev
     container_name: social-frontend
+    command: ["node", "novnc-server.cjs"]
     ports:
     - 8082:8083
     environment:
