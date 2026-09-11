@@ -299,6 +299,8 @@ export default function BrowserLoginPage() {
                   className="w-full rounded-lg border"
                   style={{ height: '500px', minHeight: '400px' }}
                   title="Browser Viewer"
+                  allow="clipboard-read; clipboard-write; fullscreen; autoplay; microphone; camera"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock"
                 />
               ) : (
                 <div className="flex h-[400px] items-center justify-center text-muted-foreground">
