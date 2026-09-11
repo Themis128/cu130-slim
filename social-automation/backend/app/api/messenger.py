@@ -1062,9 +1062,10 @@ async def pause_thread(
     thread_id: str,
     req: ThreadPauseRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Pause the chatbot for a specific conversation (human handoff)."""
-    await _get_facebook_user_account(db if 'db' in dir() else None, account_id, current_user) if False else None
+    await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import pause_thread as _pause
     await _pause(str(account_id), thread_id, req.reason)
     return {"status": "ok", "message": f"Thread {thread_id} paused"}
@@ -1075,8 +1076,10 @@ async def resume_thread(
     account_id: uuid.UUID,
     thread_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Resume the chatbot for a specific conversation."""
+    await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import resume_thread as _resume
     await _resume(str(account_id), thread_id)
     return {"status": "ok", "message": f"Thread {thread_id} resumed"}
@@ -1087,8 +1090,10 @@ async def get_thread_config(
     account_id: uuid.UUID,
     thread_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get per-conversation chatbot config overrides."""
+    await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import get_thread_config as _get_config
     config = await _get_config(str(account_id), thread_id)
     return {"config": config}
@@ -1100,8 +1105,10 @@ async def set_thread_config(
     thread_id: str,
     req: ThreadConfigRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Set per-conversation chatbot config overrides."""
+    await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import set_thread_config as _set_config
     config = {k: v for k, v in req.model_dump().items() if v is not None and k != "thread_id"}
     await _set_config(str(account_id), thread_id, config)
@@ -1113,8 +1120,10 @@ async def get_thread_memory(
     account_id: uuid.UUID,
     thread_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get conversation memory for a specific thread."""
+    await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import get_conversation_memory
     memory = await get_conversation_memory(str(account_id), thread_id)
     return {"messages": memory, "count": len(memory)}
