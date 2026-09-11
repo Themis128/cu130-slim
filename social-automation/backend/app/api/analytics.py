@@ -18,7 +18,7 @@ from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, TeamMember, User, UserRole
 from app.services.analytics_sync import sync_team_analytics
 from app.services.linkedin_api import LinkedInAPIClient
 from app.worker.tasks.analytics import sync_team_analytics_task
@@ -35,8 +35,29 @@ def _event_count_expr():
 
 
 async def _team_for_user(db: AsyncSession, user: User) -> Team | None:
+    """Resolve the user's active team.
+
+    Mirrors the logic in ``app.api.deps.get_current_team_id``:
+    prefer teams where the user is the owner, then prefer higher plan tiers
+    (enterprise > business > pro > free).  This prevents a user who belongs
+    to multiple teams from being defaulted to the wrong (lower-tier, empty)
+    team when the database returns memberships in arbitrary order.
+    """
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
     result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == user.id)
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
     )
     return result.scalars().first()
 
