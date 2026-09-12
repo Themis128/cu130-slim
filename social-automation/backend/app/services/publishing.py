@@ -64,6 +64,7 @@ class PublishResult:
     platform_post_id: str | None = None
     platform_url: str | None = None
     error: str | None = None
+    skipped: bool = False
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
@@ -73,6 +74,19 @@ async def publish_to_platform(
     post: Post,
     db: AsyncSession,
 ) -> PublishResult:
+    # WhatsApp is a messaging channel (Cloud API), not a feed-style social platform.
+    # If a post target includes WhatsApp (e.g. legacy UI or automation), skip it so
+    # other platforms can still publish successfully.
+    if account.platform == "whatsapp":
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "WhatsApp is a messaging channel in SocialAuto and does not support feed-style post publishing. "
+                "Use the WhatsApp Cloud API send endpoints instead."
+            ),
+        )
+
     try:
         raw_enc = bytes(account.access_token_enc) if not isinstance(account.access_token_enc, bytes) else account.access_token_enc
         access_token = decrypt_token(raw_enc)

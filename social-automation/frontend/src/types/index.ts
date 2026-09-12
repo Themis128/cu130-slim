@@ -80,7 +80,7 @@ export interface PostTarget {
   username?: string
   platform_post_id: string | null
   platform_url: string | null
-  status: 'pending' | 'published' | 'failed'
+  status: 'pending' | 'published' | 'failed' | 'skipped'
   error_message: string | null
   published_at: string | null
   social_account?: SocialAccount
