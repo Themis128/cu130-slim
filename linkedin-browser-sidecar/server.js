@@ -881,7 +881,7 @@ async function handleUpdateHeadline(req, res) {
     if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
 
     // Navigate directly to the intro edit page (more reliable than clicking edit button)
-    await navigate(`${_profileUrl}edit/intro`);
+    await navigate(`${_profileUrl.split('?')[0]}edit/intro`);
     await page.waitForTimeout(3000);
 
     // Find the headline contenteditable div (role=textbox)
@@ -943,7 +943,10 @@ async function handleUpdateAbout(req, res) {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
     if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
-    await navigateAndCheck(_profileUrl);
+    // Navigate directly to the profile page and wait for it to settle
+    const cleanUrl = _profileUrl.split('?')[0];
+    await navigate(cleanUrl);
+    await page.waitForTimeout(5000);
 
     // Scroll down to trigger lazy-loaded About section
     for (let i = 0; i < 8; i++) {
@@ -956,31 +959,47 @@ async function handleUpdateAbout(req, res) {
 
     // Try multiple strategies to find the About edit button
     let aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
-    if (await aboutBtn.count() === 0) {
+    let found = false;
+    if (await aboutBtn.count() > 0) {
+      await aboutBtn.click();
+      found = true;
+    }
+    if (!found) {
       // Try: pencil icon in the About section
       const aboutSection = page.locator("section:has(h2:has-text('About'))").first();
       if (await aboutSection.count() > 0) {
         const pencil = aboutSection.locator('button[aria-label*="Edit"], button:has(svg[type="icon"])').first();
         if (await pencil.count() > 0) {
           await pencil.click();
-          aboutBtn = pencil;
+          found = true;
         }
       }
     }
 
-    if (await aboutBtn.count() === 0) {
-      // Fallback: navigate to the About edit overlay URL directly
-      await navigate(`${_profileUrl}edit/details/`);
-      await page.waitForTimeout(3000);
+    if (!found) {
+      // Fallback: navigate to the edit details page directly
+      await navigate(`${cleanUrl}edit/details/`);
+      await page.waitForTimeout(5000);
       // Look for the About textarea in the edit details page
-      const aboutLabel = page.locator('text=About').first();
-      if (await aboutLabel.count() > 0) {
-        await aboutLabel.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(500);
+      const aboutTextarea = page.locator('textarea').first();
+      if (await aboutTextarea.count() > 0) {
+        await aboutTextarea.fill(about);
+        await clickSave();
+        return res.json({ status: 'ok', updated: ['about'] });
       }
-    } else {
-      await aboutBtn.click();
+      // Try contenteditable
+      const editor = page.locator('[contenteditable="true"]').first();
+      if (await editor.count() > 0) {
+        await editor.click();
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+        await page.keyboard.type(about);
+        await clickSave();
+        return res.json({ status: 'ok', updated: ['about'] });
+      }
+      return res.status(404).json({ error: 'Could not locate the About editor' });
     }
+
     await page.waitForTimeout(3000);
 
     const editor = page.locator('[contenteditable="true"]').first();
