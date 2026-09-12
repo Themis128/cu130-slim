@@ -17,21 +17,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import attributes as orm_attributes
 
-from app.api.deps import get_db, get_current_user, get_current_team_id
+from app.api.deps import get_current_team_id, get_current_user
 from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from app.models.user import User
+from app.services.browser_bridge import BrowserBridgeClient
 from app.services.facebook_api import FacebookAPIClient
 from app.services.instagram_api import InstagramAPIClient
-from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
