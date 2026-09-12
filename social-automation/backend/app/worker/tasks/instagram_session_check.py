@@ -99,10 +99,15 @@ async def _send_alert(owner: User, account_username: str, reason: str) -> None:
 
         # Slack alert (best-effort; uses same cooldown gating as email).
         await post_alert_to_slack(
-            "*Instagram session expired*\n"
-            f"• account: `@{account_username}`\n"
-            f"• reason: {reason[:500]}\n"
-            "_Action: re-capture session (Settings → Accounts)_"
+            "\n".join(
+                [
+                    "*Instagram needs you to reconnect*",
+                    f"• Account: `@{account_username}`",
+                    "• What to do next: go to Settings → Accounts and re-connect Instagram.",
+                    f"• What happened: {(reason or '').replace(chr(10), ' ').strip()[:300] or 'Session check failed'}",
+                    "_Cloudless · Clear skies. Zero friction._",
+                ]
+            )[:2000]
         )
 
         from app.services.email_templates import send_instagram_session_alert_email

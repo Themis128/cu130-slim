@@ -81,19 +81,18 @@ class DigestReport:
         when = self.generated_at.astimezone(tz).strftime("%a %d %b %Y %H:%M %Z")
         o = self.overview
         lines = [
-            f"*SocialAuto daily report* · {self.team_name}",
-            f"_{when}_ · last {self.days} days",
+            "*Clear skies. Zero friction.*",
+            f"*SocialAuto daily summary* · {self.team_name}",
+            f"_{when}_ · last {self.days} day(s)",
             "",
-            "*Analytics*",
+            "*At a glance*",
             f"• Posts: *{o.get('total_posts', 0)}* total · "
             f"*{o.get('published_posts', 0)}* published · "
             f"*{o.get('scheduled_posts', 0)}* scheduled · "
             f"*{o.get('draft_posts', 0)}* drafts · "
-            f"*{o.get('failed_posts', 0)}* failed",
-            f"• Engagement (period): *{o.get('total_engagement', 0)}*",
-            f"• Last 24h snapshots: impressions *{self.impressions_24h}* · "
-            f"engagement *{self.engagement_24h}*",
-            f"• Connected accounts: *{o.get('connected_accounts', 0)}*",
+            f"*{o.get('failed_posts', 0)}* need attention",
+            f"• Accounts: *{o.get('connected_accounts', 0)}* connected",
+            f"• Last 24h: impressions *{self.impressions_24h}* · engagement *{self.engagement_24h}*",
         ]
         if self.top_posts:
             lines.append("")
@@ -108,10 +107,9 @@ class DigestReport:
         errors = [i for i in self.issues if i.severity == "error"]
         warnings = [i for i in self.issues if i.severity == "warning"]
         lines.append("")
-        # AI usage summary
         ai = self.ai_usage
         if ai:
-            lines.append("*AI Usage (24h)*")
+            lines.append("*AI usage (last 24h)*")
             lines.append(
                 f"• Calls: *{ai.get('total_calls', 0)}* · "
                 f"Providers: *{ai.get('providers', 0)}* · "
@@ -124,22 +122,27 @@ class DigestReport:
                     f"{prov.get('neurons', 0)} neurons, ${prov.get('cost', 0):.4f}"
                 )
             lines.append("")
+        if errors:
+            lines.append(f"*Needs attention ({len(errors)})*")
+            for issue in errors[:8]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• *{issue.title}*{detail}")
+        if warnings and not errors:
+            lines.append(f"*Heads up ({len(warnings)})*")
+            for issue in warnings[:8]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• *{issue.title}*{detail}")
+        if warnings and errors:
+            lines.append("")
+            lines.append(f"*Heads up ({len(warnings)})*")
+            for issue in warnings[:8]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• *{issue.title}*{detail}")
         if not errors and not warnings:
-            lines.append("*Issues:* none 🟢")
-        else:
-            if errors:
-                lines.append(f"*Errors ({len(errors)})*")
-                for issue in errors[:8]:
-                    detail = f" — {issue.detail}" if issue.detail else ""
-                    lines.append(f"• ❌ *{issue.title}*{detail}")
-            if warnings:
-                lines.append(f"*Warnings ({len(warnings)})*")
-                for issue in warnings[:8]:
-                    detail = f" — {issue.detail}" if issue.detail else ""
-                    lines.append(f"• ⚠️ *{issue.title}*{detail}")
+            lines.append("*All clear.*")
 
         lines.append("")
-        lines.append("_Channel: #socialauto · cloudless.gr Social Automation_")
+        lines.append("_Cloudless · Clear skies. Zero friction._")
         return "\n".join(lines)
 
 
@@ -256,11 +259,13 @@ async def build_daily_digest(
         .limit(10)
     )
     for post in failed_posts.scalars().all():
+        post_short = str(post.id)[:8]
+        detail_src = (post.failure_reason or (post.content_text or "")[:100]).replace("\n", " ").strip()
         issues.append(
             DigestIssue(
                 severity="error",
-                title=f"Post failed ({str(post.id)[:8]})",
-                detail=(post.failure_reason or (post.content_text or "")[:100])[:200],
+                title=f"A post didn’t publish ({post_short})",
+                detail=(f"Next: open Posts → Failed to retry. Details: {detail_src}")[:200],
             )
         )
 
@@ -280,8 +285,8 @@ async def build_daily_digest(
         issues.append(
             DigestIssue(
                 severity="error",
-                title=f"Publish queue failed ({str(item.id)[:8]})",
-                detail=f"attempts={item.attempts}/{item.max_attempts}",
+                title="Publishing couldn’t finish a queued post",
+                detail=f"Next: check the linked account, then retry the post. Details: attempts {item.attempts}/{item.max_attempts}",
             )
         )
 
@@ -306,8 +311,8 @@ async def build_daily_digest(
             issues.append(
                 DigestIssue(
                     severity="warning",
-                    title="Analytics sync warning",
-                    detail=detail,
+                    title="Analytics sync had trouble",
+                    detail=(f"Details: {detail}")[:200],
                 )
             )
             continue
@@ -315,8 +320,8 @@ async def build_daily_digest(
             issues.append(
                 DigestIssue(
                     severity="warning",
-                    title="Analytics sync warning",
-                    detail=detail,
+                    title="Analytics sync had trouble",
+                    detail=(f"Details: {detail}")[:200],
                 )
             )
 
@@ -336,8 +341,8 @@ async def build_daily_digest(
         issues.append(
             DigestIssue(
                 severity="warning",
-                title="No active social accounts",
-                detail="Connect LinkedIn Company Page to publish and sync analytics",
+                title="No social accounts connected yet",
+                detail="Next: go to Settings → Accounts and connect LinkedIn (Company Page).",
             )
         )
 
@@ -348,8 +353,11 @@ async def build_daily_digest(
             issues.append(
                 DigestIssue(
                     severity="warning",
-                    title="Elevated post failure rate",
-                    detail=f"{overview['failed_posts']}/{overview['total_posts']} failed in window",
+                    title="More posts failed than usual",
+                    detail=(
+                        "Next: check Accounts status, then retry failed posts. "
+                        f"Details: {overview['failed_posts']}/{overview['total_posts']} failed in this window."
+                    ),
                 )
             )
 
@@ -411,22 +419,23 @@ async def post_digest_to_slack(report: DigestReport) -> DigestReport:
         tz = ZoneInfo(report.timezone)
         when = report.generated_at.astimezone(tz).strftime("%a %d %b %Y %H:%M %Z")
         lines = [
-            f"*SocialAuto digest issues* · {report.team_name}",
-            f"_{when}_ · last {report.days} days",
+            "*Clear skies. Zero friction.*",
+            f"*Needs attention* · {report.team_name}",
+            f"_{when}_ · last {report.days} day(s)",
             "",
         ]
         if errors:
-            lines.append(f"*Errors ({len(errors)})*")
+            lines.append(f"*Needs attention ({len(errors)})*")
             for issue in errors[:8]:
                 detail = f" — {issue.detail}" if issue.detail else ""
-                lines.append(f"• ❌ *{issue.title}*{detail}")
+                lines.append(f"• *{issue.title}*{detail}")
         if warnings:
-            lines.append(f"*Warnings ({len(warnings)})*")
+            lines.append(f"*Heads up ({len(warnings)})*")
             for issue in warnings[:8]:
                 detail = f" — {issue.detail}" if issue.detail else ""
-                lines.append(f"• ⚠️ *{issue.title}*{detail}")
+                lines.append(f"• *{issue.title}*{detail}")
         lines.append("")
-        lines.append("_Full digest posted to #socialauto_")
+        lines.append("_Full summary is in #socialauto_")
         issues_text = "\n".join(lines)
 
         # Nice-to-have threading: when the digest is posted via the token path,

@@ -72,9 +72,14 @@ async def _send_alert(owner: User, reason: str) -> None:
 
         # Slack alert (best-effort; uses same cooldown gating as email).
         await post_alert_to_slack(
-            "*LinkedIn session expired*\n"
-            f"• reason: {reason[:500]}\n"
-            "_Action: re-login in LinkedIn sidecar and re-capture session_"
+            "\n".join(
+                [
+                    "*LinkedIn needs you to log in again*",
+                    "• What to do next: open the LinkedIn sidecar, log in, then re-capture the session in SocialAuto.",
+                    f"• What happened: {(reason or '').replace(chr(10), ' ').strip()[:300] or 'Session check failed'}",
+                    "_Cloudless · Clear skies. Zero friction._",
+                ]
+            )[:2000]
         )
 
         from app.services.email_templates import send_linkedin_session_alert_email
