@@ -638,6 +638,19 @@ async function handleReadProfile(req, res) {
     if (page.url() !== profileUrl) {
       await navigateAndCheck(profileUrl);
     }
+    await page.waitForTimeout(3000);
+
+    // Scroll down to trigger lazy-loaded sections (About, Experience, etc.)
+    for (let i = 0; i < 10; i++) {
+      try {
+        await page.evaluate(() => window.scrollBy(0, 800));
+      } catch (_) {}
+      await page.waitForTimeout(500);
+    }
+    try {
+      await page.evaluate(() => window.scrollTo(0, 0));
+    } catch (_) {}
+    await page.waitForTimeout(1000);
 
     const result = {
       url: page.url(),
@@ -866,59 +879,54 @@ async function handleUpdateHeadline(req, res) {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
     if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
-    await navigateAndCheck(_profileUrl);
 
-    // Click the "Update headline" prompt or the edit intro pencil
-    const updatePrompt = page.getByText('Update headline', { exact: true }).first();
-    const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();
+    // Navigate directly to the intro edit page (more reliable than clicking edit button)
+    await navigate(`${_profileUrl}edit/intro`);
+    await page.waitForTimeout(3000);
 
-    if (await updatePrompt.count() > 0) {
-      const handle = await updatePrompt.evaluateHandle(
-        "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement"
-      );
-      await page.evaluate('el => el.click()', handle);
-    } else if (await editPencil.count() > 0) {
-      await editPencil.click();
-    } else {
-      return res.status(404).json({ error: 'Could not locate the LinkedIn headline/intro editor' });
+    // Find the headline contenteditable div (role=textbox)
+    let editor = page.locator('div[role="textbox"]').first();
+    if (await editor.count() === 0) {
+      // Fallback: try textarea/input
+      editor = page.locator('textarea:visible, input:visible').first();
     }
-    await page.waitForTimeout(4000);
 
-    // Find the headline editor in the dialog
-    let editor = null;
-    for (const sel of [
-      "div[role='dialog'] textarea:visible",
-      "textarea:visible",
-      "div[role='dialog'] input:visible",
-      '[contenteditable="true"]:visible',
-    ]) {
-      const loc = page.locator(sel);
-      if (await loc.count() > 0) {
-        editor = loc.first();
-        break;
+    if (await editor.count() === 0) {
+      // Last resort: navigate to profile and try the old approach
+      await navigateAndCheck(_profileUrl);
+      await page.waitForTimeout(2000);
+      const updatePrompt = page.getByText('Update headline', { exact: true }).first();
+      const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();
+      if (await updatePrompt.count() > 0) {
+        const handle = await updatePrompt.evaluateHandle(
+          "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement"
+        );
+        await page.evaluate('el => el.click()', handle);
+      } else if (await editPencil.count() > 0) {
+        await editPencil.click();
+      } else {
+        return res.status(404).json({ error: 'Could not locate the LinkedIn headline/intro editor' });
       }
-    }
-    if (!editor) return res.status(404).json({ error: 'Could not locate the headline input field' });
-
-    // The dialog may have multiple fields (first name, last name, headline, etc.)
-    // The headline is typically the 3rd input or has an aria-label containing "headline"
-    const allEditors = await page.locator("div[role='dialog'] textarea:visible, div[role='dialog'] input:visible").all();
-    if (allEditors.length > 1) {
-      // Try to find the one with aria-label containing "headline" or "Headline"
-      for (const e of allEditors) {
-        const label = await e.getAttribute('aria-label').catch(() => null);
-        if (label && label.toLowerCase().includes('headline')) {
-          editor = e;
-          break;
-        }
-      }
-      // Fallback: the last textarea in the dialog is usually the headline
-      if (editor === page.locator("div[role='dialog'] textarea:visible").first() && allEditors.length >= 3) {
-        editor = allEditors[allEditors.length - 1];
+      await page.waitForTimeout(4000);
+      editor = page.locator('div[role="textbox"]').first();
+      if (await editor.count() === 0) {
+        editor = page.locator("div[role='dialog'] textarea:visible, textarea:visible, [contenteditable='true']:visible").first();
       }
     }
 
-    await editor.fill(headline);
+    if (await editor.count() === 0) {
+      return res.status(404).json({ error: 'Could not locate the headline input field' });
+    }
+
+    await editor.click();
+    await page.waitForTimeout(200);
+    // Clear existing content
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(200);
+    await page.keyboard.type(headline);
+    await page.waitForTimeout(500);
+
     await clickSave();
     res.json({ status: 'ok', updated: ['headline'] });
   } catch (err) {
@@ -937,20 +945,43 @@ async function handleUpdateAbout(req, res) {
     if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
     await navigateAndCheck(_profileUrl);
 
-    const aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
+    // Scroll down to trigger lazy-loaded About section
+    for (let i = 0; i < 8; i++) {
+      try {
+        await page.evaluate(() => window.scrollBy(0, 800));
+      } catch (_) {}
+      await page.waitForTimeout(500);
+    }
+    await page.waitForTimeout(1000);
+
+    // Try multiple strategies to find the About edit button
+    let aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
     if (await aboutBtn.count() === 0) {
-      // Try alternative: a pencil icon in the About section
+      // Try: pencil icon in the About section
       const aboutSection = page.locator("section:has(h2:has-text('About'))").first();
-      const pencil = aboutSection.locator('button[aria-label*="Edit"], button:has(svg[type="icon"])').first();
-      if (await pencil.count() > 0) {
-        await pencil.click();
-      } else {
-        return res.status(404).json({ error: 'Could not locate the LinkedIn "Edit about" button' });
+      if (await aboutSection.count() > 0) {
+        const pencil = aboutSection.locator('button[aria-label*="Edit"], button:has(svg[type="icon"])').first();
+        if (await pencil.count() > 0) {
+          await pencil.click();
+          aboutBtn = pencil;
+        }
+      }
+    }
+
+    if (await aboutBtn.count() === 0) {
+      // Fallback: navigate to the About edit overlay URL directly
+      await navigate(`${_profileUrl}edit/details/`);
+      await page.waitForTimeout(3000);
+      // Look for the About textarea in the edit details page
+      const aboutLabel = page.locator('text=About').first();
+      if (await aboutLabel.count() > 0) {
+        await aboutLabel.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(500);
       }
     } else {
       await aboutBtn.click();
     }
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(3000);
 
     const editor = page.locator('[contenteditable="true"]').first();
     if (await editor.count() === 0) {
@@ -1627,25 +1658,38 @@ async function handleUpdateCompanySpecialties(req, res) {
   }
   try {
     await ensureBrowser();
-    await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
-
-    const editBtn = page.locator('button[aria-label*="Edit details"], button:has-text("Edit details"), button[aria-label*="Edit info"], button:has-text("Edit overview")').first();
-    if (await editBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the company edit button' });
-    }
-    await editBtn.click();
+    // Navigate directly to the admin edit page (not /about/)
+    await navigate(`https://www.linkedin.com/company/${vanity}/admin/edit/`);
     await page.waitForTimeout(3000);
 
-    // Specialties input — usually a tag input or text input
-    const specInput = page.locator('input[aria-label*="Specialties"], input[aria-label*="specialties"], input[placeholder*="Specialties"], input[placeholder*="specialties"]').first();
+    // Find the specialties section by looking for the h4 heading
+    const specHeading = page.locator('h4:has-text("Specialties")').first();
+    if (await specHeading.count() === 0) {
+      return res.status(404).json({ error: 'Could not locate the Specialties section on the edit page' });
+    }
+
+    // Scroll to the specialties section
+    await specHeading.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1000);
+
+    // Find the pill input within the specialties section
+    const specInput = page.locator('input.artdeco-pill__input').first();
     if (await specInput.count() === 0) {
       return res.status(404).json({ error: 'Could not locate the specialties input' });
     }
 
+    // Click the "Add a specialty" ghost to activate the input if needed
+    const ghost = page.locator('.artdeco-pill__ghost:has-text("Add a specialty")').first();
+    if (await ghost.count() > 0) {
+      await ghost.click();
+      await page.waitForTimeout(500);
+    }
+
     for (const s of specialties) {
+      await specInput.click();
       await specInput.fill(s);
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(800);
     }
 
     await clickSave();
@@ -1654,6 +1698,7 @@ async function handleUpdateCompanySpecialties(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
 
 // ── API: Company logo ──────────────────────────────────────────────────────
 
