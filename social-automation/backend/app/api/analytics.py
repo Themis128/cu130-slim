@@ -361,6 +361,19 @@ async def get_overview(
     )
     counts = {status: count for status, count in post_counts.all()}
 
+    # Scheduled posts are forward-looking (calendar), not "created in the last N days".
+    # Count upcoming scheduled posts regardless of when they were created.
+    now = datetime.now(UTC)
+    scheduled_row = await db.execute(
+        select(func.count(Post.id)).where(
+            Post.team_id == team.id,
+            Post.status == PostStatus.SCHEDULED,
+            Post.scheduled_at.isnot(None),
+            Post.scheduled_at >= now,
+        )
+    )
+    scheduled_upcoming = int(scheduled_row.scalar() or 0)
+
     accounts_count = await db.execute(
         select(func.count(SocialAccount.id)).where(
             SocialAccount.team_id == team.id,
@@ -412,7 +425,7 @@ async def get_overview(
     return OverviewMetrics(
         total_posts=sum(counts.values()),
         published_posts=counts.get(PostStatus.PUBLISHED, 0),
-        scheduled_posts=counts.get(PostStatus.SCHEDULED, 0),
+        scheduled_posts=scheduled_upcoming,
         draft_posts=counts.get(PostStatus.DRAFT, 0),
         failed_posts=counts.get(PostStatus.FAILED, 0),
         connected_accounts=accounts_count.scalar() or 0,

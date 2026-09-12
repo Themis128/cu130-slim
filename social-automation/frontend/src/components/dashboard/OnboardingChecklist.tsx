@@ -5,8 +5,8 @@ import { CheckCircle2, Circle, X, Sparkles } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
-import Link from 'next/link'
 import { useAccounts, useBrand, useOverviewMetrics, useScheduledPosts } from '@/hooks/useQueries'
+import Link from 'next/link'
 
 interface ChecklistItem {
   label: string
@@ -26,6 +26,7 @@ interface OnboardingChecklistProps {
 }
 
 const STORAGE_KEY = 'onboarding-checklist-dismissed'
+const OVERVIEW_DAYS = 30
 
 export function OnboardingChecklist({
   connectedAccounts,
@@ -37,7 +38,7 @@ export function OnboardingChecklist({
   const { data: accounts } = useAccounts()
   const { data: brand } = useBrand()
   const { data: scheduledPosts = [] } = useScheduledPosts()
-  const { data: metrics } = useOverviewMetrics(30)
+  const { data: overview } = useOverviewMetrics(OVERVIEW_DAYS)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -52,39 +53,34 @@ export function OnboardingChecklist({
     }
   }
 
-  const resolvedAccounts = Math.max(
-    connectedAccounts ?? 0,
-    accounts?.length ?? 0,
-    metrics?.connected_accounts ?? 0,
-  )
-  const resolvedHasBrand = !!brand || hasBrand === true
-  const resolvedPostCount = Math.max(postCount ?? 0, metrics?.total_posts ?? 0)
-  const resolvedHasScheduled = (
-    (scheduledPosts?.length ?? 0) > 0
-    || (metrics?.scheduled_posts ?? 0) > 0
-    || hasScheduledPost === true
-  )
+  const connectedAccountsCount = Math.max(connectedAccounts ?? 0, accounts?.length ?? 0)
+  const brandExists = (hasBrand ?? false) || !!brand
+  const totalPosts = Math.max(postCount ?? 0, overview?.total_posts ?? 0)
+  const scheduledExists =
+    (hasScheduledPost ?? false) ||
+    scheduledPosts.length > 0 ||
+    (overview?.scheduled_posts ?? 0) > 0
 
   const items: ChecklistItem[] = [
     {
       label: 'Connect a channel',
       href: '/accounts',
-      completed: resolvedAccounts > 0,
+      completed: connectedAccountsCount > 0,
     },
     {
       label: 'Add brand basics',
       href: '/brand/onboarding',
-      completed: resolvedHasBrand,
+      completed: brandExists,
     },
     {
       label: 'Create your first post',
       href: '/content/new',
-      completed: resolvedPostCount > 0,
+      completed: totalPosts > 0,
     },
     {
       label: 'Schedule a post',
       href: '/calendar',
-      completed: resolvedHasScheduled,
+      completed: scheduledExists,
     },
   ]
 
