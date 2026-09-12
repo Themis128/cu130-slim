@@ -34,6 +34,7 @@ import {
   type PreviewIdentity,
 } from '@/components/content/previewIdentity'
 import { cn, athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
+import { pruneIdsToKnown } from '@/lib/platforms'
 import toast from 'react-hot-toast'
 
 type PreviewProps = { content: string; media: File[]; identity: PreviewIdentity }
@@ -46,6 +47,9 @@ const platforms = [
   { id: 'threads',   name: 'Threads',     icon: '@',  color: 'bg-gray-800',  textColor: 'text-gray-800',  borderColor: 'border-gray-800',  maxChars: 500   },
   { id: 'tiktok',    name: 'TikTok',      icon: 'TT', color: 'bg-black',     textColor: 'text-black',     borderColor: 'border-black',     maxChars: 2200  },
 ]
+
+const _SUPPORTED_PLATFORM_IDS = new Set(platforms.map((p) => p.id))
+const _PLATFORM_META_BY_ID = new Map(platforms.map((p) => [p.id, p] as const))
 
 // SVG character ring
 function CharRing({ count, max, size = 32 }: { count: number; max: number; size?: number }) {
@@ -407,14 +411,32 @@ export default function NewPostPage() {
     if (cloudless) { toSelect.push(cloudless); seen.add('linkedin') }
     // All other platforms: first connected account per platform
     for (const a of connectedAccounts) {
+      // Guard: backend may return platforms that this page doesn't support yet (e.g. messenger).
+      if (!_PLATFORM_META_BY_ID.has(a.platform)) continue
       if (!seen.has(a.platform)) { toSelect.push(a); seen.add(a.platform) }
     }
     if (toSelect.length > 0) {
-      setSelectedPlatforms(toSelect.map((a) => a.platform))
+      setSelectedPlatforms(pruneIdsToKnown(toSelect.map((a) => a.platform), _SUPPORTED_PLATFORM_IDS))
       setSelectedAccountIds(toSelect.map((a) => a.id))
       setPreviewPlatform(cloudless ? 'linkedin' : toSelect[0].platform)
     }
   }, [connectedAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep selection in sync with the supported platform catalog (prevents crashes on stale/unknown ids).
+  useEffect(() => {
+    setSelectedPlatforms((prev) => {
+      const next = pruneIdsToKnown(prev, _SUPPORTED_PLATFORM_IDS)
+      if (next === prev) return prev
+
+      setSelectedAccountIds((ids) =>
+        ids.filter((id) => {
+          const acc = connectedAccounts.find((a) => a.id === id)
+          return acc ? _SUPPORTED_PLATFORM_IDS.has(acc.platform) : false
+        })
+      )
+      return next
+    })
+  }, [connectedAccounts])
 
   // Auto-select preview platform when selection changes
   useEffect(() => {
@@ -498,7 +520,7 @@ export default function NewPostPage() {
         }
         return next
       }
-      if (!selectedPlatforms.includes(account.platform)) {
+      if (!selectedPlatforms.includes(account.platform) && _SUPPORTED_PLATFORM_IDS.has(account.platform)) {
         setSelectedPlatforms((plats) => [...plats, account.platform])
       }
       return [...prev, account.id]
@@ -943,7 +965,8 @@ export default function NewPostPage() {
               {selectedPlatforms.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-3">
                   {selectedPlatforms.map((pid) => {
-                    const p = platforms.find(pl => pl.id === pid)!
+                    const p = _PLATFORM_META_BY_ID.get(pid)
+                    if (!p) return null
                     const pct = content.length / p.maxChars
                     const over = content.length > p.maxChars
                     return (
@@ -1104,7 +1127,8 @@ export default function NewPostPage() {
               </CardHeader>
               <CardContent className="space-y-2 pt-0">
                 {selectedPlatforms.map((pid) => {
-                  const p = platforms.find(pl => pl.id === pid)!
+                  const p = _PLATFORM_META_BY_ID.get(pid)
+                  if (!p) return null
                   const variantContent = variants[pid]
                   const isOpen = openVariants.has(pid)
                   return (
@@ -1298,7 +1322,8 @@ export default function NewPostPage() {
             {selectedPlatforms.length > 1 && (
               <div className="flex gap-1">
                 {selectedPlatforms.map((pid) => {
-                  const p = platforms.find(pl => pl.id === pid)!
+                  const p = _PLATFORM_META_BY_ID.get(pid)
+                  if (!p) return null
                   return (
                     <button
                       key={pid}
