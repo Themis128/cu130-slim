@@ -5,21 +5,15 @@ import pytest
 
 # Only load .env file if not in CI environment
 is_ci = os.environ.get("CI") == "true"
-
-
-def pytest_collection_modifyitems(items):
-    """Mark every test under tests/integration/ so Backend CI can exclude them."""
-    for item in items:
-        item.add_marker(pytest.mark.integration)
 if not is_ci:
     # Load environment variables from .env file if it exists
-    env_path = Path(__file__).parent.parent.parent / '.env'
+    env_path = Path(__file__).parent.parent.parent / ".env"
     if env_path.exists():
         with open(env_path) as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
                     os.environ[key] = value.strip('"')
 
 # Override UPLOAD_DIR for tests to a temporary directory
@@ -54,6 +48,12 @@ from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 
+def pytest_collection_modifyitems(items):
+    """Mark every test under tests/integration/ so Backend CI can exclude them."""
+    for item in items:
+        item.add_marker(pytest.mark.integration)
+
+
 @pytest_asyncio.fixture(scope="function")
 async def engine():
     """Create a new database engine for each test."""
@@ -79,6 +79,7 @@ async def db(engine):
 @pytest_asyncio.fixture(scope="function")
 async def client(db):
     """Get an HTTP client for each test."""
+
     async def override_get_db():
         yield db
 

@@ -17,13 +17,15 @@ async def test_build_daily_digest_includes_failed_post_failure_reason(db):
     db.add(team)
     await db.flush()
 
+    now = datetime.now(UTC)
     post = Post(
         team_id=team.id,
         user_id=user.id,
         status=PostStatus.FAILED,
         content_text="hello world",
         failure_reason="upstream timeout",
-        failed_at=datetime.now(UTC),
+        failed_at=now,
+        updated_at=now,
     )
     db.add(post)
     await db.commit()
