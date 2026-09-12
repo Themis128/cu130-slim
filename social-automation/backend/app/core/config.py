@@ -252,6 +252,10 @@ class Settings(BaseSettings):
     # {event, post_id, platform, account_id, platform_url, published_at,
     #  workflow_run_id, workflow_id}
     PUBLISH_SUCCESS_WEBHOOK_URL: str = ""
+    # Optional: Slack Incoming Webhook for publish successes → #socialauto-publishing.
+    # This is intentionally separate from PUBLISH_SUCCESS_WEBHOOK_URL, which is a
+    # generic JSON webhook intended for external automation.
+    SLACK_PUBLISHING_WEBHOOK_URL: str = ""
 
     # MinIO (internal object storage)
     MINIO_ENDPOINT: str = "minio:9000"
@@ -271,8 +275,20 @@ class Settings(BaseSettings):
     SLACK_BOT_TOKEN: str = ""
     SLACK_ACCESS_TOKEN: str = ""  # Slack CLI / OAuth access (xoxe.xoxp- / xoxb-)
     SLACK_REFRESH_TOKEN: str = ""
-    SLACK_CHANNEL_ID: str = "C0BT263L17U"  # #socialauto
+    # Default is the current live channel id in the Cloudless workspace.
+    # Override in /app/.env (mounted from host) for your own Slack workspace.
+    SLACK_CHANNEL_ID: str = "C0C1F1K3DDF"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
+
+    # Slack alerts (#socialauto-alerts) — warnings/errors and operational failures.
+    # Prefer Incoming Webhook URL to the alerts channel; alternatively reuse
+    # SLACK_BOT_TOKEN / SLACK_ACCESS_TOKEN + a dedicated alerts channel id.
+    SLACK_ALERTS_WEBHOOK_URL: str = ""
+    SLACK_ALERTS_CHANNEL_ID: str = ""
+
+    # n8n: optional Slack Incoming Webhook URL for workflow failures.
+    # If empty, n8n workflows should fall back to SLACK_ALERTS_WEBHOOK_URL.
+    N8N_ERROR_SLACK_WEBHOOK_URL: str = ""
 
     # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
     # EMAIL_PROVIDER=smtp|local|cloudflare

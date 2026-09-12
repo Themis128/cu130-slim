@@ -154,12 +154,16 @@ class TestSendAlertCooldown:
             "app.worker.tasks.instagram_session_check.create_async_engine",
             return_value=MagicMock(),
         ), patch(
-            "app.services.email_digest.send_email",
+            "app.services.email_templates.send_instagram_session_alert_email",
             new_callable=AsyncMock,
-        ) as mock_send:
+        ) as mock_send, patch(
+            "app.worker.tasks.instagram_session_check.post_alert_to_slack",
+            new_callable=AsyncMock,
+        ) as mock_slack:
             await _send_alert(owner, "testuser", "session rejected")
 
         mock_send.assert_not_called()
+        mock_slack.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_alert_sent_when_no_recent_alert(self):
@@ -194,10 +198,14 @@ class TestSendAlertCooldown:
         ), patch(
             "app.services.email_templates.send_instagram_session_alert_email",
             new_callable=AsyncMock,
-        ) as mock_send:
+        ) as mock_send, patch(
+            "app.worker.tasks.instagram_session_check.post_alert_to_slack",
+            new_callable=AsyncMock,
+        ) as mock_slack:
             await _send_alert(owner, "testuser", "session rejected")
 
         mock_send.assert_called_once()
+        mock_slack.assert_awaited_once()
         kwargs = mock_send.call_args.kwargs
         assert kwargs["owner_email"] == owner.email
         assert "testuser" in kwargs["account_username"]

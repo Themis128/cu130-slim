@@ -158,6 +158,8 @@ class AutoReplyConfig(BaseModel):
     model: str = "@cf/meta/llama-3.1-8b-instruct"
     fallback_text: str = "Thanks for your message! We'll get back to you soon."
     max_tokens: int = 200
+    cooldown_seconds: int = 300
+    temperature: float = 0.7
 
 
 class WebhookVerifyRequest(BaseModel):

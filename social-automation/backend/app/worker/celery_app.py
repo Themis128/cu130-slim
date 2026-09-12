@@ -105,6 +105,10 @@ celery_app.conf.update(
             "soft_time_limit": 300,
             "time_limit": 600,
         },
+        "app.worker.tasks.digest.send_weekly_slack_digest": {
+            "soft_time_limit": 600,
+            "time_limit": 900,
+        },
     },
     # Queue routing: time-sensitive publishing tasks are isolated from
     # CPU-heavy media/AI tasks so a long-running batch enhance never blocks
@@ -124,6 +128,7 @@ celery_app.conf.update(
         "app.worker.tasks.workflows.execute_workflow": {"queue": "default"},
         "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
+        "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
@@ -147,6 +152,12 @@ celery_app.conf.update(
             "task": "app.worker.tasks.digest.send_daily_slack_digest",
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0),
             "kwargs": {"days": 1, "post_to_slack": True},
+        },
+        # Weekly SocialAuto rollup → Slack #socialauto (Monday 09:00 Europe/Athens)
+        "weekly-slack-rollup": {
+            "task": "app.worker.tasks.digest.send_weekly_slack_digest",
+            "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_week=1),
+            "kwargs": {"days": 7, "post_to_slack": True, "post_to_email": False},
         },
         # Auto-refresh expiring OAuth tokens every hour (TikTok expires in 24h,
         # Twitter in 2h, Meta/Threads in ~60 days). Refreshes tokens expiring
