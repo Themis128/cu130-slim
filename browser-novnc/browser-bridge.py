@@ -158,34 +158,49 @@ async def _ensure_live_page():
     """Return a live Playwright page, recovering from a closed tab if possible.
 
     Persistent-context Chromium sometimes drops the active page while the
-    context stays alive (daemon keepalive races, crash crashes). Callers used
+    context stays alive (daemon keepalive races, tab crashes). Callers used
     to treat a non-None ``_state['page']`` as valid and then hit
     ``Target page, context or browser has been closed``.
     """
     # #region agent log
-    try:
-        import time as _t
-        with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
-            _f.write(
-                __import__("json").dumps(
-                    {
-                        "sessionId": "ce3429",
-                        "runId": "pre-fix",
-                        "hypothesisId": "H2",
-                        "location": "browser-bridge._ensure_live_page",
-                        "message": "ensure_live_page entry",
-                        "data": {
-                            "has_page": _state.get("page") is not None,
-                            "has_context": _state.get("context") is not None,
-                            "status": _state.get("status"),
-                        },
-                        "timestamp": int(_t.time() * 1000),
-                    }
-                )
-                + "\n"
+    def _dbg(message: str, data: dict) -> None:
+        try:
+            import json as _json
+            import time as _t
+            import urllib.request as _urlreq
+
+            payload = _json.dumps(
+                {
+                    "sessionId": "ce3429",
+                    "runId": "post-fix",
+                    "hypothesisId": "H2",
+                    "location": "browser-bridge._ensure_live_page",
+                    "message": message,
+                    "data": data,
+                    "timestamp": int(_t.time() * 1000),
+                }
+            ).encode()
+            req = _urlreq.Request(
+                "http://host.docker.internal:7498/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Debug-Session-Id": "ce3429",
+                },
+                method="POST",
             )
-    except Exception:
-        pass
+            _urlreq.urlopen(req, timeout=1).read()
+        except Exception:
+            pass
+
+    _dbg(
+        "ensure_live_page entry",
+        {
+            "has_page": _state.get("page") is not None,
+            "has_context": _state.get("context") is not None,
+            "status": _state.get("status"),
+        },
+    )
     # #endregion
 
     page = _state.get("page")
@@ -197,73 +212,45 @@ async def _ensure_live_page():
             pass
 
     context = _state.get("context")
-    if context is not None:
-        try:
-            pages = list(context.pages)
-            for candidate in pages:
-                try:
-                    if not candidate.is_closed():
-                        _state["page"] = candidate
-                        # #region agent log
-                        try:
-                            import time as _t
-                            with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
-                                _f.write(
-                                    __import__("json").dumps(
-                                        {
-                                            "sessionId": "ce3429",
-                                            "runId": "pre-fix",
-                                            "hypothesisId": "H2",
-                                            "location": "browser-bridge._ensure_live_page",
-                                            "message": "recovered existing open page from context",
-                                            "data": {"pages": len(pages)},
-                                            "timestamp": int(_t.time() * 1000),
-                                        }
-                                    )
-                                    + "\n"
-                                )
-                        except Exception:
-                            pass
-                        # #endregion
-                        return candidate
-            # Context alive but no open pages — open a fresh tab
-            page = await context.new_page()
-            _state["page"] = page
-            # #region agent log
-            try:
-                import time as _t
-                with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
-                    _f.write(
-                        __import__("json").dumps(
-                            {
-                                "sessionId": "ce3429",
-                                "runId": "pre-fix",
-                                "hypothesisId": "H2",
-                                "location": "browser-bridge._ensure_live_page",
-                                "message": "opened new page on existing context",
-                                "data": {},
-                                "timestamp": int(_t.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
-            return page
-        except Exception as exc:
-            # Context/browser is dead — clear stale refs
-            _state["page"] = None
-            _state["context"] = None
-            _state["browser"] = None
-            _state["status"] = "idle"
-            _state["message"] = f"Browser session died: {exc}"
-            raise HTTPException(
-                400,
-                "Browser session closed — restart via /session/start",
-            ) from exc
+    if context is None:
+        raise HTTPException(400, "No active browser session")
 
-    raise HTTPException(400, "No active browser session")
+    try:
+        for candidate in list(context.pages):
+            try:
+                closed = candidate.is_closed()
+            except Exception:
+                continue
+            if closed:
+                continue
+            _state["page"] = candidate
+            # #region agent log
+            _dbg("recovered existing open page from context", {})
+            # #endregion
+            return candidate
+
+        page = await context.new_page()
+        _state["page"] = page
+        # #region agent log
+        _dbg("opened new page on existing context", {})
+        # #endregion
+        return page
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _state["page"] = None
+        _state["context"] = None
+        _state["browser"] = None
+        _state["status"] = "idle"
+        _state["message"] = f"Browser session died: {exc}"
+        # #region agent log
+        _dbg("context dead; cleared state", {"error": str(exc)[:200]})
+        # #endregion
+        raise HTTPException(
+            400,
+            "Browser session closed — restart via /session/start",
+        ) from exc
+
 
 
 class StartRequest(BaseModel):
@@ -651,9 +638,7 @@ async def login_session(req: LoginRequest):
 @app.post("/session/navigate")
 async def navigate_session(req: NavigateRequest):
     """Navigate the active browser page to a URL."""
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         await page.goto(req.url, wait_until="domcontentloaded")
         await page.wait_for_timeout(3000)
@@ -669,9 +654,7 @@ class EvaluateRequest(BaseModel):
 @app.post("/session/evaluate")
 async def evaluate_session(req: EvaluateRequest):
     """Run JavaScript in the active browser page and return the result."""
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         result = await page.evaluate(req.expression)
         return {"status": "ok", "result": result}
@@ -682,9 +665,7 @@ async def evaluate_session(req: EvaluateRequest):
 @app.get("/session/page-info")
 async def page_info():
     """Return current page URL and title."""
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         return {"url": page.url, "title": await page.title()}
     except Exception as e:
