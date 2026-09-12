@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist'
+
+vi.mock('@/hooks/useQueries', () => ({
+  useAccounts: vi.fn(() => ({ data: [] })),
+  useBrand: vi.fn(() => ({ data: null })),
+  useScheduledPosts: vi.fn(() => ({ data: [] })),
+  useOverviewMetrics: vi.fn(() => ({ data: { total_posts: 0, scheduled_posts: 0 } })),
+}))
 
 describe('OnboardingChecklist', () => {
   beforeEach(() => {
