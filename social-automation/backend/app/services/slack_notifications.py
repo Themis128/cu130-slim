@@ -36,10 +36,10 @@ async def _post_slack_text(
     channel_id = (channel_id or "").strip()
 
     if not webhook_url and not token:
-        return False, f"Slack {purpose} not configured (no webhook url or token)", None
+        return False, f"Slack {purpose} isn’t configured (missing webhook URL or token)", None
 
     if not webhook_url and not channel_id:
-        return False, f"Slack {purpose} not configured (missing channel id for token-based posting)", None
+        return False, f"Slack {purpose} isn’t configured (missing channel id for token-based posting)", None
 
     last_err: str | None = None
     try:

@@ -25,6 +25,8 @@ async def test_notify_publish_failure_posts_slack_alert():
 
     mock_post.assert_awaited_once()
     text = mock_post.call_args.args[0]
+    assert "couldn’t publish" in text.lower()
+    assert "what to do next" in text.lower()
     assert "post-123" in text
     assert "linkedin" in text
     assert "queue-456" in text

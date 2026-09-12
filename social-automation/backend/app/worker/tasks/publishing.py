@@ -34,13 +34,20 @@ async def _notify_publish_failure(
     post_id = str(getattr(post, "id", "") or "unknown")
     platform = getattr(account, "platform", None) or "unknown"
     queue_id = str(getattr(queue_item, "id", "") or "unknown")
-    text = (
-        "*Publish failed* (final)\n"
-        f"• post_id: `{post_id}`\n"
-        f"• platform: `{platform}`\n"
-        f"• queue_item_id: `{queue_id}`\n"
-        f"• reason: {reason[:500]}"
-    )
+    reason_clean = (reason or "").replace("\n", " ").strip()
+    text = "\n".join(
+        [
+            "*We couldn’t publish a post*",
+            "• What to do next: open SocialAuto → Posts → Failed, then retry (or reconnect the account if needed).",
+            f"• What happened: {reason_clean[:300] or 'Unknown error'}",
+            "",
+            "*Details*",
+            f"• post: `{post_id}`",
+            f"• platform: `{platform}`",
+            f"• queue item: `{queue_id}`",
+            "_Cloudless · Clear skies. Zero friction._",
+        ]
+    )[:2000]
     await post_alert_to_slack(text)
 
 
@@ -93,12 +100,18 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
 
     # Slack publish-success notification (best-effort; non-fatal).
     try:
-        text = (
-            "*Publish succeeded*\n"
-            f"• post_id: `{post.id}`\n"
-            f"• platform: `{account.platform}`\n"
-            f"• url: {platform_url or 'n/a'}"
-        )
+        url = platform_url or "n/a"
+        text = "\n".join(
+            [
+                "*Published*",
+                f"• Platform: *{account.platform}*",
+                f"• Link: {url}",
+                "",
+                "*Details*",
+                f"• post: `{post.id}`",
+                "_Cloudless · Clear skies. Zero friction._",
+            ]
+        )[:2000]
         await post_publishing_to_slack(text)
     except Exception:
         logger.debug("Slack publish-success notification failed (non-fatal)", exc_info=True)
