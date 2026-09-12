@@ -172,7 +172,15 @@ async def _process_account(
 
     Uses InstagramAPIClient (Instagram Messaging API / Graph API v23.0).
     """
-    token = decrypt_token(account.access_token_enc)
+    try:
+        token = decrypt_token(account.access_token_enc)
+    except Exception as exc:
+        logger.warning(
+            "Instagram DM: account %s has invalid encrypted token: %s — "
+            "needs re-authentication. Skipping.",
+            account.id, exc,
+        )
+        return 0
     ig_user_id = account.account_id or ""
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
