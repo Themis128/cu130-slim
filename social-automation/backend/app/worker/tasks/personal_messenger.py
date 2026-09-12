@@ -200,10 +200,10 @@ async def _process_account(
         logger.warning("Browser session check failed for account %s: %s", account.id, exc)
         return 0
 
-    # 1. Fetch conversations
+    # 1. Fetch conversations (use fast mobile-basic read first, fallback to full SPA)
     try:
-        convos_result = await bridge.get_personal_messenger_conversations()
-    except BrowserBridgeError as exc:
+        convos_result = await bridge.get_personal_messenger_conversations_fast()
+    except (BrowserBridgeError, Exception) as exc:
         logger.warning("Browser bridge error for account %s: %s", account.id, exc)
         return 0
 
@@ -220,8 +220,8 @@ async def _process_account(
         is_e2ee = convo.get("e2ee", False)
 
         try:
-            # 2. Read recent messages (pass is_e2ee for correct URL)
-            msgs_result = await bridge.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
+            # 2. Read recent messages (fast mobile-basic first, fallback to SPA)
+            msgs_result = await bridge.get_personal_messenger_messages_fast(thread_id, is_e2ee=is_e2ee)
             messages = msgs_result.get("messages", [])
             if not messages:
                 continue

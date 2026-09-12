@@ -784,3 +784,156 @@ class BrowserBridgeClient:
             await asyncio.sleep(duration)
         except Exception as exc:
             logger.debug("Typing indicator failed (non-fatal): %s", exc)
+
+    # ── Cookie-based fast reads (mobile/basic HTML) ──────────────────────
+
+    async def get_personal_messenger_conversations_fast(self) -> dict[str, Any]:
+        """Fast conversation list read via m.facebook.com basic HTML.
+
+        Uses the mobile basic version of Facebook which loads much faster
+        than the full SPA at facebook.com/messages. The basic HTML version
+        renders conversation list server-side, eliminating the need for
+        client-side SPA hydration (saves ~3-4 seconds per read).
+
+        Falls back to the full SPA method if the basic version is unavailable.
+        """
+        try:
+            # Navigate to mobile basic messages — much lighter than full SPA
+            await self.navigate("https://m.facebook.com/messages")
+            await asyncio.sleep(2)  # Basic HTML loads fast
+
+            result = await self.evaluate("""() => {
+                const conversations = [];
+                const seen = new Set();
+
+                // m.facebook.com uses simpler anchor tags with /messages/t/ or /messages/e2ee/t/
+                const items = document.querySelectorAll(
+                    'a[href*="/messages/t/"], ' +
+                    'a[href*="/messages/e2ee/t/"]'
+                );
+
+                items.forEach(item => {
+                    const href = item.getAttribute('href') || '';
+                    if (href.includes('/messages/new/') || seen.has(href)) return;
+                    seen.add(href);
+
+                    const text = (item.innerText || '').trim();
+                    if (!text) return;
+
+                    const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
+                    if (lines.length === 0) return;
+
+                    const match = href.match(/messages\\/(?:e2ee\\/)?t\\/([0-9]+)/);
+                    const threadId = match ? match[1] : null;
+                    const isE2EE = href.includes('/e2ee/');
+
+                    const name = lines[0] || 'Unknown';
+                    const preview = lines.length > 1 ? lines[lines.length - 1] : '';
+
+                    // Basic HTML marks unread with bold text or a different background
+                    const isUnread = item.querySelector('strong, b') !== null ||
+                                    (item.style && item.style.fontWeight === 'bold');
+
+                    conversations.push({
+                        name: name,
+                        preview: preview,
+                        thread_id: threadId,
+                        url: href.startsWith('http') ? href : 'https://m.facebook.com' + href,
+                        unread: isUnread,
+                        e2ee: isE2EE,
+                    });
+                });
+
+                return { conversations, count: conversations.length };
+            }""")
+            raw = result.get("result", {})
+            convos = raw.get("conversations", [])
+            if convos:
+                return {
+                    "conversations": convos,
+                    "count": raw.get("count", 0),
+                    "source": "mobile_basic",
+                }
+            # Fall back to full SPA if basic returned nothing
+            logger.info("Mobile basic returned no conversations, falling back to full SPA")
+        except Exception as exc:
+            logger.warning("Fast conversation read failed, falling back to SPA: %s", exc)
+
+        return await self.get_personal_messenger_conversations()
+
+    async def get_personal_messenger_messages_fast(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
+        """Fast message read via m.facebook.com basic HTML.
+
+        Reads messages from a specific thread using the mobile basic version.
+        Much faster than the full SPA (~2s vs ~7s) since it renders server-side.
+
+        Falls back to the full SPA method if the basic version fails.
+        """
+        try:
+            path = "e2ee/t" if is_e2ee else "t"
+            await self.navigate(f"https://m.facebook.com/messages/{path}/{thread_id}/")
+            await asyncio.sleep(2)
+
+            result = await self.evaluate("""() => {
+                const messages = [];
+
+                // m.facebook.com basic HTML uses simpler message containers
+                // Messages are in div elements with data-scope or in table rows
+                const containers = document.querySelectorAll(
+                    'div[data-scope="messages_table"], ' +
+                    'div[role="article"], ' +
+                    'div.message, ' +
+                    'table tbody tr'
+                );
+
+                containers.forEach(container => {
+                    const text = (container.innerText || '').trim();
+                    if (!text) return;
+
+                    // Skip timestamp-only entries
+                    if (container.children.length === 1) {
+                        const childText = (container.children[0].innerText || '').trim();
+                        if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Today|Yesterday|\\d{1,2}:\\d{2})/.test(childText)) {
+                            return;
+                        }
+                    }
+
+                    // Clean noise
+                    let cleanText = text.replace(/^Enter,?\\s*Message sent.*$/m, '').trim();
+                    if (!cleanText) return;
+
+                    const timeEl = container.querySelector('time, [data-absolute-time], [datetime], abbr');
+                    let timestamp = null;
+                    if (timeEl) {
+                        timestamp = timeEl.getAttribute('datetime') ||
+                                   timeEl.getAttribute('data-absolute-time') ||
+                                   timeEl.innerText;
+                    }
+
+                    // In basic HTML, outgoing messages often have a different class
+                    const isOutgoing = container.classList.contains('outgoing') ||
+                                     container.closest('[class*="outgoing"]') !== null ||
+                                     container.closest('[class*="sent"]') !== null;
+
+                    messages.push({
+                        text: cleanText,
+                        sender: isOutgoing ? 'me' : 'them',
+                        timestamp: timestamp,
+                    });
+                });
+
+                return { messages, count: messages.length };
+            }""")
+            raw = result.get("result", {})
+            msgs = raw.get("messages", [])
+            if msgs:
+                return {
+                    "messages": msgs,
+                    "count": raw.get("count", 0),
+                    "source": "mobile_basic",
+                }
+            logger.info("Fast message read returned no messages, falling back to full SPA")
+        except Exception as exc:
+            logger.warning("Fast message read failed, falling back to SPA: %s", exc)
+
+        return await self.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
