@@ -1,30 +1,31 @@
-"""Celery task — Twitter/X DM chatbot via browser automation.
+"""Celery task — Instagram DM chatbot via Instagram Messaging API.
 
-Twitter/X has a DM API v2 but it requires a paid tier ($200/mo Basic,
-$5000/mo Pro). Free tier can't read or send DMs via API.
+Instagram uses the same Messenger Platform API as Facebook Pages for DMs.
+Requires the `instagram_business_manage_messages` permission and a
+connected Instagram Business/Creator account with an access token.
 
-This task uses browser automation (same approach as personal Facebook
-Messenger, LinkedIn, and Threads) to poll for new DMs and send AI
-auto-replies through the Twitter/X web UI (x.com/messages).
+For personal Instagram accounts without API access, this task gracefully
+skips (no token = no API calls).
 
 Flow:
-    1. Find Twitter accounts with auto-reply enabled
-    2. For each account, use browser bridge to check session
-    3. Poll conversations via browser bridge
-    4. For each conversation with new messages:
-       a. Read messages via browser bridge
-       b. Find last inbound message
-       c. Check if already replied (seen tracking)
-       d. Check per-conversation cooldown (Redis)
-       e. Generate AI reply (Cloudflare Workers AI)
-       f. Send reply via browser bridge
-       g. Mark as seen + set cooldown
+    1. Find Instagram accounts with auto-reply enabled
+    2. For each account with an access token:
+       a. Fetch recent conversations via InstagramAPIClient
+       b. For each conversation with new messages:
+          - Read messages
+          - Find last inbound message
+          - Check if already replied (seen tracking)
+          - Check per-conversation cooldown (Redis)
+          - Generate AI reply (Cloudflare Workers AI)
+          - Send reply via API
+          - Mark as seen + set cooldown
+    3. For accounts without a token: skip gracefully (log info)
 
 State tracking:
-    ``meta_data.twitter_auto_reply`` stores bot config
-    ``meta_data.twitter_messenger_seen`` stores {conversation_id: last_text}
+    ``meta_data.instagram_auto_reply`` stores bot config
+    ``meta_data.instagram_messenger_seen`` stores {conversation_id: last_text}
 
-The task runs every 5 minutes via Celery beat.
+The task runs every 3 minutes via Celery beat.
 """
 import asyncio
 import logging
@@ -36,8 +37,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
-from app.services.browser_bridge import BrowserBridgeClient
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.messenger_chatbot import (
     check_cooldown,
     generate_contextual_reply,
@@ -91,15 +93,15 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
-@celery_app.task(name="app.worker.tasks.twitter_messenger.poll_twitter_messenger")
-def poll_twitter_messenger() -> dict:
-    """Poll Twitter DM conversations and send AI auto-replies via browser bridge."""
-    return _run_async(_poll_twitter_messenger_async())
+@celery_app.task(name="app.worker.tasks.instagram_messenger.poll_instagram_messenger")
+def poll_instagram_messenger() -> dict:
+    """Poll Instagram DM conversations and send AI auto-replies."""
+    return _run_async(_poll_instagram_messenger_async())
 
 
-async def _poll_twitter_messenger_async() -> dict:
-    """Async implementation of the Twitter DM poller."""
-    stats = {"accounts_checked": 0, "replies_sent": 0, "errors": 0, "skipped_no_session": 0}
+async def _poll_instagram_messenger_async() -> dict:
+    """Async implementation of the Instagram DM poller."""
+    stats = {"accounts_checked": 0, "replies_sent": 0, "errors": 0, "skipped_no_token": 0}
     settings = get_settings()
 
     cf_token = getattr(settings, "CLOUDFLARE_API_TOKEN", "")
@@ -109,7 +111,7 @@ async def _poll_twitter_messenger_async() -> dict:
     async with _worker_db() as db:
         result = await db.execute(
             select(SocialAccount).where(
-                SocialAccount.platform == "twitter",
+                SocialAccount.platform == "instagram",
                 SocialAccount.status == "active",
             )
         )
@@ -117,12 +119,22 @@ async def _poll_twitter_messenger_async() -> dict:
 
         for account in accounts:
             meta = account.meta_data or {}
-            auto_reply = meta.get("twitter_auto_reply", {})
+            auto_reply = meta.get("instagram_auto_reply", {})
             if not auto_reply.get("enabled", False):
                 continue
 
+            # Check for access token — Instagram DMs require API access
+            if not account.access_token_enc:
+                stats["skipped_no_token"] += 1
+                logger.info(
+                    "Instagram DM: account %s (%s) has no access token — "
+                    "connect via OAuth with instagram_business_manage_messages scope. Skipping.",
+                    account.id, account.display_name,
+                )
+                continue
+
             stats["accounts_checked"] += 1
-            seen = meta.get("twitter_messenger_seen", {})
+            seen = meta.get("instagram_messenger_seen", {})
 
             try:
                 replies = await _process_account(
@@ -131,8 +143,8 @@ async def _poll_twitter_messenger_async() -> dict:
                 )
                 stats["replies_sent"] += replies
 
-                meta["twitter_messenger_seen"] = seen
-                meta["twitter_messenger_last_checked"] = datetime.now(UTC).isoformat()
+                meta["instagram_messenger_seen"] = seen
+                meta["instagram_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
                 from sqlalchemy.orm.attributes import flag_modified
                 flag_modified(account, "meta_data")
@@ -140,11 +152,11 @@ async def _poll_twitter_messenger_async() -> dict:
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
-                    "Twitter DM poll failed for account %s: %s",
+                    "Instagram DM poll failed for account %s: %s",
                     account.id, exc, exc_info=True,
                 )
 
-    logger.info("Twitter DM poll complete: %s", stats)
+    logger.info("Instagram DM poll complete: %s", stats)
     return stats
 
 
@@ -156,62 +168,68 @@ async def _process_account(
     cf_account: str,
     dmr_url: str,
 ) -> int:
-    """Process a single Twitter account — poll DMs via browser bridge and reply."""
-    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+    """Process a single Instagram account — poll DMs and reply.
+
+    Uses InstagramAPIClient (Instagram Messaging API / Graph API v23.0).
+    """
+    token = decrypt_token(account.access_token_enc)
+    ig_user_id = account.account_id or ""
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
-    # 0. Check browser bridge session
-    try:
-        status = await bridge.session_status()
-        if not status.get("logged_in") and not status.get("has_session"):
-            logger.info(
-                "Twitter DM: browser bridge session not active for account %s — "
-                "login via noVNC (port 6080) to x.com first. Skipping.",
-                account.id,
-            )
-            return 0
-    except Exception as exc:
-        logger.warning("Twitter DM: browser bridge check failed for account %s: %s", account.id, exc)
+    if not ig_user_id:
+        logger.warning("Instagram account %s has no account_id (IG user ID)", account.id)
         return 0
 
-    # 1. Fetch conversations via browser bridge
+    client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+
+    # 1. Fetch conversations
     try:
-        convos_result = await bridge.get_twitter_dm_conversations()
+        convos_result = await client.get_conversations(limit=25)
+    except InstagramAPIError as exc:
+        logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
+        return 0
     except Exception as exc:
-        logger.warning("Twitter DM: browser bridge error for account %s: %s", account.id, exc)
+        logger.warning("Instagram DM fetch failed for account %s: %s", account.id, exc)
         return 0
 
-    conversations = convos_result.get("conversations", [])
+    conversations = convos_result.get("data", [])
     if not conversations:
         return 0
 
     for convo in conversations[:20]:
-        convo_id = convo.get("thread_id", "")
-        convo_name = convo.get("name", "Unknown")
-
+        convo_id = convo.get("id", "")
         if not convo_id:
+            continue
+
+        # Get participant info
+        participants = convo.get("participants", {}).get("data", [])
+        convo_name = participants[0].get("name", "Unknown") if participants else "Unknown"
+        recipient_id = participants[0].get("id", "") if participants else ""
+
+        if not recipient_id:
             continue
 
         try:
             # 2. Read messages in this conversation
-            msgs_result = await bridge.get_twitter_dm_messages(convo_id)
-            messages = msgs_result.get("messages", [])
+            msgs_result = await client.get_dm_messages(convo_id, limit=20)
+            messages = msgs_result.get("data", [])
             if not messages:
                 continue
 
-            # 3. Find last inbound message
+            # 3. Find last inbound message (not from us)
             last_inbound = None
             for msg in reversed(messages):
-                text = msg.get("text", "")
-                if text and text.strip():
+                sender = msg.get("from", {})
+                sender_id = sender.get("id", "") if isinstance(sender, dict) else str(sender)
+                if sender_id != ig_user_id and msg.get("message"):
                     last_inbound = msg
                     break
 
             if not last_inbound:
                 continue
 
-            text = last_inbound.get("text", "").strip()
+            text = (last_inbound.get("message") or "").strip()
             if not text:
                 continue
 
@@ -229,7 +247,13 @@ async def _process_account(
             if await is_thread_paused(account.id, seen_key):
                 continue
 
-            # 7. Generate AI reply
+            # 7. Send typing indicator (feels more natural)
+            try:
+                await client.send_typing_indicator(recipient_id)
+            except Exception:
+                pass  # Non-fatal
+
+            # 8. Generate AI reply
             reply_text = await generate_contextual_reply(
                 config, text, account_name,
                 account.id, seen_key,
@@ -239,10 +263,16 @@ async def _process_account(
             if not reply_text:
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
-            # 8. Send reply via browser bridge
-            await bridge.send_twitter_dm_message(convo_id, reply_text)
+            # 9. Send reply via Instagram Messaging API
+            await client.send_dm(recipient_id, reply_text)
 
-            # 9. Store in memory
+            # 10. Mark conversation as read
+            try:
+                await client.mark_dm_read(convo_id)
+            except Exception:
+                pass  # Non-fatal
+
+            # 11. Store in memory
             await store_message_memory(
                 account.team_id, account.id, seen_key,
                 "them", text,
@@ -252,20 +282,25 @@ async def _process_account(
                 "me", reply_text,
             )
 
-            # 10. Mark seen + cooldown
+            # 12. Mark seen + cooldown
             seen[seen_key] = text
             await set_cooldown(account.id, seen_key, cooldown_seconds)
             replies_sent += 1
             logger.info(
-                "Twitter auto-reply sent to '%s' (conversation %s) for account %s",
+                "Instagram auto-reply sent to '%s' (conversation %s) for account %s",
                 convo_name, convo_id, account.id,
             )
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
+        except InstagramAPIError as exc:
+            logger.warning("Instagram DM API error in conversation %s: %s", convo_id, exc)
+            if exc.status_code == 429:
+                logger.warning("Instagram rate-limited — stopping for account %s", account.id)
+                break
         except Exception as exc:
             logger.error(
-                "Error processing Twitter conversation %s: %s",
+                "Error processing Instagram conversation %s: %s",
                 convo_id, exc, exc_info=True,
             )
 

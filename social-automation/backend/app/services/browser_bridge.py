@@ -1204,3 +1204,374 @@ class BrowserBridgeClient:
         await asyncio.sleep(2)
 
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
+
+    # ── Twitter/X DM (direct messages) ───────────────────────────────────
+    # Twitter/X has a DM API v2 but it requires a paid tier ($200/mo Basic,
+    # $5000/mo Pro). Free tier can't read or send DMs via API.
+    # These methods automate the Twitter/X web UI (x.com/messages) using
+    # the same browser bridge approach as personal Messenger and Threads.
+    # Based on open-source projects: x-use, tweetly, x-mcp-bridge.
+
+    async def get_twitter_dm_conversations(self) -> dict[str, Any]:
+        """Read Twitter/X DM conversation list from x.com/messages.
+
+        Navigates to the Twitter/X inbox and extracts recent conversations
+        with names, preview text, and thread URLs.
+        Requires a logged-in Twitter/X browser session.
+        """
+        await self.navigate("https://x.com/messages")
+        await asyncio.sleep(4)
+
+        result = await self.evaluate("""() => {
+            const conversations = [];
+            const seen = new Set();
+
+            // Twitter/X DM conversation links
+            const items = document.querySelectorAll(
+                'a[href*="/messages/"], ' +
+                'div[data-testid="conversation"], ' +
+                'div[role="link"][aria-label]'
+            );
+
+            items.forEach(item => {
+                const href = item.getAttribute('href') || '';
+                if (!href.includes('/messages/') || href.includes('/messages/compose')) return;
+                if (seen.has(href)) return;
+                seen.add(href);
+
+                const text = item.innerText || '';
+                const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
+                if (lines.length === 0) return;
+
+                // Extract conversation ID from URL
+                const match = href.match(/messages\\/([0-9]+)/);
+                const threadId = match ? match[1] : null;
+
+                const name = lines[0] || 'Unknown';
+                let preview = '';
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === 'Active now' || line === '\\u00a0') continue;
+                    preview = line;
+                    break;
+                }
+
+                // Check for unread indicator
+                const unreadEl = item.querySelector('[class*="unread"], [class*="badge"], [data-testid="unreadIndicator"]');
+                const unread = unreadEl ? unreadEl.innerText.trim() : '';
+
+                conversations.push({
+                    name: name,
+                    preview: preview,
+                    thread_id: threadId,
+                    thread_url: href,
+                    unread: unread,
+                });
+            });
+
+            return { conversations: conversations, count: conversations.length };
+        }""")
+
+        return result
+
+    async def get_twitter_dm_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages in a Twitter/X DM thread.
+
+        Navigates to the specific DM thread and extracts all visible messages
+        with sender names, text, and timestamps.
+        """
+        await self.navigate(f"https://x.com/messages/{thread_id}")
+        await asyncio.sleep(4)
+
+        # Scroll up to load older messages
+        await self.evaluate("""() => {
+            const container = document.querySelector(
+                '[class*="message-list"], [role="log"], [data-testid="conversation"]'
+            );
+            if (container) container.scrollTop = 0;
+        }""")
+        await asyncio.sleep(1)
+
+        result = await self.evaluate("""() => {
+            const messages = [];
+
+            // Twitter/X DM messages are in various container patterns
+            const msgEls = document.querySelectorAll(
+                '[data-testid="messageEntry"], ' +
+                '[class*="message-item"], ' +
+                'div[role="article"]'
+            );
+
+            let currentSender = '';
+            msgEls.forEach(el => {
+                const senderEl = el.querySelector('[class*="sender"], [class*="author"], [data-testid="UserAvatar"]');
+                const sender = senderEl ? (senderEl.getAttribute('aria-label') || senderEl.innerText || '').trim() : currentSender;
+                if (sender) currentSender = sender;
+
+                const textEl = el.querySelector('[data-testid="messageText"], [class*="message-text"], [dir="auto"]');
+                const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+
+                const timeEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+                const time = timeEl ? timeEl.innerText.trim() : '';
+
+                if (text && text.length < 2000) {
+                    messages.push({ sender: sender || 'unknown', text: text, time: time });
+                }
+            });
+
+            return { messages: messages, count: messages.length };
+        }""")
+
+        if isinstance(result, dict):
+            result["thread_id"] = thread_id
+
+        return result
+
+    async def send_twitter_dm_message(self, thread_id: str, text: str) -> dict[str, Any]:
+        """Send a message in a Twitter/X DM thread.
+
+        Navigates to the thread, types the message, and sends it.
+        """
+        await self.navigate(f"https://x.com/messages/{thread_id}")
+        await asyncio.sleep(4)
+
+        import json as _json
+        escaped_text = _json.dumps(text)
+        result = await self.evaluate(f"""() => {{
+            const editor = document.querySelector(
+                'div[contenteditable="true"][data-testid="tweetTextarea_0"], ' +
+                'div[contenteditable="true"][role="textbox"], ' +
+                'textarea[placeholder*="essage"], ' +
+                'textarea[placeholder*="Start a message"]'
+            );
+            if (!editor) return {{ error: 'Could not find the message input box' }};
+
+            editor.focus();
+
+            if (editor.isContentEditable) {{
+                document.execCommand('insertText', false, {escaped_text});
+            }} else {{
+                editor.value = {escaped_text};
+                editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            }}
+
+            return {{ status: 'typed' }};
+        }}""")
+
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        await asyncio.sleep(1)
+
+        # Click Send button or press Enter
+        send_result = await self.evaluate("""() => {
+            const sendBtn = document.querySelector(
+                'button[data-testid="dmSendButton"], ' +
+                'button[aria-label*="Send"], ' +
+                'button:has-text("Send")'
+            );
+            if (sendBtn) {
+                sendBtn.click();
+                return { status: 'sent', method: 'button' };
+            }
+            return { status: 'no_button' };
+        }""")
+
+        if send_result.get("status") == "no_button":
+            await self.evaluate("""() => {
+                const editor = document.querySelector('div[contenteditable="true"][role="textbox"], textarea');
+                if (editor) {
+                    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                }
+            }""")
+
+        await asyncio.sleep(2)
+
+        return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
+
+    # ── TikTok DM (direct messages) ─────────────────────────────────────
+    # TikTok's Business Messaging API is in Open Beta (APAC, LATAM, METAP,
+    # NA) but not available in EU. These methods automate the TikTok web UI
+    # (tiktok.com/messages) using browser automation.
+    # Based on open-source projects: TikTokStreakSaver, tikbot, tiktok_dm.
+
+    async def get_tiktok_dm_conversations(self) -> dict[str, Any]:
+        """Read TikTok DM conversation list from tiktok.com/messages.
+
+        Navigates to the TikTok inbox and extracts recent conversations
+        with names, preview text, and thread URLs.
+        Requires a logged-in TikTok browser session.
+        """
+        await self.navigate("https://www.tiktok.com/messages")
+        await asyncio.sleep(4)
+
+        result = await self.evaluate("""() => {
+            const conversations = [];
+            const seen = new Set();
+
+            // TikTok DM conversation items
+            const items = document.querySelectorAll(
+                'a[href*="/messages/"], ' +
+                'div[class*="conversation"], ' +
+                'div[class*="chat-item"], ' +
+                'div[data-e2e="chat-item"]'
+            );
+
+            items.forEach(item => {
+                const href = item.getAttribute('href') || '';
+                if (href.includes('/messages/compose') || href === '/messages') return;
+                if (seen.has(href || item.innerText)) return;
+                seen.add(href || item.innerText);
+
+                const text = item.innerText || '';
+                const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
+                if (lines.length === 0) return;
+
+                // Extract conversation ID from URL or data attribute
+                const match = href.match(/messages\\/([0-9a-zA-Z_-]+)/);
+                const threadId = match ? match[1] : (item.getAttribute('data-conversation-id') || '');
+
+                const name = lines[0] || 'Unknown';
+                let preview = '';
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === 'Active now' || line === '\\u00a0') continue;
+                    preview = line;
+                    break;
+                }
+
+                // Check for unread indicator
+                const unreadEl = item.querySelector('[class*="unread"], [class*="badge"], [data-e2e="unread"]');
+                const unread = unreadEl ? unreadEl.innerText.trim() : '';
+
+                conversations.push({
+                    name: name,
+                    preview: preview,
+                    thread_id: threadId,
+                    thread_url: href,
+                    unread: unread,
+                });
+            });
+
+            return { conversations: conversations, count: conversations.length };
+        }""")
+
+        return result
+
+    async def get_tiktok_dm_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages in a TikTok DM thread.
+
+        Navigates to the specific DM thread and extracts all visible messages
+        with sender names, text, and timestamps.
+        """
+        await self.navigate(f"https://www.tiktok.com/messages/{thread_id}")
+        await asyncio.sleep(4)
+
+        # Scroll up to load older messages
+        await self.evaluate("""() => {
+            const container = document.querySelector(
+                '[class*="message-list"], [class*="chat-container"], [role="log"]'
+            );
+            if (container) container.scrollTop = 0;
+        }""")
+        await asyncio.sleep(1)
+
+        result = await self.evaluate("""() => {
+            const messages = [];
+
+            // TikTok DM messages are in various container patterns
+            const msgEls = document.querySelectorAll(
+                '[class*="message-item"], ' +
+                '[class*="msg-item"], ' +
+                '[data-e2e="message-item"], ' +
+                'div[role="article"]'
+            );
+
+            let currentSender = '';
+            msgEls.forEach(el => {
+                const senderEl = el.querySelector('[class*="sender"], [class*="author"], [class*="name"], [data-e2e="sender"]');
+                const sender = senderEl ? senderEl.innerText.trim() : currentSender;
+                if (sender) currentSender = sender;
+
+                const textEl = el.querySelector('[class*="message-text"], [data-e2e="message-text"], p, [class*="content"]');
+                const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+
+                const timeEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+                const time = timeEl ? timeEl.innerText.trim() : '';
+
+                if (text && text.length < 2000) {
+                    messages.push({ sender: sender || 'unknown', text: text, time: time });
+                }
+            });
+
+            return { messages: messages, count: messages.length };
+        }""")
+
+        if isinstance(result, dict):
+            result["thread_id"] = thread_id
+
+        return result
+
+    async def send_tiktok_dm_message(self, thread_id: str, text: str) -> dict[str, Any]:
+        """Send a message in a TikTok DM thread.
+
+        Navigates to the thread, types the message, and sends it.
+        """
+        await self.navigate(f"https://www.tiktok.com/messages/{thread_id}")
+        await asyncio.sleep(4)
+
+        import json as _json
+        escaped_text = _json.dumps(text)
+        result = await self.evaluate(f"""() => {{
+            const editor = document.querySelector(
+                'div[contenteditable="true"][role="textbox"], ' +
+                'textarea[class*="message"], ' +
+                'textarea[placeholder*="essage"], ' +
+                'textarea[placeholder*="Send a message"], ' +
+                '[data-e2e="message-input"]'
+            );
+            if (!editor) return {{ error: 'Could not find the message input box' }};
+
+            editor.focus();
+
+            if (editor.isContentEditable) {{
+                document.execCommand('insertText', false, {escaped_text});
+            }} else {{
+                editor.value = {escaped_text};
+                editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            }}
+
+            return {{ status: 'typed' }};
+        }}""")
+
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        await asyncio.sleep(1)
+
+        # Click Send button or press Enter
+        send_result = await self.evaluate("""() => {
+            const sendBtn = document.querySelector(
+                'button[type="submit"], ' +
+                'button[aria-label*="Send"], ' +
+                'button[data-e2e="send-button"], ' +
+                'button:has-text("Send")'
+            );
+            if (sendBtn) {
+                sendBtn.click();
+                return { status: 'sent', method: 'button' };
+            }
+            return { status: 'no_button' };
+        }""")
+
+        if send_result.get("status") == "no_button":
+            await self.evaluate("""() => {
+                const editor = document.querySelector('div[contenteditable="true"][role="textbox"], textarea');
+                if (editor) {
+                    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                }
+            }""")
+
+        await asyncio.sleep(2)
+
+        return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}

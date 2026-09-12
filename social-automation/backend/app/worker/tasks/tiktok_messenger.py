@@ -1,14 +1,14 @@
-"""Celery task — Twitter/X DM chatbot via browser automation.
+"""Celery task — TikTok DM chatbot via browser automation.
 
-Twitter/X has a DM API v2 but it requires a paid tier ($200/mo Basic,
-$5000/mo Pro). Free tier can't read or send DMs via API.
+TikTok's Business Messaging API is in Open Beta (APAC, LATAM, METAP, NA)
+but not available in EU/Greece. Only for inbound messages.
 
 This task uses browser automation (same approach as personal Facebook
-Messenger, LinkedIn, and Threads) to poll for new DMs and send AI
-auto-replies through the Twitter/X web UI (x.com/messages).
+Messenger, LinkedIn, Threads, and Twitter) to poll for new DMs and send
+AI auto-replies through the TikTok web UI (tiktok.com/messages).
 
 Flow:
-    1. Find Twitter accounts with auto-reply enabled
+    1. Find TikTok accounts with auto-reply enabled
     2. For each account, use browser bridge to check session
     3. Poll conversations via browser bridge
     4. For each conversation with new messages:
@@ -21,8 +21,8 @@ Flow:
        g. Mark as seen + set cooldown
 
 State tracking:
-    ``meta_data.twitter_auto_reply`` stores bot config
-    ``meta_data.twitter_messenger_seen`` stores {conversation_id: last_text}
+    ``meta_data.tiktok_auto_reply`` stores bot config
+    ``meta_data.tiktok_messenger_seen`` stores {conversation_id: last_text}
 
 The task runs every 5 minutes via Celery beat.
 """
@@ -91,14 +91,14 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
-@celery_app.task(name="app.worker.tasks.twitter_messenger.poll_twitter_messenger")
-def poll_twitter_messenger() -> dict:
-    """Poll Twitter DM conversations and send AI auto-replies via browser bridge."""
-    return _run_async(_poll_twitter_messenger_async())
+@celery_app.task(name="app.worker.tasks.tiktok_messenger.poll_tiktok_messenger")
+def poll_tiktok_messenger() -> dict:
+    """Poll TikTok DM conversations and send AI auto-replies via browser bridge."""
+    return _run_async(_poll_tiktok_messenger_async())
 
 
-async def _poll_twitter_messenger_async() -> dict:
-    """Async implementation of the Twitter DM poller."""
+async def _poll_tiktok_messenger_async() -> dict:
+    """Async implementation of the TikTok DM poller."""
     stats = {"accounts_checked": 0, "replies_sent": 0, "errors": 0, "skipped_no_session": 0}
     settings = get_settings()
 
@@ -109,7 +109,7 @@ async def _poll_twitter_messenger_async() -> dict:
     async with _worker_db() as db:
         result = await db.execute(
             select(SocialAccount).where(
-                SocialAccount.platform == "twitter",
+                SocialAccount.platform == "tiktok",
                 SocialAccount.status == "active",
             )
         )
@@ -117,12 +117,12 @@ async def _poll_twitter_messenger_async() -> dict:
 
         for account in accounts:
             meta = account.meta_data or {}
-            auto_reply = meta.get("twitter_auto_reply", {})
+            auto_reply = meta.get("tiktok_auto_reply", {})
             if not auto_reply.get("enabled", False):
                 continue
 
             stats["accounts_checked"] += 1
-            seen = meta.get("twitter_messenger_seen", {})
+            seen = meta.get("tiktok_messenger_seen", {})
 
             try:
                 replies = await _process_account(
@@ -131,8 +131,8 @@ async def _poll_twitter_messenger_async() -> dict:
                 )
                 stats["replies_sent"] += replies
 
-                meta["twitter_messenger_seen"] = seen
-                meta["twitter_messenger_last_checked"] = datetime.now(UTC).isoformat()
+                meta["tiktok_messenger_seen"] = seen
+                meta["tiktok_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
                 from sqlalchemy.orm.attributes import flag_modified
                 flag_modified(account, "meta_data")
@@ -140,11 +140,11 @@ async def _poll_twitter_messenger_async() -> dict:
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
-                    "Twitter DM poll failed for account %s: %s",
+                    "TikTok DM poll failed for account %s: %s",
                     account.id, exc, exc_info=True,
                 )
 
-    logger.info("Twitter DM poll complete: %s", stats)
+    logger.info("TikTok DM poll complete: %s", stats)
     return stats
 
 
@@ -156,7 +156,7 @@ async def _process_account(
     cf_account: str,
     dmr_url: str,
 ) -> int:
-    """Process a single Twitter account — poll DMs via browser bridge and reply."""
+    """Process a single TikTok account — poll DMs via browser bridge and reply."""
     bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
@@ -166,20 +166,20 @@ async def _process_account(
         status = await bridge.session_status()
         if not status.get("logged_in") and not status.get("has_session"):
             logger.info(
-                "Twitter DM: browser bridge session not active for account %s — "
-                "login via noVNC (port 6080) to x.com first. Skipping.",
+                "TikTok DM: browser bridge session not active for account %s — "
+                "login via noVNC (port 6080) to tiktok.com first. Skipping.",
                 account.id,
             )
             return 0
     except Exception as exc:
-        logger.warning("Twitter DM: browser bridge check failed for account %s: %s", account.id, exc)
+        logger.warning("TikTok DM: browser bridge check failed for account %s: %s", account.id, exc)
         return 0
 
     # 1. Fetch conversations via browser bridge
     try:
-        convos_result = await bridge.get_twitter_dm_conversations()
+        convos_result = await bridge.get_tiktok_dm_conversations()
     except Exception as exc:
-        logger.warning("Twitter DM: browser bridge error for account %s: %s", account.id, exc)
+        logger.warning("TikTok DM: browser bridge error for account %s: %s", account.id, exc)
         return 0
 
     conversations = convos_result.get("conversations", [])
@@ -195,7 +195,7 @@ async def _process_account(
 
         try:
             # 2. Read messages in this conversation
-            msgs_result = await bridge.get_twitter_dm_messages(convo_id)
+            msgs_result = await bridge.get_tiktok_dm_messages(convo_id)
             messages = msgs_result.get("messages", [])
             if not messages:
                 continue
@@ -240,7 +240,7 @@ async def _process_account(
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
             # 8. Send reply via browser bridge
-            await bridge.send_twitter_dm_message(convo_id, reply_text)
+            await bridge.send_tiktok_dm_message(convo_id, reply_text)
 
             # 9. Store in memory
             await store_message_memory(
@@ -257,15 +257,15 @@ async def _process_account(
             await set_cooldown(account.id, seen_key, cooldown_seconds)
             replies_sent += 1
             logger.info(
-                "Twitter auto-reply sent to '%s' (conversation %s) for account %s",
+                "TikTok auto-reply sent to '%s' (conversation %s) for account %s",
                 convo_name, convo_id, account.id,
             )
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
         except Exception as exc:
             logger.error(
-                "Error processing Twitter conversation %s: %s",
+                "Error processing TikTok conversation %s: %s",
                 convo_id, exc, exc_info=True,
             )
 

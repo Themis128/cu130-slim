@@ -101,7 +101,8 @@ async function ensureBrowser() {
     await loadSavedSession();
   }
 
-  browser = await chromium.launch({
+  const proxyServer = process.env.LINKEDIN_PROXY || process.env.PROXY_URL || '';
+  const launchOpts = {
     headless: true,
     args: [
       '--disable-blink-features=AutomationControlled',
@@ -113,7 +114,12 @@ async function ensureBrowser() {
       '--disable-infobars',
       '--window-size=1920,1080',
     ],
-  });
+  };
+  if (proxyServer) {
+    launchOpts.proxy = { server: proxyServer };
+    agentLog('H-H', 'ensureBrowser', 'launching with proxy', { proxy: proxyServer.replace(/:\/\/.*/, '://***') });
+  }
+  browser = await chromium.launch(launchOpts);
 
   const ctxOptions = {
     viewport: { width: 1920, height: 1080 },
@@ -216,6 +222,51 @@ function agentLog(hypothesisId, location, message, data = {}) {
   // #endregion
 }
 
+
+/** Global LinkedIn rate-limit circuit breaker (persisted under /data). */
+const RATE_LIMIT_FILE = path.join(path.dirname(process.env.SESSION_FILE || '/data/li-session.json'), 'rate-limit.json');
+const RATE_LIMIT_COOLDOWN_MS = Number(process.env.LINKEDIN_RATE_LIMIT_COOLDOWN_MS || 6 * 60 * 60 * 1000);
+
+function readRateLimitState() {
+  try {
+    if (!fs.existsSync(RATE_LIMIT_FILE)) return null;
+    return JSON.parse(fs.readFileSync(RATE_LIMIT_FILE, 'utf-8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function tripRateLimit(reason) {
+  const until = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+  const state = { until, reason: String(reason || '').slice(0, 300), trippedAt: Date.now() };
+  try {
+    fs.writeFileSync(RATE_LIMIT_FILE, JSON.stringify(state));
+  } catch (_) {}
+  agentLog('H-F', 'tripRateLimit', 'circuit opened', { until, reason: state.reason, cooldownMs: RATE_LIMIT_COOLDOWN_MS });
+  return state;
+}
+
+function clearRateLimit() {
+  try { fs.unlinkSync(RATE_LIMIT_FILE); } catch (_) {}
+  agentLog('H-F', 'clearRateLimit', 'circuit closed', {});
+}
+
+function assertNotRateLimited(action) {
+  const state = readRateLimitState();
+  if (!state || !state.until) return;
+  if (Date.now() >= state.until) {
+    clearRateLimit();
+    return;
+  }
+  const err = new Error(
+    `LinkedIn circuit open until ${new Date(state.until).toISOString()} (${state.reason || 'rate-limited'}); skipped ${action}`
+  );
+  err.code = 'RATE_LIMITED';
+  err.status = 429;
+  err.until = state.until;
+  throw err;
+}
+
 /** True when the document is a blank/error shell (rate-limit / redirect failure). */
 function isBlankDocument() {
   try {
@@ -237,6 +288,7 @@ async function navigate(url, timeout = 60000) {
   // Serialize all navigations — concurrent page.goto races cause
   // "Navigation is interrupted by another navigation".
   const run = async () => {
+  assertNotRateLimited(`navigate ${url}`);
   await ensureBrowser();
   let lastErr = null;
   const attempts = [
@@ -255,6 +307,7 @@ async function navigate(url, timeout = 60000) {
         waitUntil: opts.waitUntil,
       });
       if (status === 429) {
+        tripRateLimit(`HTTP 429 on ${url}`);
         const err = new Error(`LinkedIn rate-limited (HTTP 429) navigating to ${url}`);
         err.code = 'RATE_LIMITED';
         err.status = 429;
@@ -275,6 +328,7 @@ async function navigate(url, timeout = 60000) {
       const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
       agentLog('H-A', 'navigate', 'document sizes', { url: page.url(), htmlLen, textLen, status });
       if (htmlLen < 200 && textLen === 0) {
+        tripRateLimit(`empty document on ${url}`);
         const err = new Error(`Empty LinkedIn document (htmlLen=${htmlLen}) — likely rate-limited or blocked`);
         err.code = 'RATE_LIMITED';
         err.status = status || 429;
@@ -302,6 +356,7 @@ async function navigate(url, timeout = 60000) {
   }
   // LinkedIn often answers rate-limits / soft blocks with redirect loops.
   if (lastErr && lastErr.message && lastErr.message.includes('ERR_TOO_MANY_REDIRECTS')) {
+    tripRateLimit(`redirect loop on ${url}`);
     const err = new Error(`LinkedIn redirect loop (likely rate-limited) navigating to ${url}`);
     err.code = 'RATE_LIMITED';
     err.status = 429;
@@ -609,7 +664,7 @@ async function exportCookies() {
 // ── API: Session ───────────────────────────────────────────────────────────
 
 async function handleSetSession(req, res) {
-  const { storage_state, cookies } = req.body;
+  const { storage_state, cookies, verify } = req.body;
   if (!storage_state && !cookies) {
     return res.status(400).json({ error: 'storage_state or cookies is required' });
   }
@@ -627,16 +682,23 @@ async function handleSetSession(req, res) {
   }
   agentLog('H-D', 'handleSetSession', 'session applied', {
     cookieCount: (storageState.cookies || []).length,
+    verify: verify !== false,
   });
   await closeBrowser();
   await ensureBrowser();
+  // verify=false: inject cookies only (for cooldown / offline restore). Default verifies via feed.
+  if (verify === false) {
+    await saveSession();
+    return res.json({ status: 'ok', logged_in: null, verified: false, url: null });
+  }
   try {
     await navigateAndCheck('https://www.linkedin.com/feed/');
-    const loggedIn = isLoggedIn();
+    const loggedIn = await isLoggedInStrict();
     if (loggedIn) await saveSession();
-    res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
+    res.json({ status: 'ok', logged_in: loggedIn, verified: true, url: page.url() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    res.status(status).json({ error: err.message, code: err.code || 'SESSION_ERROR', logged_in: false });
   }
 }
 
@@ -660,10 +722,17 @@ async function handleLogin(req, res) {
     return res.status(400).json({ error: 'username and password are required' });
   }
   try {
+    // Login is allowed even while the feed/messaging circuit is open —
+    // LinkedIn /login still returns 200; only the flagged session is blocked.
+    clearRateLimit();
+    await closeBrowser();
+    // Start clean (no flagged cookies) for a fresh login.
+    storageState = null;
     await ensureBrowser();
     await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
     await dismissDialogs();
+    agentLog('H-G', 'handleLogin', 'login page loaded', { url: page.url(), status: 0 });
 
     // Wait for the login form to render (LinkedIn uses JS to render inputs)
     try {
@@ -2324,8 +2393,23 @@ app.use(apiLimiter);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'linkedin-browser-sidecar', has_session: !!storageState });
+  const rl = readRateLimitState();
+  const cooling = !!(rl && rl.until && Date.now() < rl.until);
+  res.json({
+    status: 'ok',
+    service: 'linkedin-browser-sidecar',
+    has_session: !!storageState || fs.existsSync(SESSION_FILE),
+    rate_limited: cooling,
+    rate_limit_until: cooling ? rl.until : null,
+    proxy: !!(process.env.LINKEDIN_PROXY || process.env.PROXY_URL),
+  });
 });
+
+app.post('/session/clear-rate-limit', (req, res) => {
+  clearRateLimit();
+  res.json({ status: 'ok', cleared: true });
+});
+
 
 // Session
 app.post('/session', authLimiter, handleSetSession);

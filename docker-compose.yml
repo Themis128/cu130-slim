@@ -1061,8 +1061,13 @@ services:
     environment:
     - LINKEDIN_SIDECAR_PORT=9225
     - TZ=Europe/Athens
+    # Route LinkedIn browser traffic through Cloudflare WARP (avoids datacenter IP blocks).
+    - LINKEDIN_PROXY=${LINKEDIN_PROXY:-socks5://warp-proxy:1080}
+    - LINKEDIN_RATE_LIMIT_COOLDOWN_MS=${LINKEDIN_RATE_LIMIT_COOLDOWN_MS:-21600000}
     volumes:
     - linkedin_browser_data:/data
+    depends_on:
+    - warp-proxy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9225/health || exit 1"]
       interval: 30s

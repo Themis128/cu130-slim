@@ -22,6 +22,10 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_messenger",
         "app.worker.tasks.threads_messenger",
         "app.worker.tasks.twitter_messenger",
+        "app.worker.tasks.tiktok_messenger",
+        "app.worker.tasks.instagram_messenger",
+        "app.worker.tasks.instagram_token_refresh",
+        "app.worker.tasks.linkedin_session_refresh",
     ],
 )
 
@@ -139,6 +143,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
         "app.worker.tasks.twitter_messenger.poll_twitter_messenger": {"queue": "messenger"},
+        "app.worker.tasks.tiktok_messenger.poll_tiktok_messenger": {"queue": "messenger"},
+        "app.worker.tasks.instagram_messenger.poll_instagram_messenger": {"queue": "messenger"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -203,7 +209,7 @@ celery_app.conf.update(
         # so polling is the only option.
         "poll-linkedin-messenger": {
             "task": "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger",
-            "schedule": 900.0,  # every 15 minutes (LinkedIn rate-limits aggressive browser polling)
+            "schedule": 21600.0,  # every 6 hours — LinkedIn rate-limits browser DM polling hard
             "options": {"queue": "messenger"},
         },
         # Poll Threads DM conversations for new messages and send AI
@@ -222,6 +228,36 @@ celery_app.conf.update(
             "task": "app.worker.tasks.twitter_messenger.poll_twitter_messenger",
             "schedule": 300.0,  # every 5 minutes
             "options": {"queue": "messenger"},
+        },
+        # Poll TikTok DM conversations for new messages and send AI auto-replies
+        # via the Business Messaging API (Open Beta — not yet in EU).
+        # Runs every 5 minutes; gracefully skips accounts without API access.
+        "poll-tiktok-messenger": {
+            "task": "app.worker.tasks.tiktok_messenger.poll_tiktok_messenger",
+            "schedule": 300.0,  # every 5 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll Instagram DM conversations for new messages and send AI auto-replies
+        # via the Instagram Messaging API (same as Messenger Platform API).
+        # Runs every 3 minutes; gracefully skips accounts without OAuth token.
+        "poll-instagram-messenger": {
+            "task": "app.worker.tasks.instagram_messenger.poll_instagram_messenger",
+            "schedule": 180.0,  # every 3 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Refresh Instagram long-lived access tokens before they expire (60 days).
+        # Runs weekly to refresh tokens that will expire within 5 days.
+        "refresh-instagram-tokens": {
+            "task": "app.worker.tasks.instagram_token_refresh.refresh_instagram_tokens",
+            "schedule": 604800.0,  # every 7 days
+            "options": {"queue": "default"},
+        },
+        # Validate and refresh LinkedIn browser sessions weekly.
+        # Clears stale rate limits and reports session health.
+        "refresh-linkedin-sessions": {
+            "task": "app.worker.tasks.linkedin_session_refresh.refresh_linkedin_sessions",
+            "schedule": 604800.0,  # every 7 days
+            "options": {"queue": "default"},
         },
     },
 )
