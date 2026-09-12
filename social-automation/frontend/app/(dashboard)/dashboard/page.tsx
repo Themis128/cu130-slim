@@ -14,7 +14,7 @@ import { WeekCalendar } from '@/components/ui/WeekCalendar'
 import { PostingHeatmap } from '@/components/ui/PostingHeatmap'
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist'
 import { EmptyState as DashboardEmptyState } from '@/components/dashboard/EmptyState'
-import { useOverviewMetrics, useTopPosts, useScheduledPosts, useAccounts, useMedia } from '@/hooks/useQueries'
+import { useOverviewMetrics, useTopPosts, useScheduledPosts, useAccounts, useMedia, useBrand } from '@/hooks/useQueries'
 import { useAdvisor } from '@/hooks/useAdvisor'
 import { useAuth } from '@/hooks/useAuth'
 import type { TopPost } from '@/types'
@@ -49,13 +49,14 @@ export default function DashboardPage() {
   const { data: scheduledPosts = [] } = useScheduledPosts()
   const { data: accounts } = useAccounts()
   const { data: mediaData } = useMedia({ page: 1, page_size: 1 })
+  const { data: brand } = useBrand()
   const { setCtx } = useAdvisor()
   const { user } = useAuth()
 
   const connectedAccountsCount = accounts?.length ?? metrics?.connected_accounts ?? 0
   const totalPosts = metrics?.total_posts ?? 0
   const mediaCount = mediaData?.total ?? mediaData?.items?.length ?? mediaData?.assets?.length ?? 0
-  const hasScheduledPost = (metrics?.scheduled_posts ?? 0) > 0
+  const hasScheduledPost = (metrics?.scheduled_posts ?? 0) > 0 || scheduledPosts.length > 0
 
   useEffect(() => {
     if (!metrics) return
@@ -146,7 +147,7 @@ export default function DashboardPage() {
       {/* Onboarding checklist (auto-hides when all done or dismissed) */}
       <OnboardingChecklist
         connectedAccounts={connectedAccountsCount}
-        hasBrand={false}
+        hasBrand={!!brand}
         postCount={totalPosts}
         hasScheduledPost={hasScheduledPost}
       />

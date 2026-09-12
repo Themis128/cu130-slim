@@ -1,8 +1,16 @@
 import os
 from pathlib import Path
 
+import pytest
+
 # Only load .env file if not in CI environment
 is_ci = os.environ.get("CI") == "true"
+
+
+def pytest_collection_modifyitems(items):
+    """Mark every test under tests/integration/ so Backend CI can exclude them."""
+    for item in items:
+        item.add_marker(pytest.mark.integration)
 if not is_ci:
     # Load environment variables from .env file if it exists
     env_path = Path(__file__).parent.parent.parent / '.env'

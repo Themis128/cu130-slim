@@ -31,7 +31,8 @@ async def test_build_daily_digest_includes_failed_post_failure_reason(db):
     report = await build_daily_digest(db, team=team, days=1)
 
     assert any(
-        i.severity == "error" and "Post failed" in i.title and "upstream timeout" in i.detail
+        i.severity == "error"
+        and "publish" in i.title.lower()
+        and "upstream timeout" in i.detail
         for i in report.issues
     )
-

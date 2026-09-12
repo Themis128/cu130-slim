@@ -246,6 +246,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Review dependencies
+        # Soft-fail: private repos need Dependency graph enabled under
+        # Settings → Code security. Without it the action errors hard.
+        continue-on-error: true
         uses: actions/dependency-review-action@v5
         with:
           config-file: '.github/dependency-review-config.yml'

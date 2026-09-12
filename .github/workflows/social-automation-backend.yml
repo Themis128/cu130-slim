@@ -93,7 +93,9 @@ jobs:
       - name: Run tests
         run: |
           cd social-automation/backend
-          pytest -v --tb=short --cov=app --cov-report=xml -m "not integration"
+          # Unit suite only — integration tests live under tests/integration/
+          # and are gated by Full Stack Integration Tests.
+          pytest tests/unit -v --tb=short --cov=app --cov-report=xml -m "not integration"
         env:
           CI: "true"
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test

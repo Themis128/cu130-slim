@@ -205,13 +205,11 @@ jobs:
           npm run build
 
       - name: Run backend unit tests
-        continue-on-error: true
         run: |
           cd social-automation/backend
           pytest tests/unit -v --tb=short -m "not integration"
 
       - name: Run backend integration tests
-        continue-on-error: true
         run: |
           cd social-automation/backend
-          pytest tests/integration -v --tb=short
+          pytest tests/integration -v --tb=short -m integration

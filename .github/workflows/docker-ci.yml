@@ -62,11 +62,22 @@ jobs:
         id: version
         run: echo "tag=v2.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve Docker Hub namespace
+        id: hub
+        run: |
+          # Dependabot / fork PRs cannot read org secrets — fall back so tags
+          # remain valid for local build + Trivy scan (push is still gated).
+          USER="${{ secrets.DOCKERHUB_USERNAME }}"
+          if [ -z "$USER" ]; then
+            USER="baltzakist"
+          fi
+          echo "user=$USER" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata for ${{ matrix.service.name }}
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/cu130-slim-${{ matrix.service.name }}
+          images: ${{ steps.hub.outputs.user }}/cu130-slim-${{ matrix.service.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.version.outputs.tag }},enable={{is_default_branch}}
