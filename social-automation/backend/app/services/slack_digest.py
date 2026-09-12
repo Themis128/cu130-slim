@@ -400,7 +400,7 @@ async def post_digest_to_slack(report: DigestReport) -> DigestReport:
         (settings.SLACK_BOT_TOKEN or "").strip()
         or (settings.SLACK_ACCESS_TOKEN or "").strip()
     )
-    channel = (settings.SLACK_CHANNEL_ID or "").strip() or "C0BT263L17U"  # #socialauto
+    channel = (settings.SLACK_CHANNEL_ID or "").strip() or "C0C1F1K3DDF"  # #socialauto
 
     if not webhook and not token:
         report.slack_error = (

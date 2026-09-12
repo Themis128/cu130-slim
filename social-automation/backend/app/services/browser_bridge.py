@@ -580,6 +580,8 @@ class BrowserBridgeClient:
         random conversation. To work around this, we navigate to about:blank
         first to unload the SPA, then navigate to the thread URL. This forces
         a fresh SPA load that respects the requested URL.
+
+        For E2EE threads, also handles the PIN entry dialog if it appears.
         """
         path = "e2ee/t" if is_e2ee else "t"
         target_url = f"https://www.facebook.com/messages/{path}/{thread_id}/"
@@ -597,6 +599,79 @@ class BrowserBridgeClient:
         # Step 2: Navigate to the thread URL (fresh SPA load)
         await self.navigate(target_url)
         await asyncio.sleep(5)  # Wait for SPA to load the thread
+
+        # Step 3: For E2EE threads, handle PIN entry dialog if it appears
+        if is_e2ee:
+            await self._handle_e2ee_pin_dialog()
+
+    async def _handle_e2ee_pin_dialog(self, pin: str | None = None) -> bool:
+        """Handle the E2EE PIN entry dialog if it appears.
+
+        Facebook Messenger shows a PIN entry dialog when opening an E2EE
+        conversation for the first time (or after clearing browser data).
+        This method detects the dialog and enters the PIN if provided.
+
+        Args:
+            pin: The 6-digit PIN for E2EE conversations. If None, checks for
+                 the dialog but cannot enter the PIN.
+
+        Returns:
+            True if the dialog was found and handled, False if no dialog.
+        """
+        try:
+            result = await self.evaluate("""() => {
+                // Look for the E2EE PIN entry dialog
+                const dialog = document.querySelector(
+                    'div[role="dialog"], ' +
+                    'div[aria-label*="PIN"], ' +
+                    'div[aria-label*="pin"], ' +
+                    'div:has(input[type="password"][placeholder*="PIN"]), ' +
+                    'div:has(input[type="password"][placeholder*="pin"])'
+                );
+                if (!dialog) return { found: false };
+
+                // Check for PIN input
+                const pinInput = dialog.querySelector(
+                    'input[type="password"], ' +
+                    'input[placeholder*="PIN"], ' +
+                    'input[placeholder*="pin"], ' +
+                    'input[autocomplete="off"][maxlength="6"]'
+                );
+
+                // Check for "Enter PIN" or similar text
+                const dialogText = dialog.innerText || '';
+                const hasPinPrompt = dialogText.includes('PIN') || dialogText.includes('pin');
+
+                return {
+                    found: true,
+                    hasPinInput: !!pinInput,
+                    hasPinPrompt: hasPinPrompt,
+                    dialogText: dialogText.substring(0, 200),
+                };
+            }""")
+            data = result.get("result", {})
+            if not data.get("found"):
+                return False
+
+            if data.get("hasPinInput") and pin:
+                # Enter the PIN using the fill endpoint
+                await self.fill('div[role="dialog"] input[type="password"]', pin)
+                await asyncio.sleep(0.5)
+                # Click the submit/continue button
+                await self.click('div[role="dialog"] button[type="submit"], div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("Submit")')
+                await asyncio.sleep(2)
+                logger.info("E2EE PIN entered successfully")
+                return True
+            elif data.get("hasPinPrompt") and not pin:
+                logger.warning(
+                    "E2EE PIN dialog detected but no PIN provided — "
+                    "set MESSENGER_E2EE_PIN env var or pass pin parameter"
+                )
+                return True  # Dialog found but can't enter PIN
+            return False
+        except Exception as exc:
+            logger.debug("E2EE PIN dialog check failed (non-fatal): %s", exc)
+            return False
 
     async def get_personal_messenger_messages(self, thread_id: str, is_e2ee: bool = False) -> dict[str, Any]:
         """Read messages from a specific conversation thread.
