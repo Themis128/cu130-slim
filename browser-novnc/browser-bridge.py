@@ -264,6 +264,65 @@ async def stop_session():
         return {"status": "stopped"}
 
 
+# ── Daemon mode: keep session warm for fast sends ──────────────────────
+_keepalive_task: asyncio.Task | None = None
+_warm_urls: dict[str, str] = {
+    "facebook": "https://www.facebook.com/messages/",
+    "messenger": "https://www.facebook.com/messages/",
+    "instagram": "https://www.instagram.com/direct/inbox/",
+    "linkedin": "https://www.linkedin.com/feed/",
+}
+
+
+@app.post("/session/warm")
+async def warm_session(platform: str = "facebook"):
+    """Pre-load the platform SPA so subsequent sends are fast (~2s vs ~15s cold).
+
+    Navigates to the platform's main page and keeps the session alive with
+    periodic background navigation. Call this once after login to warm the
+    session for daemon-mode sends.
+    """
+    global _keepalive_task
+    if not _state["context"] or not _state["page"]:
+        raise HTTPException(400, "No active browser session — start one first")
+    target = _warm_urls.get(platform, _warm_urls.get("facebook", "https://www.facebook.com/messages/"))
+    try:
+        await _state["page"].goto(target, wait_until="domcontentloaded", timeout=30000)
+        _state["message"] = f"Session warmed for {platform}"
+    except Exception as exc:
+        _state["message"] = f"Warm failed: {exc}"
+    # Start keepalive background task (cancels any existing one)
+    if _keepalive_task and not _keepalive_task.done():
+        _keepalive_task.cancel()
+    _keepalive_task = asyncio.create_task(_keepalive_loop(platform))
+    return {"status": "warmed", "platform": platform, "url": target}
+
+
+async def _keepalive_loop(platform: str):
+    """Background task that keeps the session alive by navigating every 5 min."""
+    target = _warm_urls.get(platform, "https://www.facebook.com/messages/")
+    while True:
+        try:
+            await asyncio.sleep(300)  # 5 minutes
+            if _state["page"]:
+                await _state["page"].goto(target, wait_until="domcontentloaded", timeout=30000)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass  # Non-fatal — keepalive will retry next cycle
+
+
+@app.get("/session/daemon-status")
+async def daemon_status():
+    """Check if daemon mode (keepalive) is active."""
+    return {
+        "daemon_active": _keepalive_task is not None and not _keepalive_task.done(),
+        "platform": _state.get("platform"),
+        "status": _state.get("status"),
+        "message": _state.get("message"),
+    }
+
+
 @app.post("/session/extract")
 async def extract_cookies_now():
     """Manually extract cookies from the currently running browser session.
