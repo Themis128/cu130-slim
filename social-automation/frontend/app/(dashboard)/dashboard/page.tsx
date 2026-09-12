@@ -147,7 +147,9 @@ export default function DashboardPage() {
       {/* Onboarding checklist (auto-hides when all done or dismissed) */}
       <OnboardingChecklist
         connectedAccounts={connectedAccountsCount}
+        hasBrand={!!brand}
         postCount={totalPosts}
+        hasScheduledPost={hasScheduledPost}
       />
 
       {/* Empty-state cards for new users */}

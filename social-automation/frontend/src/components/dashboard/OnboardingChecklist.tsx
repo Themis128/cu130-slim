@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
-import { useAccounts, useBrand, useOverviewMetrics, useScheduledPosts } from '@/hooks/useQueries'
 
 interface ChecklistItem {
   label: string
@@ -15,29 +14,25 @@ interface ChecklistItem {
 }
 
 interface OnboardingChecklistProps {
-  /** Number of connected social accounts (optional override) */
+  /** Number of connected social accounts */
   connectedAccounts?: number
-  /** Whether a brand has been set up (optional override) */
+  /** Whether a brand has been set up */
   hasBrand?: boolean
-  /** Total number of posts (optional override) */
+  /** Total number of posts (draft + published + scheduled) */
   postCount?: number
-  /** Whether at least one post is scheduled (optional override) */
+  /** Whether at least one post is scheduled */
   hasScheduledPost?: boolean
 }
 
 const STORAGE_KEY = 'onboarding-checklist-dismissed'
 
 export function OnboardingChecklist({
-  connectedAccounts,
-  hasBrand,
-  postCount,
-  hasScheduledPost,
+  connectedAccounts = 0,
+  hasBrand = false,
+  postCount = 0,
+  hasScheduledPost = false,
 }: OnboardingChecklistProps) {
   const [dismissed, setDismissed] = useState(false)
-  const { data: accounts } = useAccounts()
-  const { data: brand } = useBrand()
-  const { data: scheduledPosts = [] } = useScheduledPosts()
-  const { data: metrics } = useOverviewMetrics(30)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -52,39 +47,26 @@ export function OnboardingChecklist({
     }
   }
 
-  const resolvedAccounts = Math.max(
-    connectedAccounts ?? 0,
-    accounts?.length ?? 0,
-    metrics?.connected_accounts ?? 0,
-  )
-  const resolvedHasBrand = !!brand || hasBrand === true
-  const resolvedPostCount = Math.max(postCount ?? 0, metrics?.total_posts ?? 0)
-  const resolvedHasScheduled = (
-    (scheduledPosts?.length ?? 0) > 0
-    || (metrics?.scheduled_posts ?? 0) > 0
-    || hasScheduledPost === true
-  )
-
   const items: ChecklistItem[] = [
     {
       label: 'Connect a channel',
       href: '/accounts',
-      completed: resolvedAccounts > 0,
+      completed: connectedAccounts > 0,
     },
     {
       label: 'Add brand basics',
       href: '/brand/onboarding',
-      completed: resolvedHasBrand,
+      completed: hasBrand,
     },
     {
       label: 'Create your first post',
       href: '/content/new',
-      completed: resolvedPostCount > 0,
+      completed: postCount > 0,
     },
     {
       label: 'Schedule a post',
       href: '/calendar',
-      completed: resolvedHasScheduled,
+      completed: hasScheduledPost,
     },
   ]
 
@@ -106,6 +88,7 @@ export function OnboardingChecklist({
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Progress bar */}
         <div>
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
             <span>{completedCount} of {items.length} complete</span>
@@ -119,6 +102,7 @@ export function OnboardingChecklist({
           </div>
         </div>
 
+        {/* Checklist items */}
         <ul className="space-y-1">
           {items.map(item => (
             <li key={item.label}>
