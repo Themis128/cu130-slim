@@ -36,8 +36,14 @@ celery_app.set_current()
 
 logger = logging.getLogger(__name__)
 
-GRAPH_URL = "https://graph.instagram.com"
+GRAPH_IG_URL = "https://graph.instagram.com"
+GRAPH_FB_URL = "https://graph.facebook.com"
 REFRESH_THRESHOLD_DAYS = 5  # Refresh if token expires within 5 days
+
+
+def _is_facebook_token(token: str) -> bool:
+    """Facebook User Access Tokens start with 'EAA'; Instagram tokens start with 'IGQ'."""
+    return token.startswith("EAA")
 
 
 @asynccontextmanager
@@ -133,11 +139,13 @@ async def _refresh_instagram_tokens_async() -> dict:
                 continue
 
             # 1. Validate token by calling /me
+            is_fb_token = _is_facebook_token(token)
+            graph_base = GRAPH_FB_URL if is_fb_token else GRAPH_IG_URL
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.get(
-                        f"{GRAPH_URL}/me",
-                        params={"fields": "id,username", "access_token": token},
+                        f"{graph_base}/me",
+                        params={"fields": "id,username,name" if is_fb_token else "id,username", "access_token": token},
                     )
 
                     if resp.status_code == 200:
@@ -201,13 +209,27 @@ async def _refresh_instagram_tokens_async() -> dict:
             # 3. Refresh the token
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(
-                        f"{GRAPH_URL}/refresh_access_token",
-                        params={
-                            "grant_type": "ig_refresh_token",
-                            "access_token": token,
-                        },
-                    )
+                    if is_fb_token:
+                        # Facebook User Access Token: use fb_exchange_token
+                        settings = get_settings()
+                        resp = await client.get(
+                            f"{GRAPH_FB_URL}/oauth/access_token",
+                            params={
+                                "grant_type": "fb_exchange_token",
+                                "client_id": settings.FACEBOOK_CLIENT_ID,
+                                "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                                "fb_exchange_token": token,
+                            },
+                        )
+                    else:
+                        # Instagram Access Token: use ig_refresh_token
+                        resp = await client.get(
+                            f"{GRAPH_IG_URL}/refresh_access_token",
+                            params={
+                                "grant_type": "ig_refresh_token",
+                                "access_token": token,
+                            },
+                        )
 
                     if resp.status_code != 200:
                         stats["errors"] += 1
