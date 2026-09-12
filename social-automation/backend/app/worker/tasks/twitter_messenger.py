@@ -203,7 +203,6 @@ async def _process_account(
             # 3. Find last inbound message
             last_inbound = None
             for msg in reversed(messages):
-                sender = msg.get("sender", "unknown")
                 text = msg.get("text", "")
                 if text and text.strip():
                     last_inbound = msg

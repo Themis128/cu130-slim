@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
@@ -1523,6 +1524,7 @@ async def request_phone_code(
     After receiving the code, call /phone/verify-code to verify it.
     """
     import httpx
+
     from app.core.security import decrypt_token
 
     account = await _get_whatsapp_account(db, current_user, account_id)
@@ -1551,7 +1553,7 @@ async def request_phone_code(
 
 
 @router.post("/{account_id}/phone/verify-code")
-async def verify_phone_code(
+async def verify_account_phone_code(
     account_id: str,
     code: str,
     current_user: User = Depends(get_current_user),
@@ -1562,6 +1564,7 @@ async def verify_phone_code(
     After verification, the number is ready for Cloud API use.
     """
     import httpx
+
     from app.core.security import decrypt_token
 
     account = await _get_whatsapp_account(db, current_user, account_id)
@@ -1586,7 +1589,7 @@ async def verify_phone_code(
 
 
 @router.post("/{account_id}/phone/register")
-async def register_phone(
+async def register_account_phone(
     account_id: str,
     pin: str = "",
     current_user: User = Depends(get_current_user),
@@ -1598,6 +1601,7 @@ async def register_phone(
     The PIN is the 6-digit two-step verification PIN (if enabled).
     """
     import httpx
+
     from app.core.security import decrypt_token
 
     account = await _get_whatsapp_account(db, current_user, account_id)
@@ -1642,6 +1646,7 @@ async def get_phone_status(
 ):
     """Check the WhatsApp business phone number registration status."""
     import httpx
+
     from app.core.security import decrypt_token
 
     account = await _get_whatsapp_account(db, current_user, account_id)

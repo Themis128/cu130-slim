@@ -589,7 +589,7 @@ async def send_threads_dm(
 @router.post("/{account_id}/dm/login")
 async def threads_dm_login(
     account_id: str,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Open Threads in the browser bridge for manual login.
@@ -599,7 +599,7 @@ async def threads_dm_login(
     """
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    account = await _get_threads_account(db, current_user.team_id, account_id)
+    account = await _get_threads_account(db, team_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Threads account not found")
 
@@ -620,13 +620,13 @@ async def threads_dm_login(
 @router.get("/{account_id}/dm/session-status")
 async def threads_dm_session_status(
     account_id: str,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Check if the Threads browser session is active."""
     from app.services.browser_bridge import BrowserBridgeClient
 
-    account = await _get_threads_account(db, current_user.team_id, account_id)
+    account = await _get_threads_account(db, team_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Threads account not found")
 
