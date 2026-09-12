@@ -157,13 +157,13 @@ async def _process_account(
     dmr_url: str,
 ) -> int:
     """Process a single TikTok account — poll DMs via browser bridge and reply."""
-    bridge = BrowserBridgeClient()
+    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
     # 0. Check browser bridge session
     try:
-        status = await bridge.get_session_status()
+        status = await bridge.session_status()
         if not status.get("logged_in") and not status.get("has_session"):
             logger.info(
                 "TikTok DM: browser bridge session not active for account %s — "

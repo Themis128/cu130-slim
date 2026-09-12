@@ -597,13 +597,13 @@ async def threads_dm_login(
     Navigates to threads.com and waits for the user to log in via noVNC.
     The session is saved automatically by the browser bridge.
     """
-    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+    from app.services.browser_bridge import BrowserBridgeError
 
     account = await _get_threads_account(db, team_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Threads account not found")
 
-    bridge = BrowserBridgeClient()
+    bridge = _get_browser_bridge_client()
     try:
         # Navigate to Threads login page
         await bridge.navigate("https://www.threads.com/login")
@@ -624,15 +624,13 @@ async def threads_dm_session_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Check if the Threads browser session is active."""
-    from app.services.browser_bridge import BrowserBridgeClient
-
     account = await _get_threads_account(db, team_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Threads account not found")
 
-    bridge = BrowserBridgeClient()
+    bridge = _get_browser_bridge_client()
     try:
-        status = await bridge.get_session_status()
+        status = await bridge.session_status()
         # Also check if we're on threads.com
         try:
             await bridge.navigate("https://www.threads.com/")
