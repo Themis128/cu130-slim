@@ -23,6 +23,7 @@ import {
   ResponsiveContainer, AreaChart, Area, Cell, Line,
 } from 'recharts'
 import { format } from 'date-fns'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 
@@ -185,7 +186,7 @@ export default function AnalyticsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
-          <p className="text-muted-foreground mt-1">Track your social media performance</p>
+          <p className="text-muted-foreground mt-1">See what’s working — and what to do next.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={days.toString()} onValueChange={(v) => setDays(Number(v))}>
@@ -233,11 +234,11 @@ export default function AnalyticsPage() {
                 const data = res.data as { status?: string; task_id?: string }
                 toast.success(
                   data?.status === 'queued'
-                    ? 'Sync queued — metrics will update shortly'
-                    : 'Sync started'
+                    ? 'Sync queued — analytics will update shortly'
+                    : 'Sync started — analytics will update shortly'
                 )
-              } catch {
-                toast.error('Failed to start sync')
+              } catch (err: unknown) {
+                toast.error(formatErrorToast('Couldn’t start analytics sync. Please try again.', err))
               } finally {
                 setSyncing(false)
               }
@@ -266,8 +267,8 @@ export default function AnalyticsPage() {
                 a.click()
                 URL.revokeObjectURL(url)
                 toast.success('Export downloaded')
-              } catch {
-                toast.error('Export failed')
+              } catch (err: unknown) {
+                toast.error(formatErrorToast('Couldn’t export that report.', err))
               } finally {
                 setExporting(false)
               }
@@ -616,8 +617,8 @@ export default function AnalyticsPage() {
               try {
                 const res = await bestTimeMutation.mutateAsync({ account_type: 'organization' })
                 setBestTime(res.data as typeof bestTime)
-              } catch {
-                toast.error('Could not load best time recommendations')
+              } catch (err: unknown) {
+                toast.error(formatErrorToast('Couldn’t load recommendations right now.', err))
               }
             }}
           >
@@ -630,7 +631,7 @@ export default function AnalyticsPage() {
             <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
               <Calendar className="h-8 w-8 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">
-                Click "Get Recommendation" to analyze your post engagement data and find the best posting times.
+                Click “Get Recommendation” to analyze your engagement history and suggest a posting window.
               </p>
             </div>
           ) : (

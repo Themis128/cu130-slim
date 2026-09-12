@@ -28,6 +28,7 @@ import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts
 import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 // ── platform metadata ─────────────────────────────────────────────────────────
 
@@ -481,8 +482,8 @@ export default function AccountsPage() {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       toast.error(
         typeof detail === 'string'
-          ? detail
-          : 'Failed to connect — make sure OAuth credentials are set and you belong to a team'
+          ? formatErrorToast('Couldn’t start the sign-in flow.', err)
+          : formatErrorToast('Couldn’t start the sign-in flow. Try again, or open Setup (advanced).', err)
       )
     } finally {
       setConnectingPlatform(null)
@@ -494,8 +495,8 @@ export default function AccountsPage() {
       try {
         await disconnectMutation.mutateAsync(accountId)
         toast.success(`${platformName} disconnected`)
-      } catch {
-        toast.error('Failed to disconnect')
+      } catch (err: unknown) {
+        toast.error(formatErrorToast('Couldn’t disconnect that channel.', err))
       }
     }
   }
@@ -504,8 +505,8 @@ export default function AccountsPage() {
     try {
       await syncBusinessMutation.mutateAsync(accountId)
       toast.success(`Synced business accounts for ${platformName}`)
-    } catch {
-      toast.error(`Failed to sync business accounts for ${platformName}`)
+    } catch (err: unknown) {
+      toast.error(formatErrorToast(`Couldn’t sync business accounts for ${platformName}.`, err))
     }
   }
 
@@ -513,8 +514,8 @@ export default function AccountsPage() {
     try {
       await setBusinessMutation.mutateAsync({ id: parentId, businessAccountId })
       toast.success(`${platformName} business account set as publisher`)
-    } catch {
-      toast.error(`Failed to set ${platformName} business account`)
+    } catch (err: unknown) {
+      toast.error(formatErrorToast(`Couldn’t set the publishing account for ${platformName}.`, err))
     }
   }
 
@@ -563,13 +564,13 @@ export default function AccountsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Connected Accounts</h1>
-          <p className="text-muted-foreground mt-1">Manage social media connections and configure credentials</p>
+          <h1 className="text-3xl font-bold tracking-tight">Channels</h1>
+          <p className="text-muted-foreground mt-1">Connect where you publish. Reconnect if a token expires.</p>
         </div>
         <Button variant="outline" asChild>
           <a href="http://localhost:8080" target="_blank" rel="noopener noreferrer">
             <Settings2 className="mr-2 h-4 w-4" />
-            Env Manager
+            Env Manager (advanced)
           </a>
         </Button>
       </div>
@@ -646,7 +647,7 @@ export default function AccountsPage() {
           onClick={() => setActiveTab('setup')}
         >
           <BookOpen className="h-3.5 w-3.5" />
-          Credential Setup Guide
+          Setup (advanced)
         </button>
       </div>
 
@@ -839,19 +840,9 @@ export default function AccountsPage() {
                       </>
                     ) : (
                       <div className="text-center py-4">
-                        <p className="text-sm text-muted-foreground mb-1">Not connected</p>
-                        <p className="text-xs text-amber-600 mb-3">
-                          {platform.id === 'messenger' ? (
-                            <>
-                              Connect a Facebook Page first →{' '}
-                              <button className="underline" onClick={() => handleConnect('facebook')}>Connect Facebook</button>
-                            </>
-                          ) : (
-                            <>
-                              Configure credentials first →{' '}
-                              <button className="underline" onClick={() => setActiveTab('setup')}>Setup Guide</button>
-                            </>
-                          )}
+                        <p className="text-sm text-muted-foreground mb-1">Not connected yet</p>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Click Connect to sign in. If you hit a credentials error, open Setup (advanced).
                         </p>
                         <Button
                           className="w-full"
@@ -1042,13 +1033,13 @@ export default function AccountsPage() {
             <Card className="border-dashed">
               <CardContent className="py-10 text-center">
                 <CheckCircle2 className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="font-medium mb-1">No accounts connected yet</p>
+                <p className="font-medium mb-1">No channels connected yet</p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Follow the credential setup guide, save your keys in the Env Manager, then connect here.
+                  Connect at least one channel to publish and schedule posts.
                 </p>
                 <Button variant="outline" onClick={() => setActiveTab('setup')}>
                   <BookOpen className="mr-2 h-4 w-4" />
-                  Open Setup Guide
+                  Open Setup (advanced)
                 </Button>
               </CardContent>
             </Card>

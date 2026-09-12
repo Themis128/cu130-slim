@@ -312,10 +312,10 @@ it('should render notifications dropdown trigger', () => {
       render(<Sidebar />, { wrapper })
       
       expect(screen.getByText('Dashboard')).toBeInTheDocument()
-      expect(screen.getByText('Content')).toBeInTheDocument()
-      expect(screen.getByText('Media Library')).toBeInTheDocument()
+      expect(screen.getByText('Posts')).toBeInTheDocument()
+      expect(screen.getByText('Media')).toBeInTheDocument()
       expect(screen.getByText('Workflows')).toBeInTheDocument()
-      expect(screen.getByText('Accounts')).toBeInTheDocument()
+      expect(screen.getByText('Channels')).toBeInTheDocument()
       expect(screen.getByText('Analytics')).toBeInTheDocument()
       expect(screen.getByText('Settings')).toBeInTheDocument()
     })
@@ -343,7 +343,7 @@ it('should render notifications dropdown trigger', () => {
     it('should render navigation links', () => {
       render(<Sidebar />, { wrapper })
       
-      const navLinks = screen.getAllByRole('link', { name: /dashboard|content|media|workflows|accounts|analytics|settings/i })
+      const navLinks = screen.getAllByRole('link', { name: /dashboard|posts|media|workflows|channels|analytics|settings/i })
       expect(navLinks.length).toBeGreaterThan(0)
     })
   })
