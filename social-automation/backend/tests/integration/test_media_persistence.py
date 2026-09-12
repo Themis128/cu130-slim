@@ -324,7 +324,9 @@ async def test_auto_tag_and_similar_assets(client, db, engine):
     assert upload.status_code == 201, upload.text
     asset_id = upload.json()["id"]
 
-    async def _fake_caption(image_b64: str, task: str, prompt: str, max_tokens: int = 512) -> dict:
+    def _fake_cloudflare_vision(image_b64: str, task: str, prompt: str, max_tokens: int = 512) -> dict:
+        # Sync side_effect: AsyncMock will wrap this into an awaitable and yield
+        # the dict as the awaited value.
         if task == "caption":
             return {"description": "A coastline with blue water"}
         return {"description": "coastline, water, sky, beach, rocks"}
@@ -334,13 +336,18 @@ async def test_auto_tag_and_similar_assets(client, db, engine):
     # Patch it to use a sessionmaker backed by the test engine so the asyncpg
     # connection stays on the same loop as the test.
     test_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    cloudflare_mock = AsyncMock(side_effect=_fake_cloudflare_vision)
     with (
         patch.object(media_ai, "async_session_maker", new=test_session_maker),
         patch.object(media_ai, "_call_dmr_vision", new=AsyncMock(return_value=None)),
-        patch.object(media_ai, "_call_cloudflare_vision", new=AsyncMock(side_effect=_fake_caption)),
+        patch.object(media_ai, "_call_cloudflare_vision", new=cloudflare_mock),
         patch("app.services.chroma_client.add_content", new=AsyncMock()) as mock_add,
     ):
         await media_ai.auto_tag_asset(asset_id)
+        assert cloudflare_mock.await_count >= 1
+        # auto_tag_asset writes using its own session; the API test client shares
+        # a long-lived session fixture, so expire to avoid identity-map staleness.
+        db.expire_all()
 
     # Fetch the updated asset
     result = await client.get(f"/api/v1/media/assets/{asset_id}", headers=headers)
