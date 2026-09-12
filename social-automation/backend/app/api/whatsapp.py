@@ -1662,10 +1662,18 @@ async def get_phone_status(
         resp = await client.get(
             f"https://graph.facebook.com/v21.0/{phone_number_id}",
             params={
-                "fields": "name,display_phone_number,quality_rating,code_verification_status",
+                "fields": "display_phone_number,quality_rating,code_verification_status",
                 "access_token": token,
             },
         )
+
+    if resp.status_code >= 400:
+        # Try without fields — some accounts don't support all fields
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v21.0/{phone_number_id}",
+                params={"access_token": token},
+            )
 
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
