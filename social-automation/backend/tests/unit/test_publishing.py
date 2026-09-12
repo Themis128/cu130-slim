@@ -191,6 +191,17 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platform_whatsapp_is_soft_skipped():
+    """WhatsApp should not hard-fail the multi-platform publishing pipeline."""
+    account = SimpleNamespace(platform="whatsapp", access_token_enc=b"unused")
+    post = SimpleNamespace()
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert result.skipped is True
+    assert "whatsapp" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_publish_twitter_thread(account, post):
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"data": {"id": "1111111111"}}),

@@ -432,13 +432,15 @@ export default function CarouselNewPage() {
   const slideRefs = useRef<(HTMLDivElement | null)[]>([])
 
   const connectedAccounts: Array<{ id: string; platform: string; account_type?: string; display_name: string | null; username: string | null }> = accounts || []
+  const PUBLISHABLE_PLATFORMS = new Set(['linkedin', 'twitter', 'instagram', 'facebook', 'threads', 'tiktok'])
+  const publishableAccounts = connectedAccounts.filter(a => PUBLISHABLE_PLATFORMS.has(a.platform))
 
   // Auto-select all platforms when accounts load
   useEffect(() => {
-    if (connectedAccounts.length === 0 || selectedPublishPlatforms.length > 0) return
-    const allPlatforms = [...new Set(connectedAccounts.map(a => a.platform))]
+    if (publishableAccounts.length === 0 || selectedPublishPlatforms.length > 0) return
+    const allPlatforms = [...new Set(publishableAccounts.map(a => a.platform))]
     setSelectedPublishPlatforms(allPlatforms)
-  }, [connectedAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [publishableAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-configure from topic ────────────────────────────────────────────────
 
@@ -573,7 +575,7 @@ export default function CarouselNewPage() {
       }
       setExportedMediaIds(mediaIds)
       // Pre-select all connected platforms
-      setSelectedPublishPlatforms([...new Set(connectedAccounts.map(a => a.platform))])
+      setSelectedPublishPlatforms([...new Set(publishableAccounts.map(a => a.platform))])
       toast.success('All slides ready to publish!')
     } catch (err) {
       console.error(err)
@@ -596,10 +598,10 @@ export default function CarouselNewPage() {
         if (seen.has(plat)) continue
         let acct: typeof connectedAccounts[0] | undefined
         if (plat === 'linkedin') {
-          acct = connectedAccounts.find(a => a.platform === 'linkedin' && a.account_type === 'organization')
-            ?? connectedAccounts.find(a => a.platform === 'linkedin')
+          acct = publishableAccounts.find(a => a.platform === 'linkedin' && a.account_type === 'organization')
+            ?? publishableAccounts.find(a => a.platform === 'linkedin')
         } else {
-          acct = connectedAccounts.find(a => a.platform === plat)
+          acct = publishableAccounts.find(a => a.platform === plat)
         }
         if (acct) { targets.push({ social_account_id: acct.id }); seen.add(plat) }
       }
@@ -981,13 +983,13 @@ export default function CarouselNewPage() {
               <CardHeader><CardTitle>Publish to Social Platforms</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 {/* Platform account checkboxes */}
-                {connectedAccounts.length === 0 ? (
+                {publishableAccounts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No connected accounts. Go to Settings → Accounts to connect platforms.</p>
                 ) : (
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Select accounts</label>
                     <div className="grid grid-cols-2 gap-2">
-                      {connectedAccounts.map(acct => (
+                      {publishableAccounts.map(acct => (
                         <label key={acct.id} className="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-accent transition-colors">
                           <input
                             type="checkbox"

@@ -55,14 +55,29 @@ def _raw_b64(image_bytes: bytes) -> str:
 
 async def _load_image_bytes(asset: MediaAsset) -> bytes | None:
     """Load image bytes from R2, MinIO, or local disk."""
+    # Try the recorded backend first, but be resilient:
+    # - CI/dev environments often don't run MinIO/R2
+    # - some code paths may keep a local copy even when the canonical backend is remote
+    if asset.storage_backend == "r2":
+        try:
+            data = await r2_storage.get_object(asset.storage_path)
+            if data:
+                return data
+        except Exception as exc:
+            logger.warning("Failed to load image bytes for asset %s from R2: %s", asset.id, exc)
+
+    if asset.storage_backend == "minio":
+        try:
+            data = await minio_storage.get_object(asset.storage_path)
+            if data:
+                return data
+        except Exception as exc:
+            logger.warning("Failed to load image bytes for asset %s from MinIO: %s", asset.id, exc)
+
     try:
-        if asset.storage_backend == "r2":
-            return await r2_storage.get_object(asset.storage_path)
-        if asset.storage_backend == "minio":
-            return await minio_storage.get_object(asset.storage_path)
         return safe_resolve(UPLOAD_DIR, asset.storage_path).read_bytes()
     except Exception as exc:
-        logger.warning("Failed to load image bytes for asset %s: %s", asset.id, exc)
+        logger.warning("Failed to load image bytes for asset %s from local disk: %s", asset.id, exc)
         return None
 
 

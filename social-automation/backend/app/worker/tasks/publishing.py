@@ -8,6 +8,7 @@ import httpx
 from celery import shared_task
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
@@ -21,6 +22,92 @@ from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+def _compute_post_rollup(
+    *,
+    target_statuses: list[str],
+    in_flight: bool,
+    failure_reason: str | None,
+) -> tuple[PostStatus, bool, str | None]:
+    """Compute overall post status from per-target statuses.
+
+    Rules:
+    - Any published target means the overall post is successful when work is done.
+    - Unsupported/skip targets should not poison overall success.
+    - While any targets are still in-flight, keep overall status as PUBLISHING.
+    """
+    total = len(target_statuses)
+    if total == 0:
+        return (PostStatus.FAILED, False, "No target accounts assigned to this post")
+
+    published = sum(1 for s in target_statuses if s == "published")
+    skipped = sum(1 for s in target_statuses if s == "skipped")
+    pending = sum(1 for s in target_statuses if s == "pending")
+
+    if in_flight or pending > 0:
+        return (PostStatus.PUBLISHING, False, None)
+
+    # Done: no in-flight work remains.
+    if published > 0:
+        partial = published != total
+        return (PostStatus.PUBLISHED, partial, None)
+
+    # No publish succeeded → overall failure.
+    if skipped == total:
+        return (PostStatus.FAILED, False, "All targets were skipped (unsupported for publishing)")
+
+    return (PostStatus.FAILED, False, failure_reason or "No targets published successfully")
+
+
+async def _rollup_post_status(post: Post, db: AsyncSession) -> None:
+    """Update post.status/failure_reason based on current PostTarget + queue state."""
+    target_result = await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
+    targets = target_result.scalars().all()
+    statuses = [t.status for t in targets]
+
+    inflight_result = await db.execute(
+        select(PublishQueue).where(
+            PublishQueue.post_id == post.id,
+            PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+        ).limit(1)
+    )
+    in_flight = inflight_result.scalar_one_or_none() is not None
+
+    # Prefer a specific failure reason from the first failed target.
+    failure_reason: str | None = None
+    for t in targets:
+        if t.status == "failed" and t.error_message:
+            failure_reason = t.error_message
+            break
+
+    new_status, partial, new_failure_reason = _compute_post_rollup(
+        target_statuses=statuses,
+        in_flight=in_flight,
+        failure_reason=failure_reason,
+    )
+
+    post.status = new_status
+    if new_status == PostStatus.FAILED:
+        post.failed_at = datetime.now(UTC)
+        post.failure_reason = new_failure_reason
+    else:
+        post.failed_at = None
+        post.failure_reason = None
+        if new_status == PostStatus.PUBLISHED and not post.published_at:
+            post.published_at = datetime.now(UTC)
+
+    # Store a small summary for the UI (without adding a new PostStatus enum).
+    meta = post.meta_data or {}
+    meta["publish_summary"] = {
+        "total": len(statuses),
+        "published": sum(1 for s in statuses if s == "published"),
+        "failed": sum(1 for s in statuses if s == "failed"),
+        "skipped": sum(1 for s in statuses if s == "skipped"),
+        "partial": bool(partial),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    post.meta_data = meta
+    flag_modified(post, "meta_data")
 
 
 async def _notify_publish_failure(
@@ -203,9 +290,13 @@ async def _process_publish_queue_async() -> None:
                         target.platform_post_id = pub.platform_post_id
                         target.platform_url = pub.platform_url
                         target.published_at = datetime.now(UTC)
-                    post.published_at = datetime.now(UTC)
-                    post.status = PostStatus.PUBLISHED
                     await _notify_publish_success(post, account, pub.platform_url)
+                elif getattr(pub, "skipped", False):
+                    # Soft-skip: do not retry, do not fail the whole post.
+                    item.status = QueueStatus.COMPLETED
+                    if target:
+                        target.status = "skipped"
+                        target.error_message = pub.error
                 else:
                     item.attempts += 1
                     if item.attempts >= item.max_attempts:
@@ -213,9 +304,6 @@ async def _process_publish_queue_async() -> None:
                         if target:
                             target.status = "failed"
                             target.error_message = pub.error
-                        post.failed_at = datetime.now(UTC)
-                        post.failure_reason = pub.error
-                        post.status = PostStatus.FAILED
                         await _notify_publish_failure(
                             post=post,
                             account=account,
@@ -227,30 +315,56 @@ async def _process_publish_queue_async() -> None:
                         item.locked_at = None
                         item.locked_by = None
 
+                # Ensure rollup queries see the in-memory changes.
+                await db.flush()
+                await _rollup_post_status(post, db)
                 await db.commit()
 
             except Exception:
                 await db.rollback()
                 item.attempts += 1
-                item.status = QueueStatus.FAILED if item.attempts >= item.max_attempts else QueueStatus.PENDING
+                is_final = item.attempts >= item.max_attempts
+                item.status = QueueStatus.FAILED if is_final else QueueStatus.PENDING
                 item.locked_at = None
                 item.locked_by = None
-                await db.commit()
-                if item.status == QueueStatus.FAILED:
-                    # Best-effort — we may not have loaded post/account successfully.
+
+                # Best-effort: update the target and roll up overall post status.
+                err_post: Post | None = None
+                err_account: SocialAccount | None = None
+                err_target: PostTarget | None = None
+                if is_final:
                     try:
                         post_result = await db.execute(select(Post).where(Post.id == item.post_id))
-                        post = post_result.scalar_one_or_none()
+                        err_post = post_result.scalar_one_or_none()
                         acct_result = await db.execute(
                             select(SocialAccount).where(SocialAccount.id == item.social_account_id)
                         )
-                        account = acct_result.scalar_one_or_none()
+                        err_account = acct_result.scalar_one_or_none()
+                        if err_post and err_account:
+                            tgt_result = await db.execute(
+                                select(PostTarget).where(
+                                    PostTarget.post_id == err_post.id,
+                                    PostTarget.social_account_id == err_account.id,
+                                )
+                            )
+                            err_target = tgt_result.scalar_one_or_none()
+                            if err_target:
+                                err_target.status = "failed"
+                                err_target.error_message = "Unhandled exception while publishing (see worker logs)"
                     except Exception:  # noqa: BLE001
-                        post = None
-                        account = None
+                        err_post = None
+                        err_account = None
+                        err_target = None
+
+                await db.flush()
+                if err_post:
+                    await _rollup_post_status(err_post, db)
+                await db.commit()
+
+                if item.status == QueueStatus.FAILED:
                     await _notify_publish_failure(
-                        post=post,
-                        account=account,
+                        post=err_post,
+                        account=err_account,
                         queue_item=item,
                         reason="Unhandled exception while publishing (see worker logs)",
                     )
@@ -345,7 +459,9 @@ async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
                 )
             results.append({"account_id": account_id, "queued": True})
 
-        post.status = PostStatus.SCHEDULED
+        post.status = PostStatus.PUBLISHING
+        post.failed_at = None
+        post.failure_reason = None
         await db.commit()
         return {"success": True, "results": results}
 
