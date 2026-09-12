@@ -154,6 +154,118 @@ app.add_middleware(
 )
 
 
+async def _ensure_live_page():
+    """Return a live Playwright page, recovering from a closed tab if possible.
+
+    Persistent-context Chromium sometimes drops the active page while the
+    context stays alive (daemon keepalive races, crash crashes). Callers used
+    to treat a non-None ``_state['page']`` as valid and then hit
+    ``Target page, context or browser has been closed``.
+    """
+    # #region agent log
+    try:
+        import time as _t
+        with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
+            _f.write(
+                __import__("json").dumps(
+                    {
+                        "sessionId": "ce3429",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H2",
+                        "location": "browser-bridge._ensure_live_page",
+                        "message": "ensure_live_page entry",
+                        "data": {
+                            "has_page": _state.get("page") is not None,
+                            "has_context": _state.get("context") is not None,
+                            "status": _state.get("status"),
+                        },
+                        "timestamp": int(_t.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+
+    page = _state.get("page")
+    if page is not None:
+        try:
+            if not page.is_closed():
+                return page
+        except Exception:
+            pass
+
+    context = _state.get("context")
+    if context is not None:
+        try:
+            pages = list(context.pages)
+            for candidate in pages:
+                try:
+                    if not candidate.is_closed():
+                        _state["page"] = candidate
+                        # #region agent log
+                        try:
+                            import time as _t
+                            with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
+                                _f.write(
+                                    __import__("json").dumps(
+                                        {
+                                            "sessionId": "ce3429",
+                                            "runId": "pre-fix",
+                                            "hypothesisId": "H2",
+                                            "location": "browser-bridge._ensure_live_page",
+                                            "message": "recovered existing open page from context",
+                                            "data": {"pages": len(pages)},
+                                            "timestamp": int(_t.time() * 1000),
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
+                        # #endregion
+                        return candidate
+            # Context alive but no open pages — open a fresh tab
+            page = await context.new_page()
+            _state["page"] = page
+            # #region agent log
+            try:
+                import time as _t
+                with open("/home/tbaltzakis/cu130-slim/.cursor/debug-ce3429.log", "a") as _f:
+                    _f.write(
+                        __import__("json").dumps(
+                            {
+                                "sessionId": "ce3429",
+                                "runId": "pre-fix",
+                                "hypothesisId": "H2",
+                                "location": "browser-bridge._ensure_live_page",
+                                "message": "opened new page on existing context",
+                                "data": {},
+                                "timestamp": int(_t.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
+            return page
+        except Exception as exc:
+            # Context/browser is dead — clear stale refs
+            _state["page"] = None
+            _state["context"] = None
+            _state["browser"] = None
+            _state["status"] = "idle"
+            _state["message"] = f"Browser session died: {exc}"
+            raise HTTPException(
+                400,
+                "Browser session closed — restart via /session/start",
+            ) from exc
+
+    raise HTTPException(400, "No active browser session")
+
+
 class StartRequest(BaseModel):
     platform: str
 
