@@ -131,10 +131,9 @@ export default function DashboardPage() {
       {/* Welcome header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{greeting(user?.name ?? null)}</h1>
-          <p className="text-muted-foreground mt-1">
-            Here&apos;s your social media overview for the last 30 days.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">{greeting(user?.name ?? null)}. Clear skies. Zero friction.</p>
+          <p className="text-muted-foreground mt-1">Overview for the last 30 days.</p>
         </div>
         <Button asChild data-tour="create-post">
           <Link href="/content/new">
@@ -158,26 +157,26 @@ export default function DashboardPage() {
           {connectedAccountsCount === 0 && (
             <DashboardEmptyState
               icon={Users}
-              title="No social accounts connected"
-              description="Connect your first social account to start publishing content across platforms."
-              actionLabel="Connect account"
+              title="Connect your first channel"
+              description="Add LinkedIn (and any other platforms) so SocialAuto knows where to publish."
+              actionLabel="Connect channels"
               actionHref="/accounts"
             />
           )}
           {totalPosts === 0 && (
             <DashboardEmptyState
               icon={PenLine}
-              title="No posts yet"
-              description="Create your first post to share with your audience across all connected platforms."
-              actionLabel="Create post"
+              title="Create your first post"
+              description="Write a draft now. You can schedule it when you’re ready."
+              actionLabel="Write a post"
               actionHref="/content/new"
             />
           )}
           {mediaCount === 0 && (
             <DashboardEmptyState
               icon={Image}
-              title="No media uploaded"
-              description="Upload your first image or video to use in your social media posts."
+              title="Add brand assets"
+              description="Upload images, videos, and PDFs to reuse across posts and carousels."
               actionLabel="Upload media"
               actionHref="/media"
             />
@@ -334,7 +333,7 @@ export default function DashboardPage() {
             <Button variant="outline" className="w-full justify-start gap-3" asChild>
               <Link href="/accounts">
                 <Users className="h-4 w-4" />
-                Connect Accounts
+                Connect Channels
               </Link>
             </Button>
             <Button variant="outline" className="w-full justify-start gap-3" asChild>

@@ -44,10 +44,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const commands: CommandItem[] = [
     // Navigation
     { id: 'nav-dashboard',  label: 'Dashboard',      group: 'Navigation', icon: LayoutDashboard, action: () => navigate('/dashboard') },
-    { id: 'nav-content',    label: 'New Post',        group: 'Navigation', icon: FileText,        action: () => navigate('/content/new') },
-    { id: 'nav-media',      label: 'Media Library',   group: 'Navigation', icon: Image,           action: () => navigate('/media') },
+    { id: 'nav-content',    label: 'Posts',           group: 'Navigation', icon: FileText,        action: () => navigate('/content') },
+    { id: 'nav-media',      label: 'Media',           group: 'Navigation', icon: Image,           action: () => navigate('/media') },
     { id: 'nav-workflows',  label: 'Workflows',       group: 'Navigation', icon: Zap,             action: () => navigate('/workflows') },
-    { id: 'nav-accounts',   label: 'Accounts',        group: 'Navigation', icon: Users,           action: () => navigate('/accounts') },
+    { id: 'nav-accounts',   label: 'Channels',        group: 'Navigation', icon: Users,           action: () => navigate('/accounts') },
     { id: 'nav-analytics',  label: 'Analytics',       group: 'Navigation', icon: BarChart3,       action: () => navigate('/analytics') },
     { id: 'nav-settings',   label: 'Settings',        group: 'Navigation', icon: Settings,        action: () => navigate('/settings') },
     { id: 'nav-ai',         label: 'AI Providers',    group: 'Navigation', icon: Cpu,             action: () => navigate('/settings/ai-providers') },
@@ -56,7 +56,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     { id: 'action-carousel',    label: 'Create carousel',       group: 'Actions', icon: Plus,   action: () => navigate('/content/carousel/new'), keywords: ['slides', 'carousel'] },
     { id: 'action-upload',      label: 'Upload media',          group: 'Actions', icon: Upload, action: () => navigate('/media'),              keywords: ['image', 'video', 'file'] },
     { id: 'action-workflow',    label: 'Generate workflow',     group: 'Actions', icon: Zap,    action: () => navigate('/workflows'),           keywords: ['automation', 'n8n'] },
-    { id: 'action-connect',     label: 'Connect social account',group: 'Actions', icon: Users,  action: () => navigate('/accounts'),           keywords: ['linkedin', 'twitter', 'instagram'] },
+    { id: 'action-connect',     label: 'Connect a channel',      group: 'Actions', icon: Users,  action: () => navigate('/accounts'),           keywords: ['linkedin', 'twitter', 'instagram'] },
     // App
     { id: 'app-theme',   label: theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode', group: 'App', icon: theme === 'dark' ? Sun : Moon, action: () => { toggleTheme(); onOpenChange(false) }, keywords: ['theme', 'dark', 'light'] },
     { id: 'app-logout',  label: 'Log out',  group: 'App', icon: LogOut, action: () => { onOpenChange(false); logout() }, keywords: ['sign out'] },

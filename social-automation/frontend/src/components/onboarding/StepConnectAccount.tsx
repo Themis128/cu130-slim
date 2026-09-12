@@ -11,6 +11,7 @@ import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 import { useAccounts, useConnectAccount } from '@/hooks/useQueries'
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 function TikTokIcon({ className }: { className?: string }) {
   return (
@@ -64,8 +65,8 @@ export function StepConnectAccount({ onContinue }: StepConnectAccountProps) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       toast.error(
         typeof detail === 'string'
-          ? detail
-          : 'Failed to connect — make sure OAuth credentials are configured'
+          ? formatErrorToast('Couldn’t start the sign-in flow.', err)
+          : formatErrorToast('Couldn’t start the sign-in flow. Try again, or ask an admin to finish setup.', err)
       )
     } finally {
       setConnecting(null)
@@ -77,7 +78,7 @@ export function StepConnectAccount({ onContinue }: StepConnectAccountProps) {
       <CardHeader>
         <CardTitle>Connect a social account</CardTitle>
         <CardDescription>
-          Link at least one account so you can publish content. You can always add more later.
+          Connect at least one channel so you can publish. You can add more later.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -133,7 +134,7 @@ export function StepConnectAccount({ onContinue }: StepConnectAccountProps) {
         {connectedAccounts.length === 0 && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-600 dark:text-amber-400">
             <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-            <p>You can continue without connecting an account, but you won&apos;t be able to publish posts until you do.</p>
+            <p>You can continue without connecting, but you won’t be able to publish until you do.</p>
           </div>
         )}
 

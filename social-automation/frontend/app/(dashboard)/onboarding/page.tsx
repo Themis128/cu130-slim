@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAccounts } from '@/hooks/useQueries'
 import { authApi } from '@/services/api'
 import toast from 'react-hot-toast'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 const COMMON_TIMEZONES = [
   'Europe/Athens',
@@ -75,10 +76,10 @@ export default function OnboardingPage() {
     try {
       await updateProfile({ onboarding_completed: true })
       await refreshUser()
-      toast.success('Onboarding complete!')
+      toast.success('You’re set.')
       router.push('/dashboard')
-    } catch {
-      toast.error('Failed to complete onboarding — you can continue anyway')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('We couldn’t mark onboarding as complete, but you can keep going.', err))
       router.push('/dashboard')
     } finally {
       setCompleting(false)
@@ -96,9 +97,9 @@ export default function OnboardingPage() {
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
               <Sparkles className="h-7 w-7 text-primary" />
             </div>
-            <CardTitle className="text-2xl">Welcome to SocialAuto!</CardTitle>
+            <CardTitle className="text-2xl">Welcome to SocialAuto</CardTitle>
             <CardDescription>
-              Let&apos;s get you set up in a few quick steps.
+              Clear skies. Zero friction. Let’s get you set up.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -141,16 +142,16 @@ export default function OnboardingPage() {
     },
     // Step 2 — Connect account
     {
-      title: 'Connect Account',
-      description: 'Link your social media accounts',
+      title: 'Connect',
+      description: 'Connect your channels',
       render: ({ next }) => (
         <StepConnectAccount onContinue={next} />
       ),
     },
     // Step 3 — Brand basics
     {
-      title: 'Brand Basics',
-      description: 'Tell us about your brand',
+      title: 'Brand',
+      description: 'Add brand basics',
       render: ({ next }) => (
         <StepBrandBasics
           onSubmit={async (data) => {
@@ -163,8 +164,8 @@ export default function OnboardingPage() {
     },
     // Step 4 — Create first post
     {
-      title: 'Create First Post',
-      description: 'Write your first post',
+      title: 'First post',
+      description: 'Save a first draft',
       render: ({ next }) => (
         <StepFirstPost onContinue={next} />
       ),
@@ -181,7 +182,7 @@ export default function OnboardingPage() {
             </div>
             <h2 className="text-2xl font-bold">You&apos;re all set!</h2>
             <p className="mt-2 max-w-md text-muted-foreground">
-              You&apos;ve completed the setup. Here&apos;s a summary of what you can do next:
+              Setup is complete. Here’s what you can do next:
             </p>
 
             {/* Summary */}
@@ -192,7 +193,7 @@ export default function OnboardingPage() {
               />
               <SummaryRow
                 done={connectedCount > 0}
-                label={`${connectedCount} social account${connectedCount === 1 ? '' : 's'} connected`}
+                label={`${connectedCount} channel${connectedCount === 1 ? '' : 's'} connected`}
               />
               <SummaryRow
                 done={true}

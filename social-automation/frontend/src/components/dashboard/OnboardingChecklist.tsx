@@ -49,12 +49,12 @@ export function OnboardingChecklist({
 
   const items: ChecklistItem[] = [
     {
-      label: 'Connect a social account',
+      label: 'Connect a channel',
       href: '/accounts',
       completed: connectedAccounts > 0,
     },
     {
-      label: 'Set up your brand',
+      label: 'Add brand basics',
       href: '/brand/onboarding',
       completed: hasBrand,
     },

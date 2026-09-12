@@ -14,11 +14,13 @@ import { Badge } from '@/components/ui/Badge'
 import { useScheduledPosts, useSchedulePost, usePillars } from '@/hooks/useQueries'
 import { cn, formatTime, isOnAthensCalendarDay, moveToAthensDay, athensDateKey } from '@/lib/utils'
 import { WeekCalendar } from '@/components/ui/WeekCalendar'
+import { EmptyState } from '@/components/ui/EmptyState'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { contentApi } from '@/services/api'
 import type { Post, PostTarget, SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -179,9 +181,9 @@ export default function CalendarPage() {
       await schedulePost.mutateAsync({ id, scheduled_at: newIso })
       toast.success(`Moved to ${format(targetDay, 'MMM d')}`)
       refetch()
-    } catch {
+    } catch (err: unknown) {
       setLocalOverrides(prev => { const next = { ...prev }; delete next[id]; return next })
-      toast.error('Failed to reschedule post')
+      toast.error(formatErrorToast('Couldn’t reschedule that post. Please try again.', err))
     }
   }
 
@@ -235,9 +237,9 @@ export default function CalendarPage() {
       setLocalOverrides(prev => ({ ...prev, [id]: newIso }))
       try {
         await schedulePost.mutateAsync({ id, scheduled_at: newIso })
-      } catch {
+      } catch (err: unknown) {
         setLocalOverrides(prev => { const next = { ...prev }; delete next[id]; return next })
-        toast.error('Failed to reschedule post')
+        toast.error(formatErrorToast('Couldn’t reschedule one of the selected posts.', err))
       }
     }
     toast.success(`Moved ${selectedIds.size} posts to ${format(targetDay, 'MMM d')}`)
@@ -385,15 +387,28 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {/* ── Empty state ── */}
+      {filteredPosts.length === 0 && (
+        <div className="rounded-xl border bg-card">
+          <EmptyState
+            icon={CalendarDays}
+            title="Nothing scheduled yet"
+            description="When you schedule posts, they show up here by date and time."
+            primaryAction={{ label: 'Schedule your first post', href: '/content/new', icon: Plus }}
+            className="py-10"
+          />
+        </div>
+      )}
+
       {/* ── Week view ── */}
-      {view === 'week' && (
+      {view === 'week' && filteredPosts.length > 0 && (
         <div className="rounded-xl border bg-card p-4">
           <WeekCalendar posts={filteredPosts} />
         </div>
       )}
 
       {/* ── Month grid ── */}
-      {view === 'month' && (
+      {view === 'month' && filteredPosts.length > 0 && (
         <div className="rounded-xl border bg-card overflow-hidden">
           {/* Day-of-week headers */}
           <div className="grid grid-cols-7 border-b bg-muted/40">
@@ -546,10 +561,13 @@ export default function CalendarPage() {
           </div>
 
           {selectedDayPosts.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <CalendarDays className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              Nothing scheduled for this day.
-            </div>
+            <EmptyState
+              icon={CalendarDays}
+              title="No posts on this day"
+              description="Pick a time, schedule a post, and it’ll show up here."
+              primaryAction={{ label: 'Schedule a post', href: `/content/new?date=${format(selectedDay, 'yyyy-MM-dd')}`, icon: Plus }}
+              className="py-10"
+            />
           ) : (
             <div className="divide-y">
               {selectedDayPosts

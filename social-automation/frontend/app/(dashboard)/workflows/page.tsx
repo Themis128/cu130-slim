@@ -19,6 +19,7 @@ import { useUndoDelete } from '@/hooks/useUndoDelete'
 import type { PromptTemplate, GeneratedWorkflow } from '@/types'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 // ── Curated starter templates ─────────────────────────────────────────────────
 
@@ -163,8 +164,8 @@ export default function WorkflowsPage() {
     try {
       await aiApi.seedDefaultWorkflows()
       await refetchTemplates()
-    } catch {
-      toast.error('Could not seed default workflows')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t load the starter workflows. Please try again.', err))
     } finally {
       setSeeding(false)
     }
@@ -205,8 +206,8 @@ export default function WorkflowsPage() {
       setGeneratePrompt('')
       setActiveTab('deployed')
       setActiveTab('deployed')
-    } catch {
-      toast.error('Failed to generate workflow')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('We couldn’t generate that workflow. Try simplifying the request and retry.', err))
     }
   }
 
@@ -215,8 +216,8 @@ export default function WorkflowsPage() {
       await generateMutation.mutateAsync({ prompt: template.prompt_template, template_id: template.id })
       toast.success('Workflow created — check the Deployed tab')
       setActiveTab('deployed')
-    } catch {
-      toast.error('Failed to generate workflow from template')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('We couldn’t create a workflow from that template.', err))
     }
   }
 
@@ -226,9 +227,9 @@ export default function WorkflowsPage() {
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || ''
       if (msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('n8n')) {
-        toast.error('n8n not connected — open n8n and configure your API key', { duration: 6000 })
+        toast.error('Connect n8n to run workflows. Open n8n and add your API key in Settings.', { duration: 6000 })
       } else {
-        toast.error('Failed to deploy workflow')
+        toast.error(formatErrorToast('We couldn’t deploy that workflow to n8n.', err))
       }
     }
   }
@@ -249,8 +250,8 @@ export default function WorkflowsPage() {
       })
       toast.success('Template duplicated')
       refetchTemplates()
-    } catch {
-      toast.error('Failed to duplicate template')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('We couldn’t duplicate that template.', err))
     }
   }
 
@@ -267,7 +268,7 @@ export default function WorkflowsPage() {
   const applyStarterTemplate = (template: StarterTemplate) => {
     setGeneratePrompt(template.prompt)
     setActiveTab('generate')
-    toast.success(`"${template.name}" loaded — review and generate!`)
+    toast.success(`Loaded: ${template.name}`)
   }
 
   const galleryTemplates = galleryCategoryFilter
@@ -286,12 +287,12 @@ export default function WorkflowsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Workflows</h1>
-          <p className="text-muted-foreground mt-1">Automate your social media with n8n workflows</p>
+          <p className="text-muted-foreground mt-1">Automate routine work (scheduling, cross-posting, digests) with n8n.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleSeedWorkflows} disabled={seeding}>
             {seeding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
-            {seeding ? 'Seeding…' : 'Refresh Defaults'}
+            {seeding ? 'Loading…' : 'Refresh starters'}
           </Button>
           <Button variant="outline" onClick={() => setActiveTab('generate')}>
             <Sparkles className="mr-2 h-4 w-4" />
@@ -478,7 +479,7 @@ export default function WorkflowsPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <Sparkles className="h-4 w-4 text-primary" />
                       <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Content Workflows</h2>
-                      <Badge variant="secondary" className="text-xs">CF free tier · HF fallback</Badge>
+                      <Badge variant="secondary" className="text-xs">Starter templates</Badge>
                     </div>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {defaultWorkflows.map((t: PromptTemplate) => <TemplateCard key={t.id} template={t} />)}
@@ -603,7 +604,7 @@ export default function WorkflowsPage() {
                 <EmptyState
                   icon={Zap}
                   title="No active workflows"
-                  description="Deploy a workflow to n8n and it will appear here. Workflows run automatically on a schedule or trigger."
+                  description="Deploy one to n8n and it’ll show up here. Workflows run on a schedule or when something happens."
                   primaryAction={{ label: 'AI Generate', onClick: () => setActiveTab('generate'), icon: Sparkles }}
                   secondaryAction={{ label: 'Open n8n', onClick: () => window.open('http://localhost:5678', '_blank'), icon: ExternalLink, variant: 'outline' }}
                 />

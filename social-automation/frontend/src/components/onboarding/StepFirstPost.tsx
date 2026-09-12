@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { cn } from '@/lib/utils'
 import { contentApi } from '@/services/api'
 import toast from 'react-hot-toast'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 const PLATFORMS = [
   { id: 'linkedin', label: 'LinkedIn' },
@@ -35,7 +36,7 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
 
   const handleCreate = async () => {
     if (!content.trim()) {
-      toast.error('Please write some content first')
+      toast.error('Write a sentence or two to get started.')
       return
     }
     setCreating(true)
@@ -46,10 +47,14 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
         metadata: { source: 'onboarding' },
       })
       setCreated(true)
-      toast.success('Draft post created!')
+      toast.success('Draft saved.')
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      toast.error(typeof detail === 'string' ? detail : 'Failed to create post')
+      toast.error(
+        typeof detail === 'string'
+          ? formatErrorToast('Couldn’t save your draft.', err)
+          : formatErrorToast('Couldn’t save your draft. Please try again.', err)
+      )
     } finally {
       setCreating(false)
     }
@@ -62,7 +67,7 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
           <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
           <h3 className="text-lg font-semibold">Draft post created!</h3>
           <p className="mt-1 text-sm text-muted-foreground max-w-sm">
-            Your post has been saved as a draft. You can edit and schedule it from the Content page.
+            Your post is saved as a draft. You can edit and schedule it from Posts.
           </p>
           <Button onClick={onContinue} className="mt-5">
             Continue
@@ -78,7 +83,7 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
       <CardHeader>
         <CardTitle>Create your first post</CardTitle>
         <CardDescription>
-          Write a quick post and we&apos;ll save it as a draft. You can publish or schedule it later.
+          Write a quick post. We’ll save it as a draft so you can schedule it later.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -93,7 +98,7 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
 
         {/* Platform selector */}
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Target platforms (optional)</label>
+          <label className="text-sm font-medium">Platforms (optional)</label>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {PLATFORMS.map(p => {
               const selected = selectedPlatforms.includes(p.id)

@@ -144,7 +144,7 @@ export function Header() {
               </div>
               <Separator />
               <DropdownMenuItem asChild className="justify-center text-primary text-sm font-medium">
-                <Link href="/content">View all activity</Link>
+                <Link href="/content">View posts</Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

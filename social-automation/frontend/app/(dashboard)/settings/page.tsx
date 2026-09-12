@@ -18,6 +18,7 @@ import { useTheme } from '@/hooks/useTheme'
 import { authApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
+import { formatErrorToast } from '@/lib/humanizeError'
 
 function initials(name: string | null, email: string): string {
   if (name) {
@@ -77,8 +78,8 @@ export default function SettingsPage() {
     try {
       await updateProfile(profileData)
       toast.success('Profile updated')
-    } catch {
-      toast.error('Failed to update profile')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t save your profile changes.', err))
     } finally {
       setIsSaving(false)
     }
@@ -99,8 +100,8 @@ export default function SettingsPage() {
       await changePassword(passwordData.current_password, passwordData.new_password)
       toast.success('Password changed successfully')
       setPasswordData({ current_password: '', new_password: '', confirm_password: '' })
-    } catch {
-      toast.error('Failed to change password')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t change your password.', err))
     } finally {
       setIsSaving(false)
     }
@@ -117,8 +118,8 @@ export default function SettingsPage() {
       toast.success('Account deleted')
       logout()
       router.push('/login')
-    } catch {
-      toast.error('Failed to delete account — check your password')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t delete the account. Double-check your password.', err))
     } finally {
       setIsDeleting(false)
     }
@@ -138,8 +139,8 @@ export default function SettingsPage() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       toast.success('Data exported')
-    } catch {
-      toast.error('Failed to export data')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t export your data.', err))
     } finally {
       setIsExporting(false)
     }
@@ -150,8 +151,8 @@ export default function SettingsPage() {
     try {
       await authApi.updateNotificationPreferences(notifications)
       toast.success('Notification preferences saved')
-    } catch {
-      toast.error('Failed to save preferences')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t save notification preferences.', err))
     } finally {
       setIsSaving(false)
     }
@@ -162,8 +163,8 @@ export default function SettingsPage() {
     try {
       const res = await authApi.setup2FA()
       setTwoFactorSetup(res.data)
-    } catch {
-      toast.error('Failed to start 2FA setup')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t start 2FA setup.', err))
     } finally {
       setIs2FALoading(false)
     }
@@ -179,8 +180,8 @@ export default function SettingsPage() {
       setTwoFactorCode('')
       // Refresh user data
       window.location.reload()
-    } catch {
-      toast.error('Invalid code — try again')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('That code didn’t work. Try again.', err))
     } finally {
       setIs2FALoading(false)
     }
@@ -194,8 +195,8 @@ export default function SettingsPage() {
       await authApi.disable2FA(password)
       toast.success('Two-factor authentication disabled')
       window.location.reload()
-    } catch {
-      toast.error('Failed to disable 2FA — check your password')
+    } catch (err: unknown) {
+      toast.error(formatErrorToast('Couldn’t disable 2FA. Double-check your password.', err))
     } finally {
       setIs2FALoading(false)
     }
@@ -522,7 +523,7 @@ export default function SettingsPage() {
               {[
                 { id: 'email_new_post',          label: 'Post published',         description: 'When a scheduled post goes live' },
                 { id: 'email_scheduled',         label: 'Post scheduled',         description: 'Confirmation when posts are scheduled' },
-                { id: 'email_analytics',         label: 'Weekly analytics report', description: 'Summary of your weekly performance' },
+                { id: 'email_analytics',         label: 'Weekly summary',          description: 'A weekly email with your top metrics and posts' },
                 { id: 'email_on_quota',          label: 'Quota warnings',         description: 'When you reach 80% of your plan limit' },
                 { id: 'email_on_invite',         label: 'Team invitations',       description: 'When someone invites you to a team' },
                 { id: 'email_account_connected', label: 'Account connected',      description: 'When a new social account is linked' },
