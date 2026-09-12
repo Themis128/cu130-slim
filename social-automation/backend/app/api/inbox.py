@@ -27,8 +27,8 @@ from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.browser_bridge import BrowserBridgeClient
-from app.services.facebook_api import FacebookAPIClient
 from app.services.instagram_api import InstagramAPIClient
+from app.services.messenger_api import MessengerAPIClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,26 +127,42 @@ async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversat
     """Fetch conversations from a Facebook Page Messenger (Graph API)."""
     try:
         meta = account.meta_data or {}
-        page_token = meta.get("page_access_token") or meta.get("access_token")
+        page_token = (
+            meta.get("page_token")
+            or meta.get("page_access_token")
+            or meta.get("access_token")
+        )
         if not page_token:
             return []
-        client = FacebookAPIClient(page_token=page_token)
-        result = await client.get_conversations(limit=25)
+        # page_token is often stored encrypted in meta_data
+        if isinstance(page_token, str) and not page_token.startswith("EA"):
+            try:
+                from app.core.security import decrypt_token
+                page_token = decrypt_token(page_token)
+            except Exception:
+                pass  # might be plaintext
+        page_id = account.account_id
+        if not page_id:
+            return []
+        client = MessengerAPIClient(
+            access_token=page_token,
+            page_id=str(page_id),
+        )
+        conversations = await client.get_conversations(limit=25)
         convos = []
-        for convo in result.get("data", []):
-            messages = convo.get("messages", {}).get("data", [])
-            last_msg = messages[0] if messages else {}
+        for convo in conversations:
             participants = convo.get("participants", {}).get("data", [])
             sender = participants[0] if participants else {}
+            unread_count = convo.get("unread_count") or 0
             convos.append(UnifiedConversation(
                 platform="messenger",
-                account_id=account.id,
+                account_id=str(account.id),
                 account_name=account.display_name or "Facebook Page",
                 thread_id=convo.get("id"),
                 sender_name=sender.get("name", "Unknown"),
-                preview=last_msg.get("message", ""),
-                unread=False,  # Graph API doesn't expose unread status directly
-                timestamp=last_msg.get("created_time"),
+                preview=convo.get("snippet", ""),
+                unread=bool(unread_count),
+                timestamp=convo.get("updated_time"),
             ))
         return convos
     except Exception as exc:
