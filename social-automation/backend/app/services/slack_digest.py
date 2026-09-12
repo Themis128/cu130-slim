@@ -21,7 +21,11 @@ from app.models.content import Post, PostStatus
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team
-from app.services.slack_notifications import post_alert_to_slack, post_digest_text_to_slack
+from app.services.slack_notifications import (
+    post_alert_to_slack,
+    post_digest_text_to_slack,
+    post_thread_reply,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -393,7 +397,7 @@ async def build_daily_digest(
 async def post_digest_to_slack(report: DigestReport) -> DigestReport:
     """Send digest markdown to Slack. Prefers webhook, then bot/access token."""
     text = report.to_slack_markdown()
-    ok, err = await post_digest_text_to_slack(text)
+    ok, err, message_ts = await post_digest_text_to_slack(text)
     if ok:
         report.posted_to_slack = True
     else:
@@ -423,7 +427,18 @@ async def post_digest_to_slack(report: DigestReport) -> DigestReport:
                 lines.append(f"• ⚠️ *{issue.title}*{detail}")
         lines.append("")
         lines.append("_Full digest posted to #socialauto_")
-        await post_alert_to_slack("\n".join(lines))
+        issues_text = "\n".join(lines)
+
+        # Nice-to-have threading: when the digest is posted via the token path,
+        # Slack returns a message timestamp (ts). Reply in-thread in #socialauto
+        # so the channel stays tidy. For webhook-only posting, threading is not
+        # possible (no ts), so we rely on #socialauto-alerts only.
+        settings = get_settings()
+        channel_id = (settings.SLACK_CHANNEL_ID or "").strip() or "C0C1F1K3DDF"
+        if message_ts:
+            await post_thread_reply(channel_id=channel_id, thread_ts=message_ts, text=issues_text)
+
+        await post_alert_to_slack(issues_text)
 
     if report.slack_error:
         logger.warning("Slack digest post failed: %s", report.slack_error)

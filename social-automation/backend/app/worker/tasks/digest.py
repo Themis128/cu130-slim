@@ -42,6 +42,20 @@ def send_daily_slack_digest(
     )
 
 
+@shared_task(name="app.worker.tasks.digest.send_weekly_slack_digest")
+def send_weekly_slack_digest(
+    days: int = 7,
+    post_to_slack: bool = True,
+    post_to_email: bool = False,
+) -> dict[str, Any]:
+    """Weekly rollup digest (defaults to last 7 days) posted to Slack #socialauto."""
+    return asyncio.run(
+        _send_digest_async(
+            days=days, post_to_slack=post_to_slack, post_to_email=post_to_email
+        )
+    )
+
+
 async def _send_digest_async(
     *, days: int, post_to_slack: bool, post_to_email: bool
 ) -> dict[str, Any]:

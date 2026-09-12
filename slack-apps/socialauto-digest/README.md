@@ -59,6 +59,16 @@ export SLACK_BOT_TOKEN=<your-bot-token>
 export SLACK_APP_TOKEN=<your-app-token>
 ```
 
+### SocialAuto integration (required for `/digest now`)
+
+Set these environment variables so the app can authenticate to `social-api` and trigger the digest:
+
+```sh
+export SOCIAL_API_URL=http://localhost:8083
+export SOCIAL_ADMIN_EMAIL=<admin email>
+export SOCIAL_ADMIN_PASSWORD=<admin password>
+```
+
 #### Initializing the project
 
 ```sh

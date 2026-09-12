@@ -48,10 +48,11 @@ async def test_post_digest_prefers_webhook_when_set():
     with patch.object(sn, "get_settings", return_value=settings), patch.object(
         sn.httpx, "AsyncClient", return_value=fake
     ):
-        ok, err = await sn.post_digest_text_to_slack("hello")
+        ok, err, ts = await sn.post_digest_text_to_slack("hello")
 
     assert ok is True
     assert err is None
+    assert ts is None
     assert fake.calls[0]["url"] == settings.SLACK_WEBHOOK_URL
     assert fake.calls[0]["json"] == {"text": "hello"}
 
@@ -64,15 +65,16 @@ async def test_post_digest_falls_back_to_token_and_channel():
         SLACK_ACCESS_TOKEN="",
         SLACK_CHANNEL_ID="C999",
     )
-    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True}))
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "ts": "123.456"}))
 
     with patch.object(sn, "get_settings", return_value=settings), patch.object(
         sn.httpx, "AsyncClient", return_value=fake
     ):
-        ok, err = await sn.post_digest_text_to_slack("digest")
+        ok, err, ts = await sn.post_digest_text_to_slack("digest")
 
     assert ok is True
     assert err is None
+    assert ts is not None
     assert fake.calls[0]["url"] == "https://api.slack.com/api/chat.postMessage"
     assert fake.calls[0]["headers"]["Authorization"] == "Bearer xoxb-test"
     assert fake.calls[0]["json"]["channel"] == "C999"

@@ -16,7 +16,7 @@ from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.publishing import publish_to_platform
-from app.services.slack_notifications import post_alert_to_slack
+from app.services.slack_notifications import post_alert_to_slack, post_publishing_to_slack
 from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
@@ -90,6 +90,18 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
         await engine.dispose()
     except Exception:
         logger.warning("Failed to send post-published email for post %s", post.id)
+
+    # Slack publish-success notification (best-effort; non-fatal).
+    try:
+        text = (
+            "*Publish succeeded*\n"
+            f"• post_id: `{post.id}`\n"
+            f"• platform: `{account.platform}`\n"
+            f"• url: {platform_url or 'n/a'}"
+        )
+        await post_publishing_to_slack(text)
+    except Exception:
+        logger.debug("Slack publish-success notification failed (non-fatal)", exc_info=True)
 
 # Bind shared tasks in this process to the Redis-backed app (not default AMQP).
 celery_app.set_default()

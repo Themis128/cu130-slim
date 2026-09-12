@@ -5,7 +5,7 @@
   },
   "display_information": {
     "name": "SocialAuto Digest",
-    "description": "Posts daily SocialAuto analytics and issue digests to #socialauto",
+    "description": "Daily/weekly digests to #socialauto; warnings/errors to #socialauto-alerts",
     "background_color": "#0B1220"
   },
   "features": {
@@ -17,13 +17,21 @@
     "bot_user": {
       "display_name": "SocialAuto Digest",
       "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/digest",
+        "description": "Trigger SocialAuto digest now",
+        "should_escape": false
+      }
     }
   },
   "oauth_config": {
     "scopes": {
       "bot": [
         "chat:write",
-        "chat:write.public"
+        "chat:write.public",
+        "commands"
       ]
     }
   },
