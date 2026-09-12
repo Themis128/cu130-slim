@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }))
     } catch (error: unknown) {
       const status = (error as { response?: { status?: number } })?.response?.status
-      if (!status || status === 401) {
+      if (status === 401) {
         clearTokens()
         setState(prev => ({
           ...prev,
@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }))
       } else {
         // non-auth error (500, network) — don't wipe tokens
-        setState(prev => ({ ...prev, isLoading: false }))
+        setState(prev => ({ ...prev, isAuthenticated: !!getAccessToken(), isLoading: false }))
       }
     }
   }, [])
