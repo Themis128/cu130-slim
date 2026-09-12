@@ -5,14 +5,12 @@ Collects analytics + operational issues and posts via Incoming Webhook
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +21,7 @@ from app.models.content import Post, PostStatus
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team
+from app.services.slack_notifications import post_alert_to_slack, post_digest_text_to_slack
 
 logger = logging.getLogger(__name__)
 
@@ -393,70 +392,41 @@ async def build_daily_digest(
 
 async def post_digest_to_slack(report: DigestReport) -> DigestReport:
     """Send digest markdown to Slack. Prefers webhook, then bot/access token."""
-    settings = get_settings()
     text = report.to_slack_markdown()
-    webhook = (settings.SLACK_WEBHOOK_URL or "").strip()
-    token = (
-        (settings.SLACK_BOT_TOKEN or "").strip()
-        or (settings.SLACK_ACCESS_TOKEN or "").strip()
-    )
-    channel = (settings.SLACK_CHANNEL_ID or "").strip() or "C0C1F1K3DDF"  # #socialauto
+    ok, err = await post_digest_text_to_slack(text)
+    if ok:
+        report.posted_to_slack = True
+    else:
+        report.slack_error = err or "unknown error"
 
-    if not webhook and not token:
-        report.slack_error = (
-            "Slack not configured. Set SLACK_WEBHOOK_URL (Incoming Webhook for #socialauto) "
-            "or SLACK_BOT_TOKEN / SLACK_ACCESS_TOKEN + SLACK_CHANNEL_ID in .env"
-        )
-        logger.warning(report.slack_error)
-        return report
+    # If there were any warnings/errors, also post an issues-only alert to
+    # #socialauto-alerts (best-effort; never blocks digest posting).
+    errors = [i for i in report.issues if i.severity == "error"]
+    warnings = [i for i in report.issues if i.severity == "warning"]
+    if errors or warnings:
+        tz = ZoneInfo(report.timezone)
+        when = report.generated_at.astimezone(tz).strftime("%a %d %b %Y %H:%M %Z")
+        lines = [
+            f"*SocialAuto digest issues* · {report.team_name}",
+            f"_{when}_ · last {report.days} days",
+            "",
+        ]
+        if errors:
+            lines.append(f"*Errors ({len(errors)})*")
+            for issue in errors[:8]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• ❌ *{issue.title}*{detail}")
+        if warnings:
+            lines.append(f"*Warnings ({len(warnings)})*")
+            for issue in warnings[:8]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• ⚠️ *{issue.title}*{detail}")
+        lines.append("")
+        lines.append("_Full digest posted to #socialauto_")
+        await post_alert_to_slack("\n".join(lines))
 
-    last_err: str | None = None
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for attempt in range(1, 5):
-                try:
-                    if webhook:
-                        resp = await client.post(webhook, json={"text": text})
-                        if resp.status_code >= 300:
-                            last_err = f"Webhook HTTP {resp.status_code}: {resp.text[:200]}"
-                            # webhooks rarely need retry on 4xx
-                            if resp.status_code < 500:
-                                report.slack_error = last_err
-                                return report
-                        else:
-                            report.posted_to_slack = True
-                            return report
-                    else:
-                        # Prefer api.slack.com — bare slack.com TLS often hangs in Docker/WSL
-                        resp = await client.post(
-                            "https://api.slack.com/api/chat.postMessage",
-                            headers={"Authorization": f"Bearer {token}"},
-                            json={"channel": channel, "text": text, "mrkdwn": True},
-                        )
-                        data = resp.json()
-                        if not data.get("ok"):
-                            err = data.get("error") or "unknown"
-                            needed = data.get("needed")
-                            detail = f"Slack API error: {err}"
-                            if needed:
-                                detail += f" (needed: {needed})"
-                            report.slack_error = detail
-                            return report
-                        report.posted_to_slack = True
-                        return report
-                except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as exc:
-                    last_err = f"{type(exc).__name__}: {exc or repr(exc)}"
-                    logger.warning("Slack post attempt %s failed: %s", attempt, last_err)
-                    if attempt < 4:
-                        await asyncio.sleep(1.5 * attempt)
-                        continue
-                    report.slack_error = last_err
-                    return report
-    except Exception as exc:  # noqa: BLE001
-        report.slack_error = str(exc) or repr(exc)
-        logger.exception("Failed to post Slack digest")
-    if last_err and not report.posted_to_slack and not report.slack_error:
-        report.slack_error = last_err
+    if report.slack_error:
+        logger.warning("Slack digest post failed: %s", report.slack_error)
     return report
 
 

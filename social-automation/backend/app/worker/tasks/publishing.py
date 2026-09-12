@@ -16,10 +16,32 @@ from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.publishing import publish_to_platform
+from app.services.slack_notifications import post_alert_to_slack
 from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+async def _notify_publish_failure(
+    *,
+    post: Post | None,
+    account: SocialAccount | None,
+    queue_item: PublishQueue | None,
+    reason: str,
+) -> None:
+    """Best-effort Slack alert for final publish failures (never raises)."""
+    post_id = str(getattr(post, "id", "") or "unknown")
+    platform = getattr(account, "platform", None) or "unknown"
+    queue_id = str(getattr(queue_item, "id", "") or "unknown")
+    text = (
+        "*Publish failed* (final)\n"
+        f"• post_id: `{post_id}`\n"
+        f"• platform: `{platform}`\n"
+        f"• queue_item_id: `{queue_id}`\n"
+        f"• reason: {reason[:500]}"
+    )
+    await post_alert_to_slack(text)
 
 
 async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:
@@ -113,6 +135,12 @@ async def _process_publish_queue_async() -> None:
                 if not post:
                     item.status = QueueStatus.FAILED
                     await db.commit()
+                    await _notify_publish_failure(
+                        post=None,
+                        account=None,
+                        queue_item=item,
+                        reason="Post not found for publish queue item",
+                    )
                     continue
 
                 account_result = await db.execute(
@@ -122,6 +150,12 @@ async def _process_publish_queue_async() -> None:
                 if not account:
                     item.status = QueueStatus.FAILED
                     await db.commit()
+                    await _notify_publish_failure(
+                        post=post,
+                        account=None,
+                        queue_item=item,
+                        reason="Social account not found for publish queue item",
+                    )
                     continue
 
                 if post.content_text:
@@ -157,6 +191,12 @@ async def _process_publish_queue_async() -> None:
                         post.failed_at = datetime.now(UTC)
                         post.failure_reason = pub.error
                         post.status = PostStatus.FAILED
+                        await _notify_publish_failure(
+                            post=post,
+                            account=account,
+                            queue_item=item,
+                            reason=pub.error or "unknown publish error",
+                        )
                     else:
                         item.status = QueueStatus.PENDING
                         item.locked_at = None
@@ -171,6 +211,24 @@ async def _process_publish_queue_async() -> None:
                 item.locked_at = None
                 item.locked_by = None
                 await db.commit()
+                if item.status == QueueStatus.FAILED:
+                    # Best-effort — we may not have loaded post/account successfully.
+                    try:
+                        post_result = await db.execute(select(Post).where(Post.id == item.post_id))
+                        post = post_result.scalar_one_or_none()
+                        acct_result = await db.execute(
+                            select(SocialAccount).where(SocialAccount.id == item.social_account_id)
+                        )
+                        account = acct_result.scalar_one_or_none()
+                    except Exception:  # noqa: BLE001
+                        post = None
+                        account = None
+                    await _notify_publish_failure(
+                        post=post,
+                        account=account,
+                        queue_item=item,
+                        reason="Unhandled exception while publishing (see worker logs)",
+                    )
 
 
 async def _check_scheduled_posts_async() -> None:

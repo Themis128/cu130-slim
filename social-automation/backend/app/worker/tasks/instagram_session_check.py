@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_field
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
+from app.services.slack_notifications import post_alert_to_slack
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -95,6 +96,14 @@ async def _send_alert(owner: User, account_username: str, reason: str) -> None:
             if recent.scalar_one() > 0:
                 logger.info("Skipping IG alert for %s — within cooldown", owner.email)
                 return
+
+        # Slack alert (best-effort; uses same cooldown gating as email).
+        await post_alert_to_slack(
+            "*Instagram session expired*\n"
+            f"• account: `@{account_username}`\n"
+            f"• reason: {reason[:500]}\n"
+            "_Action: re-capture session (Settings → Accounts)_"
+        )
 
         from app.services.email_templates import send_instagram_session_alert_email
 

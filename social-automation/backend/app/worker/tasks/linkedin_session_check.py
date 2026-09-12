@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.slack_notifications import post_alert_to_slack
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -68,6 +69,13 @@ async def _send_alert(owner: User, reason: str) -> None:
             if recent.scalar_one() > 0:
                 logger.info("Skipping LI alert for %s — within cooldown", owner.email)
                 return
+
+        # Slack alert (best-effort; uses same cooldown gating as email).
+        await post_alert_to_slack(
+            "*LinkedIn session expired*\n"
+            f"• reason: {reason[:500]}\n"
+            "_Action: re-login in LinkedIn sidecar and re-capture session_"
+        )
 
         from app.services.email_templates import send_linkedin_session_alert_email
 
