@@ -8,8 +8,8 @@ import httpx
 from celery import shared_task
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models.content import Post, PostStatus, PostTarget
@@ -41,7 +41,6 @@ def _compute_post_rollup(
         return (PostStatus.FAILED, False, "No target accounts assigned to this post")
 
     published = sum(1 for s in target_statuses if s == "published")
-    failed = sum(1 for s in target_statuses if s == "failed")
     skipped = sum(1 for s in target_statuses if s == "skipped")
     pending = sum(1 for s in target_statuses if s == "pending")
 
@@ -330,42 +329,42 @@ async def _process_publish_queue_async() -> None:
                 item.locked_by = None
 
                 # Best-effort: update the target and roll up overall post status.
-                post: Post | None = None
-                account: SocialAccount | None = None
-                target: PostTarget | None = None
+                err_post: Post | None = None
+                err_account: SocialAccount | None = None
+                err_target: PostTarget | None = None
                 if is_final:
                     try:
                         post_result = await db.execute(select(Post).where(Post.id == item.post_id))
-                        post = post_result.scalar_one_or_none()
+                        err_post = post_result.scalar_one_or_none()
                         acct_result = await db.execute(
                             select(SocialAccount).where(SocialAccount.id == item.social_account_id)
                         )
-                        account = acct_result.scalar_one_or_none()
-                        if post and account:
+                        err_account = acct_result.scalar_one_or_none()
+                        if err_post and err_account:
                             tgt_result = await db.execute(
                                 select(PostTarget).where(
-                                    PostTarget.post_id == post.id,
-                                    PostTarget.social_account_id == account.id,
+                                    PostTarget.post_id == err_post.id,
+                                    PostTarget.social_account_id == err_account.id,
                                 )
                             )
-                            target = tgt_result.scalar_one_or_none()
-                            if target:
-                                target.status = "failed"
-                                target.error_message = "Unhandled exception while publishing (see worker logs)"
+                            err_target = tgt_result.scalar_one_or_none()
+                            if err_target:
+                                err_target.status = "failed"
+                                err_target.error_message = "Unhandled exception while publishing (see worker logs)"
                     except Exception:  # noqa: BLE001
-                        post = None
-                        account = None
-                        target = None
+                        err_post = None
+                        err_account = None
+                        err_target = None
 
                 await db.flush()
-                if post:
-                    await _rollup_post_status(post, db)
+                if err_post:
+                    await _rollup_post_status(err_post, db)
                 await db.commit()
 
                 if item.status == QueueStatus.FAILED:
                     await _notify_publish_failure(
-                        post=post,
-                        account=account,
+                        post=err_post,
+                        account=err_account,
                         queue_item=item,
                         reason="Unhandled exception while publishing (see worker logs)",
                     )

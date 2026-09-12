@@ -1,5 +1,3 @@
-import pytest
-
 from app.models.content import PostStatus
 from app.worker.tasks.publishing import _compute_post_rollup
 
