@@ -23,6 +23,7 @@ from app.api import (
     secrets,
     teams,
     threads,
+    twitter_tiktok,
     usage,
     whatsapp,
     whatsapp_flows,
@@ -56,4 +57,5 @@ api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
+api_router.include_router(twitter_tiktok.router, tags=["twitter-tiktok-dm"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])

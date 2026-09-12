@@ -21,6 +21,7 @@ celery_app = Celery(
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
         "app.worker.tasks.threads_messenger",
+        "app.worker.tasks.twitter_messenger",
     ],
 )
 
@@ -137,6 +138,7 @@ celery_app.conf.update(
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
+        "app.worker.tasks.twitter_messenger.poll_twitter_messenger": {"queue": "messenger"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -210,6 +212,15 @@ celery_app.conf.update(
         "poll-threads-messenger": {
             "task": "app.worker.tasks.threads_messenger.poll_threads_messenger",
             "schedule": 180.0,  # every 3 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll Twitter DM events for new messages and send AI auto-replies
+        # via the official X API v2. Twitter has strict rate limits, so we
+        # poll less frequently (every 5 minutes). Requires dm.read + dm.write
+        # scopes and a paid tier (Basic $200/mo or Pro $5000/mo).
+        "poll-twitter-messenger": {
+            "task": "app.worker.tasks.twitter_messenger.poll_twitter_messenger",
+            "schedule": 300.0,  # every 5 minutes
             "options": {"queue": "messenger"},
         },
     },
