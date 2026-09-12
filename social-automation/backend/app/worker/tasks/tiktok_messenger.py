@@ -44,7 +44,7 @@ from app.services.messenger_chatbot import (
     set_cooldown,
     store_message_memory,
 )
-from app.services.tiktok_api import TikTokAPIError, TikTokAPIClient
+from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
