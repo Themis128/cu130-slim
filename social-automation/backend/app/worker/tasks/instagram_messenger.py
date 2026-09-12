@@ -2,7 +2,7 @@
 
 Instagram uses the same Messenger Platform API as Facebook Pages for DMs.
 Requires the `instagram_business_manage_messages` permission and a
-connected Instagram Business account with an access token.
+connected Instagram Business/Creator account with an access token.
 
 For personal Instagram accounts without API access, this task gracefully
 skips (no token = no API calls).
@@ -10,7 +10,7 @@ skips (no token = no API calls).
 Flow:
     1. Find Instagram accounts with auto-reply enabled
     2. For each account with an access token:
-       a. Fetch recent conversations via Instagram Messaging API
+       a. Fetch recent conversations via InstagramAPIClient
        b. For each conversation with new messages:
           - Read messages
           - Find last inbound message
@@ -39,6 +39,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.messenger_chatbot import (
     check_cooldown,
     generate_contextual_reply,
@@ -169,11 +170,8 @@ async def _process_account(
 ) -> int:
     """Process a single Instagram account — poll DMs and reply.
 
-    Uses the Instagram Graph API for messaging (same as Messenger Platform API).
-    Endpoint: GET /{ig-user-id}/conversations with platform=instagram
+    Uses InstagramAPIClient (Instagram Messaging API / Graph API v23.0).
     """
-    import httpx
-
     token = decrypt_token(account.access_token_enc)
     ig_user_id = account.account_id or ""
     replies_sent = 0
@@ -183,32 +181,19 @@ async def _process_account(
         logger.warning("Instagram account %s has no account_id (IG user ID)", account.id)
         return 0
 
-    base_url = "https://graph.facebook.com/v21.0"
+    client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
 
     # 1. Fetch conversations
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            resp = await client.get(
-                f"{base_url}/{ig_user_id}/conversations",
-                params={
-                    "platform": "instagram",
-                    "access_token": token,
-                    "fields": "id,snippet,unread_count,participants,updated_time",
-                },
-            )
-            if resp.status_code >= 400:
-                logger.warning(
-                    "Instagram DM API error for account %s: %d %s",
-                    account.id, resp.status_code, resp.text[:200],
-                )
-                return 0
+    try:
+        convos_result = await client.get_conversations(limit=25)
+    except InstagramAPIError as exc:
+        logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
+        return 0
+    except Exception as exc:
+        logger.warning("Instagram DM fetch failed for account %s: %s", account.id, exc)
+        return 0
 
-            data = resp.json()
-        except Exception as exc:
-            logger.warning("Instagram DM fetch failed for account %s: %s", account.id, exc)
-            return 0
-
-    conversations = data.get("data", [])
+    conversations = convos_result.get("data", [])
     if not conversations:
         return 0
 
@@ -217,35 +202,18 @@ async def _process_account(
         if not convo_id:
             continue
 
-        # Skip if no unread messages
-        unread = convo.get("unread_count", 0)
-        if unread == 0:
-            continue
-
-        # Get participant name
+        # Get participant info
         participants = convo.get("participants", {}).get("data", [])
         convo_name = participants[0].get("name", "Unknown") if participants else "Unknown"
+        recipient_id = participants[0].get("id", "") if participants else ""
+
+        if not recipient_id:
+            continue
 
         try:
             # 2. Read messages in this conversation
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(
-                    f"{base_url}/{convo_id}/messages",
-                    params={
-                        "access_token": token,
-                        "fields": "id,from,created_time,message",
-                    },
-                )
-                if resp.status_code >= 400:
-                    logger.warning(
-                        "Instagram DM read error for conversation %s: %d",
-                        convo_id, resp.status_code,
-                    )
-                    continue
-
-                msgs_data = resp.json()
-
-            messages = msgs_data.get("data", [])
+            msgs_result = await client.get_dm_messages(convo_id, limit=20)
+            messages = msgs_result.get("data", [])
             if not messages:
                 continue
 
@@ -279,7 +247,13 @@ async def _process_account(
             if await is_thread_paused(account.id, seen_key):
                 continue
 
-            # 7. Generate AI reply
+            # 7. Send typing indicator (feels more natural)
+            try:
+                await client.send_typing_indicator(recipient_id)
+            except Exception:
+                pass  # Non-fatal
+
+            # 8. Generate AI reply
             reply_text = await generate_contextual_reply(
                 config, text, account_name,
                 account.id, seen_key,
@@ -289,32 +263,16 @@ async def _process_account(
             if not reply_text:
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
-            # 8. Send reply via Instagram Messaging API
-            recipient_id = ""
-            if participants:
-                recipient_id = participants[0].get("id", "")
+            # 9. Send reply via Instagram Messaging API
+            await client.send_dm(recipient_id, reply_text)
 
-            if not recipient_id:
-                logger.warning("Instagram DM: no recipient_id for conversation %s", convo_id)
-                continue
+            # 10. Mark conversation as read
+            try:
+                await client.mark_dm_read(convo_id)
+            except Exception:
+                pass  # Non-fatal
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{base_url}/{ig_user_id}/messages",
-                    params={"access_token": token},
-                    json={
-                        "recipient": {"id": recipient_id},
-                        "message": {"text": reply_text},
-                    },
-                )
-                if resp.status_code >= 400:
-                    logger.warning(
-                        "Instagram DM send error for conversation %s: %d %s",
-                        convo_id, resp.status_code, resp.text[:200],
-                    )
-                    continue
-
-            # 9. Store in memory
+            # 11. Store in memory
             await store_message_memory(
                 account.team_id, account.id, seen_key,
                 "them", text,
@@ -324,7 +282,7 @@ async def _process_account(
                 "me", reply_text,
             )
 
-            # 10. Mark seen + cooldown
+            # 12. Mark seen + cooldown
             seen[seen_key] = text
             await set_cooldown(account.id, seen_key, cooldown_seconds)
             replies_sent += 1
@@ -335,6 +293,11 @@ async def _process_account(
 
             await asyncio.sleep(3)
 
+        except InstagramAPIError as exc:
+            logger.warning("Instagram DM API error in conversation %s: %s", convo_id, exc)
+            if exc.status_code == 429:
+                logger.warning("Instagram rate-limited — stopping for account %s", account.id)
+                break
         except Exception as exc:
             logger.error(
                 "Error processing Instagram conversation %s: %s",

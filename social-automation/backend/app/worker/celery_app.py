@@ -22,6 +22,8 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_messenger",
         "app.worker.tasks.threads_messenger",
         "app.worker.tasks.twitter_messenger",
+        "app.worker.tasks.tiktok_messenger",
+        "app.worker.tasks.instagram_messenger",
     ],
 )
 
@@ -139,6 +141,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
         "app.worker.tasks.twitter_messenger.poll_twitter_messenger": {"queue": "messenger"},
+        "app.worker.tasks.tiktok_messenger.poll_tiktok_messenger": {"queue": "messenger"},
+        "app.worker.tasks.instagram_messenger.poll_instagram_messenger": {"queue": "messenger"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -221,6 +225,22 @@ celery_app.conf.update(
         "poll-twitter-messenger": {
             "task": "app.worker.tasks.twitter_messenger.poll_twitter_messenger",
             "schedule": 300.0,  # every 5 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll TikTok DM conversations for new messages and send AI auto-replies
+        # via the Business Messaging API (Open Beta — not yet in EU).
+        # Runs every 5 minutes; gracefully skips accounts without API access.
+        "poll-tiktok-messenger": {
+            "task": "app.worker.tasks.tiktok_messenger.poll_tiktok_messenger",
+            "schedule": 300.0,  # every 5 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll Instagram DM conversations for new messages and send AI auto-replies
+        # via the Instagram Messaging API (same as Messenger Platform API).
+        # Runs every 3 minutes; gracefully skips accounts without OAuth token.
+        "poll-instagram-messenger": {
+            "task": "app.worker.tasks.instagram_messenger.poll_instagram_messenger",
+            "schedule": 180.0,  # every 3 minutes
             "options": {"queue": "messenger"},
         },
     },

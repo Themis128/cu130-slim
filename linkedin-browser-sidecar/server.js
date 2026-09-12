@@ -664,7 +664,7 @@ async function exportCookies() {
 // ── API: Session ───────────────────────────────────────────────────────────
 
 async function handleSetSession(req, res) {
-  const { storage_state, cookies } = req.body;
+  const { storage_state, cookies, verify } = req.body;
   if (!storage_state && !cookies) {
     return res.status(400).json({ error: 'storage_state or cookies is required' });
   }
@@ -682,16 +682,23 @@ async function handleSetSession(req, res) {
   }
   agentLog('H-D', 'handleSetSession', 'session applied', {
     cookieCount: (storageState.cookies || []).length,
+    verify: verify !== false,
   });
   await closeBrowser();
   await ensureBrowser();
+  // verify=false: inject cookies only (for cooldown / offline restore). Default verifies via feed.
+  if (verify === false) {
+    await saveSession();
+    return res.json({ status: 'ok', logged_in: null, verified: false, url: null });
+  }
   try {
     await navigateAndCheck('https://www.linkedin.com/feed/');
-    const loggedIn = isLoggedIn();
+    const loggedIn = await isLoggedInStrict();
     if (loggedIn) await saveSession();
-    res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
+    res.json({ status: 'ok', logged_in: loggedIn, verified: true, url: page.url() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    res.status(status).json({ error: err.message, code: err.code || 'SESSION_ERROR', logged_in: false });
   }
 }
 
@@ -715,10 +722,17 @@ async function handleLogin(req, res) {
     return res.status(400).json({ error: 'username and password are required' });
   }
   try {
+    // Login is allowed even while the feed/messaging circuit is open —
+    // LinkedIn /login still returns 200; only the flagged session is blocked.
+    clearRateLimit();
+    await closeBrowser();
+    // Start clean (no flagged cookies) for a fresh login.
+    storageState = null;
     await ensureBrowser();
     await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle();
     await dismissDialogs();
+    agentLog('H-G', 'handleLogin', 'login page loaded', { url: page.url(), status: 0 });
 
     // Wait for the login form to render (LinkedIn uses JS to render inputs)
     try {
