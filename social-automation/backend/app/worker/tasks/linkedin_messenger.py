@@ -179,9 +179,16 @@ async def _process_account(
     except Exception:
         pass
 
-    # 0. Check sidecar session
+    # 0. Check sidecar session / global rate-limit circuit
     try:
         health = await sidecar.health()
+        if health.get("rate_limited"):
+            logger.info(
+                "LinkedIn DM: sidecar circuit open until %s — skipping account %s",
+                health.get("rate_limit_until"),
+                account.id,
+            )
+            return 0
         if not health.get("has_session"):
             logger.info(
                 "LinkedIn DM: sidecar session not active for account %s",
@@ -205,7 +212,7 @@ async def _process_account(
                 import redis.asyncio as aioredis
 
                 r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
-                await r.setex(f"linkedin:dm:ratelimit:{account.id}", 1800, "1")
+                await r.setex(f"linkedin:dm:ratelimit:{account.id}", 21600, "1")  # 6h
                 await r.aclose()
             except Exception:
                 pass
