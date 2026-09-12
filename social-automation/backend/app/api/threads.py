@@ -467,3 +467,115 @@ async def get_threads_followers(
         metric="followers_count",
         values=data.get("data", []),
     )
+
+
+# ── Threads DM (messaging) auto-reply ──────────────────────────────────────
+
+
+class ThreadsAutoReplyConfig(BaseModel):
+    enabled: bool = False
+    system_prompt: str = "You are a helpful assistant for {account_name}. Reply concisely and professionally."
+    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    fallback_text: str = "Thanks for your message! I'll get back to you soon."
+    max_tokens: int = 250
+    cooldown_seconds: int = 300
+    temperature: float = 0.7
+
+
+@router.get("/{account_id}/dm/auto-reply")
+async def get_threads_dm_auto_reply(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the Threads DM auto-reply configuration for an account."""
+    account = await _get_threads_account(db, current_user.team_id, account_id)
+    meta = account.meta_data or {}
+    config = meta.get("threads_auto_reply", {})
+    return ThreadsAutoReplyConfig(
+        enabled=config.get("enabled", False),
+        system_prompt=config.get("system_prompt", ThreadsAutoReplyConfig().system_prompt),
+        model=config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        fallback_text=config.get("fallback_text", ThreadsAutoReplyConfig().fallback_text),
+        max_tokens=config.get("max_tokens", 250),
+        cooldown_seconds=config.get("cooldown_seconds", 300),
+        temperature=config.get("temperature", 0.7),
+    )
+
+
+@router.put("/{account_id}/dm/auto-reply")
+async def update_threads_dm_auto_reply(
+    account_id: uuid.UUID,
+    body: ThreadsAutoReplyConfig,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the Threads DM auto-reply configuration for an account."""
+    account = await _get_threads_account(db, current_user.team_id, account_id)
+    meta = account.meta_data or {}
+    meta["threads_auto_reply"] = body.model_dump()
+    account.meta_data = meta
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return body
+
+
+@router.get("/{account_id}/dm/conversations")
+async def list_threads_dm_conversations(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List Threads DM conversations via the browser bridge."""
+    await _get_threads_account(db, current_user.team_id, account_id)
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient("http://browser-novnc:9223")
+    try:
+        result = await bridge.get_threads_dm_conversations()
+        return result
+    except BrowserBridgeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/{account_id}/dm/threads/{thread_id}")
+async def read_threads_dm_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read messages in a Threads DM thread via the browser bridge."""
+    await _get_threads_account(db, current_user.team_id, account_id)
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient("http://browser-novnc:9223")
+    try:
+        result = await bridge.get_threads_dm_messages(thread_id)
+        return result
+    except BrowserBridgeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/{account_id}/dm/threads/{thread_id}/send")
+async def send_threads_dm(
+    account_id: uuid.UUID,
+    thread_id: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a message in a Threads DM thread via the browser bridge."""
+    await _get_threads_account(db, current_user.team_id, account_id)
+    text = body.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    bridge = BrowserBridgeClient("http://browser-novnc:9223")
+    try:
+        result = await bridge.send_threads_dm_message(thread_id, text)
+        return result
+    except BrowserBridgeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
