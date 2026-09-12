@@ -494,7 +494,7 @@ async def get_linkedin_dm_auto_reply(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the LinkedIn DM auto-reply configuration for an account."""
-    await _load_linkedin_account(db, account_id, current_user)
+    account = await _load_linkedin_account(db, account_id, current_user)
     meta = account.meta_data or {}
     config = meta.get("linkedin_auto_reply", {})
     return LinkedInAutoReplyConfig(
@@ -516,7 +516,7 @@ async def update_linkedin_dm_auto_reply(
     db: AsyncSession = Depends(get_db),
 ):
     """Update the LinkedIn DM auto-reply configuration for an account."""
-    await _load_linkedin_account(db, account_id, current_user)
+    account = await _load_linkedin_account(db, account_id, current_user)
     meta = account.meta_data or {}
     meta["linkedin_auto_reply"] = body.model_dump()
     account.meta_data = meta
