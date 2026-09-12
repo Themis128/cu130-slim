@@ -7,9 +7,7 @@ from sqlalchemy import select
 from app.models.content import Post, PostStatus
 from app.models.user import Team, User
 
-
 TEST_USER = {"email": "ci-analytics@example.com", "password": "TestPass123!", "name": "CI Analytics"}
-
 
 @pytest.mark.asyncio
 async def test_overview_counts_upcoming_scheduled_posts(client, db):
