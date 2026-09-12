@@ -2014,7 +2014,7 @@ async def import_instagram_session_from_browser(
     result = await db.execute(
         select(SocialAccount).where(SocialAccount.platform == "instagram")
     )
-    account = result.scalar_one_or_none()
+    account = result.scalars().first()
     if account:
         _set_instagram_session_id(account, sidecar_session_id)
         # Also save the raw sessionid cookie for reference
@@ -2064,7 +2064,7 @@ async def set_instagram_web_session(
     result = await db.execute(
         select(SocialAccount).where(SocialAccount.platform == "instagram")
     )
-    account = result.scalar_one_or_none()
+    account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
 
@@ -2100,7 +2100,7 @@ async def get_instagram_web_session_status(
     result = await db.execute(
         select(SocialAccount).where(SocialAccount.platform == "instagram")
     )
-    account = result.scalar_one_or_none()
+    account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
 
