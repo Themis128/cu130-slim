@@ -579,3 +579,85 @@ async def send_threads_dm(
         return result
     except BrowserBridgeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+# ── Threads Login Helper ───────────────────────────────────────────────
+# Threads doesn't have a DM API. We use browser automation (same as
+# personal Facebook Messenger, LinkedIn, and Twitter). These endpoints
+# help manage the Threads browser session.
+
+@router.post("/{account_id}/dm/login")
+async def threads_dm_login(
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Open Threads in the browser bridge for manual login.
+
+    Navigates to threads.com and waits for the user to log in via noVNC.
+    The session is saved automatically by the browser bridge.
+    """
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+
+    account = await _get_threads_account(db, current_user.team_id, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Threads account not found")
+
+    bridge = BrowserBridgeClient()
+    try:
+        # Navigate to Threads login page
+        await bridge.navigate("https://www.threads.com/login")
+        return {
+            "status": "ok",
+            "message": "Threads login page opened in browser bridge. Complete login via noVNC (port 6080).",
+            "novnc_url": "http://localhost:6080/vnc.html",
+            "threads_url": "https://www.threads.com/login",
+        }
+    except BrowserBridgeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/{account_id}/dm/session-status")
+async def threads_dm_session_status(
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if the Threads browser session is active."""
+    from app.services.browser_bridge import BrowserBridgeClient
+
+    account = await _get_threads_account(db, current_user.team_id, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Threads account not found")
+
+    bridge = BrowserBridgeClient()
+    try:
+        status = await bridge.get_session_status()
+        # Also check if we're on threads.com
+        try:
+            await bridge.navigate("https://www.threads.com/")
+            import asyncio
+            await asyncio.sleep(3)
+            result = await bridge.evaluate("""() => {
+                const url = window.location.href;
+                const loggedIn = !!document.querySelector(
+                    'a[href*="/compose"], ' +
+                    'div[aria-label="Compose"], ' +
+                    'button[aria-label*="Compose"]'
+                );
+                return { url: url, logged_in: loggedIn };
+            }""")
+            return {
+                "browser_session": status,
+                "threads_session": result,
+            }
+        except Exception:
+            return {
+                "browser_session": status,
+                "threads_session": {"logged_in": False, "error": "Could not check Threads session"},
+            }
+    except Exception as exc:
+        return {
+            "browser_session": {"error": str(exc)[:200]},
+            "threads_session": {"logged_in": False},
+        }

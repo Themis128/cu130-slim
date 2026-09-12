@@ -1499,3 +1499,170 @@ async def index_brand(
     }
     indexed = await index_brand_knowledge(str(account.team_id), brand_data)
     return {"status": "ok", "indexed": indexed}
+
+
+# ── WhatsApp Phone Number Registration ─────────────────────────────────
+# Meta's Cloud API requires phone numbers to be registered before they can
+# send/receive messages. This is a 3-step process:
+#   1. Request a verification code (SMS or voice)
+#   2. Verify the code
+#   3. Register the number for Cloud API use
+# These endpoints automate steps 1-3 via the WhatsApp Cloud API.
+
+@router.post("/{account_id}/phone/request-code")
+async def request_phone_code(
+    account_id: str,
+    code_method: str = "SMS",
+    language: str = "en_US",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a verification code for the WhatsApp business phone number.
+
+    The code is sent via SMS or voice call to the phone number.
+    After receiving the code, call /phone/verify-code to verify it.
+    """
+    import httpx
+    from app.core.security import decrypt_token
+
+    account = await _get_whatsapp_account(db, current_user, account_id)
+    if not account.access_token_enc:
+        raise HTTPException(status_code=400, detail="Account has no access token")
+    token = decrypt_token(account.access_token_enc)
+
+    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"https://graph.facebook.com/v21.0/{phone_number_id}/request_code",
+            params={
+                "code_method": code_method,
+                "language": language,
+                "access_token": token,
+            },
+        )
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    return resp.json()
+
+
+@router.post("/{account_id}/phone/verify-code")
+async def verify_phone_code(
+    account_id: str,
+    code: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify the WhatsApp business phone number with the received code.
+
+    After verification, the number is ready for Cloud API use.
+    """
+    import httpx
+    from app.core.security import decrypt_token
+
+    account = await _get_whatsapp_account(db, current_user, account_id)
+    if not account.access_token_enc:
+        raise HTTPException(status_code=400, detail="Account has no access token")
+    token = decrypt_token(account.access_token_enc)
+
+    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"https://graph.facebook.com/v21.0/{phone_number_id}/verify_code",
+            params={"code": code, "access_token": token},
+        )
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    return resp.json()
+
+
+@router.post("/{account_id}/phone/register")
+async def register_phone(
+    account_id: str,
+    pin: str = "",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register the verified WhatsApp business phone number for Cloud API use.
+
+    This is the final step after phone number verification.
+    The PIN is the 6-digit two-step verification PIN (if enabled).
+    """
+    import httpx
+    from app.core.security import decrypt_token
+
+    account = await _get_whatsapp_account(db, current_user, account_id)
+    if not account.access_token_enc:
+        raise HTTPException(status_code=400, detail="Account has no access token")
+    token = decrypt_token(account.access_token_enc)
+
+    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"https://graph.facebook.com/v21.0/{phone_number_id}/register",
+            json={
+                "messaging_product": "whatsapp",
+                "pin": pin,
+            },
+            params={"access_token": token},
+        )
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    # Update account metadata
+    from sqlalchemy.orm.attributes import flag_modified
+    meta = account.meta_data or {}
+    meta["phone_registered"] = True
+    meta["phone_registered_at"] = datetime.now(UTC).isoformat()
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+
+    return resp.json()
+
+
+@router.get("/{account_id}/phone/status")
+async def get_phone_status(
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check the WhatsApp business phone number registration status."""
+    import httpx
+    from app.core.security import decrypt_token
+
+    account = await _get_whatsapp_account(db, current_user, account_id)
+    if not account.access_token_enc:
+        raise HTTPException(status_code=400, detail="Account has no access token")
+    token = decrypt_token(account.access_token_enc)
+
+    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"https://graph.facebook.com/v21.0/{phone_number_id}",
+            params={
+                "fields": "verified,name,display_phone_number,quality_rating,code_verification_status",
+                "access_token": token,
+            },
+        )
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    return resp.json()

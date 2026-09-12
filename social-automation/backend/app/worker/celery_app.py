@@ -24,6 +24,8 @@ celery_app = Celery(
         "app.worker.tasks.twitter_messenger",
         "app.worker.tasks.tiktok_messenger",
         "app.worker.tasks.instagram_messenger",
+        "app.worker.tasks.instagram_token_refresh",
+        "app.worker.tasks.linkedin_session_refresh",
     ],
 )
 
@@ -242,6 +244,20 @@ celery_app.conf.update(
             "task": "app.worker.tasks.instagram_messenger.poll_instagram_messenger",
             "schedule": 180.0,  # every 3 minutes
             "options": {"queue": "messenger"},
+        },
+        # Refresh Instagram long-lived access tokens before they expire (60 days).
+        # Runs weekly to refresh tokens that will expire within 5 days.
+        "refresh-instagram-tokens": {
+            "task": "app.worker.tasks.instagram_token_refresh.refresh_instagram_tokens",
+            "schedule": 604800.0,  # every 7 days
+            "options": {"queue": "default"},
+        },
+        # Validate and refresh LinkedIn browser sessions weekly.
+        # Clears stale rate limits and reports session health.
+        "refresh-linkedin-sessions": {
+            "task": "app.worker.tasks.linkedin_session_refresh.refresh_linkedin_sessions",
+            "schedule": 604800.0,  # every 7 days
+            "options": {"queue": "default"},
         },
     },
 )
