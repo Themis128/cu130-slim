@@ -1017,3 +1017,190 @@ class BrowserBridgeClient:
             logger.warning("Fast message read failed, falling back to SPA: %s", exc)
 
         return await self.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
+
+    # ── Threads DM (direct messages) ──────────────────────────────────────
+    # Threads launched DMs in July 2025 but has no public DM API.
+    # These methods automate the Threads web UI (threads.com/direct)
+    # using the same browser bridge approach as personal Messenger.
+
+    async def get_threads_dm_conversations(self) -> dict[str, Any]:
+        """Read Threads DM conversation list from threads.com/direct.
+
+        Navigates to the Threads inbox and extracts recent conversations
+        with names, preview text, and thread URLs.
+        Requires a logged-in Threads browser session.
+        """
+        await self.navigate("https://www.threads.com/direct/inbox/")
+        await asyncio.sleep(4)
+
+        result = await self.evaluate("""() => {
+            const conversations = [];
+            const seen = new Set();
+
+            // Threads DM links contain /direct/t/ or /direct/thread/
+            const items = document.querySelectorAll(
+                'a[href*="/direct/t/"], ' +
+                'a[href*="/direct/thread/"], ' +
+                'a[href*="/direct/inbox/"]'
+            );
+
+            items.forEach(item => {
+                const href = item.getAttribute('href') || '';
+                if (href.includes('/direct/new') || href.includes('/direct/?')) return;
+                if (seen.has(href)) return;
+                seen.add(href);
+
+                const text = item.innerText || '';
+                const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
+                if (lines.length === 0) return;
+
+                // Extract thread ID from URL
+                const match = href.match(/direct\\/(?:t|thread|inbox)\\/([0-9a-zA-Z_-]+)/);
+                const threadId = match ? match[1] : null;
+
+                const name = lines[0] || 'Unknown';
+                let preview = '';
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === 'Active now' || line === '\\u00a0') continue;
+                    preview = line;
+                    break;
+                }
+
+                // Check for unread indicator
+                const unreadEl = item.querySelector('[class*="unread"], [class*="badge"], [data-scope="unread_count"]');
+                const unread = unreadEl ? unreadEl.innerText.trim() : '';
+
+                conversations.push({
+                    name: name,
+                    preview: preview,
+                    thread_id: threadId,
+                    thread_url: href,
+                    unread: unread,
+                });
+            });
+
+            return { conversations: conversations, count: conversations.length };
+        }""")
+
+        return result
+
+    async def get_threads_dm_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages in a Threads DM thread.
+
+        Navigates to the specific DM thread and extracts all visible messages
+        with sender names, text, and timestamps.
+        """
+        await self.navigate(f"https://www.threads.com/direct/t/{thread_id}/")
+        await asyncio.sleep(4)
+
+        # Scroll up to load older messages
+        await self.evaluate("""() => {
+            const container = document.querySelector('[class*="message-list"], [role="log"], [class*="chat"]');
+            if (container) container.scrollTop = 0;
+        }""")
+        await asyncio.sleep(1)
+
+        result = await self.evaluate("""() => {
+            const messages = [];
+
+            // Threads DM messages are in various container patterns
+            const msgEls = document.querySelectorAll(
+                '[class*="message-item"], ' +
+                '[class*="msg-item"], ' +
+                '[data-scope="message"], ' +
+                'div[role="article"]'
+            );
+
+            let currentSender = '';
+            msgEls.forEach(el => {
+                const senderEl = el.querySelector('[class*="sender"], [class*="author"], h3, h4, [class*="name"]');
+                const sender = senderEl ? senderEl.innerText.trim() : currentSender;
+                if (sender) currentSender = sender;
+
+                const textEl = el.querySelector('[class*="message-text"], p, [class*="content"]');
+                const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+
+                const timeEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+                const time = timeEl ? timeEl.innerText.trim() : '';
+
+                if (text && text.length < 2000) {
+                    messages.push({ sender: sender || 'unknown', text: text, time: time });
+                }
+            });
+
+            return { thread_id: arguments[0], messages: messages, count: messages.length };
+        }""")
+
+        # The evaluate doesn't pass arguments well, fix thread_id
+        if isinstance(result, dict):
+            result["thread_id"] = thread_id
+
+        return result
+
+    async def send_threads_dm_message(self, thread_id: str, text: str) -> dict[str, Any]:
+        """Send a message in a Threads DM thread.
+
+        Navigates to the thread, types the message, and sends it.
+        """
+        await self.navigate(f"https://www.threads.com/direct/t/{thread_id}/")
+        await asyncio.sleep(4)
+
+        # Find the message input (contenteditable or textarea)
+        # Escape the text for safe JS embedding
+        import json as _json
+        escaped_text = _json.dumps(text)
+        result = await self.evaluate(f"""() => {{
+            const editor = document.querySelector(
+                'div[contenteditable="true"][role="textbox"], ' +
+                'textarea[class*="message"], ' +
+                'textarea[placeholder*="essage"], ' +
+                '[data-scope="message_input"]'
+            );
+            if (!editor) return {{ error: 'Could not find the message input box' }};
+
+            // Focus and type
+            editor.focus();
+
+            // Use execCommand for contenteditable
+            if (editor.isContentEditable) {{
+                document.execCommand('insertText', false, {escaped_text});
+            }} else {{
+                editor.value = {escaped_text};
+                editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            }}
+
+            return {{ status: 'typed' }};
+        }}""")
+
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        await asyncio.sleep(1)
+
+        # Click Send button or press Enter
+        send_result = await self.evaluate("""() => {
+            const sendBtn = document.querySelector(
+                'button[type="submit"], ' +
+                'button[aria-label*="Send"], ' +
+                'button:has-text("Send")'
+            );
+            if (sendBtn) {
+                sendBtn.click();
+                return { status: 'sent', method: 'button' };
+            }
+            return { status: 'no_button' };
+        }""")
+
+        if send_result.get("status") == "no_button":
+            # Try pressing Enter
+            await self.evaluate("""() => {
+                const editor = document.querySelector('div[contenteditable="true"][role="textbox"], textarea[class*="message"]');
+                if (editor) {
+                    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                }
+            }""")
+
+        await asyncio.sleep(2)
+
+        return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
