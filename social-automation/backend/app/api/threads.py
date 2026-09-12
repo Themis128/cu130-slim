@@ -74,7 +74,7 @@ def _get_browser_bridge_client():
 
     from app.services.browser_bridge import BrowserBridgeClient
 
-    bridge_url = os.getenv("BROWSER_BRIDGE_URL", "http://localhost:9223")
+    bridge_url = os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
     return BrowserBridgeClient(bridge_url)
 
 

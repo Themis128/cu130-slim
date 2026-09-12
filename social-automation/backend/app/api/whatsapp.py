@@ -1527,7 +1527,7 @@ async def request_phone_code(
 
     from app.core.security import decrypt_token
 
-    account = await _get_whatsapp_account(db, current_user, account_id)
+    account = await _get_whatsapp_account(db, account_id, current_user)
     if not account.access_token_enc:
         raise HTTPException(status_code=400, detail="Account has no access token")
     token = decrypt_token(account.access_token_enc)
@@ -1567,7 +1567,7 @@ async def verify_account_phone_code(
 
     from app.core.security import decrypt_token
 
-    account = await _get_whatsapp_account(db, current_user, account_id)
+    account = await _get_whatsapp_account(db, account_id, current_user)
     if not account.access_token_enc:
         raise HTTPException(status_code=400, detail="Account has no access token")
     token = decrypt_token(account.access_token_enc)
@@ -1604,7 +1604,7 @@ async def register_account_phone(
 
     from app.core.security import decrypt_token
 
-    account = await _get_whatsapp_account(db, current_user, account_id)
+    account = await _get_whatsapp_account(db, account_id, current_user)
     if not account.access_token_enc:
         raise HTTPException(status_code=400, detail="Account has no access token")
     token = decrypt_token(account.access_token_enc)
@@ -1649,7 +1649,7 @@ async def get_phone_status(
 
     from app.core.security import decrypt_token
 
-    account = await _get_whatsapp_account(db, current_user, account_id)
+    account = await _get_whatsapp_account(db, account_id, current_user)
     if not account.access_token_enc:
         raise HTTPException(status_code=400, detail="Account has no access token")
     token = decrypt_token(account.access_token_enc)
@@ -1662,7 +1662,7 @@ async def get_phone_status(
         resp = await client.get(
             f"https://graph.facebook.com/v21.0/{phone_number_id}",
             params={
-                "fields": "verified,name,display_phone_number,quality_rating,code_verification_status",
+                "fields": "name,display_phone_number,quality_rating,code_verification_status",
                 "access_token": token,
             },
         )
