@@ -17,7 +17,7 @@ fi
 case "$PLATFORM" in
   twitter|x)
     URL="https://x.com/home"
-    LOGIN_CHECK='document.querySelector(\"a[href=\\\"/compose/post\\\"], div[data-testid=\\\"SideNav_NewTweet_Button\\\"]\") !== null'
+    LOGIN_CHECK='!document.querySelector(\"a[href*=\\\"login\\\"]\") && (document.querySelector(\"div[data-testid=\\\"SideNav_NewTweet_Button\\\"], a[href=\\\"/compose/post\\\"], nav[aria-label=\\\"Primary\\\"]\") !== null)'
     ;;
   tiktok)
     URL="https://www.tiktok.com/foryou"
@@ -25,7 +25,7 @@ case "$PLATFORM" in
     ;;
   threads)
     URL="https://www.threads.com/"
-    LOGIN_CHECK='document.querySelector(\"a[href*=\\\"/compose\\\"], div[aria-label=\\\"Compose\\\"]\") !== null'
+    LOGIN_CHECK='!document.querySelector(\"a[href*=\\\"login\\\"]\") && document.body.innerText.includes(\"Messages\")'
     ;;
   instagram)
     URL="https://www.instagram.com/"
