@@ -658,7 +658,12 @@ class BrowserBridgeClient:
                 await self.fill('div[role="dialog"] input[type="password"]', pin)
                 await asyncio.sleep(0.5)
                 # Click the submit/continue button
-                await self.click('div[role="dialog"] button[type="submit"], div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("Submit")')
+                submit_selector = (
+                    'div[role="dialog"] button[type="submit"], '
+                    'div[role="dialog"] button:has-text("Continue"), '
+                    'div[role="dialog"] button:has-text("Submit")'
+                )
+                await self.click(submit_selector)
                 await asyncio.sleep(2)
                 logger.info("E2EE PIN entered successfully")
                 return True
