@@ -257,3 +257,122 @@ class TwitterAPIClient:
             resp = await client.get(url, headers=self._headers(), params=params)
             self._raise_for_status(resp, url)
             return resp.json()
+
+    # ── Direct Messages (DM API v2) ──────────────────────────────────────
+    # Requires OAuth 2.0 user-context with dm.read + dm.write scopes.
+    # Free tier: read-only (1 req/24h due to known bug). Basic ($200/mo):
+    # 1 send/24h. Pro ($5000/mo): 15 sends/15min. Platform cap: 500/day.
+
+    async def send_dm(self, participant_id: str, text: str) -> dict[str, Any]:
+        """Send a one-to-one direct message to a user.
+
+        Creates a new conversation if one doesn't exist; otherwise appends
+        to the existing conversation.
+        Requires ``dm.write`` scope.
+
+        Args:
+            participant_id: The numeric X user ID of the recipient.
+            text: The message text (max 10,000 chars).
+
+        Returns:
+            API response with ``dm_conversation_id`` and ``dm_event_id``.
+        """
+        participant_id = _validate_user_id(participant_id)
+        if not text or len(text) > 10000:
+            raise ValueError("text is required and must be <= 10000 chars")
+
+        url = f"{self.api_base}/dm_conversations/with/{participant_id}/messages"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json={"text": text})
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def send_dm_to_conversation(self, conversation_id: str, text: str) -> dict[str, Any]:
+        """Send a message to an existing DM conversation.
+
+        Requires ``dm.write`` scope.
+
+        Args:
+            conversation_id: The DM conversation ID.
+            text: The message text (max 10,000 chars).
+        """
+        if not conversation_id:
+            raise ValueError("conversation_id is required")
+        if not text or len(text) > 10000:
+            raise ValueError("text is required and must be <= 10000 chars")
+
+        url = f"{self.api_base}/dm_conversations/{conversation_id}/messages"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json={"text": text})
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def list_dm_events(
+        self,
+        max_results: int = 50,
+        event_types: str = "MessageCreate",
+        dm_event_fields: str = "id,text,created_at,sender_id,dm_conversation_id",
+    ) -> dict[str, Any]:
+        """List DM events (messages received and sent).
+
+        Requires ``dm.read`` scope. Returns recent DM events with pagination.
+
+        Args:
+            max_results: Number of events to fetch (1-100, default 50).
+            event_types: Comma-separated event types (MessageCreate, etc).
+            dm_event_fields: Fields to include in the response.
+        """
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results must be between 1 and 100")
+
+        url = f"{self.api_base}/dm_events"
+        params = {
+            "max_results": max_results,
+            "event_types": event_types,
+            "dm.event.fields": dm_event_fields,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_dm_conversation_events(
+        self,
+        conversation_id: str,
+        max_results: int = 50,
+        dm_event_fields: str = "id,text,created_at,sender_id",
+    ) -> dict[str, Any]:
+        """Get events for a specific DM conversation.
+
+        Requires ``dm.read`` scope.
+        """
+        if not conversation_id:
+            raise ValueError("conversation_id is required")
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results must be between 1 and 100")
+
+        url = f"{self.api_base}/dm_conversations/{conversation_id}/dm_events"
+        params = {
+            "max_results": max_results,
+            "dm.event.fields": dm_event_fields,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def delete_dm(self, event_id: str) -> bool:
+        """Delete a DM event (message).
+
+        Requires ``dm.write`` scope.
+        """
+        if not event_id:
+            raise ValueError("event_id is required")
+
+        url = f"{self.api_base}/dm_events/{event_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(url, headers=self._headers())
+            if resp.status_code == 204:
+                return True
+            self._raise_for_status(resp, url)
+            return True

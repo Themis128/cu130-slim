@@ -985,7 +985,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
 
     PLATFORM_SCOPES: dict[str, list[str]] = {
         "linkedin": LINKEDIN_SCOPES,
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
         "facebook": [
             "public_profile",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",

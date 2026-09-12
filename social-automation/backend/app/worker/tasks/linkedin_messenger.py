@@ -163,6 +163,22 @@ async def _process_account(
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
+    # Skip while LinkedIn rate-limit cooldown is active
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        cooling = await r.get(f"linkedin:dm:ratelimit:{account.id}")
+        await r.aclose()
+        if cooling:
+            logger.info(
+                "LinkedIn DM: skipping account %s (rate-limit cooldown)",
+                account.id,
+            )
+            return 0
+    except Exception:
+        pass
+
     # 0. Check sidecar session
     try:
         health = await sidecar.health()
@@ -176,10 +192,27 @@ async def _process_account(
         logger.warning("LinkedIn sidecar health check failed for account %s: %s", account.id, exc)
         return 0
 
-    # 1. Fetch conversations
+    # 1. Fetch conversations (LinkedIn aggressively rate-limits browser polling)
     try:
         convos_result = await sidecar.get_conversations()
-    except (LinkedInSidecarError, Exception) as exc:
+    except LinkedInSidecarError as exc:
+        if exc.status_code == 429 or "RATE_LIMITED" in str(exc.detail):
+            logger.warning(
+                "LinkedIn rate-limited while listing DMs for account %s — backing off",
+                account.id,
+            )
+            try:
+                import redis.asyncio as aioredis
+
+                r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+                await r.setex(f"linkedin:dm:ratelimit:{account.id}", 1800, "1")
+                await r.aclose()
+            except Exception:
+                pass
+            return 0
+        logger.warning("LinkedIn sidecar error for account %s: %s", account.id, exc)
+        return 0
+    except Exception as exc:
         logger.warning("LinkedIn sidecar error for account %s: %s", account.id, exc)
         return 0
 

@@ -61,6 +61,38 @@ let context = null;
 let page = null;
 let storageState = null;
 
+/** Coerce cookie values to strings; quote JSESSIONID ajax: values LinkedIn expects. */
+function sanitizeCookieValue(name, value) {
+  let v = value;
+  if (v && typeof v === 'object') {
+    // Common mistake: nested {value: '...'} from flattened exports
+    if (typeof v.value === 'string') v = v.value;
+    else v = JSON.stringify(v);
+  }
+  v = String(v ?? '');
+  if (name === 'JSESSIONID' && v.startsWith('ajax:') && !v.startsWith('"')) {
+    v = `"${v}"`;
+  }
+  return v;
+}
+
+function sanitizeStorageState(state) {
+  if (!state || typeof state !== 'object') return state;
+  const cookies = Array.isArray(state.cookies) ? state.cookies : [];
+  return {
+    ...state,
+    cookies: cookies
+      .filter((c) => c && typeof c.name === 'string')
+      .map((c) => ({
+        ...c,
+        value: sanitizeCookieValue(c.name, c.value),
+        domain: c.domain || '.linkedin.com',
+        path: c.path || '/',
+      })),
+  };
+}
+
+
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
 
@@ -94,7 +126,8 @@ async function ensureBrowser() {
   };
 
   if (storageState) {
-    ctxOptions.storageState = storageState;
+    // Always sanitize before Playwright — cookie values must be strings.
+    ctxOptions.storageState = sanitizeStorageState(storageState);
   }
 
   context = await browser.newContext(ctxOptions);
@@ -146,11 +179,141 @@ async function dismissDialogs() {
   }
 }
 
-/** Navigate, settle, and dismiss any blocking dialogs. */
+/** Append one NDJSON debug line (session ce3429). */
+function agentLog(hypothesisId, location, message, data = {}) {
+  // #region agent log
+  try {
+    const payload = JSON.stringify({
+      sessionId: 'ce3429',
+      runId: 'post-fix',
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    });
+    fs.appendFileSync('/tmp/debug-ce3429.log', payload + '\n');
+    // Best-effort HTTP ingest to host debugger
+    try {
+      const http = require('http');
+      const req = http.request({
+        hostname: 'host.docker.internal',
+        port: 7498,
+        path: '/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Debug-Session-Id': 'ce3429',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+        timeout: 1000,
+      }, () => {});
+      req.on('error', () => {});
+      req.write(payload);
+      req.end();
+    } catch (_) {}
+  } catch (_) {}
+  // #endregion
+}
+
+/** True when the document is a blank/error shell (rate-limit / redirect failure). */
+function isBlankDocument() {
+  try {
+    const url = page.url();
+    if (url.startsWith('chrome-error://') || url === 'about:blank') return true;
+  } catch (_) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Navigate with redirect-loop recovery and HTTP status awareness.
+ * Throws on 429 / blank documents so callers do not treat rate-limits as login.
+ */
+let _navChain = Promise.resolve();
+
 async function navigate(url, timeout = 60000) {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-  await settle();
-  await dismissDialogs();
+  // Serialize all navigations — concurrent page.goto races cause
+  // "Navigation is interrupted by another navigation".
+  const run = async () => {
+  await ensureBrowser();
+  let lastErr = null;
+  const attempts = [
+    { waitUntil: 'domcontentloaded', timeout },
+    { waitUntil: 'commit', timeout: Math.min(timeout, 30000) },
+  ];
+
+  for (const opts of attempts) {
+    try {
+      const resp = await page.goto(url, opts);
+      const status = resp ? resp.status() : 0;
+      agentLog('H-A', 'navigate', 'goto result', {
+        url,
+        finalUrl: page.url(),
+        status,
+        waitUntil: opts.waitUntil,
+      });
+      if (status === 429) {
+        const err = new Error(`LinkedIn rate-limited (HTTP 429) navigating to ${url}`);
+        err.code = 'RATE_LIMITED';
+        err.status = 429;
+        throw err;
+      }
+      if (status >= 400 && status !== 0) {
+        agentLog('H-A', 'navigate', 'HTTP error status', { url, status });
+      }
+      await settle();
+      await dismissDialogs();
+      if (isBlankDocument()) {
+        const err = new Error(`Blank/error document after navigate to ${url}`);
+        err.code = 'BLANK_PAGE';
+        throw err;
+      }
+      // Detect empty LinkedIn shells (429 often returns empty HTML with 200/opaque)
+      const htmlLen = await page.evaluate(() => document.documentElement.outerHTML.length).catch(() => 0);
+      const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
+      agentLog('H-A', 'navigate', 'document sizes', { url: page.url(), htmlLen, textLen, status });
+      if (htmlLen < 200 && textLen === 0) {
+        const err = new Error(`Empty LinkedIn document (htmlLen=${htmlLen}) — likely rate-limited or blocked`);
+        err.code = 'RATE_LIMITED';
+        err.status = status || 429;
+        throw err;
+      }
+      return resp;
+    } catch (err) {
+      lastErr = err;
+      if (err.code === 'RATE_LIMITED' || err.status === 429) throw err;
+      if (err.message && err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
+        agentLog('H-B', 'navigate', 'redirect loop; trying recovery', { url, attempt: opts.waitUntil });
+        try {
+          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'commit', timeout: 20000 });
+          await page.waitForTimeout(1500);
+        } catch (_) {}
+        continue;
+      }
+      if (err.message && err.message.includes('interrupted by another navigation')) {
+        agentLog('H-E', 'navigate', 'interrupted; retrying', { url, attempt: opts.waitUntil });
+        await page.waitForTimeout(1000);
+        continue;
+      }
+      throw err;
+    }
+  }
+  // LinkedIn often answers rate-limits / soft blocks with redirect loops.
+  if (lastErr && lastErr.message && lastErr.message.includes('ERR_TOO_MANY_REDIRECTS')) {
+    const err = new Error(`LinkedIn redirect loop (likely rate-limited) navigating to ${url}`);
+    err.code = 'RATE_LIMITED';
+    err.status = 429;
+    err.cause = lastErr;
+    throw err;
+  }
+  throw lastErr || new Error(`Failed to navigate to ${url}`);
+  };
+
+  const next = _navChain.then(run, run);
+  _navChain = next.catch(() => {});
+  return next;
 }
 
 const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
@@ -289,31 +452,8 @@ async function findTextInput(opts = {}) {
  */
 async function navigateAndCheck(url) {
   await ensureBrowser();
-  try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  } catch (err) {
-    // Handle redirect loops — check if we ended up on a valid page anyway
-    if (err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
-      // Try navigating to the base domain first, then the target
-      try {
-        await page.goto('https://www.linkedin.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(2000);
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      } catch (_) {
-        // If still failing, try with waitUntil 'commit'
-        try {
-          await page.goto(url, { waitUntil: 'commit', timeout: 60000 });
-        } catch (_) {
-          throw err;
-        }
-      }
-    } else {
-      throw err;
-    }
-  }
-  await settle();
-  await dismissDialogs();
-  return isLoggedIn();
+  await navigate(url, 60000);
+  return await isLoggedInStrict();
 }
 
 /** True only for linkedin.com or a subdomain (not evillinkedin.com). */
@@ -336,12 +476,19 @@ function isLinkedInPageUrl(urlStr) {
 /** Check if we're logged in by looking at the current URL. */
 function isLoggedIn() {
   const url = page.url();
-  return (
-    isLinkedInPageUrl(url) &&
-    !url.includes('/login') &&
-    !url.includes('/checkpoint') &&
-    !url.includes('authwall')
-  );
+  if (!isLinkedInPageUrl(url)) return false;
+  if (url.includes('/login') || url.includes('/checkpoint') || url.includes('authwall')) return false;
+  if (url.startsWith('chrome-error://') || url === 'about:blank') return false;
+  return true;
+}
+
+/** Async login check that also rejects blank/rate-limited shells. */
+async function isLoggedInStrict() {
+  if (!isLoggedIn()) return false;
+  const htmlLen = await page.evaluate(() => document.documentElement.outerHTML.length).catch(() => 0);
+  const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
+  agentLog('H-C', 'isLoggedInStrict', 'content check', { url: page.url(), htmlLen, textLen });
+  return htmlLen >= 200 || textLen > 0;
 }
 
 /**
@@ -440,7 +587,7 @@ async function loadSavedSession() {
     if (!fs.existsSync(SESSION_FILE)) return false;
     const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
     if (data.storageState) {
-      storageState = data.storageState;
+      storageState = sanitizeStorageState(data.storageState);
       return true;
     }
   } catch (_) {}
@@ -469,12 +616,18 @@ async function handleSetSession(req, res) {
   // If cookies dict is provided, build a storage_state from it
   if (cookies && !storage_state) {
     const cookieList = Object.entries(cookies).map(([name, value]) => ({
-      name, value, domain: '.linkedin.com', path: '/',
+      name,
+      value: sanitizeCookieValue(name, value),
+      domain: '.linkedin.com',
+      path: '/',
     }));
     storageState = { cookies: cookieList, origins: [] };
   } else {
-    storageState = storage_state;
+    storageState = sanitizeStorageState(storage_state);
   }
+  agentLog('H-D', 'handleSetSession', 'session applied', {
+    cookieCount: (storageState.cookies || []).length,
+  });
   await closeBrowser();
   await ensureBrowser();
   try {
@@ -493,7 +646,9 @@ async function handleCheckSession(req, res) {
     const loggedIn = await navigateAndCheck('https://www.linkedin.com/feed/');
     res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    agentLog('H-A', 'handleCheckSession', 'error', { error: String(err.message || err).slice(0, 300), code: err.code || null });
+    res.status(status).json({ error: err.message, code: err.code || 'SESSION_ERROR', logged_in: false });
   }
 }
 
@@ -2202,6 +2357,10 @@ app.post('/post/text', handlePostText);
 app.post('/post/image', handlePostImage);
 app.post('/post/link', handlePostLink);
 
+app.get('/messages', handleListMessages);
+app.get('/messages/:thread_id', handleReadThread);
+app.post('/messages/:thread_id/send', handleSendMessage);
+
 // Posting — company page
 app.post('/company/:vanity/post/text', handleCompanyPostText);
 app.post('/company/:vanity/post/image', handleCompanyPostImage);
@@ -2332,6 +2491,129 @@ app.get('/debug/all-cookies', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+async function handleListMessages(req, res) {
+  try {
+    await ensureBrowser();
+    await navigate('https://www.linkedin.com/messaging/', 30000);
+    await page.waitForTimeout(3000);
+
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => {
+        const list = document.querySelector('[role="list"], .msg-conversations-container, .msg-list');
+        if (list) list.scrollBy(0, 500);
+      });
+      await page.waitForTimeout(500);
+    }
+
+    const conversations = await page.evaluate(() => {
+      const items = document.querySelectorAll('[role="listitem"], .msg-conversation-listitem, li[class*="conversation"]');
+      const results = [];
+      for (const item of items) {
+        const nameEl = item.querySelector('a[href*="/messaging/thread"], .msg-conversation-listitem__link, h3, [class*="participant-name"]');
+        const name = nameEl ? nameEl.innerText.trim() : '';
+        const previewEl = item.querySelector('.msg-conversation-card__message-snippet, p, [class*="snippet"]');
+        const preview = previewEl ? previewEl.innerText.trim() : '';
+        const linkEl = item.querySelector('a[href*="/messaging/thread"]');
+        const threadUrl = linkEl ? linkEl.getAttribute('href') : '';
+        const threadId = threadUrl ? (threadUrl.match(/thread:(\d+)/) || [])[1] || threadUrl : '';
+        const unreadEl = item.querySelector('[class*="unread"], .msg-conversation-listitem__unread-count');
+        const unread = unreadEl ? unreadEl.innerText.trim() : '';
+        const timeEl = item.querySelector('time, [class*="time"]');
+        const time = timeEl ? timeEl.innerText.trim() : '';
+        if (name) {
+          results.push({ name, preview, thread_id: threadId, thread_url: threadUrl, unread, time });
+        }
+      }
+      return results;
+    });
+
+    agentLog('H-B', 'handleListMessages', 'listed conversations', { count: conversations.length, url: page.url() });
+    res.json({ status: 'ok', conversations, count: conversations.length });
+  } catch (err) {
+    agentLog('H-B', 'handleListMessages', 'error', { error: String(err.message || err).slice(0, 300), code: err.code || null });
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    res.status(status).json({ error: err.message, code: err.code || 'MESSAGES_ERROR' });
+  }
+}
+
+async function handleReadThread(req, res) {
+  const { thread_id } = req.params;
+  if (!thread_id) return res.status(400).json({ error: 'thread_id is required' });
+  try {
+    await ensureBrowser();
+    const url = `https://www.linkedin.com/messaging/thread/${thread_id}/`;
+    await navigate(url, 30000);
+    await page.waitForTimeout(3000);
+
+    const msgContainer = await page.$('[class*="msg-s-message-list"], [role="log"], .msg-s-message-list');
+    if (msgContainer) {
+      for (let i = 0; i < 3; i++) {
+        await msgContainer.evaluate(el => { el.scrollTop = 0; });
+        await page.waitForTimeout(500);
+      }
+    }
+
+    const messages = await page.evaluate(() => {
+      const msgEls = document.querySelectorAll('[class*="msg-s-message"], [class*="message-item"], li[class*="msg-s-message-list__event"]');
+      const results = [];
+      let currentSender = '';
+      for (const el of msgEls) {
+        const senderEl = el.querySelector('[class*="msg-s-message-group__name"], [class*="actor-name"], h3, h4');
+        const sender = senderEl ? senderEl.innerText.trim() : currentSender;
+        if (sender) currentSender = sender;
+        const textEl = el.querySelector('[class*="msg-s-message-list__event-message"], p, [class*="message-text"]');
+        const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+        const timeEl = el.querySelector('time, [class*="time"]');
+        const time = timeEl ? timeEl.innerText.trim() : '';
+        if (text) {
+          results.push({ sender: sender || 'unknown', text, time });
+        }
+      }
+      return results;
+    });
+
+    res.json({ status: 'ok', thread_id, messages, count: messages.length });
+  } catch (err) {
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    res.status(status).json({ error: err.message, code: err.code || 'THREAD_ERROR' });
+  }
+}
+
+async function handleSendMessage(req, res) {
+  const { thread_id } = req.params;
+  const { text } = req.body;
+  if (!thread_id) return res.status(400).json({ error: 'thread_id is required' });
+  if (!text) return res.status(400).json({ error: 'text is required' });
+  try {
+    await ensureBrowser();
+    const url = `https://www.linkedin.com/messaging/thread/${thread_id}/`;
+    await navigate(url, 30000);
+    await page.waitForTimeout(3000);
+
+    const editor = page.locator('div[contenteditable="true"][role="textbox"], textarea[class*="msg-form"], [data-control-name="message_text"]').first();
+    if (await editor.count() === 0) {
+      return res.status(404).json({ error: 'Could not find the message input box' });
+    }
+    await editor.click();
+    await page.keyboard.type(text);
+    await page.waitForTimeout(500);
+
+    const sendBtn = page.locator('button[type="submit"], button:has-text("Send"), button[aria-label*="Send"]').first();
+    if (await sendBtn.count() === 0) {
+      await page.keyboard.press('Enter');
+    } else {
+      await sendBtn.click();
+    }
+    await page.waitForTimeout(2000);
+
+    res.json({ status: 'ok', sent: true, thread_id, text });
+  } catch (err) {
+    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
+    res.status(status).json({ error: err.message, code: err.code || 'SEND_ERROR' });
+  }
+}
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

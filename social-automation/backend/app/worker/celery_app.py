@@ -201,7 +201,7 @@ celery_app.conf.update(
         # so polling is the only option.
         "poll-linkedin-messenger": {
             "task": "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger",
-            "schedule": 180.0,  # every 3 minutes
+            "schedule": 900.0,  # every 15 minutes (LinkedIn rate-limits aggressive browser polling)
             "options": {"queue": "messenger"},
         },
         # Poll Threads DM conversations for new messages and send AI

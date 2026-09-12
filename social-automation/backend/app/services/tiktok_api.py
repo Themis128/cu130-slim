@@ -481,3 +481,99 @@ class TikTokAPIClient:
             data = resp.json() or {}
             self._check_tiktok_error(data, url)
             return data
+
+    # ── Business Messaging API (DM) ───────────────────────────────────────
+    # TikTok Business Messaging API is in Open Beta (APAC, LATAM, METAP,
+    # North America). Not yet available in EU/Greece.
+    # Only for inbound messages (users must message first).
+    # 48-hour reply window, 10 messages per window, 100-200 conv/day.
+    # Requires a TikTok Business Account and approved messaging partner.
+    #
+    # These methods are ready for when the API becomes available in EU or
+    # the account upgrades to Business. They follow the official docs at
+    # https://business-api.tiktok.com/portal/docs/business-messaging-api
+
+    async def list_dm_conversations(
+        self,
+        cursor: str = "",
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """List TikTok Business DM conversations.
+
+        Returns conversations where users have messaged the business account.
+        Requires Business Messaging API access.
+        """
+        if not 1 <= page_size <= 100:
+            raise ValueError("page_size must be between 1 and 100")
+
+        url = f"{self._base_url}/business/messages/conversations"
+        params = {"open_id": self.open_id, "page_size": page_size}
+        if cursor:
+            params["cursor"] = cursor
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def get_dm_messages(
+        self,
+        conversation_id: str,
+        cursor: str = "",
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """Get messages in a TikTok Business DM conversation.
+
+        Returns messages in a specific conversation.
+        Requires Business Messaging API access.
+        """
+        if not conversation_id:
+            raise ValueError("conversation_id is required")
+        if not 1 <= page_size <= 100:
+            raise ValueError("page_size must be between 1 and 100")
+
+        url = f"{self._base_url}/business/messages/conversations/{conversation_id}/messages"
+        params = {"open_id": self.open_id, "page_size": page_size}
+        if cursor:
+            params["cursor"] = cursor
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def send_dm(
+        self,
+        conversation_id: str,
+        content: dict[str, Any],
+        content_type: str = "text",
+    ) -> dict[str, Any]:
+        """Send a message in a TikTok Business DM conversation.
+
+        Only reply to users who have messaged first (inbound only).
+        48-hour reply window, 10 messages per window.
+
+        Args:
+            conversation_id: The conversation ID.
+            content: Message content dict (e.g., {"text": "Hello!"}).
+            content_type: Message type ("text", "image").
+        """
+        if not conversation_id:
+            raise ValueError("conversation_id is required")
+        if not content:
+            raise ValueError("content is required")
+
+        url = f"{self._base_url}/business/messages/conversations/{conversation_id}/send"
+        payload = {
+            "open_id": self.open_id,
+            "content_type": content_type,
+            "content": content,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
