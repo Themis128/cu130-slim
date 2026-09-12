@@ -472,3 +472,115 @@ async def linkedin_company_page_url(
     if vanity:
         return {"url": f"https://www.linkedin.com/company/{vanity}", "vanity_name": vanity}
     return {"url": None, "vanity_name": None, "account_id": account.account_id}
+
+
+# ── LinkedIn DM (messaging) auto-reply ──────────────────────────────────────
+
+
+class LinkedInAutoReplyConfig(BaseModel):
+    enabled: bool = False
+    system_prompt: str = "You are a helpful assistant for {account_name}. Reply concisely and professionally."
+    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    fallback_text: str = "Thanks for your message! I'll get back to you soon."
+    max_tokens: int = 250
+    cooldown_seconds: int = 300
+    temperature: float = 0.7
+
+
+@router.get("/{account_id}/dm/auto-reply")
+async def get_linkedin_dm_auto_reply(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the LinkedIn DM auto-reply configuration for an account."""
+    await _load_linkedin_account(db, account_id, current_user)
+    meta = account.meta_data or {}
+    config = meta.get("linkedin_auto_reply", {})
+    return LinkedInAutoReplyConfig(
+        enabled=config.get("enabled", False),
+        system_prompt=config.get("system_prompt", LinkedInAutoReplyConfig().system_prompt),
+        model=config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        fallback_text=config.get("fallback_text", LinkedInAutoReplyConfig().fallback_text),
+        max_tokens=config.get("max_tokens", 250),
+        cooldown_seconds=config.get("cooldown_seconds", 300),
+        temperature=config.get("temperature", 0.7),
+    )
+
+
+@router.put("/{account_id}/dm/auto-reply")
+async def update_linkedin_dm_auto_reply(
+    account_id: uuid.UUID,
+    body: LinkedInAutoReplyConfig,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the LinkedIn DM auto-reply configuration for an account."""
+    await _load_linkedin_account(db, account_id, current_user)
+    meta = account.meta_data or {}
+    meta["linkedin_auto_reply"] = body.model_dump()
+    account.meta_data = meta
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return body
+
+
+@router.get("/{account_id}/dm/conversations")
+async def list_linkedin_dm_conversations(
+    account_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List LinkedIn DM conversations via the browser sidecar."""
+    await _load_linkedin_account(db, account_id, current_user)
+    from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+
+    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    try:
+        result = await sidecar.get_conversations()
+        return result
+    except LinkedInSidecarError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/{account_id}/dm/threads/{thread_id}")
+async def read_linkedin_dm_thread(
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read messages in a LinkedIn DM thread via the browser sidecar."""
+    await _load_linkedin_account(db, account_id, current_user)
+    from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+
+    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    try:
+        result = await sidecar.get_thread_messages(thread_id)
+        return result
+    except LinkedInSidecarError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/{account_id}/dm/threads/{thread_id}/send")
+async def send_linkedin_dm(
+    account_id: uuid.UUID,
+    thread_id: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a message in a LinkedIn DM thread via the browser sidecar."""
+    await _load_linkedin_account(db, account_id, current_user)
+    text = body.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+
+    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    try:
+        result = await sidecar.send_message(thread_id, text)
+        return result
+    except LinkedInSidecarError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

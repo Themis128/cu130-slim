@@ -319,3 +319,29 @@ class LinkedInSidecarClient:
             if r.status_code >= 400:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
+
+    # ── Messaging (DMs) ────────────────────────────────────────────────────
+
+    async def get_conversations(self) -> dict[str, Any]:
+        """List LinkedIn DM conversations."""
+        async with self._client as c:
+            r = await c.get("/messages", timeout=120.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def get_thread_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages in a LinkedIn DM thread."""
+        async with self._client as c:
+            r = await c.get(f"/messages/{thread_id}", timeout=120.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def send_message(self, thread_id: str, text: str) -> dict[str, Any]:
+        """Send a message in a LinkedIn DM thread."""
+        async with self._client as c:
+            r = await c.post(f"/messages/{thread_id}/send", json={"text": text}, timeout=120.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()

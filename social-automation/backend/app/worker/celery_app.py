@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.worker.tasks.instagram_session_check",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
+        "app.worker.tasks.linkedin_messenger",
     ],
 )
 
