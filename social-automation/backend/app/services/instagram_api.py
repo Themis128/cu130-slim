@@ -619,3 +619,109 @@ class InstagramAPIClient:
             raise ValueError("limit must be between 1 and 100")
         result = await self.get_tagged_media(limit=limit)
         return result.get("data") or []
+
+    # ── Instagram Messaging API (DMs) ───────────────────────────────────
+    # Uses the same Messenger Platform API as Facebook Page Messenger.
+    # Requires instagram_business_manage_messages permission and a
+    # connected Instagram Business account.
+
+    async def send_dm(self, recipient_id: str, message: str) -> dict[str, Any]:
+        """Send a direct message to an Instagram user.
+
+        Uses the Instagram Messaging API (Send API).
+        The recipient must have messaged the business first (24-hour window).
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/messages"
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {"text": message},
+            "messaging_type": "RESPONSE",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, params=self._params(), json=payload)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def send_dm_template(
+        self,
+        recipient_id: str,
+        template_name: str,
+        language: dict[str, str] | None = None,
+        components: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Send a template message to an Instagram user.
+
+        Templates must be pre-approved by Meta. Used for messages outside
+        the 24-hour window with message tags.
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/messages"
+        template: dict[str, Any] = {
+            "name": template_name,
+            "language": language or {"code": "en"},
+        }
+        if components:
+            template["components"] = components
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {"attachment": {"type": "template", "payload": template}},
+            "messaging_type": "MESSAGE_TAG",
+            "tag": "ACCOUNT_UPDATE",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, params=self._params(), json=payload)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_conversations(self, limit: int = 25) -> dict[str, Any]:
+        """List recent Instagram DM conversations.
+
+        Returns conversation threads with the most recent message preview.
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/conversations"
+        fields = (
+            "id,participants,scoped_thread_key,senders,"
+            "messages{id,created_time,from,message}"
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params=self._params({"fields": fields, "limit": limit}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_dm_messages(self, conversation_id: str, limit: int = 20) -> dict[str, Any]:
+        """Read messages from a specific Instagram DM conversation."""
+        url = f"{self.base_url}/{conversation_id}/messages"
+        fields = "id,created_time,from,message,attachments"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params=self._params({"fields": fields, "limit": limit}),
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def mark_dm_read(self, conversation_id: str) -> dict[str, Any]:
+        """Mark an Instagram DM conversation as read."""
+        url = f"{self.base_url}/{self.ig_user_id}/messages"
+        payload = {
+            "recipient": {"thread_key": conversation_id},
+            "sender_action": "mark_seen",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, params=self._params(), json=payload)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def send_typing_indicator(self, recipient_id: str) -> dict[str, Any]:
+        """Show typing indicator in an Instagram DM conversation."""
+        url = f"{self.base_url}/{self.ig_user_id}/messages"
+        payload = {
+            "recipient": {"id": recipient_id},
+            "sender_action": "typing_on",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, params=self._params(), json=payload)
+            self._raise_for_status(resp, url)
+            return resp.json()
