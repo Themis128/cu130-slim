@@ -260,7 +260,7 @@ async def build_daily_digest(
             DigestIssue(
                 severity="error",
                 title=f"Post failed ({str(post.id)[:8]})",
-                detail=(post.error_message or (post.content_text or "")[:100])[:200],
+                detail=(post.failure_reason or (post.content_text or "")[:100])[:200],
             )
         )
 
