@@ -135,6 +135,8 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
+        "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
+        "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
     },
     beat_schedule={
         "process-publish-queue": {
@@ -192,6 +194,22 @@ celery_app.conf.update(
         "poll-personal-messenger": {
             "task": "app.worker.tasks.personal_messenger.poll_personal_messenger",
             "schedule": 120.0,  # every 2 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll LinkedIn DM conversations for new messages and send AI
+        # auto-replies via the browser sidecar. LinkedIn has no DM API,
+        # so polling is the only option.
+        "poll-linkedin-messenger": {
+            "task": "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger",
+            "schedule": 180.0,  # every 3 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll Threads DM conversations for new messages and send AI
+        # auto-replies via the browser bridge. Threads has no DM API,
+        # so polling is the only option.
+        "poll-threads-messenger": {
+            "task": "app.worker.tasks.threads_messenger.poll_threads_messenger",
+            "schedule": 180.0,  # every 3 minutes
             "options": {"queue": "messenger"},
         },
     },

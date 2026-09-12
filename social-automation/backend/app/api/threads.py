@@ -485,11 +485,11 @@ class ThreadsAutoReplyConfig(BaseModel):
 @router.get("/{account_id}/dm/auto-reply")
 async def get_threads_dm_auto_reply(
     account_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Get the Threads DM auto-reply configuration for an account."""
-    account = await _get_threads_account(db, current_user.team_id, account_id)
+    account = await _get_threads_account(db, team_id, account_id)
     meta = account.meta_data or {}
     config = meta.get("threads_auto_reply", {})
     return ThreadsAutoReplyConfig(
@@ -507,11 +507,11 @@ async def get_threads_dm_auto_reply(
 async def update_threads_dm_auto_reply(
     account_id: uuid.UUID,
     body: ThreadsAutoReplyConfig,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the Threads DM auto-reply configuration for an account."""
-    account = await _get_threads_account(db, current_user.team_id, account_id)
+    account = await _get_threads_account(db, team_id, account_id)
     meta = account.meta_data or {}
     meta["threads_auto_reply"] = body.model_dump()
     account.meta_data = meta
@@ -524,11 +524,11 @@ async def update_threads_dm_auto_reply(
 @router.get("/{account_id}/dm/conversations")
 async def list_threads_dm_conversations(
     account_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """List Threads DM conversations via the browser bridge."""
-    await _get_threads_account(db, current_user.team_id, account_id)
+    await _get_threads_account(db, team_id, account_id)
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
     bridge = BrowserBridgeClient("http://browser-novnc:9223")
@@ -543,11 +543,11 @@ async def list_threads_dm_conversations(
 async def read_threads_dm_thread(
     account_id: uuid.UUID,
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Read messages in a Threads DM thread via the browser bridge."""
-    await _get_threads_account(db, current_user.team_id, account_id)
+    await _get_threads_account(db, team_id, account_id)
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
     bridge = BrowserBridgeClient("http://browser-novnc:9223")
@@ -563,11 +563,11 @@ async def send_threads_dm(
     account_id: uuid.UUID,
     thread_id: str,
     body: dict,
-    current_user: User = Depends(get_current_user),
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Send a message in a Threads DM thread via the browser bridge."""
-    await _get_threads_account(db, current_user.team_id, account_id)
+    await _get_threads_account(db, team_id, account_id)
     text = body.get("text")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
