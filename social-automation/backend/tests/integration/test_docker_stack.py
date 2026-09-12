@@ -26,19 +26,25 @@ from sqlalchemy.ext.asyncio import create_async_engine
 def _has_docker() -> bool:
     return shutil.which("docker") is not None
 
+
+def _running_in_gha() -> bool:
+    """GitHub Actions has the docker CLI but not the full compose stack."""
+    return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"
+
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not _has_docker(), reason="docker CLI not available (run on Docker host)"),
+    pytest.mark.skipif(
+        _running_in_gha(),
+        reason="full Docker Compose stack is not available in GitHub Actions",
+    ),
 ]
 
 COMPOSE_DIR = os.environ.get("COMPOSE_DIR", str(Path(__file__).resolve().parents[4]))
 API_URL = os.environ.get("API_URL", "http://localhost:8083")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
 N8N_URL = os.environ.get("N8N_URL", "http://localhost:5678")
-
-
-def _has_docker() -> bool:
-    return shutil.which("docker") is not None
 
 
 def _docker_compose_ps() -> list[dict]:

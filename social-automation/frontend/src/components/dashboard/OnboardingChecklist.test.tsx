@@ -26,7 +26,7 @@ describe('OnboardingChecklist', () => {
 
     expect(screen.getByText('Getting Started')).toBeInTheDocument()
     expect(screen.getByText('1 of 4 complete')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Set up your brand' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add brand basics' })).toBeInTheDocument()
   })
 
   it('auto-hides when all items are complete', () => {
