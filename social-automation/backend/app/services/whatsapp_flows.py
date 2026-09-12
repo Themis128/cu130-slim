@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypedDict
 
 import httpx
 
@@ -953,7 +954,16 @@ def feedback_survey_flow_json(business_name: str = "Cloudless") -> dict:
 
 
 # Template registry
-FLOW_TEMPLATES = {
+class FlowTemplate(TypedDict):
+    """Metadata + JSON generator for a pre-built WhatsApp Flow template."""
+
+    name: str
+    category: str
+    description: str
+    generator: Callable[..., dict]
+
+
+FLOW_TEMPLATES: dict[str, FlowTemplate] = {
     "lead_generation": {
         "name": "Lead Generation",
         "category": "LEAD_GENERATION",
