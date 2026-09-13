@@ -1007,3 +1007,47 @@ from app.services.browser_orchestrator import force_release_lock
 asyncio.run(force_release_lock())
 "
 ```
+
+## App Health Check (2026-09-13)
+
+### Full system audit
+
+A comprehensive health check was performed across the entire SocialAuto app:
+
+| Area | Items checked | Status |
+|------|--------------|--------|
+| Backend API endpoints | 410 endpoints across 30 route files | All respond correctly |
+| Celery workers | 4 workers (publishing, media, default, messenger) | All healthy, 23 tasks registered |
+| Frontend pages | 50 pages | All have exports, no stubs, tsc clean |
+| Docker services | 32 containers | All healthy, no exited/unhealthy |
+| Database | 32 tables | Alembic at head, all migrations applied |
+| Social accounts | 9 accounts (Facebook, Instagram, LinkedIn, Threads, TikTok, Twitter, WhatsApp) | All active with bot configs |
+| Cloudflare DB | D1, KV, Vectorize | All healthy |
+| Code quality | Ruff, imports, stubs | All checks passed, no broken imports |
+
+### Issues found and fixed
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| 1 | Backup files (`media.py.backup2`, `media.py.backup3`) tracked in git | Low | Removed from git (`6f075cf4`) |
+| 2 | WhatsApp flow test used `parents[4]` which fails in container | Medium | Added `_find_flow_file()` helper with multiple path candidates (`6d4e0e7c`) |
+| 3 | `mcp` package not installed in production container | Info | By design — `app/mcp/server.py` is a dev-only tool, `mcp` is in optional `dev` dependencies |
+| 4 | TODO in `browser_bridge.py` for outgoing message detection | Info | Known limitation — Instagram DM bridge uses `is_sent_by_viewer` from web API instead |
+
+### Test gate results
+
+| Check | Result |
+|-------|--------|
+| Ruff check | All checks passed |
+| Docker compose config | Valid |
+| API health | `{"status":"ok"}` |
+| Celery worker ping | 4 nodes online |
+| Frontend TypeScript | tsc exit 0, no errors |
+| pytest unit tests | **610 passed, 0 failed, 1 skipped** |
+| Cloudflare DB health | D1, KV, Vectorize all true |
+
+### Known limitations (by design)
+
+- **MCP server module** (`app/mcp/server.py`) imports the `mcp` package which is in `dev` optional dependencies — not installed in the production container. The MCP server is a standalone dev tool run locally with `python -m app.mcp.server`.
+- **Instagram DM sender detection** in the browser bridge uses `is_sent_by_viewer` from the Instagram web API rather than DOM-based detection (TODO marker at `browser_bridge.py:742`).
+- **Browser bridge orchestrator** serializes all platform workers through one shared browser — prevents races but introduces wait latency.

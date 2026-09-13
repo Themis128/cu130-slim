@@ -15,7 +15,7 @@ Messenger integration.
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
 │   │  Frontend    │  │  Backend API │  │  MCP Server  │  │  n8n       │ │
 │   │  (Next.js)   │  │  (FastAPI)   │  │  (27 tools)  │  │  Workflows │ │
-│   │  48 pages    │  │  328 routes  │  │              │  │            │ │
+│   │  50 pages    │  │  410 routes  │  │              │  │            │ │
 │   │  62 comp.    │  │  24 modules  │  │  AI agents   │  │  No-code   │ │
 │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘ │
 │          │                 │                  │                │       │
@@ -54,7 +54,7 @@ Messenger integration.
 
 ## Frontend Architecture
 
-### Route Groups (48 pages)
+### Route Groups (50 pages)
 
 ```
 app/
@@ -218,7 +218,7 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (328 endpoints across 24 route files)
+### API Modules (410 endpoints across 30 route files)
 
 ```
 app/api/
@@ -234,21 +234,26 @@ app/api/
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
 ├── messenger.py     (29) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
+├── inbox.py         (4)  — unified inbox across platforms
+├── leads.py         (6)  — lead capture, webhook, CRM sync
 ├── profile.py       (29) — profile read/update across platforms
 ├── linkedin.py      (13) — LinkedIn AI post, improve, hashtags, publish
 ├── instagram.py     (7)  — Instagram private API, session, profile
 ├── threads.py       (9)  — Threads post, reply, profile
+├── twitter_tiktok.py (8) — Twitter/X and TikTok posting
+├── whatsapp.py      (10) — WhatsApp Cloud API, setup, profile, register
+├── whatsapp_flows.py (11) — WhatsApp Flows CRUD, validate, publish, send
 ├── workflows.py     (18) — templates, generate, deploy, executions
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
 ├── cf_db.py         (6)  — D1/KV/Vectorize health, sync, tables
-├── ops.py           (2)  — health, system info
+├── ops.py           (4)  — health, system info, browser orchestrator
 ├── audit.py         (1)  — audit logs
 ├── mcp.py           (5)  — MCP stack status, sessions, screenshots
 └── usage.py         (2)  — quota usage, history
 ```
 
-### Data Models (12 models)
+### Data Models (13 models)
 
 ```
 app/models/
@@ -268,7 +273,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (63 services)
+### Service Layer (74 services)
 
 ```
 app/services/
@@ -414,7 +419,7 @@ app/mcp/server.py
     └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
-### Celery Tasks (11 task modules, 9 beat schedules)
+### Celery Tasks (17 task modules, 15 beat schedules)
 
 ```
 app/worker/tasks/
@@ -424,11 +429,17 @@ app/worker/tasks/
 ├── media_enhance.py        — batch_enhance
 ├── token_refresh.py        — refresh_expiring_tokens
 ├── recurring.py            — process_recurring_posts
-├── digest.py               — send_daily_slack_digest
+├── digest.py               — send_daily_slack_digest, send_weekly_slack_digest
 ├── instagram_session_check.py — check_instagram_sessions
+├── instagram_token_refresh.py — refresh_instagram_tokens
 ├── linkedin_session_check.py  — check_linkedin_sessions
+├── linkedin_session_refresh.py — refresh_linkedin_sessions
 ├── workflows.py            — execute_workflow, deploy_workflow
-└── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
+├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
+├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator)
+├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
+├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
+└── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
 
 Beat Schedule:
 ┌──────────────────────────┬────────────────────────────────┬──────────┐
@@ -440,10 +451,16 @@ Beat Schedule:
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
 │                         │  (bot: memory+RAG+intent+cooldown)│          │
+│ poll-instagram-messenger │ instagram_messenger.poll       │ 120s     │
+│ poll-threads-messenger   │ threads_messenger.poll          │ 120s     │
+│ poll-twitter-messenger   │ twitter_messenger.poll         │ 120s     │
+│ poll-tiktok-messenger    │ tiktok_messenger.poll          │ 120s     │
+│ poll-linkedin-messenger  │ linkedin_messenger.poll        │ 120s     │
 │ refresh-expiring-tokens  │ token_refresh.refresh           │ hourly   │
 │ check-instagram-sessions │ instagram_session_check        │ 6h       │
 │ check-linkedin-sessions  │ linkedin_session_check          │ 12h      │
 │ daily-slack-digest       │ digest.send_daily_slack_digest  │ daily 9am│
+│ weekly-slack-digest      │ digest.send_weekly_slack_digest │ weekly   │
 └──────────────────────────┴────────────────────────────────┴──────────┘
 ```
 
@@ -471,7 +488,7 @@ Beat Schedule:
 │  │ :8083       │  │ frontend    │  │ worker-     │  │ worker-    │ │
 │  │             │  │ :8082       │  │ publishing  │  │ media      │ │
 │  │ FastAPI     │  │ Next.js     │  │             │  │            │ │
-│  │ 328 routes  │  │ 48 pages    │  │ Celery      │  │ Celery     │ │
+│  │ 410 routes  │  │ 50 pages    │  │ Celery      │  │ Celery     │ │
 │  │ MCP server  │  │             │  │ publishing  │  │ media      │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │
@@ -1149,7 +1166,7 @@ All components verified live:
 | Celery workers | 4 nodes (publishing, media, default, messenger) |
 | Celery beat | running |
 | MCP tools | 27 registered |
-| Backend tests | 559 passed, 1 skipped |
+| Backend tests | 610 passed, 1 skipped |
 | MCP tests | 10/10 passed |
 | Ruff lint | All checks passed |
 | TypeScript | 0 errors |
