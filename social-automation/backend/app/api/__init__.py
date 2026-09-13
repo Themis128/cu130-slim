@@ -12,6 +12,7 @@ from app.api import (
     content,
     inbox,
     instagram,
+    leads,
     linkedin,
     mcp,
     media,
@@ -51,6 +52,7 @@ api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])
 api_router.include_router(inbox.router, prefix="/inbox", tags=["inbox"])
+api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
 api_router.include_router(whatsapp_flows.router, prefix="/whatsapp", tags=["whatsapp-flows"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])

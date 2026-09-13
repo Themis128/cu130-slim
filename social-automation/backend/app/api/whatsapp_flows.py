@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.whatsapp import _get_whatsapp_account
+from app.core.log_sanitize import sanitize_log_text
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
@@ -439,7 +440,8 @@ async def create_flow_from_template(
         except Exception as e:
             logger.warning(
                 "Flow %s created but JSON update failed: %s",
-                flow_id, e,
+                sanitize_log_text(str(flow_id)),
+                sanitize_log_text(str(e)),
             )
 
         return {
@@ -511,7 +513,9 @@ async def _handle_flow_request(parsed: dict) -> dict:
 
     logger.info(
         "Flow endpoint request: screen=%s flow_token=%s data_keys=%s",
-        screen, flow_token[:20] if flow_token else "", list(data.keys()),
+        sanitize_log_text(str(screen)),
+        sanitize_log_text((flow_token or "")[:20]),
+        sanitize_log_text(",".join(str(k) for k in data.keys())),
     )
 
     # Default routing: acknowledge data and move to next screen
@@ -523,7 +527,10 @@ async def _handle_flow_request(parsed: dict) -> dict:
         )
     elif screen == "LEAD_FORM":
         # Save the lead data (in production, store to DB)
-        logger.info("Lead captured: %s", data)
+        logger.info(
+            "Lead captured: fields=%s",
+            sanitize_log_text(",".join(str(k) for k in data.keys())),
+        )
         return build_flow_endpoint_response(
             screen="SUCCESS_SCREEN",
             data={"name": data.get("name", "")},
@@ -549,9 +556,76 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
     for event in flow_events:
         logger.info(
             "Flow response received: flow_token=%s sender=%s response_keys=%s",
-            event.get("flow_token", "")[:20],
-            event.get("sender_phone", ""),
-            list(event.get("response_json", {}).keys()),
+            sanitize_log_text(str(event.get("flow_token", ""))[:20]),
+            sanitize_log_text(str(event.get("sender_phone", ""))),
+            sanitize_log_text(
+                ",".join(str(k) for k in (event.get("response_json") or {}).keys())
+            ),
         )
-        # In production, store the response to the DB and trigger workflows
+        # Persist a lead when the response matches our lead-capture schema.
+        try:
+            response = event.get("response_json") or {}
+            if not isinstance(response, dict):
+                continue
+
+            name = (response.get("name") or response.get("full_name") or "").strip()
+            email = (response.get("email") or "").strip()
+            if not name or not email:
+                continue
+            # Avoid false positives: require at least one of the Cloudless lead fields.
+            if not (response.get("interest") or response.get("company_size")):
+                continue
+
+            # Resolve the SocialAccount from the phone_number_id (for team scoping).
+            phone_number_id = event.get("phone_number_id") or ""
+            if not phone_number_id:
+                continue
+
+            from sqlalchemy import select
+
+            account = (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "whatsapp",
+                        SocialAccount.meta_data["phone_number_id"].astext == phone_number_id,
+                    ).limit(1)
+                )
+            ).scalars().first()
+            if not account:
+                continue
+
+            from app.models.lead import LeadSource
+            from app.services.leads import coerce_company_size, coerce_interest, create_lead
+
+            company_size = coerce_company_size(response.get("company_size"))
+            interest = coerce_interest(response.get("interest"))
+            notes = (response.get("notes") or response.get("message") or None)
+
+            await create_lead(
+                db,
+                team_id=account.team_id,
+                source=LeadSource.whatsapp_flow,
+                social_account_id=account.id,
+                thread_id=str(event.get("sender_phone") or event.get("flow_token") or "")[:120] or None,
+                name=name,
+                email=email,
+                company_size=company_size,
+                interest=interest,
+                notes=notes,
+                meta_data={
+                    "whatsapp_flow": {
+                        "phone_number_id": phone_number_id,
+                        "flow_id": event.get("flow_id"),
+                        "flow_token": event.get("flow_token"),
+                        "message_id": event.get("message_id"),
+                        "timestamp": event.get("timestamp"),
+                        "response_json": response,
+                    }
+                },
+            )
+        except Exception as exc:
+            logger.debug(
+                "Flow lead persistence failed (non-fatal): %s",
+                sanitize_log_text(str(exc)),
+            )
     return flow_events

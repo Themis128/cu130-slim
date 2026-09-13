@@ -286,9 +286,18 @@ class Settings(BaseSettings):
     SLACK_ALERTS_WEBHOOK_URL: str = ""
     SLACK_ALERTS_CHANNEL_ID: str = ""
 
+    # Lead capture notifications (Meta organic messaging → SocialAuto Leads)
+    # Optional. When empty, lead notifications fall back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID.
+    SLACK_LEADS_WEBHOOK_URL: str = ""
+    SLACK_LEADS_CHANNEL_ID: str = ""
+
     # n8n: optional Slack Incoming Webhook URL for workflow failures.
     # If empty, n8n workflows should fall back to SLACK_ALERTS_WEBHOOK_URL.
     N8N_ERROR_SLACK_WEBHOOK_URL: str = ""
+
+    # Optional: webhook fired after a lead is captured (ideal for n8n).
+    # Payload: {event: "lead.created", lead: {...}}
+    LEAD_CREATED_WEBHOOK_URL: str = ""
 
     # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
     # EMAIL_PROVIDER=smtp|local|cloudflare

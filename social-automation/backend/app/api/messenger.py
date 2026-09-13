@@ -625,6 +625,7 @@ async def receive_webhook(
         sender_psid = event.get("sender_psid", "")
         message_text = event.get("message_text", "")
         message_type = event.get("message_type", "")
+        postback_payload = event.get("postback_payload", "")
         message_mid = event.get("message_id", "")
 
         if message_type in ("text", "postback") and sender_psid:
@@ -649,11 +650,11 @@ async def receive_webhook(
                 except Exception as e:
                     logger.warning("Sidecar dispatch failed, falling back to inline: %s", e)
                     # Fall back to inline processing
-                    await _process_inline(db, page_id, sender_psid, message_text, message_type)
+                    await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
                     processed += 1
             else:
                 # No sidecar — process inline
-                await _process_inline(db, page_id, sender_psid, message_text, message_type)
+                await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
                 processed += 1
 
     return {"status": "ok", "events_received": len(events), "auto_replies_sent": processed}
@@ -665,6 +666,7 @@ async def _process_inline(
     sender_psid: str,
     message_text: str,
     message_type: str,
+    postback_payload: str = "",
 ) -> None:
     """Process a message inline (fallback when sidecar is unavailable)."""
     result = await db.execute(
@@ -678,6 +680,34 @@ async def _process_inline(
     if not account:
         logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(str(page_id or "")))
         return
+
+    # Lead capture (scaffold): handle simple qualification flow before AI bot.
+    try:
+        from app.models.lead import LeadSource
+        from app.services.lead_capture import handle_lead_capture_message
+
+        reply = await handle_lead_capture_message(
+            db,
+            team_id=account.team_id,
+            source=LeadSource.facebook_messenger,
+            social_account_id=account.id,
+            thread_id=sender_psid,
+            inbound_text=message_text or "",
+            postback_payload=postback_payload or "",
+            meta_data={
+                "page_id": page_id,
+                "message_type": message_type,
+            },
+        )
+        if reply:
+            client = _get_messenger_client(account)
+            if reply.quick_replies:
+                await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
+            else:
+                await client.send_text(sender_psid, reply.text)
+            return
+    except Exception as exc:
+        logger.debug("Lead capture handler failed (non-fatal): %s", _sanitize_log_text(str(exc)))
 
     meta = account.meta_data or {}
     auto_reply = meta.get("messenger_auto_reply", {})

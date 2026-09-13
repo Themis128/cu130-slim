@@ -140,7 +140,7 @@ async def _poll_instagram_messenger_async() -> dict:
 
             try:
                 replies = await _process_account(
-                    account, auto_reply, seen,
+                    db, account, auto_reply, seen,
                     cf_token, cf_account, dmr_url,
                 )
                 stats["replies_sent"] += replies
@@ -163,6 +163,7 @@ async def _poll_instagram_messenger_async() -> dict:
 
 
 async def _process_account(
+    db: AsyncSession,
     account: SocialAccount,
     config: dict,
     seen: dict,
@@ -256,6 +257,41 @@ async def _process_account(
             # 6. Check human handoff
             if await is_thread_paused(account.id, seen_key):
                 continue
+
+            # Lead capture (scaffold): intercept and run a simple qualification flow.
+            try:
+                from app.models.lead import LeadSource
+                from app.services.lead_capture import handle_lead_capture_message
+
+                lead_reply = await handle_lead_capture_message(
+                    db,
+                    team_id=account.team_id,
+                    source=LeadSource.instagram_dm,
+                    social_account_id=account.id,
+                    thread_id=seen_key,
+                    inbound_text=text,
+                    postback_payload="",
+                    meta_data={
+                        "instagram_conversation_id": convo_id,
+                        "instagram_recipient_id": recipient_id,
+                    },
+                )
+                if lead_reply:
+                    await client.send_dm(recipient_id, lead_reply.text)
+                    try:
+                        await client.mark_dm_read(convo_id)
+                    except Exception:
+                        pass
+
+                    await store_message_memory(account.team_id, account.id, seen_key, "them", text)
+                    await store_message_memory(account.team_id, account.id, seen_key, "me", lead_reply.text)
+                    seen[seen_key] = text
+                    await set_cooldown(account.id, seen_key, cooldown_seconds)
+                    replies_sent += 1
+                    await asyncio.sleep(2)
+                    continue
+            except Exception as exc:
+                logger.debug("Instagram lead capture handler failed (non-fatal): %s", exc)
 
             # 7. Send typing indicator (feels more natural)
             try:

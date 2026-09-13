@@ -164,3 +164,7 @@ Step-by-step guides live in `docs/superpowers/guides/`:
 5. [LinkedIn carousel](docs/superpowers/guides/05-linkedin-carousel.md)
 6. [Analytics and queue](docs/superpowers/guides/06-analytics-and-queue.md)
 7. [Cloudflare database failover](docs/superpowers/guides/07-cf-database-failover.md)
+8. [Brand identity setup](docs/superpowers/guides/08-brand-identity-setup.md)
+9. [AI media enhancement](docs/superpowers/guides/09-ai-media-enhancement.md)
+10. [TikTok content posting](docs/superpowers/guides/10-tiktok-content-posting.md)
+11. [Meta lead capture](docs/superpowers/guides/11-meta-lead-capture.md)
