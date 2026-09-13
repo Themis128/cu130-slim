@@ -1185,8 +1185,7 @@ class BrowserBridgeClient:
         send_response = await self.evaluate("""() => {
             const sendBtn = document.querySelector(
                 'button[type="submit"], ' +
-                'button[aria-label*="Send"], ' +
-                'button:has-text("Send")'
+                'button[aria-label*="Send"]
             );
             if (sendBtn) {
                 sendBtn.click();
@@ -1373,8 +1372,7 @@ class BrowserBridgeClient:
         send_response = await self.evaluate("""() => {
             const sendBtn = document.querySelector(
                 'button[data-testid="dmSendButton"], ' +
-                'button[aria-label*="Send"], ' +
-                'button:has-text("Send")'
+                'button[aria-label*="Send"]
             );
             if (sendBtn) {
                 sendBtn.click();
@@ -1563,8 +1561,7 @@ class BrowserBridgeClient:
             const sendBtn = document.querySelector(
                 'button[type="submit"], ' +
                 'button[aria-label*="Send"], ' +
-                'button[data-e2e="send-button"], ' +
-                'button:has-text("Send")'
+                'button[data-e2e="send-button"]
             );
             if (sendBtn) {
                 sendBtn.click();
@@ -1764,8 +1761,7 @@ class BrowserBridgeClient:
             const sendBtn = document.querySelector(
                 'button[type="button"][aria-label*="Send"], ' +
                 'button[type="submit"], ' +
-                'div[role="button"][aria-label*="Send"], ' +
-                'button:has-text("Send")'
+                'div[role="button"][aria-label*="Send"]'
             );
             if (sendBtn) {
                 sendBtn.click();
