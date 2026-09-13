@@ -8,14 +8,16 @@ Mirrors app/services/messenger_chatbot.py with WhatsApp-specific adaptations:
 - Threads are keyed by phone number (not PSID)
 - 24-hour customer service window enforcement (Meta policy)
 - Bot disclosure per Meta WhatsApp Business Messaging Policy
-- Language-aware AI routing (Greek → Cloudflare, English → DMR)
+- Unified AI routing (Cloudflare Workers AI first, DMR fallback)
+- Brand voice injection from Brand system API (banned phrases, euro pricing,
+  bilingual Greek/English matching, bot disclosure)
 
-Services used (language-aware, free/open-source):
-    - Docker Model Runner (Qwen3 8B, local) — English reply generation + intent detection
-    - Cloudflare Workers AI (Llama 3.1 8B) — Greek reply generation + fallback inference
+Services used (free/open-source-first):
+    - Cloudflare Workers AI (Llama 3.1 8B) — primary reply generation (Greek + English)
+    - Docker Model Runner (Qwen3 8B, local) — fallback reply generation + intent detection
     - ChromaDB (local) / Cloudflare Vectorize (cloud) — conversation memory + brand RAG
     - Redis — per-conversation cooldown + paused-thread tracking + 24h window
-    - Brand DNA API — brand voice, pillars, positioning
+    - Brand Voice API — banned phrases, preferred phrases, euro pricing, bilingual rules
 """
 from __future__ import annotations
 

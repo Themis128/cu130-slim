@@ -4,26 +4,30 @@ Provides conversation memory, brand knowledge RAG, intent detection,
 per-conversation configuration, human handoff, and rate-limit-aware cooldowns
 for the personal Messenger auto-reply system.
 
-Services used (language-aware, free/open-source):
-    - Docker Model Runner (Llama 3.2 / Qwen3 8B, local) — English reply generation + intent detection
-    - Cloudflare Workers AI (Llama 3.1 8B) — Greek reply generation + fallback inference
+Services used (free/open-source-first):
+    - Cloudflare Workers AI (Llama 3.1 8B) — primary reply generation (Greek + English)
+    - Docker Model Runner (Qwen3 8B, local) — fallback reply generation + intent detection
     - ChromaDB (local) / Cloudflare Vectorize (cloud) — conversation memory + brand RAG
     - Redis — per-conversation cooldown + paused-thread tracking
     - PostgreSQL — per-conversation config + seen state
-    - Brand DNA API — brand voice, pillars, positioning
+    - Brand Voice API — banned phrases, preferred phrases, euro pricing, bilingual rules
 
 Architecture:
-    1. For each inbound message, detect intent (business, personal, spam, question, greeting)
-    2. Retrieve conversation memory (last 10 messages from ChromaDB)
-    3. Retrieve brand knowledge (RAG from ChromaDB/Vectorize)
-    4. Build a context-aware prompt with brand voice + memory + intent
-    5. Generate reply via language-aware routing:
-       - Greek text → Cloudflare Workers AI (handles Greek correctly)
-       - English/other → DMR (local, free, private)
-       - Fallback: the other provider, then static text
-    6. Check per-conversation cooldown (Redis, default 5 min)
-    7. Check per-conversation pause (human handoff)
-    8. Send reply and store in conversation memory
+    1. Deterministic safeguard: intercept pricing questions with keyword detection
+       and return a hardcoded response (prevents LLM price hallucination)
+    2. For each inbound message, detect intent (business, personal, spam, question, greeting)
+    3. Retrieve conversation memory (last 10 messages from ChromaDB)
+    4. Retrieve brand knowledge (RAG from ChromaDB/Vectorize)
+    5. Build a context-aware prompt with brand voice + memory + intent
+    6. Inject brand voice rules from the Brand system API (banned phrases,
+       preferred phrases, euro pricing, bilingual language matching, bot disclosure)
+    7. Generate reply via unified routing:
+       - Cloudflare Workers AI (Llama 3.1 8B) — primary for all languages
+       - DMR (Qwen3 8B, local, free) — fallback when CF is unavailable
+       - Static text — final fallback (with bot disclosure)
+    8. Check per-conversation cooldown (Redis, default 5 min)
+    9. Check per-conversation pause (human handoff)
+   10. Send reply and store in conversation memory
 """
 from __future__ import annotations
 
@@ -574,19 +578,32 @@ async def generate_contextual_reply(
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
-    Inference fallback chain (language-aware per AGENTS.md):
-    1. Greek text → Cloudflare Workers AI (Llama 3.1 8B) — handles Greek correctly
+    Inference fallback chain (unified, Cloudflare-first):
+    1. Cloudflare Workers AI (Llama 3.1 8B) — primary for all languages
        Fallback: DMR (local) → static text
-    2. English/other text → DMR (Llama 3.2, local, free) — primary
-       Fallback: Cloudflare Workers AI → static text
+    2. DMR (Qwen3 8B, local, free) — fallback when CF is unavailable
+       Fallback: static text
     3. Final fallback: static text (with disclosure if first contact)
+
+    Deterministic safeguards (before LLM):
+    - Pricing questions are intercepted by keyword detection and return
+      a hardcoded response directing users to cloudless.gr for a free audit.
+      This prevents the 8B model from hallucinating specific euro amounts.
+
+    Brand voice injection:
+    - Fetches banned phrases, preferred phrases, pricing currency, language
+      rules, and bot disclosure from the Brand system API.
+    - Caches the brand voice block for 5 minutes to avoid hitting the API
+      on every message.
+    - Injects the block into the system prompt even if the per-account
+      system_prompt doesn't include brand voice rules explicitly.
 
     Builds a rich system prompt that includes:
     - Base system prompt from config
+    - Brand voice rules (from Brand system API)
     - Detected intent
     - Brand knowledge (RAG)
     - Conversation memory (last N messages)
-    - Per-conversation overrides
     """
     # Get per-conversation config overrides
     thread_config = await get_thread_config(account_id, thread_id)

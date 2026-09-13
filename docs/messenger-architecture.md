@@ -250,17 +250,32 @@ memory, brand RAG, per-thread cooldowns, human handoff, and bot disclosure.
 │                                                                     │
 │  ┌─ Prompt Construction ───────────────────────────────────────┐   │
 │  │  1. Base system prompt (per-thread or default)               │   │
-│  │  2. Intent-specific guidance                                 │   │
-│  │  3. Brand context (RAG results)                              │   │
-│  │  4. Last 5 messages from memory                              │   │
-│  │  5. Same-language response instruction                       │   │
-│  │  6. First-contact bot disclosure (if not yet disclosed)      │   │
+│  │  2. Brand voice rules (from Brand system API, 5-min cache)  │   │
+│  │     - Banned phrases (synergy, leverage, cutting-edge, ...) │   │
+│  │     - Preferred phrases (Clear skies. Zero friction., ...)  │   │
+│  │     - Euro pricing enforcement (never USD)                  │   │
+│  │     - Bilingual Greek/English language matching              │   │
+│  │     - Bot disclosure requirement                            │   │
+│  │  3. Intent-specific guidance                                 │   │
+│  │  4. Brand context (RAG results)                              │   │
+│  │  5. Last 5 messages from memory                              │   │
+│  │  6. Same-language response instruction                       │   │
+│  │  7. First-contact bot disclosure (if not yet disclosed)      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  ┌─ Reply Generation (language-aware) ────────────────────────┐   │
-│  │  Greek text → Cloudflare Workers AI (Llama 3.1 8B)          │   │
-│  │  English    → DMR (Llama 3.2, local)                        │   │
-│  │  Fallback   → other provider → static text                  │   │
+│  ┌─ Deterministic Safeguards ────────────────────────────────┐   │
+│  │  Pricing questions intercepted before LLM:                  │   │
+│  │    Keywords: how much, price, cost, πόσο, τιμή, κόστος, ... │   │
+│  │    Response: "Get started at cloudless.gr for a free audit!" │   │
+│  │    (Greek and English variants, prevents price hallucination) │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Reply Generation (unified, Cloudflare-first) ────────────┐   │
+│  │  1. Deterministic pricing safeguard (keyword detection)    │   │
+│  │     → hardcoded response (prevents LLM price hallucination) │   │
+│  │  2. Cloudflare Workers AI (Llama 3.1 8B) — primary       │   │
+│  │     → DMR (Qwen3 8B, local) — fallback                   │   │
+│  │     → Static text — final fallback                        │   │
 │  │  Disclosure → "🤖 Auto-reply:" prefix on first contact      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
