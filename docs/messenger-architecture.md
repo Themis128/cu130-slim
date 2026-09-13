@@ -893,3 +893,117 @@ Brand voice rules (banned phrases, preferred phrases, euro pricing, language mat
 | LinkedIn | 2 | 0 | 0 |
 
 *Instagram reply was sent in a previous poll (confirmed in DM thread)
+
+---
+
+## Browser Bridge Orchestrator (v3)
+
+### Problem
+
+The browser-novnc container (port 9223) has a **single shared Chromium
+browser session**. Multiple Celery workers (Instagram, Threads, Twitter,
+TikTok, personal Messenger) all use this browser to read/send DMs via
+web APIs or UI interaction.
+
+When worker A navigates to `facebook.com` and worker B tries to fetch
+`instagram.com` API, worker B gets `Failed to fetch` because the browser
+is on a different origin. This caused DM polls to silently fail — the
+bot would not reply to customer messages.
+
+### Solution: Redis-based Distributed Lock with Fair Scheduling
+
+The `BrowserBridgeOrchestrator` (`app/services/browser_orchestrator.py`)
+coordinates browser access across all workers:
+
+```
+Worker A (Instagram) → browser_session("instagram", bridge)
+    → Acquires Redis lock (SET NX + EX)
+    → Navigates to instagram.com
+    → Reads DMs, sends reply
+    → Releases lock
+
+Worker B (Facebook) → browser_session("facebook", bridge)
+    → Waits in fair queue (Redis LIST)
+    → Acquires lock when A releases
+    → Navigates to facebook.com
+    → Does its work
+    → Releases lock
+```
+
+### Key components
+
+| Component | Redis key | Purpose |
+|-----------|-----------|---------|
+| Global lock | `browser-bridge:lock` | Only one worker uses the browser at a time |
+| Fair queue | `browser-bridge:queue` | Workers wait in FIFO order |
+| Platform tracker | `browser-bridge:platform` | Which platform currently holds the lock |
+
+### Timing
+
+| Setting | Value | Rationale |
+|---------|-------|----------|
+| Lock timeout (auto-release) | 90s | Enough for any browser interaction (navigate + sleep + fetch + send) |
+| Max wait time | 60s | Prevents workers from blocking too long |
+| Retry delay | 0.3s | Balance between responsiveness and Redis load |
+
+### Usage in workers
+
+All messenger workers wrap their browser bridge calls with the orchestrator:
+
+```python
+from app.services.browser_orchestrator import browser_session
+
+# Read conversations
+async with browser_session("instagram", bridge) as b:
+    convos = await b.get_instagram_dm_conversations()
+
+# Read messages
+async with browser_session("instagram", bridge) as b:
+    msgs = await b.get_instagram_dm_messages(thread_id)
+
+# Send reply
+async with browser_session("instagram", bridge) as b:
+    await b.send_instagram_dm_message(recipient_id, reply_text)
+```
+
+### Platforms using the orchestrator
+
+| Platform | Worker | Platform key |
+|----------|--------|--------------|
+| Instagram | `instagram_messenger.py` | `instagram` |
+| Threads | `threads_messenger.py` | `threads` |
+| Twitter/X | `twitter_messenger.py` | `twitter` |
+| TikTok | `tiktok_messenger.py` | `tiktok` |
+| Personal Messenger | `personal_messenger.py` | `facebook` |
+
+### Live verification
+
+```
+Browser orchestrator: instagram acquired lock after 16.2s wait
+Instagram auto-reply sent to 't_baltzakis'
+Instagram DM poll complete: {'accounts_checked': 1, 'replies_sent': 1, 'errors': 0}
+Browser orchestrator: facebook acquired lock after 9.0s wait
+```
+
+The orchestrator ensures:
+1. Only one worker uses the browser at a time ✅
+2. Workers wait their turn in fair FIFO order ✅
+3. The Instagram bot replies automatically when a customer sends a DM ✅
+4. No more "Failed to fetch" errors from concurrent navigation ✅
+
+### Admin/debug commands
+
+```bash
+# Check which platform holds the lock
+redis-cli GET browser-bridge:lock
+
+# Check queue length
+redis-cli LLEN browser-bridge:queue
+
+# Force-release the lock (debug only)
+docker compose exec -T social-api python -c "
+import asyncio
+from app.services.browser_orchestrator import force_release_lock
+asyncio.run(force_release_lock())
+"
+```
