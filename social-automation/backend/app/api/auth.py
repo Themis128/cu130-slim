@@ -1087,6 +1087,12 @@ async def oauth_callback(
     error: str | None = None,
     error_description: str | None = None,
 ):
+    if platform == "instagram2":
+        # Instagram Business Login uses a custom callback handler
+        return await instagram2_callback(state=state, db=db, code=code, error=error, error_description=error_description)
+    if platform == "instagram-onboarding":
+        # IG onboarding flows through the Facebook callback, not here
+        raise HTTPException(status_code=400, detail="Instagram onboarding callback must go through /oauth/facebook/callback")
     if error:
         raise HTTPException(status_code=400, detail=f"OAuth error from {platform}: {error} — {error_description}")
     if not code:
@@ -1815,9 +1821,11 @@ async def instagram2_callback(
         access_token = token_data.get("access_token")
 
         # Exchange for long-lived token (valid ~60 days, refreshable)
-        ll_resp = await http.get(
+        # NOTE: Meta changed this endpoint from GET to POST in 2025.
+        # Using GET now returns "Unsupported request - method type: get".
+        ll_resp = await http.post(
             "https://graph.instagram.com/access_token",
-            params={
+            data={
                 "grant_type": "ig_exchange_token",
                 "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
                 "access_token": access_token,
