@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.models.lead import LeadCompanySize, LeadInterest, LeadSource
-from app.services.leads import coerce_company_size, coerce_interest
+from app.services.leads import coerce_company_size, coerce_interest, is_valid_email
 
 
 def test_lead_enums_have_expected_values():
@@ -53,6 +53,22 @@ def test_coerce_company_size(value, expected):
 )
 def test_coerce_interest(value, expected):
     assert coerce_interest(value) == expected
+
+
+@pytest.mark.parametrize(
+    "email, expected",
+    [
+        ("a@b.co", True),
+        ("user.name+tag@example.com", True),
+        ("not-an-email", False),
+        ("a@b", False),
+        ("a @b.co", False),
+        ("", False),
+        ("@@.", False),
+    ],
+)
+def test_is_valid_email(email, expected):
+    assert is_valid_email(email) is expected
 
 
 def test_cloudless_whatsapp_flow_json_structure():

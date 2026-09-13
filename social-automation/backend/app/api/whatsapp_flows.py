@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.whatsapp import _get_whatsapp_account
+from app.core.log_sanitize import sanitize_log_text
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
@@ -439,7 +440,8 @@ async def create_flow_from_template(
         except Exception as e:
             logger.warning(
                 "Flow %s created but JSON update failed: %s",
-                flow_id, e,
+                sanitize_log_text(str(flow_id)),
+                sanitize_log_text(str(e)),
             )
 
         return {
@@ -511,7 +513,9 @@ async def _handle_flow_request(parsed: dict) -> dict:
 
     logger.info(
         "Flow endpoint request: screen=%s flow_token=%s data_keys=%s",
-        screen, flow_token[:20] if flow_token else "", list(data.keys()),
+        sanitize_log_text(str(screen)),
+        sanitize_log_text((flow_token or "")[:20]),
+        sanitize_log_text(",".join(str(k) for k in data.keys())),
     )
 
     # Default routing: acknowledge data and move to next screen
@@ -523,7 +527,10 @@ async def _handle_flow_request(parsed: dict) -> dict:
         )
     elif screen == "LEAD_FORM":
         # Save the lead data (in production, store to DB)
-        logger.info("Lead captured: %s", data)
+        logger.info(
+            "Lead captured: fields=%s",
+            sanitize_log_text(",".join(str(k) for k in data.keys())),
+        )
         return build_flow_endpoint_response(
             screen="SUCCESS_SCREEN",
             data={"name": data.get("name", "")},
@@ -549,9 +556,11 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
     for event in flow_events:
         logger.info(
             "Flow response received: flow_token=%s sender=%s response_keys=%s",
-            event.get("flow_token", "")[:20],
-            event.get("sender_phone", ""),
-            list(event.get("response_json", {}).keys()),
+            sanitize_log_text(str(event.get("flow_token", ""))[:20]),
+            sanitize_log_text(str(event.get("sender_phone", ""))),
+            sanitize_log_text(
+                ",".join(str(k) for k in (event.get("response_json") or {}).keys())
+            ),
         )
         # Persist a lead when the response matches our lead-capture schema.
         try:
@@ -615,5 +624,8 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
                 },
             )
         except Exception as exc:
-            logger.debug("Flow lead persistence failed (non-fatal): %s", exc)
+            logger.debug(
+                "Flow lead persistence failed (non-fatal): %s",
+                sanitize_log_text(str(exc)),
+            )
     return flow_events

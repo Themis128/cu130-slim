@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -15,15 +14,24 @@ from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 
 logger = logging.getLogger(__name__)
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
 
 def _norm_email(email: str) -> str:
     return (email or "").strip().lower()
 
 
-def _is_valid_email(email: str) -> bool:
-    return bool(_EMAIL_RE.match(_norm_email(email)))
+def is_valid_email(email: str) -> bool:
+    """Linear-time email shape check (avoids polynomial ReDoS regexes)."""
+    e = _norm_email(email)
+    if not e or len(e) > 320 or e.count("@") != 1:
+        return False
+    if any(ch.isspace() for ch in e):
+        return False
+    local, _, domain = e.partition("@")
+    if not local or not domain or "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith(".") or ".." in domain:
+        return False
+    return True
 
 
 def coerce_company_size(value: str | None) -> LeadCompanySize | None:
@@ -67,7 +75,7 @@ async def create_lead(
     only one row per email to avoid spammy duplicates from retries/webhooks.
     """
     email_n = _norm_email(email)
-    if not _is_valid_email(email_n):
+    if not is_valid_email(email_n):
         raise ValueError("Invalid email")
     name_n = (name or "").strip()
     if not name_n:

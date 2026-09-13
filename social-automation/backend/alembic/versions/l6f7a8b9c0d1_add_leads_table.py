@@ -20,14 +20,52 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Create enums idempotently; columns must use create_type=False so
+    # create_table does not emit a second CREATE TYPE (DuplicateObjectError).
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE leadsource AS ENUM (
+                'whatsapp_flow', 'whatsapp_dm', 'facebook_messenger', 'instagram_dm'
+            );
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE leadinterest AS ENUM ('cloud', 'growth', 'audit');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE leadcompanysize AS ENUM (
+                'solo', '2-5', '6-20', '21-50', '51-200', '200+'
+            );
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+        """
+    )
+
     leadsource = sa.Enum(
         "whatsapp_flow",
         "whatsapp_dm",
         "facebook_messenger",
         "instagram_dm",
         name="leadsource",
+        create_type=False,
     )
-    leadinterest = sa.Enum("cloud", "growth", "audit", name="leadinterest")
+    leadinterest = sa.Enum(
+        "cloud",
+        "growth",
+        "audit",
+        name="leadinterest",
+        create_type=False,
+    )
     leadcompanysize = sa.Enum(
         "solo",
         "2-5",
@@ -36,11 +74,8 @@ def upgrade() -> None:
         "51-200",
         "200+",
         name="leadcompanysize",
+        create_type=False,
     )
-
-    leadsource.create(op.get_bind(), checkfirst=True)
-    leadinterest.create(op.get_bind(), checkfirst=True)
-    leadcompanysize.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "leads",
@@ -51,11 +86,7 @@ def upgrade() -> None:
             sa.ForeignKey("teams.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column(
-            "source",
-            leadsource,
-            nullable=False,
-        ),
+        sa.Column("source", leadsource, nullable=False),
         sa.Column(
             "social_account_id",
             UUID(as_uuid=True),
@@ -68,7 +99,12 @@ def upgrade() -> None:
         sa.Column("company_size", leadcompanysize, nullable=True),
         sa.Column("interest", leadinterest, nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("meta_data", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "meta_data",
+            JSONB(),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -103,4 +139,3 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS leadcompanysize")
     op.execute("DROP TYPE IF EXISTS leadinterest")
     op.execute("DROP TYPE IF EXISTS leadsource")
-

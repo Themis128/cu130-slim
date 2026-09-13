@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 import json
 import logging
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,11 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.lead import LeadCompanySize, LeadInterest, LeadSource
-from app.services.leads import coerce_company_size, coerce_interest, create_lead
+from app.services.leads import (
+    coerce_company_size,
+    coerce_interest,
+    create_lead,
+    is_valid_email,
+)
 
 logger = logging.getLogger(__name__)
-
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class LeadCaptureStep(enum.StrEnum):
@@ -175,7 +177,7 @@ async def handle_lead_capture_message(
         # Step: email
         if step == LeadCaptureStep.email:
             email = text.lower()
-            if email and _EMAIL_RE.match(email):
+            if email and is_valid_email(email):
                 fields["email"] = email[:320]
                 state["fields"] = fields
                 state["step"] = LeadCaptureStep.company_size
