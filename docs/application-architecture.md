@@ -15,7 +15,7 @@ Messenger integration.
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
 │   │  Frontend    │  │  Backend API │  │  MCP Server  │  │  n8n       │ │
 │   │  (Next.js)   │  │  (FastAPI)   │  │  (27 tools)  │  │  Workflows │ │
-│   │  50 pages    │  │  410 routes  │  │              │  │            │ │
+│   │  51 pages    │  │  410 routes  │  │              │  │            │ │
 │   │  62 comp.    │  │  24 modules  │  │  AI agents   │  │  No-code   │ │
 │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘ │
 │          │                 │                  │                │       │
@@ -54,7 +54,7 @@ Messenger integration.
 
 ## Frontend Architecture
 
-### Route Groups (50 pages)
+### Route Groups (51 pages)
 
 ```
 app/
@@ -74,7 +74,7 @@ app/
 │   ├── pricing/                       # Pricing tiers
 │   └── api-docs/                      # Swagger UI
 │
-├── (dashboard)/                       # Main app (38 pages)
+├── (dashboard)/                       # Main app (39 pages)
 │   ├── dashboard/                     # Overview + KPIs
 │   ├── accounts/                      # Connected accounts
 │   ├── analytics/                     # Performance metrics
@@ -92,6 +92,7 @@ app/
 │   │   ├── generate/                  # AI image generator
 │   │   └── enhance/[id]/              # Enhancement studio
 │   ├── messenger/                     # Messenger inbox
+│   ├── whatsapp/                      # WhatsApp Business (setup, profile, send, bot)
 │   ├── brand/                         # Brand management
 │   │   ├── identity/                  # Brand identity
 │   │   ├── voice/                     # Voice & tone
@@ -488,7 +489,7 @@ Beat Schedule:
 │  │ :8083       │  │ frontend    │  │ worker-     │  │ worker-    │ │
 │  │             │  │ :8082       │  │ publishing  │  │ media      │ │
 │  │ FastAPI     │  │ Next.js     │  │             │  │            │ │
-│  │ 410 routes  │  │ 50 pages    │  │ Celery      │  │ Celery     │ │
+│  │ 410 routes  │  │ 51 pages    │  │ Celery      │  │ Celery     │ │
 │  │ MCP server  │  │             │  │ publishing  │  │ media      │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │
