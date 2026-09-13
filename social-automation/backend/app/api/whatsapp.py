@@ -1514,7 +1514,7 @@ async def index_brand(
 
 @router.post("/{account_id}/phone/request-code")
 async def request_phone_code(
-    account_id: str,
+    account_id: uuid.UUID,
     code_method: str = "SMS",
     language: str = "en_US",
     current_user: User = Depends(get_current_user),
@@ -1525,38 +1525,21 @@ async def request_phone_code(
     The code is sent via SMS or voice call to the phone number.
     After receiving the code, call /phone/verify-code to verify it.
     """
-    import httpx
-
-    from app.core.security import decrypt_token
-
     account = await _get_whatsapp_account(db, account_id, current_user)
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Account has no access token")
-    token = decrypt_token(account.access_token_enc)
-
-    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
-    if not phone_number_id:
-        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/request_code",
-            params={
-                "code_method": code_method,
-                "language": language,
-                "access_token": token,
-            },
+    client = _get_whatsapp_client(account)
+    try:
+        return await client.request_verification_code(
+            phone_number_id=client.phone_number_id,
+            code_method=code_method,
+            language=language,
         )
-
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-    return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to request verification code: {e}")
 
 
 @router.post("/{account_id}/phone/verify-code")
 async def verify_account_phone_code(
-    account_id: str,
+    account_id: uuid.UUID,
     code: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1565,34 +1548,17 @@ async def verify_account_phone_code(
 
     After verification, the number is ready for Cloud API use.
     """
-    import httpx
-
-    from app.core.security import decrypt_token
-
     account = await _get_whatsapp_account(db, account_id, current_user)
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Account has no access token")
-    token = decrypt_token(account.access_token_enc)
-
-    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
-    if not phone_number_id:
-        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/verify_code",
-            params={"code": code, "access_token": token},
-        )
-
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-    return resp.json()
+    client = _get_whatsapp_client(account)
+    try:
+        return await client.verify_code(phone_number_id=client.phone_number_id, code=code)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to verify code: {e}")
 
 
 @router.post("/{account_id}/phone/register")
 async def register_account_phone(
-    account_id: str,
+    account_id: uuid.UUID,
     pin: str = "",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1602,31 +1568,12 @@ async def register_account_phone(
     This is the final step after phone number verification.
     The PIN is the 6-digit two-step verification PIN (if enabled).
     """
-    import httpx
-
-    from app.core.security import decrypt_token
-
     account = await _get_whatsapp_account(db, account_id, current_user)
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Account has no access token")
-    token = decrypt_token(account.access_token_enc)
-
-    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
-    if not phone_number_id:
-        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/register",
-            json={
-                "messaging_product": "whatsapp",
-                "pin": pin,
-            },
-            params={"access_token": token},
-        )
-
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    client = _get_whatsapp_client(account)
+    try:
+        resp = await client.register_number(phone_number_id=client.phone_number_id, pin=pin)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to register number: {e}")
 
     # Update account metadata
     from sqlalchemy.orm.attributes import flag_modified
@@ -1637,47 +1584,19 @@ async def register_account_phone(
     flag_modified(account, "meta_data")
     await db.commit()
 
-    return resp.json()
+    return resp
 
 
 @router.get("/{account_id}/phone/status")
 async def get_phone_status(
-    account_id: str,
+    account_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Check the WhatsApp business phone number registration status."""
-    import httpx
-
-    from app.core.security import decrypt_token
-
     account = await _get_whatsapp_account(db, account_id, current_user)
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Account has no access token")
-    token = decrypt_token(account.access_token_enc)
-
-    phone_number_id = (account.meta_data or {}).get("phone_number_id") or account.account_id or ""
-    if not phone_number_id:
-        raise HTTPException(status_code=400, detail="Account has no phone_number_id in meta_data")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}",
-            params={
-                "fields": "display_phone_number,quality_rating,code_verification_status",
-                "access_token": token,
-            },
-        )
-
-    if resp.status_code >= 400:
-        # Try without fields — some accounts don't support all fields
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}",
-                params={"access_token": token},
-            )
-
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-    return resp.json()
+    client = _get_whatsapp_client(account)
+    try:
+        return await client.get_phone_number_info()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to get phone status: {e}")

@@ -20,10 +20,13 @@ import logging
 import re
 from typing import Any
 
-import httpx
-
-from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
+from app.services.facebook_api import _sanitize_log_text, _validate_id
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
+from app.services.whatsapp_cloud_client import (
+    WhatsAppCloudClient,
+    WhatsAppPhoneVerificationError,
+    validate_wa_phone,
+)
 
 # WhatsApp Business Platform Cloud API is built on the Meta Graph API and uses
 # the same `graph.facebook.com/<API_VERSION>/...` scheme. Meta docs show v26.0
@@ -37,19 +40,9 @@ DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)
 
-# Phone numbers are E.164 format: +<country_code><number>
-_PHONE_RE = re.compile(r"^\+?[0-9]{1,15}$")
-
-
 def _validate_phone(value: str) -> str:
     """Validate a phone number (E.164 or local format)."""
-    value = value.strip()
-    if not value:
-        raise ValueError("Phone number is empty")
-    if not _PHONE_RE.match(value):
-        raise ValueError(f"Invalid phone number format: {value[:40]}")
-    # WhatsApp expects no leading + in the API
-    return value.lstrip("+")
+    return validate_wa_phone(value)
 
 
 class WhatsAppAPIClient:
@@ -68,36 +61,10 @@ class WhatsAppAPIClient:
     ):
         if not access_token:
             raise ValueError("Access token is required")
-        self.access_token = access_token
         self.phone_number_id = _validate_id(phone_number_id, "phone_number_id")
         self.api_version = api_version.lstrip("/")
         self.business_phone = business_phone or ""
-        self._base_url = f"{FACEBOOK_GRAPH_BASE}/{self.api_version}"
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        params: dict[str, Any] = {"access_token": self.access_token}
-        if extra:
-            params.update(extra)
-        return params
-
-    def _url(self, path: str) -> str:
-        path = path.lstrip("/")
-        return f"{self._base_url}/{path}"
-
-    def _raise_for_status(self, resp: httpx.Response, url: str) -> None:
-        if resp.status_code < 400:
-            return
-        text = _sanitize_log_text(resp.text)
-        safe_url = _sanitize_log_text(url)
-        logger.error("WhatsApp API error %s for %s: %s", resp.status_code, safe_url, text)
-        err = FacebookAPIError.from_response(resp, url)
-        if resp.status_code >= 500:
-            err.status_code = 503 if resp.status_code in (503, 504) else 502
-        raise err
+        self._client = WhatsAppCloudClient(access_token=access_token, api_version=self.api_version, timeout_s=DEFAULT_TIMEOUT)
 
     # ------------------------------------------------------------------
     # Send API
@@ -129,16 +96,12 @@ class WhatsAppAPIClient:
             "type": "text",
             "text": {"body": text, "preview_url": preview_url},
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def send_template(
         self,
@@ -165,16 +128,12 @@ class WhatsAppAPIClient:
             "type": "template",
             "template": template,
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def send_image(
         self,
@@ -194,16 +153,12 @@ class WhatsAppAPIClient:
             "type": "image",
             "image": media,
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def send_document(
         self,
@@ -226,16 +181,12 @@ class WhatsAppAPIClient:
             "type": "document",
             "document": media,
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def send_reaction(
         self,
@@ -252,16 +203,12 @@ class WhatsAppAPIClient:
             "type": "reaction",
             "reaction": {"message_id": message_id, "emoji": emoji},
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def send_location(
         self,
@@ -285,16 +232,12 @@ class WhatsAppAPIClient:
             "type": "location",
             "location": location,
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def mark_message_read(self, message_id: str) -> dict:
         """Mark a message as read."""
@@ -303,16 +246,12 @@ class WhatsAppAPIClient:
             "status": "read",
             "message_id": message_id,
         }
-        url = self._url(f"{self.phone_number_id}/messages")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/messages",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     # ------------------------------------------------------------------
     # Media API
@@ -323,33 +262,21 @@ class WhatsAppAPIClient:
 
         Returns {"id": "<media_id>"}.
         """
-        url = self._url(f"{self.phone_number_id}/media")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            with open(file_path, "rb") as f:
-                resp = await client.post(
-                    url,
-                    params=self._params(),
-                    data={"messaging_product": "whatsapp", "type": mime_type},
-                    files={"file": f},
-                )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        with open(file_path, "rb") as f:
+            return await self._client.request(
+                "POST",
+                f"{self.phone_number_id}/media",
+                data={"messaging_product": "whatsapp", "type": mime_type},
+                files={"file": (file_path.split("/")[-1], f, mime_type)},
+            )
 
     async def download_media(self, media_id: str) -> bytes:
         """Download a media file by its ID."""
-        url = self._url(media_id)
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(url, params=self._params())
-            self._raise_for_status(resp, url)
-            media_info = resp.json()
-            media_url = media_info.get("url", "")
-            if not media_url:
-                raise ValueError("No media URL in response")
-            # Download the actual file
-            resp2 = await client.get(media_url, headers={"Authorization": f"Bearer {self.access_token}"})
-            if resp2.status_code >= 400:
-                raise FacebookAPIError.from_response(resp2, media_url)
-            return resp2.content
+        media_info = await self._client.request("GET", _validate_id(media_id, "media_id"))
+        media_url = media_info.get("url", "")
+        if not media_url:
+            raise ValueError("No media URL in response")
+        return await self._client.get_bytes(absolute_url=str(media_url))
 
     # ------------------------------------------------------------------
     # Business profile
@@ -357,37 +284,30 @@ class WhatsAppAPIClient:
 
     async def get_business_profile(self) -> dict:
         """Get the WhatsApp Business profile (about, photo, address, etc.)."""
-        url = self._url(f"{self.phone_number_id}/whatsapp_business_profile")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(
-                url,
-                params=self._params({"fields": "about,profile_picture_url,address,description,email,websites,vertical"}),
-            )
-            self._raise_for_status(resp, url)
-            data = resp.json()
-            if "data" in data and data["data"]:
-                return data["data"][0]
-            return data
+        data = await self._client.request(
+            "GET",
+            f"{self.phone_number_id}/whatsapp_business_profile",
+            params={"fields": "about,profile_picture_url,address,description,email,websites,vertical"},
+        )
+        if "data" in data and data["data"]:
+            return data["data"][0]
+        return data
 
     async def update_business_profile(self, updates: dict) -> dict:
         """Update the WhatsApp Business profile fields.
 
         Allowed fields: about, address, description, email, websites, vertical.
         """
-        url = self._url(f"{self.phone_number_id}/whatsapp_business_profile")
         body = {
             "messaging_product": "whatsapp",
             **{k: v for k, v in updates.items() if v is not None},
         }
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{self.phone_number_id}/whatsapp_business_profile",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     # ------------------------------------------------------------------
     # Phone number info
@@ -395,25 +315,30 @@ class WhatsAppAPIClient:
 
     async def get_phone_number_info(self) -> dict:
         """Get info about the WhatsApp Business phone number."""
-        url = self._url(self.phone_number_id)
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(
-                url,
-                params=self._params({"fields": "display_phone_number,verified_name,quality_rating,code_verification_status"}),
+        return await self.get_phone_number_info_by_id(self.phone_number_id)
+
+    async def get_phone_number_info_by_id(self, phone_number_id: str) -> dict:
+        """Get info about any WhatsApp Business phone number id."""
+        pnid = _validate_id(phone_number_id, "phone_number_id")
+        try:
+            return await self._client.request(
+                "GET",
+                pnid,
+                params={"fields": "display_phone_number,verified_name,quality_rating,code_verification_status"},
             )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        except Exception:
+            # Some accounts/tenants intermittently reject certain fields; fall back to the raw object payload.
+            return await self._client.request("GET", pnid)
 
     async def get_business_account_phone_numbers(self, business_account_id: str) -> list[dict]:
         """List all phone numbers registered to a WhatsApp Business Account."""
-        url = self._url(f"{business_account_id}/phone_numbers")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(
-                url,
-                params=self._params({"fields": "display_phone_number,verified_name,quality_rating,id"}),
-            )
-            self._raise_for_status(resp, url)
-            return resp.json().get("data", [])
+        bid = _validate_id(business_account_id, "business_account_id")
+        data = await self._client.request(
+            "GET",
+            f"{bid}/phone_numbers",
+            params={"fields": "display_phone_number,verified_name,quality_rating,id"},
+        )
+        return data.get("data", [])
 
     # ------------------------------------------------------------------
     # Phone number registration (4-step flow)
@@ -440,21 +365,17 @@ class WhatsAppAPIClient:
         Returns: {"id": "<phone_number_id>"}
         """
         waba = _validate_id(waba_id, "waba_id")
-        url = self._url(f"{waba}/phone_numbers")
         body = {
             "cc": cc,
             "phone_number": phone_number,
             "verified_name": verified_name,
         }
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{waba}/phone_numbers",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def request_verification_code(
         self,
@@ -476,14 +397,37 @@ class WhatsAppAPIClient:
         pnid = _validate_id(phone_number_id, "phone_number_id")
         if code_method not in ("SMS", "VOICE"):
             raise ValueError("code_method must be 'SMS' or 'VOICE'")
-        url = self._url(f"{pnid}/request_code")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params({"code_method": code_method, "language": language}),
+        # Meta docs: if already verified, request_code returns 400 with code 136024.
+        # Avoid hammering the endpoint by checking status first.
+        try:
+            info = await self.get_phone_number_info_by_id(pnid)
+            if info.get("code_verification_status") == "VERIFIED":
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "already_verified",
+                    "phone_number_id": pnid,
+                    "code_verification_status": "VERIFIED",
+                }
+        except Exception:
+            # If the status check fails, proceed with the request; we still surface 136024 clearly below.
+            info = {}
+
+        try:
+            return await self._client.request(
+                "POST",
+                f"{pnid}/request_code",
+                params={"code_method": code_method, "language": language},
             )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        except WhatsAppPhoneVerificationError as e:
+            # Make 136024 actionable in logs and user-facing errors.
+            raise WhatsAppPhoneVerificationError(
+                status_code=e.status_code,
+                url=e.url,
+                response_text=e.response_text,
+                error=e.error,
+                rate_limit=e.rate_limit,
+            ) from e
 
     async def verify_code(self, phone_number_id: str, code: str) -> dict:
         """Step 3: Verify the business phone number with the code.
@@ -501,14 +445,11 @@ class WhatsAppAPIClient:
         clean_code = re.sub(r"[\s\-]", "", code)
         if not clean_code.isdigit():
             raise ValueError("Verification code must be numeric")
-        url = self._url(f"{pnid}/verify_code")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params({"code": clean_code}),
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{pnid}/verify_code",
+            params={"code": clean_code},
+        )
 
     async def register_number(self, phone_number_id: str, pin: str) -> dict:
         """Step 4: Register the verified phone number for API use.
@@ -525,20 +466,16 @@ class WhatsAppAPIClient:
         clean_pin = re.sub(r"[\s\-]", "", pin)
         if not (clean_pin.isdigit() and len(clean_pin) == 6):
             raise ValueError("PIN must be exactly 6 digits")
-        url = self._url(f"{pnid}/register")
         body = {
             "messaging_product": "whatsapp",
             "pin": clean_pin,
         }
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                params=self._params(),
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request(
+            "POST",
+            f"{pnid}/register",
+            json_body=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     async def deregister_number(self, phone_number_id: str) -> dict:
         """Deregister a business phone number (stops API use).
@@ -546,11 +483,7 @@ class WhatsAppAPIClient:
         POST /{phone_number_id}/deregister
         """
         pnid = _validate_id(phone_number_id, "phone_number_id")
-        url = self._url(f"{pnid}/deregister")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(url, params=self._params())
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request("POST", f"{pnid}/deregister")
 
     # ------------------------------------------------------------------
     # WABA webhook subscriptions (Subscribed Apps API)
@@ -569,11 +502,7 @@ class WhatsAppAPIClient:
         Returns: {"success": true}
         """
         waba = _validate_id(waba_id, "waba_id")
-        url = self._url(f"{waba}/subscribed_apps")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.post(url, params=self._params())
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request("POST", f"{waba}/subscribed_apps")
 
     async def list_waba_subscriptions(self, waba_id: str) -> list[dict]:
         """List all apps subscribed to webhooks on a WABA.
@@ -584,16 +513,9 @@ class WhatsAppAPIClient:
         for each subscribed app.
         """
         waba = _validate_id(waba_id, "waba_id")
-        url = self._url(f"{waba}/subscribed_apps")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.get(url, params=self._params())
-            self._raise_for_status(resp, url)
-            data = resp.json().get("data", [])
-            # Normalize: each entry has "whatsapp_business_api_data" with id/link/name
-            return [
-                item.get("whatsapp_business_api_data", item)
-                for item in data
-            ]
+        data = await self._client.request("GET", f"{waba}/subscribed_apps")
+        items = data.get("data", [])
+        return [item.get("whatsapp_business_api_data", item) for item in items]
 
     async def unsubscribe_app_from_waba(self, waba_id: str) -> dict:
         """Unsubscribe the app from webhooks for a WABA.
@@ -603,11 +525,7 @@ class WhatsAppAPIClient:
         Returns: {"success": true}
         """
         waba = _validate_id(waba_id, "waba_id")
-        url = self._url(f"{waba}/subscribed_apps")
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            resp = await client.delete(url, params=self._params())
-            self._raise_for_status(resp, url)
-            return resp.json()
+        return await self._client.request("DELETE", f"{waba}/subscribed_apps")
 
 
 # ------------------------------------------------------------------

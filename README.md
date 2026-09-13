@@ -78,6 +78,13 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 - n8n workflow `cloudless-cf-carousel-linkedin` runs every 2 days at 19:00 Europe/Athens.
 - `N8N_API_KEY` must be minted in the n8n UI; there is no automatic `.env` value.
 
+## WhatsApp Cloud API
+
+- **Webhook verify token**: set `WHATSAPP_VERIFY_TOKEN` in `.env` to the token configured in the Meta App Dashboard Webhooks panel.
+- **Webhook signature verification (recommended)**: set `FACEBOOK_APP_SECRET` in `.env` so `/api/v1/whatsapp/webhook` verifies `X-Hub-Signature-256`.
+- **Cloud API credentials**: store the permanent System User token + phone number id on the WhatsApp `SocialAccount` via `PUT /api/v1/whatsapp/{account_id}/credentials` (token is encrypted at rest). Optionally pass `waba_id` and keep `subscribe_webhooks=true` to auto-subscribe the app to WABA webhooks.
+- **Phone verification**: use the registration endpoints under `/api/v1/whatsapp/register/*`. Before requesting a code, the backend checks `code_verification_status`; if already verified it returns a `skipped` response and avoids triggering Meta error `136024` (no retry storms).
+
 ## Media library
 
 - Upload, generate, and manage images in team-scoped collections.
