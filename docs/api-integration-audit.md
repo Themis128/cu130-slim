@@ -9,7 +9,7 @@
 |----------|-------------|---------------------|-------------|------------------|---------------------------|
 | **Facebook Page** | Graph API v26.0 | Yes | Yes | Yes | No |
 | **Facebook User** | Graph API v26.0 | Yes | Yes | N/A (token source) | No |
-| **Instagram** | Graph API v26.0 | Yes | Yes (profile read) | **No** (error #10) | **Yes — add Instagram product** |
+| **Instagram** | Graph API v26.0 | Yes | Yes (Business Login) | **Yes** (Business Login) | No (configured) |
 | **LinkedIn** | REST 202608 | Yes | **No** (revoked) | **No** (expired) | No (just reconnect) |
 | **Twitter/X** | API v2 | Yes | Yes | Yes (free tier) | No |
 | **TikTok** | v2 | Yes | Yes | Yes (creator_info OK) | **Yes — verify domain** |
@@ -302,6 +302,8 @@ Two API paths supported in code:
 
 **Impact:** This is the root cause of the Instagram publishing error #10. Business Login uses `graph.instagram.com` directly and does NOT require Facebook Page linkage.
 
+**Status (2026-09-14): COMPLETED.** The Instagram product was added to the Meta app, Business Login was configured with the correct redirect URI, the Instagram Tester invite was accepted, and a test post was successfully published via `graph.instagram.com/v26.0/{ig_user_id}/media` + `/media_publish`. The long-lived token exchange endpoint was also updated from GET to POST (Meta API change).
+
 ### 2. TikTok App — Domain Verification
 
 **Status:** NEEDS UPDATE
@@ -397,9 +399,9 @@ The Instagram publishing service (`publishing.py:_publish_instagram`) uses the f
 5. **Facebook Login Graph API** (`graph.facebook.com`) — last resort
    - Requires Page-Instagram linkage (currently missing)
    - Returns error #10 "Application does not have permission"
-   - This is the path currently being used (and failing)
+   - Only used if Business Login is unavailable
 
-**Recommended fix:** Complete the Instagram Business Login setup (add Instagram product to Meta app), then connect via the `instagram2` OAuth flow. This activates path 1, which is the official, reliable, Page-linkage-free path.
+**Recommended fix:** COMPLETED. Instagram Business Login is now configured and working. Path 1 (Business Login Graph API via `graph.instagram.com`) is the active publishing path. No Facebook Page linkage required.
 
 ---
 
@@ -421,15 +423,15 @@ The Instagram publishing service (`publishing.py:_publish_instagram`) uses the f
 
 ## Action Items
 
-| # | Action | Priority | Type |
-|---|--------|----------|------|
-| 1 | Add "Instagram" product to Meta app with "API setup with Instagram login" | **Critical** | Developer app |
-| 2 | Configure Business Login redirect URI in Meta app dashboard | **Critical** | Developer app |
-| 3 | Connect Instagram via Business Login OAuth flow | **Critical** | User action |
-| 4 | Verify `social.cloudless.gr` domain in TikTok developer app | High | Developer app |
-| 5 | Reconnect LinkedIn personal account via SocialAuto | High | User action |
-| 6 | Reconnect LinkedIn organization account via SocialAuto | High | User action |
-| 7 | Complete WhatsApp phone number SMS verification | Medium | User action |
-| 8 | Test Instagram carousel publishing after Business Login | Medium | Testing |
-| 9 | Test TikTok publishing with FILE_UPLOAD after domain verification | Medium | Testing |
-| 10 | Test LinkedIn publishing after reconnection | Medium | Testing |
+| # | Action | Priority | Type | Status |
+|---|--------|----------|------|--------|
+| 1 | Add "Instagram" product to Meta app with "API setup with Instagram login" | **Critical** | Developer app | ✅ Done |
+| 2 | Configure Business Login redirect URI in Meta app dashboard | **Critical** | Developer app | ✅ Done |
+| 3 | Connect Instagram via Business Login OAuth flow | **Critical** | User action | ✅ Done |
+| 4 | Verify `social.cloudless.gr` domain in TikTok developer app | High | Developer app | Pending |
+| 5 | Reconnect LinkedIn personal account via SocialAuto | High | User action | Pending |
+| 6 | Reconnect LinkedIn organization account via SocialAuto | High | User action | Pending |
+| 7 | Complete WhatsApp phone number SMS verification | Medium | User action | Pending |
+| 8 | Test Instagram carousel publishing after Business Login | Medium | Testing | ✅ Done (single image) |
+| 9 | Test TikTok publishing with FILE_UPLOAD after domain verification | Medium | Testing | Pending |
+| 10 | Test LinkedIn publishing after reconnection | Medium | Testing | Pending |
