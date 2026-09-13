@@ -666,3 +666,104 @@ to personal Messenger   (Chromium)           (every 2 min)
 | 24-hour messaging window (Pages) | Meta policy | Message tags for outside window |
 | Mercury endpoints decommissioned | Facebook removed them | Browser automation only |
 | Rate limit: 10 profile calls/10 min | Meta limit | Batch updates, `rate_limited` status |
+
+---
+
+## Instagram DM Bot (Browser Bridge Fallback)
+
+### Architecture
+
+Instagram DMs use a **two-tier fallback** architecture:
+
+1. **Graph API (primary)** — requires Meta App Review for `instagram_business_manage_messages` permission. Currently returns `(#3) Application does not have the capability` for the Cloudless app.
+2. **Browser Bridge (fallback)** — uses the logged-in Instagram web session in `browser-novnc` to read and send DMs via the Instagram web API (`www.instagram.com/api/v1/direct_v2/`).
+
+### Browser Bridge DM Methods
+
+`BrowserBridgeClient` provides three Instagram DM methods:
+
+| Method | Description |
+|--------|-------------|
+| `get_instagram_dm_conversations()` | Reads inbox via `GET /api/v1/direct_v2/inbox/` from browser context |
+| `get_instagram_dm_messages(thread_id)` | Reads thread messages via `GET /api/v1/direct_v2/threads/{id}/` |
+| `send_instagram_dm_message(recipient_id, text)` | Sends DM via **UI interaction** (navigate to thread, type, press Enter) |
+
+### Send Method: UI Interaction
+
+Instagram's web API POST endpoint (`/api/v1/direct_v2/threads/broadcast/text/`) returns an opaque redirect when called from the browser context (`fetch()` with `redirect: "manual"` returns `opaqueredirect`). This is a security measure by Instagram.
+
+The send method uses **UI interaction** instead:
+1. Navigate to `https://www.instagram.com/direct/inbox/`
+2. Fetch inbox to find the thread_id for the recipient
+3. Navigate to the thread page
+4. Find the contenteditable message input
+5. Type the text using `document.execCommand('insertText')`
+6. Click the Send button or press Enter
+
+This mirrors the approach used for Threads, Twitter/X, and TikTok DMs.
+
+### Sender Detection
+
+Instagram's web API returns `user_id` as the **viewer's ID** for inbox items, not the actual sender. The correct field is:
+
+- `is_sent_by_viewer: true` → outbound (sent by the account, skip)
+- `is_sent_by_viewer: false` → inbound (sent by another user, reply)
+
+### Worker Flow
+
+```
+Graph API (conversations) → fails with (#3)
+    ↓ fallback
+Browser Bridge (inbox via web API fetch)
+    ↓
+For each conversation:
+    1. Read messages via browser bridge
+    2. Find last inbound message (is_sent_by_viewer: false)
+    3. Check seen tracking + cooldown
+    4. Generate AI reply (Cloudflare Workers AI → DMR → static)
+    5. Send reply via UI interaction (navigate, type, Enter)
+    6. Check send result — don't mark as seen if send failed
+    7. Store in conversation memory (ChromaDB)
+    8. Set cooldown
+```
+
+### Conversational Steering
+
+The bot is designed to **continue the conversation** and **steer customers** toward the next step:
+
+- **Intent detection** classifies messages as business, personal, question, spam, or greeting
+- **Intent guidance** in the system prompt tells the bot how to respond per intent:
+  - Business: ask follow-up questions, mention services, steer to booking
+  - Greeting: introduce as bot, ask what they're interested in
+  - Question: answer, then ask what they need help with
+- **Conversation memory** (ChromaDB) stores last N messages for context
+- **Brand context** (RAG) retrieves relevant brand knowledge
+- **Pricing guardrail** intercepts pricing questions with a deterministic response that asks what service they're interested in
+- **System prompt** instructs the bot to always end with a question and guide toward booking/consultation
+- **Brand voice injection** enforces banned phrases, euro pricing, bilingual language matching
+
+### Browser Bridge Result Extraction
+
+All browser bridge `evaluate()` calls return `{"status": "ok", "result": <value>}`. DM methods must extract the `result` field:
+
+```python
+result = response.get("result", response) if isinstance(response, dict) else response
+return result if isinstance(result, dict) else {"error": str(result)}
+```
+
+This applies to all platforms: Threads, Twitter/X, TikTok, and Instagram.
+
+### UUID Serialization Fix
+
+`track_inference()` in `usage_tracker.py` sanitizes `meta_data` to convert UUID values to strings before JSONB serialization, preventing the "Object of type UUID is not JSON serializable" error.
+
+### Limitations
+
+| Limitation | Reason | Mitigation |
+|------------|--------|------------|
+| Graph API unavailable | Needs Meta App Review | Browser bridge fallback |
+| Browser session expires | Cookie-based auth | Re-login via noVNC |
+| One Instagram account at a time | Shared browser session | Login to the account you want to process |
+| Other workers can navigate browser away | Shared browser-novnc | Stop celery-beat during testing |
+| UI selectors are fragile | Instagram UI changes | Multiple fallback selectors |
+| Send via API POST blocked | Opaque redirect | UI interaction (type + Enter) |
