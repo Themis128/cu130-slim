@@ -921,7 +921,7 @@ async def _publish_instagram_via_web(
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
-        "X-IG-App-ID": "1217981644879628",
+        "X-IG-App-ID": "936619743392459",
         "x-csrftoken": csrf_token,
         "Cookie": cookie_header,
     }
@@ -930,6 +930,7 @@ async def _publish_instagram_via_web(
     async with httpx.AsyncClient(timeout=60.0) as client:
         # Step 1: Upload each photo via rupload_igphoto
         upload_ids: list[str] = []
+        upload_dims: list[tuple[int, int]] = []  # (width, height) per image
         for idx, fp in enumerate(image_paths):
             try:
                 from PIL import Image
@@ -988,6 +989,7 @@ async def _publish_instagram_via_web(
                 )
 
             upload_ids.append(upload_id)
+            upload_dims.append((width, height))
 
         # Step 2: Configure the media (create the post)
         configure_headers = {
@@ -998,17 +1000,46 @@ async def _publish_instagram_via_web(
         }
 
         if is_carousel:
-            # Carousel: configure with children_metadata
+            # Carousel: configure with children_metadata (include width/height per item)
+            # Format matches instagram-private-api: extra, edits, device as JSON strings per child
+            device_payload = json.dumps({
+                "manufacturer": "Xiaomi",
+                "model": "MI 5",
+                "android_version": 24,
+                "android_release": "7.0",
+            })
             children_metadata = json.dumps([
-                {"upload_id": uid} for uid in upload_ids
+                {
+                    "upload_id": uid,
+                    "width": w,
+                    "height": h,
+                    "timezone_offset": "0",
+                    "caption": None,
+                    "source_type": "4",
+                    "extra": json.dumps({"source_width": w, "source_height": h}),
+                    "edits": json.dumps({
+                        "crop_original_size": [w, h],
+                        "crop_center": [0.0, -0.0],
+                        "crop_zoom": 1.0,
+                    }),
+                    "device": device_payload,
+                }
+                for uid, (w, h) in zip(upload_ids, upload_dims)
             ])
+            client_sidecar_id = str(int(time.time() * 1000))
             configure_data = {
+                "_csrftoken": csrf_token,
+                "_uid": ds_user_id,
+                "_uuid": "android-e021b636049dc0e9",
                 "caption": caption,
                 "children_metadata": children_metadata,
-                "source_type": "1",
+                "client_sidecar_id": client_sidecar_id,
+                "timezone_offset": "0",
+                "source_type": "4",
                 "device_id": "android-e021b636049dc0e9",
+                "device": device_payload,
             }
-            configure_url = "https://www.instagram.com/create/configure_sidecar/"
+            configure_url = "https://www.instagram.com/api/v1/media/configure_sidecar/"
         else:
             # Single photo
             configure_data = {
@@ -1019,7 +1050,7 @@ async def _publish_instagram_via_web(
                 "source_type": "1",
                 "device_id": "android-e021b636049dc0e9",
             }
-            configure_url = "https://www.instagram.com/create/configure/"
+            configure_url = "https://www.instagram.com/api/v1/media/configure/"
 
         try:
             resp2 = await client.post(
@@ -1037,7 +1068,13 @@ async def _publish_instagram_via_web(
                 error=f"Instagram web API configure failed (HTTP {resp2.status_code}): {detail}",
             )
 
-        configure_resp = resp2.json()
+        try:
+            configure_resp = resp2.json()
+        except Exception:
+            return PublishResult(
+                success=False,
+                error=f"Instagram web API configure returned non-JSON (HTTP {resp2.status_code}): {resp2.text[:300]}",
+            )
         media = configure_resp.get("media", {})
         media_id = str(media.get("id") or "")
         code = media.get("code") or ""
