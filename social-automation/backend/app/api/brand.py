@@ -1062,3 +1062,232 @@ async def get_trends(
     twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
     result = await scout_trends(db, brand.team_id, twitter_token)
     return result
+
+
+# ── Digital Business Card (vCard 4.0 + public page data) ──────────────────────
+
+
+class DigitalCardOut(BaseModel):
+    """Public digital business card data — served without auth via share token."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    brand_name: str
+    tagline: str | None = None
+    mission: str | None = None
+    industry: str | None = None
+    website: str | None = None
+    # Contact info (from brand or env)
+    email: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    # Visual identity
+    primary_color: str | None = None
+    accent_color: str | None = None
+    logo_url: str | None = None
+    # Social accounts
+    socials: list[dict] = []
+    # Messaging pillars
+    pillars: list[dict] = []
+    # vCard 4.0 text
+    vcard: str = ""
+    # Share info
+    share_token: str | None = None
+    card_url: str | None = None
+
+
+def _build_vcard(
+    brand: Brand,
+    visual: BrandVisual | None,
+    email: str | None,
+    phone: str | None,
+    website: str | None,
+    socials: list[dict],
+) -> str:
+    """Build a vCard 4.0 (RFC 6350) string."""
+    lines = [
+        "BEGIN:VCARD",
+        "VERSION:4.0",
+        f"FN:{brand.name}",
+        f"ORG:{brand.name}",
+    ]
+    if brand.industry:
+        lines.append(f"TITLE:{brand.industry}")
+    if email:
+        lines.append(f"EMAIL;TYPE=work;PREF=1:{email}")
+    if phone:
+        lines.append(f"TEL;TYPE=work,voice;VALUE=uri;PREF=1:tel:{phone.replace(' ', '')}")
+    if website:
+        lines.append(f"URL:{website}")
+    if brand.tagline:
+        lines.append(f"NOTE:{brand.tagline}")
+    # Social profiles as URL entries
+    for s in socials:
+        url = s.get("url")
+        if url:
+            lines.append(f"URL;TYPE={s.get('platform', 'social')}:{url}")
+    # Logo as URI if available
+    if visual and visual.logo_url:
+        lines.append(f"LOGO;VALUE=uri:{visual.logo_url}")
+    lines.append("END:VCARD")
+    return "\r\n".join(lines)
+
+
+@router.get("/digital-card", response_model=DigitalCardOut)
+async def get_digital_card(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the digital business card for the current team (auth required)."""
+    import os
+
+    brand = await _get_brand(current_user, db)
+    visual = brand.visual
+    guidelines = brand.guidelines
+
+    # Get social accounts
+    from app.models.social_account import SocialAccount
+
+    result = await db.execute(
+        select(SocialAccount)
+        .where(SocialAccount.team_id == brand.team_id, SocialAccount.status == "active")
+        .order_by(SocialAccount.platform)
+    )
+    accounts = result.scalars().all()
+
+    # Build socials list
+    platform_urls = {
+        "facebook": "https://facebook.com/{handle}",
+        "instagram": "https://instagram.com/{handle}",
+        "linkedin": "https://linkedin.com/company/{handle}",
+        "twitter": "https://twitter.com/{handle}",
+        "threads": "https://threads.net/@{handle}",
+        "tiktok": "https://tiktok.com/@{handle}",
+    }
+    socials = []
+    for acc in accounts:
+        handle = acc.username or acc.display_name or ""
+        url_template = platform_urls.get(acc.platform, "")
+        url = url_template.format(handle=handle) if handle and url_template else None
+        socials.append({
+            "platform": acc.platform,
+            "handle": handle,
+            "display_name": acc.display_name or handle,
+            "url": url,
+            "account_type": acc.account_type,
+        })
+
+    email = os.environ.get("BUSINESS_EMAIL", "tbaltzakis@cloudless.gr")
+    phone = os.environ.get("BUSINESS_PHONE", "+30 697 777 7838")
+    website = brand.website_url or "https://cloudless.gr"
+    address = "Athens, Greece"
+
+    vcard = _build_vcard(brand, visual, email, phone, website, socials)
+
+    share_token = guidelines.share_token if guidelines else None
+    base_url = os.environ.get("FRONTEND_URL", "http://localhost:8082")
+    card_url = f"{base_url}/card/{share_token}" if share_token else None
+
+    pillars = []
+    if brand.voice and brand.voice.messaging_pillars:
+        pillars = brand.voice.messaging_pillars
+
+    return DigitalCardOut(
+        brand_name=brand.name,
+        tagline=brand.tagline,
+        mission=brand.mission,
+        industry=brand.industry,
+        website=website,
+        email=email,
+        phone=phone,
+        address=address,
+        primary_color=visual.primary_color if visual else None,
+        accent_color=visual.accent_color if visual else None,
+        logo_url=visual.logo_url if visual else None,
+        socials=socials,
+        pillars=pillars,
+        vcard=vcard,
+        share_token=share_token,
+        card_url=card_url,
+    )
+
+
+@router.get("/digital-card/{token}", response_model=DigitalCardOut)
+async def get_digital_card_public(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public endpoint — get digital card by share token (no auth required)."""
+    import os
+
+    result = await db.execute(
+        select(BrandGuidelines).where(BrandGuidelines.share_token == token)
+    )
+    guidelines = result.scalars().first()
+    if not guidelines:
+        raise HTTPException(status_code=404, detail="Digital card not found")
+
+    brand = guidelines.brand
+    visual = brand.visual
+
+    from app.models.social_account import SocialAccount
+
+    result = await db.execute(
+        select(SocialAccount)
+        .where(SocialAccount.team_id == brand.team_id, SocialAccount.status == "active")
+        .order_by(SocialAccount.platform)
+    )
+    accounts = result.scalars().all()
+
+    platform_urls = {
+        "facebook": "https://facebook.com/{handle}",
+        "instagram": "https://instagram.com/{handle}",
+        "linkedin": "https://linkedin.com/company/{handle}",
+        "twitter": "https://twitter.com/{handle}",
+        "threads": "https://threads.net/@{handle}",
+        "tiktok": "https://tiktok.com/@{handle}",
+    }
+    socials = []
+    for acc in accounts:
+        handle = acc.username or acc.display_name or ""
+        url_template = platform_urls.get(acc.platform, "")
+        url = url_template.format(handle=handle) if handle and url_template else None
+        socials.append({
+            "platform": acc.platform,
+            "handle": handle,
+            "display_name": acc.display_name or handle,
+            "url": url,
+            "account_type": acc.account_type,
+        })
+
+    email = os.environ.get("BUSINESS_EMAIL", "tbaltzakis@cloudless.gr")
+    phone = os.environ.get("BUSINESS_PHONE", "+30 697 777 7838")
+    website = brand.website_url or "https://cloudless.gr"
+
+    vcard = _build_vcard(brand, visual, email, phone, website, socials)
+
+    base_url = os.environ.get("FRONTEND_URL", "http://localhost:8082")
+    card_url = f"{base_url}/card/{token}"
+
+    pillars = []
+    if brand.voice and brand.voice.messaging_pillars:
+        pillars = brand.voice.messaging_pillars
+
+    return DigitalCardOut(
+        brand_name=brand.name,
+        tagline=brand.tagline,
+        mission=brand.mission,
+        industry=brand.industry,
+        website=website,
+        email=email,
+        phone=phone,
+        address="Athens, Greece",
+        primary_color=visual.primary_color if visual else None,
+        accent_color=visual.accent_color if visual else None,
+        logo_url=visual.logo_url if visual else None,
+        socials=socials,
+        pillars=pillars,
+        vcard=vcard,
+        share_token=token,
+        card_url=card_url,
+    )

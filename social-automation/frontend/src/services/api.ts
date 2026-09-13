@@ -1066,6 +1066,27 @@ export const brandApi = {
   runAutopilot: (params?: { days?: number; min_compliance_score?: number }) =>
     api.post('/brand/autopilot/run', null, { params, timeout: 120000 }),
   getTrends: () => api.get('/brand/trends', { timeout: 30000 }),
+
+  // Digital Business Card (legacy brand-based)
+  getDigitalCard: () => api.get('/brand/digital-card'),
+  getDigitalCardPublic: (token: string) => api.get(`/brand/digital-card/${token}`),
+}
+
+// Digital Business Cards (standalone CRUD)
+export const digitalCardApi = {
+  list: () => api.get('/digital-cards'),
+  get: (id: string) => api.get(`/digital-cards/${id}`),
+  create: (data: Record<string, unknown>) => api.post('/digital-cards', data),
+  createFromBrand: () => api.post('/digital-cards/from-brand', null),
+  update: (id: string, data: Record<string, unknown>) => api.patch(`/digital-cards/${id}`, data),
+  delete: (id: string) => api.delete(`/digital-cards/${id}`),
+  downloadVCard: (id: string) =>
+    api.get(`/digital-cards/${id}/vcard`, { responseType: 'blob' }),
+  getPublic: (token: string) => api.get(`/digital-cards/public/${token}`),
+  trackAction: (token: string, action: string) =>
+    api.post(`/digital-cards/public/${token}/track`, null, { params: { action } }),
+  send: (id: string, data: { to_phone?: string; platform: string; message?: string }) =>
+    api.post(`/digital-cards/${id}/send`, data),
 }
 
 // Media AI enhancement endpoints

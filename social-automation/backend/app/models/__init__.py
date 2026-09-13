@@ -3,6 +3,7 @@ from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalytics
 from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines, BrandVisual, BrandVoice
 from app.models.brand_monitoring import BrandMention, CompetitorSnapshot  # noqa: F401
 from app.models.content import ContentBrief, MediaAsset, MediaCollection, Pillar, Post, PostComment, PostTarget, StorageBackend
+from app.models.digital_card import DigitalCard
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
@@ -44,4 +45,5 @@ __all__ = [
     "BrandAsset",
     "BrandAssetType",
     "SocialSecret",
+    "DigitalCard",
 ]

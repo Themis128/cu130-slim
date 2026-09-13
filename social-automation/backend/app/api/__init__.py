@@ -10,6 +10,7 @@ from app.api import (
     brand,
     cf_db,
     content,
+    digital_cards,
     inbox,
     instagram,
     leads,
@@ -61,3 +62,4 @@ api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
 api_router.include_router(twitter_tiktok.router, tags=["twitter-tiktok-dm"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
+api_router.include_router(digital_cards.router, prefix="/digital-cards", tags=["digital-cards"])
