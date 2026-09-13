@@ -531,6 +531,11 @@ export const messengerApi = {
     api.put(`/messenger/${accountId}/auto-reply`, data),
   getSidecarStatus: () =>
     api.get('/messenger/sidecar/status'),
+  // Browser bridge orchestrator (coordinates browser access across workers)
+  getOrchestratorStatus: () =>
+    api.get('/ops/browser-orchestrator'),
+  releaseOrchestratorLock: () =>
+    api.post('/ops/browser-orchestrator/release'),
   // Personal Messenger (browser bridge)
   getPersonalConversations: (accountId: string) =>
     api.get(`/messenger/${accountId}/personal/conversations`),

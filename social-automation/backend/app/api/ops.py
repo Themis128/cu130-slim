@@ -22,6 +22,68 @@ class DailyDigestResponse(BaseModel):
     message: str = ""
 
 
+class BrowserOrchestratorStatus(BaseModel):
+    """Status of the browser bridge orchestrator."""
+    current_platform: str | None = None
+    queue_length: int = 0
+    lock_held: bool = False
+    lock_key: str = "browser-bridge:lock"
+    queue_key: str = "browser-bridge:queue"
+    platform_key: str = "browser-bridge:platform"
+    message: str = ""
+
+
+@router.get("/browser-orchestrator", response_model=BrowserOrchestratorStatus)
+async def get_browser_orchestrator_status(
+    current_user: User = Depends(get_current_user),
+) -> BrowserOrchestratorStatus:
+    """Get the current status of the browser bridge orchestrator.
+
+    Shows which platform currently holds the browser lock and how many
+    workers are waiting in the queue. Used by the frontend dashboard to
+    visualize browser bridge coordination across messenger workers.
+    """
+    _ = current_user
+    try:
+        from app.services.browser_orchestrator import get_current_platform, get_queue_length
+
+        platform = await get_current_platform()
+        queue_len = await get_queue_length()
+        return BrowserOrchestratorStatus(
+            current_platform=platform,
+            queue_length=queue_len,
+            lock_held=platform is not None,
+            message=f"Browser held by {platform}" if platform else "Browser idle",
+        )
+    except Exception as exc:
+        return BrowserOrchestratorStatus(
+            message=f"Orchestrator status unavailable: {exc}",
+        )
+
+
+@router.post("/browser-orchestrator/release", response_model=BrowserOrchestratorStatus)
+async def force_release_browser_lock(
+    current_user: User = Depends(get_current_user),
+) -> BrowserOrchestratorStatus:
+    """Force-release the browser bridge lock (admin/debug use only).
+
+    Use when a worker has crashed while holding the lock and the browser
+    is stuck. This clears the lock and the queue so workers can proceed.
+    """
+    _ = current_user
+    try:
+        from app.services.browser_orchestrator import force_release_lock
+
+        released = await force_release_lock()
+        return BrowserOrchestratorStatus(
+            message="Lock force-released" if released else "Force-release failed",
+        )
+    except Exception as exc:
+        return BrowserOrchestratorStatus(
+            message=f"Force-release failed: {exc}",
+        )
+
+
 @router.post("/daily-digest", response_model=DailyDigestResponse)
 async def trigger_daily_digest(
     days: int = Query(1, ge=1, le=30),

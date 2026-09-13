@@ -1,16 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle, User, Bot } from 'lucide-react'
+import { MessageCircle, Server, Activity, RefreshCw, Loader2, AlertCircle, CheckCircle2, XCircle, User, Bot, Globe, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { MessengerInbox } from '@/components/ui/MessengerInbox'
 import { BotBuilder } from '@/components/ui/BotBuilder'
 import { messengerApi, accountsApi } from '@/services/api'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 export default function MessengerPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
+  const queryClient = useQueryClient()
 
   // Fetch Facebook Page accounts
   const { data: accountsData, isLoading: loadingAccounts } = useQuery({
@@ -23,6 +24,21 @@ export default function MessengerPage() {
     queryKey: ['messenger-sidecar-status'],
     queryFn: () => messengerApi.getSidecarStatus(),
     refetchInterval: 30000,
+  })
+
+  // Fetch browser orchestrator status
+  const { data: orchestratorData, isLoading: loadingOrchestrator, refetch: refetchOrchestrator } = useQuery({
+    queryKey: ['browser-orchestrator-status'],
+    queryFn: () => messengerApi.getOrchestratorStatus(),
+    refetchInterval: 10000,
+  })
+
+  // Force-release lock mutation
+  const releaseLockMutation = useMutation({
+    mutationFn: () => messengerApi.releaseOrchestratorLock(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['browser-orchestrator-status'] })
+    },
   })
 
   // Auto-select the first Facebook Page account
@@ -149,6 +165,85 @@ export default function MessengerPage() {
               </p>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Browser Bridge Orchestrator */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              Browser Bridge Orchestrator
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => refetchOrchestrator()}
+              disabled={loadingOrchestrator}
+            >
+              {loadingOrchestrator ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loadingOrchestrator ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking orchestrator status...
+            </div>
+          ) : orchestratorData?.data ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                {orchestratorData.data.lock_held ? (
+                  <>
+                    <Lock className="h-4 w-4 text-blue-500" />
+                    <span className="font-medium text-blue-600">
+                      Browser held by {orchestratorData.data.current_platform}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="h-4 w-4 text-green-500" />
+                    <span className="font-medium text-green-600">Browser idle</span>
+                  </>
+                )}
+              </div>
+              {orchestratorData.data.queue_length > 0 && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {orchestratorData.data.queue_length} worker(s) waiting in queue
+                </div>
+              )}
+              <div className="flex items-center gap-2 mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => releaseLockMutation.mutate()}
+                  disabled={releaseLockMutation.isPending || !orchestratorData.data.lock_held}
+                >
+                  {releaseLockMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Unlock className="h-3 w-3 mr-1" />
+                  )}
+                  Force Release Lock
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Use when a worker crashed while holding the browser lock
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4 text-yellow-500" />
+              <span>{orchestratorData?.data?.message || 'Orchestrator status unavailable'}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
