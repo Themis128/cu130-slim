@@ -7,6 +7,7 @@ Docs: https://developers.cloudflare.com/analytics/graphql-api/
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -219,4 +220,364 @@ async def get_workers_invocations(days: int = 7) -> dict[str, Any]:
         "by_script": sorted(
             by_script.values(), key=lambda x: x["requests"], reverse=True
         ),
+    }
+
+
+async def get_r2_usage(days: int = 7) -> dict[str, Any]:
+    """Fetch R2 storage and operations metrics.
+
+    Datasets:
+    - r2OperationsAdaptiveGroups: operation counts by action type
+    - r2StorageAdaptiveGroups: storage size by bucket
+    """
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    query = """
+    query GetR2Usage($accountTag: string!,
+                     $datetimeStart: string!,
+                     $datetimeEnd: string!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          r2OperationsAdaptiveGroups(
+            limit: 10000
+            filter: {datetime_geq: $datetimeStart,
+                     datetime_leq: $datetimeEnd}
+          ) {
+            sum { requests }
+            dimensions { actionType bucketName }
+          }
+        }
+      }
+    }
+    """
+    data = await _graphql_query(query, {
+        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    })
+    if not data:
+        return {
+            "total_operations": 0, "by_action": [],
+            "by_bucket": [], "total_storage_bytes": 0,
+        }
+
+    accounts = data.get("viewer", {}).get("accounts", [])
+    if not accounts:
+        return {
+            "total_operations": 0, "by_action": [],
+            "by_bucket": [], "total_storage_bytes": 0,
+        }
+
+    op_rows = accounts[0].get("r2OperationsAdaptiveGroups", [])
+
+    by_action: dict[str, dict] = {}
+    by_bucket: dict[str, dict] = {}
+    total_operations = 0
+    total_storage = 0
+
+    for row in op_rows:
+        dims = row.get("dimensions", {})
+        sums = row.get("sum", {})
+        action = dims.get("actionType", "unknown")
+        bucket = dims.get("bucketName", "unknown")
+        req = sums.get("requests", 0) or 0
+
+        total_operations += req
+
+        if action not in by_action:
+            by_action[action] = {
+                "action": action, "requests": 0,
+            }
+        by_action[action]["requests"] += req
+
+        if bucket not in by_bucket:
+            by_bucket[bucket] = {
+                "bucket": bucket, "operations": 0,
+                "storage_bytes": 0,
+            }
+        by_bucket[bucket]["operations"] += req
+
+    return {
+        "total_operations": total_operations,
+        "by_action": sorted(
+            by_action.values(),
+            key=lambda x: x["requests"],
+            reverse=True,
+        ),
+        "by_bucket": sorted(
+            by_bucket.values(),
+            key=lambda x: x["operations"],
+            reverse=True,
+        ),
+        "total_storage_bytes": total_storage,
+    }
+
+
+async def get_d1_usage(days: int = 7) -> dict[str, Any]:
+    """Fetch D1 database query and storage metrics.
+
+    Datasets:
+    - d1QueriesAdaptiveGroups: query counts and latency by database
+    - d1StorageAdaptiveGroups: row counts and storage size
+    """
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    query = """
+    query GetD1Usage($accountTag: string!,
+                     $datetimeStart: string!,
+                     $datetimeEnd: string!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          d1QueriesAdaptiveGroups(
+            limit: 10000
+            filter: {datetime_geq: $datetimeStart,
+                     datetime_leq: $datetimeEnd}
+          ) {
+            count
+            dimensions { databaseId datetime }
+          }
+        }
+      }
+    }
+    """
+    data = await _graphql_query(query, {
+        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    })
+    if not data:
+        return {"total_queries": 0, "by_database": []}
+
+    accounts = data.get("viewer", {}).get("accounts", [])
+    if not accounts:
+        return {"total_queries": 0, "by_database": []}
+
+    query_rows = accounts[0].get("d1QueriesAdaptiveGroups", [])
+    by_db: dict[str, dict] = {}
+    total_queries = 0
+
+    for row in query_rows:
+        dims = row.get("dimensions", {})
+        count = row.get("count", 0) or 0
+        db = dims.get("databaseId", "unknown")
+
+        total_queries += count
+
+        if db not in by_db:
+            by_db[db] = {
+                "database": db, "queries": 0,
+            }
+        by_db[db]["queries"] += count
+
+    return {
+        "total_queries": total_queries,
+        "by_database": sorted(
+            by_db.values(),
+            key=lambda x: x["queries"],
+            reverse=True,
+        ),
+    }
+
+
+async def get_kv_usage(days: int = 7) -> dict[str, Any]:
+    """Fetch KV operations and storage metrics.
+
+    Datasets:
+    - kvOperationsAdaptiveGroups: read/write/delete/list counts
+    - kvStorageAdaptiveGroups: stored keys and bytes
+    """
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    query = """
+    query GetKVUsage($accountTag: string!,
+                     $datetimeStart: string!,
+                     $datetimeEnd: string!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          kvOperationsAdaptiveGroups(
+            limit: 10000
+            filter: {datetime_geq: $datetimeStart,
+                     datetime_leq: $datetimeEnd}
+          ) {
+            sum { requests }
+            dimensions { actionType }
+          }
+        }
+      }
+    }
+    """
+    data = await _graphql_query(query, {
+        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    })
+    if not data:
+        return {"total_operations": 0, "by_action": []}
+
+    accounts = data.get("viewer", {}).get("accounts", [])
+    if not accounts:
+        return {"total_operations": 0, "by_action": []}
+
+    op_rows = accounts[0].get("kvOperationsAdaptiveGroups", [])
+
+    by_action: dict[str, dict] = {}
+    total_operations = 0
+
+    for row in op_rows:
+        dims = row.get("dimensions", {})
+        sums = row.get("sum", {})
+        action = dims.get("actionType", "unknown")
+        req = sums.get("requests", 0) or 0
+
+        total_operations += req
+
+        if action not in by_action:
+            by_action[action] = {"action": action, "requests": 0}
+        by_action[action]["requests"] += req
+
+    return {
+        "total_operations": total_operations,
+        "by_action": sorted(
+            by_action.values(),
+            key=lambda x: x["requests"],
+            reverse=True,
+        ),
+    }
+
+
+async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
+    """Fetch Vectorize vector index metrics.
+
+    Dataset: vectorizeQueriesAdaptiveGroups (if available).
+    Falls back to empty if the dataset is not yet provisioned.
+    """
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    query = """
+    query GetVectorizeUsage($accountTag: string!,
+                             $datetimeStart: string!,
+                             $datetimeEnd: string!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          vectorizeQueriesAdaptiveGroups(
+            limit: 10000
+            filter: {datetime_geq: $datetimeStart,
+                     datetime_leq: $datetimeEnd}
+          ) {
+            dimensions { indexName datetime }
+          }
+        }
+      }
+    }
+    """
+    data = await _graphql_query(query, {
+        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    })
+    if not data:
+        return {
+            "total_queries": 0, "total_vectors_queried": 0,
+            "total_vectors_inserted": 0, "by_index": [],
+        }
+
+    accounts = data.get("viewer", {}).get("accounts", [])
+    if not accounts:
+        return {
+            "total_queries": 0, "total_vectors_queried": 0,
+            "total_vectors_inserted": 0, "by_index": [],
+        }
+
+    rows = accounts[0].get("vectorizeQueriesAdaptiveGroups", [])
+    by_index: dict[str, dict] = {}
+    total_queries = 0
+    total_vectors_queried = 0
+    total_vectors_inserted = 0
+
+    for row in rows:
+        dims = row.get("dimensions", {})
+        sums = row.get("sum", {})
+        vq = sums.get("vectorsQueried", 0) or 0
+        vi = sums.get("vectorsInserted", 0) or 0
+        index = dims.get("indexName", "unknown")
+
+        total_queries += vq + vi
+        total_vectors_queried += vq
+        total_vectors_inserted += vi
+
+        if index not in by_index:
+            by_index[index] = {
+                "index": index, "queries": 0,
+                "vectors_queried": 0, "vectors_inserted": 0,
+            }
+        by_index[index]["queries"] += vq + vi
+        by_index[index]["vectors_queried"] += vq
+        by_index[index]["vectors_inserted"] += vi
+
+    return {
+        "total_queries": total_queries,
+        "total_vectors_queried": total_vectors_queried,
+        "total_vectors_inserted": total_vectors_inserted,
+        "by_index": sorted(
+            by_index.values(),
+            key=lambda x: x["queries"],
+            reverse=True,
+        ),
+    }
+
+
+async def get_cf_overview(days: int = 7) -> dict[str, Any]:
+    """Fetch a combined Cloudflare analytics overview.
+
+    Aggregates Workers AI, Workers invocations, R2, D1, KV,
+    and Vectorize metrics into a single response for dashboards.
+    Queries run concurrently; individual dataset failures return empty
+    sections rather than failing the whole overview.
+    """
+    ai, workers, r2, d1, kv, vectorize = await asyncio.gather(
+        get_workers_ai_usage(days),
+        get_workers_invocations(days),
+        get_r2_usage(days),
+        get_d1_usage(days),
+        get_kv_usage(days),
+        get_vectorize_usage(days),
+    )
+
+    free_ai_limit = 10000 * days
+    return {
+        "workers_ai": {
+            "total_requests": ai["total_requests"],
+            "total_neurons": ai["total_neurons"],
+            "free_tier_limit": free_ai_limit,
+            "free_tier_remaining": max(
+                0, free_ai_limit - ai["total_neurons"]
+            ),
+            "by_model": ai["by_model"],
+            "by_day": ai["by_day"],
+        },
+        "workers": {
+            "total_requests": workers["total_requests"],
+            "total_errors": workers["total_errors"],
+            "by_script": workers["by_script"],
+        },
+        "r2": {
+            "total_operations": r2["total_operations"],
+            "total_storage_bytes": r2["total_storage_bytes"],
+            "by_bucket": r2["by_bucket"],
+            "by_action": r2["by_action"],
+        },
+        "d1": {
+            "total_queries": d1["total_queries"],
+            "by_database": d1["by_database"],
+        },
+        "kv": {
+            "total_operations": kv["total_operations"],
+            "by_action": kv["by_action"],
+        },
+        "vectorize": {
+            "total_queries": vectorize["total_queries"],
+            "total_vectors_queried": vectorize["total_vectors_queried"],
+            "total_vectors_inserted": vectorize["total_vectors_inserted"],
+            "by_index": vectorize["by_index"],
+        },
     }

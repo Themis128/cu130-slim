@@ -1178,6 +1178,15 @@ class CloudflareAIUsage(BaseModel):
     by_day: list[dict]
 
 
+class CloudflareOverview(BaseModel):
+    workers_ai: dict
+    workers: dict
+    r2: dict
+    d1: dict
+    kv: dict
+    vectorize: dict
+
+
 @router.get("/bots/summary", response_model=BotAnalyticsSummary)
 async def get_bot_analytics_summary(
     days: int = Query(30, ge=1, le=365),
@@ -1328,3 +1337,18 @@ async def get_cloudflare_ai_usage(
         by_model=usage["by_model"],
         by_day=usage["by_day"],
     )
+
+
+@router.get("/bots/cloudflare-overview", response_model=CloudflareOverview)
+async def get_cloudflare_overview(
+    days: int = Query(7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+):
+    """Combined Cloudflare analytics overview (free GraphQL API).
+
+    Aggregates Workers AI, Workers invocations, R2, D1, KV, and
+    Vectorize metrics into a single response for dashboards.
+    """
+    from app.services.cf_analytics import get_cf_overview
+
+    return await get_cf_overview(days=days)
