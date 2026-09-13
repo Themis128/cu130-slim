@@ -15,8 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime } from '@/hooks/useQueries'
-import type { PlatformMetrics, TopPost } from '@/types'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview } from '@/hooks/useQueries'
+import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { analyticsApi } from '@/services/api'
 import {
@@ -75,6 +75,8 @@ export default function AnalyticsPage() {
     platformFilter || undefined
   )
   const { data: followerData } = useFollowerGrowth(days)
+  const { data: botSummary, isLoading: botLoading } = useBotSummary(days)
+  const { data: cfOverview, isLoading: cfLoading } = useCloudflareOverview(7)
 
   const { currentTrend, deltaEngagement } = useMemo(() => {
     const trend = (rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
