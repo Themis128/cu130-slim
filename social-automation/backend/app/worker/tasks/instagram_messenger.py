@@ -260,8 +260,8 @@ async def _process_account(
 
             # Lead capture (scaffold): intercept and run a simple qualification flow.
             try:
-                from app.services.lead_capture import handle_lead_capture_message
                 from app.models.lead import LeadSource
+                from app.services.lead_capture import handle_lead_capture_message
 
                 lead_reply = await handle_lead_capture_message(
                     db,

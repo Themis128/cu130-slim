@@ -683,8 +683,8 @@ async def _process_inline(
 
     # Lead capture (scaffold): handle simple qualification flow before AI bot.
     try:
-        from app.services.lead_capture import handle_lead_capture_message
         from app.models.lead import LeadSource
+        from app.services.lead_capture import handle_lead_capture_message
 
         reply = await handle_lead_capture_message(
             db,

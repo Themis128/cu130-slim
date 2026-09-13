@@ -60,7 +60,7 @@ async def list_leads(
         q = q.where(Lead.source == source)
     q = q.order_by(desc(Lead.created_at)).limit(limit).offset(offset)
     leads = (await db.execute(q)).scalars().all()
-    return [LeadOut.model_validate(l, from_attributes=True) for l in leads]
+    return [LeadOut.model_validate(lead, from_attributes=True) for lead in leads]
 
 
 @router.post("", response_model=LeadOut)

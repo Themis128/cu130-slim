@@ -1,19 +1,20 @@
 """Add leads table for Meta lead capture
 
 Revision ID: l6f7a8b9c0d1
-Revises: i5d6e7f8a9b0
+Revises: t2c4d5e6f7a8
 Create Date: 2026-09-13
 """
 
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "l6f7a8b9c0d1"
-down_revision = "i5d6e7f8a9b0"
+down_revision = "t2c4d5e6f7a8"
 branch_labels = None
 depends_on = None
 
