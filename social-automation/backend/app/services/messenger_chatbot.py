@@ -81,38 +81,37 @@ async def track_bot_reply(
     except Exception as exc:
         logger.debug("Failed to track bot AI usage: %s", exc)
 
-    try:
-        from app.db.session import async_session_maker
-        from app.models.analytics import AnalyticsEvent
-        event = AnalyticsEvent(
-            team_id=team_id or uuid.UUID(
-                "00000000-0000-0000-0000-000000000000"
-            ),
-            social_account_id=(
-                uuid.UUID(account_id)
-                if _is_valid_uuid(account_id) else None
-            ),
-            event_type="bot_reply",
-            platform="messenger",
-            occurred_at=datetime.now(UTC),
-            meta_data={
-                "thread_id": thread_id,
-                "provider": provider,
-                "model": model,
-                "success": success,
-                "error": error,
-                "intent": intent,
-                "guardrail": guardrail_triggered,
-                "language": language,
-                "reply_length": len(reply_text),
-                "latency_ms": latency_ms,
-            },
-        )
-        async with async_session_maker() as s:
-            s.add(event)
-            await s.commit()
-    except Exception as exc:
-        logger.debug("Failed to track bot analytics event: %s", exc)
+    if team_id:
+        try:
+            from app.db.session import async_session_maker
+            from app.models.analytics import AnalyticsEvent
+            event = AnalyticsEvent(
+                team_id=team_id,
+                social_account_id=(
+                    uuid.UUID(account_id)
+                    if _is_valid_uuid(account_id) else None
+                ),
+                event_type="bot_reply",
+                platform="messenger",
+                occurred_at=datetime.now(UTC),
+                meta_data={
+                    "thread_id": thread_id,
+                    "provider": provider,
+                    "model": model,
+                    "success": success,
+                    "error": error,
+                    "intent": intent,
+                    "guardrail": guardrail_triggered,
+                    "language": language,
+                    "reply_length": len(reply_text),
+                    "latency_ms": latency_ms,
+                },
+            )
+            async with async_session_maker() as s:
+                s.add(event)
+                await s.commit()
+        except Exception as exc:
+            logger.debug("Failed to track bot analytics event: %s", exc)
 
 
 def _is_valid_uuid(val: str) -> bool:
