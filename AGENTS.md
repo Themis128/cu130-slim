@@ -184,6 +184,39 @@ All six platforms share a unified bot reply engine in `app/services/messenger_ch
 - Language: bilingual Greek + English, match user language exactly, never mix.
 - Disclosure: always say you are a bot.
 
+### Bot analytics
+
+Every bot reply is tracked to two tables for observability and dashboards:
+
+1. **`ai_usage_logs`** — provider, model, latency, success/failure, endpoint (`bot_reply`), via `track_inference()`.
+2. **`analytics_events`** — `bot_reply` event type with metadata: `thread_id`, `provider`, `model`, `success`, `error`, `intent`, `guardrail`, `language`, `reply_length`, `latency_ms`.
+
+Tracking is non-blocking — logging failures are swallowed and never break the bot reply. All 5 return paths are instrumented:
+- Pricing guardrail (deterministic, before LLM)
+- Cloudflare Workers AI success
+- Cloudflare Workers AI failure
+- DMR fallback success
+- DMR fallback failure
+
+All 6 polling tasks pass `team_id=account.team_id` to `generate_contextual_reply` so analytics events are scoped to the correct team.
+
+**API endpoints** (`app/api/analytics.py`):
+- `GET /api/v1/analytics/bots/summary` — bot reply metrics from PostgreSQL: total replies, success/failure rate, guardrail triggers, pricing guardrail triggers, Greek/English breakdown, avg latency, per-provider, per-account, per-day.
+- `GET /api/v1/analytics/bots/cloudflare-ai` — Workers AI usage from Cloudflare GraphQL Analytics API (free): total requests, neurons consumed, free-tier limit (10K neurons/day), free-tier remaining, per-model breakdown, daily time series.
+- `GET /api/v1/analytics/bots/cloudflare-overview` — combined Cloudflare analytics overview: Workers AI, Workers invocations, R2, D1, KV, Vectorize metrics in a single response.
+
+**Cloudflare Analytics client** (`app/services/cf_analytics.py`):
+Queries the Cloudflare GraphQL Analytics API (free, uses existing `CLOUDFLARE_API_TOKEN`):
+- `get_workers_ai_usage(days)` — `aiInferenceAdaptiveGroups` dataset: requests, neurons (estimated from tokens), per-model, per-day.
+- `get_workers_invocations(days)` — `workersInvocationsAdaptive` dataset: requests, errors, CPU time P50/P99, per-script.
+- `get_r2_usage(days)` — `r2OperationsAdaptiveGroups` dataset: operations by action type and bucket.
+- `get_d1_usage(days)` — `d1QueriesAdaptiveGroups` dataset: query counts per database.
+- `get_kv_usage(days)` — `kvOperationsAdaptiveGroups` dataset: read/write/delete/list operations.
+- `get_vectorize_usage(days)` — `vectorizeQueriesAdaptiveGroups` dataset: query counts per index.
+- `get_cf_overview(days)` — aggregates all of the above into a single dashboard response.
+
+Live data (7-day window): 1,010 AI requests (1,210 neurons, 68,790 free remaining), 59K Worker invocations, 9,275 R2 operations, 19,605 D1 queries, 68 KV ops.
+
 ### Auto token refresh
 
 A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It refreshes any active account token expiring within the next 4 hours:

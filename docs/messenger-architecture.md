@@ -283,6 +283,9 @@ memory, brand RAG, per-thread cooldowns, human handoff, and bot disclosure.
 │  │     → DMR (Qwen3 8B, local) — fallback                   │   │
 │  │     → Static text — final fallback                        │   │
 │  │  Disclosure → "🤖 Auto-reply:" prefix on first contact      │   │
+│  │  Analytics → track_bot_reply() logs to:                    │   │
+│  │     - ai_usage_logs (provider, model, latency, success)    │   │
+│  │     - analytics_events (bot_reply event with metadata)     │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌─ Typing Indicator ─────────────────────────────────────────┐   │
@@ -306,6 +309,36 @@ and persists per thread.
 
 **Human handoff:** A thread can be paused via
 `POST /{id}/bot/pause-thread/{tid}` or `POST /{id}/personal/threads/{tid}/pause`.
+
+**Bot analytics:** Every bot reply is tracked via `track_bot_reply()` to two
+tables:
+- `ai_usage_logs` — provider, model, latency, success/failure (cost tracking)
+- `analytics_events` — `bot_reply` event with metadata: thread_id, provider,
+  model, success, error, intent, guardrail, language, reply_length, latency_ms
+
+All 5 return paths are instrumented (pricing guardrail, CF success/failure,
+DMR success/failure). All 6 polling tasks pass `team_id=account.team_id` so
+events are scoped to the correct team.
+
+**Analytics API endpoints:**
+- `GET /api/v1/analytics/bots/summary` — bot reply metrics from PostgreSQL
+  (total replies, success rate, guardrail triggers, Greek/English, latency,
+  per-provider/account/day).
+- `GET /api/v1/analytics/bots/cloudflare-ai` — Workers AI usage from
+  Cloudflare GraphQL Analytics API (free): neurons, requests, free-tier
+  remaining, per-model, per-day.
+- `GET /api/v1/analytics/bots/cloudflare-overview` — combined Cloudflare
+  analytics: Workers AI, Workers, R2, D1, KV, Vectorize in one response.
+
+**Cloudflare Analytics client** (`app/services/cf_analytics.py`):
+Queries the free Cloudflare GraphQL Analytics API using the existing
+`CLOUDFLARE_API_TOKEN`. Datasets:
+- `aiInferenceAdaptiveGroups` — Workers AI inference (tokens, requests)
+- `workersInvocationsAdaptive` — Worker invocations (CPU, errors)
+- `r2OperationsAdaptiveGroups` — R2 operations by bucket
+- `d1QueriesAdaptiveGroups` — D1 query counts per database
+- `kvOperationsAdaptiveGroups` — KV read/write/delete operations
+- `vectorizeQueriesAdaptiveGroups` — Vectorize query counts per index
 While paused, the bot skips all inbound messages for that thread. Resume
 via the corresponding resume endpoint. Paused threads are listed in the
 Bot Builder UI with a Resume button.
