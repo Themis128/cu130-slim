@@ -553,5 +553,67 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
             event.get("sender_phone", ""),
             list(event.get("response_json", {}).keys()),
         )
-        # In production, store the response to the DB and trigger workflows
+        # Persist a lead when the response matches our lead-capture schema.
+        try:
+            response = event.get("response_json") or {}
+            if not isinstance(response, dict):
+                continue
+
+            name = (response.get("name") or response.get("full_name") or "").strip()
+            email = (response.get("email") or "").strip()
+            if not name or not email:
+                continue
+            # Avoid false positives: require at least one of the Cloudless lead fields.
+            if not (response.get("interest") or response.get("company_size")):
+                continue
+
+            # Resolve the SocialAccount from the phone_number_id (for team scoping).
+            phone_number_id = event.get("phone_number_id") or ""
+            if not phone_number_id:
+                continue
+
+            from sqlalchemy import select
+
+            account = (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "whatsapp",
+                        SocialAccount.meta_data["phone_number_id"].astext == phone_number_id,
+                    ).limit(1)
+                )
+            ).scalars().first()
+            if not account:
+                continue
+
+            from app.models.lead import LeadSource
+            from app.services.leads import coerce_company_size, coerce_interest, create_lead
+
+            company_size = coerce_company_size(response.get("company_size"))
+            interest = coerce_interest(response.get("interest"))
+            notes = (response.get("notes") or response.get("message") or None)
+
+            await create_lead(
+                db,
+                team_id=account.team_id,
+                source=LeadSource.whatsapp_flow,
+                social_account_id=account.id,
+                thread_id=str(event.get("sender_phone") or event.get("flow_token") or "")[:120] or None,
+                name=name,
+                email=email,
+                company_size=company_size,
+                interest=interest,
+                notes=notes,
+                meta_data={
+                    "whatsapp_flow": {
+                        "phone_number_id": phone_number_id,
+                        "flow_id": event.get("flow_id"),
+                        "flow_token": event.get("flow_token"),
+                        "message_id": event.get("message_id"),
+                        "timestamp": event.get("timestamp"),
+                        "response_json": response,
+                    }
+                },
+            )
+        except Exception as exc:
+            logger.debug("Flow lead persistence failed (non-fatal): %s", exc)
     return flow_events
