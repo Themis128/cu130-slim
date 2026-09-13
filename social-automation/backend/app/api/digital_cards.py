@@ -493,10 +493,10 @@ async def send_card(
         fb_account = result.scalars().first()
         if not fb_account:
             raise HTTPException(status_code=400, detail="No active Facebook Page account found. Connect one first.")
-        token = fb_account.meta_data.get("access_token", "")
+        token = fb_account.meta_data.get("access_token") or fb_account.meta_data.get("page_token", "")
         page_id = fb_account.account_id
         if not token:
-            raise HTTPException(status_code=400, detail="Facebook Page missing access_token")
+            raise HTTPException(status_code=400, detail="Facebook Page missing access_token or page_token")
         # Send via Messenger Platform API
         url = f"https://graph.facebook.com/v21.0/{page_id}/messages"
         payload = {
