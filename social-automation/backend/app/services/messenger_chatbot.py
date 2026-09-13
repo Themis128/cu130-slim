@@ -460,6 +460,7 @@ async def _get_brand_voice_block() -> str:
 
     try:
         import os
+
         import httpx
 
         api_base = os.getenv("SOCIAL_API_BASE", "http://localhost:8083")
