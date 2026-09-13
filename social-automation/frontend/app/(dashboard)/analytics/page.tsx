@@ -75,8 +75,10 @@ export default function AnalyticsPage() {
     platformFilter || undefined
   )
   const { data: followerData } = useFollowerGrowth(days)
-  const { data: botSummary, isLoading: botLoading } = useBotSummary(days)
-  const { data: cfOverview, isLoading: cfLoading } = useCloudflareOverview(7)
+  const { data: botSummaryRaw, isLoading: botLoading } = useBotSummary(days)
+  const { data: cfOverviewRaw, isLoading: cfLoading } = useCloudflareOverview(7)
+  const botSummary = botSummaryRaw as BotAnalyticsSummary | undefined
+  const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
   const { currentTrend, deltaEngagement } = useMemo(() => {
     const trend = (rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
@@ -731,6 +733,296 @@ export default function AnalyticsPage() {
                   </Link>
                 )
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Bot Analytics Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-blue-500" />
+            <div>
+              <CardTitle>Bot Reply Analytics</CardTitle>
+              <CardDescription>
+                Auto-reply bot performance, guardrails, and provider fallback
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {botLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : !botSummary || botSummary.total_replies === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+              <Bot className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">
+                No bot replies yet. Replies appear here after the bot responds to messages.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Bot KPI Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '1rem' }}>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Total Replies</p>
+                  <p className="text-2xl font-bold tabular-nums">{botSummary.total_replies}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Success Rate</p>
+                  <p className="text-2xl font-bold tabular-nums text-green-600">
+                    {botSummary.total_replies > 0
+                      ? `${((botSummary.successful_replies / botSummary.total_replies) * 100).toFixed(0)}%`
+                      : '—'}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Guardrail Triggers</p>
+                  <p className="text-2xl font-bold tabular-nums text-amber-600">{botSummary.guardrail_triggers}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Pricing Guardrails</p>
+                  <p className="text-2xl font-bold tabular-nums text-orange-600">{botSummary.pricing_guardrail_triggers}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Greek Replies</p>
+                  <p className="text-2xl font-bold tabular-nums">{botSummary.greek_replies}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">English Replies</p>
+                  <p className="text-2xl font-bold tabular-nums">{botSummary.english_replies}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Avg Latency</p>
+                  <p className="text-2xl font-bold tabular-nums">
+                    {botSummary.avg_latency_ms != null ? `${botSummary.avg_latency_ms}ms` : '—'}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Failed Replies</p>
+                  <p className="text-2xl font-bold tabular-nums text-red-600">{botSummary.failed_replies}</p>
+                </div>
+              </div>
+
+              {/* Provider Breakdown */}
+              {botSummary.by_provider.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">Provider Breakdown</p>
+                  <div className="space-y-2">
+                    {botSummary.by_provider.map((p) => (
+                      <div key={p.provider} className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          {p.provider === 'cloudflare' && <Cloud className="h-4 w-4 text-orange-500" />}
+                          {p.provider === 'dmr' && <HardDrive className="h-4 w-4 text-blue-500" />}
+                          {p.provider === 'deterministic' && <Zap className="h-4 w-4 text-amber-500" />}
+                          <span className="font-medium capitalize">{p.provider}</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="tabular-nums text-green-600">{p.replies} replies</span>
+                          {p.errors > 0 && (
+                            <span className="tabular-nums text-red-600">{p.errors} errors</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Daily Bot Activity Chart */}
+              {botSummary.by_day.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">Daily Bot Activity</p>
+                  <div style={{ height: '12rem' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={botSummary.by_day}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }}
+                          className="text-xs"
+                        />
+                        <YAxis className="text-xs" allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                          labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
+                        />
+                        <Bar dataKey="replies" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Replies" />
+                        <Bar dataKey="errors" fill="#ef4444" radius={[4, 4, 0, 0]} name="Errors" />
+                        <Bar dataKey="guardrails" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Guardrails" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Cloudflare Analytics Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Cloud className="h-5 w-5 text-orange-500" />
+            <div>
+              <CardTitle>Cloudflare Infrastructure Analytics</CardTitle>
+              <CardDescription>
+                Workers AI, Workers, R2, D1, KV, and Vectorize usage (free GraphQL API)
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {cfLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : !cfOverview ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+              <Cloud className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">
+                Cloudflare analytics unavailable. Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Workers AI KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '1rem' }}>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Zap className="h-3.5 w-3.5 text-orange-500" />
+                    <p className="text-xs text-muted-foreground">AI Requests</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.workers_ai.total_requests.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Zap className="h-3.5 w-3.5 text-orange-500" />
+                    <p className="text-xs text-muted-foreground">Neurons Used</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.workers_ai.total_neurons.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Cloud className="h-3.5 w-3.5 text-green-500" />
+                    <p className="text-xs text-muted-foreground">Free Remaining</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums text-green-600">
+                    {cfOverview.workers_ai.free_tier_remaining.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    of {cfOverview.workers_ai.free_tier_limit.toLocaleString()} / 7d
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Globe className="h-3.5 w-3.5 text-blue-500" />
+                    <p className="text-xs text-muted-foreground">Worker Requests</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.workers.total_requests.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                    <p className="text-xs text-muted-foreground">Worker Errors</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums text-red-600">{cfOverview.workers.total_errors.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <HardDrive className="h-3.5 w-3.5 text-purple-500" />
+                    <p className="text-xs text-muted-foreground">R2 Operations</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.r2.total_operations.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Database className="h-3.5 w-3.5 text-indigo-500" />
+                    <p className="text-xs text-muted-foreground">D1 Queries</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.d1.total_queries.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Database className="h-3.5 w-3.5 text-cyan-500" />
+                    <p className="text-xs text-muted-foreground">KV Operations</p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{cfOverview.kv.total_operations.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Workers AI Model Breakdown */}
+              {cfOverview.workers_ai.by_model.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">Workers AI Model Breakdown</p>
+                  <div className="space-y-2">
+                    {cfOverview.workers_ai.by_model.slice(0, 5).map((m) => (
+                      <div key={m.model} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-mono text-xs truncate max-w-[60%]">{m.model}</span>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="tabular-nums">{m.requests} req</span>
+                          <span className="tabular-nums text-orange-600">{m.neurons} neurons</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Workers Script Breakdown */}
+              {cfOverview.workers.by_script.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">Worker Scripts</p>
+                  <div className="space-y-2">
+                    {cfOverview.workers.by_script.map((s) => (
+                      <div key={s.script} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-mono text-xs truncate max-w-[50%]">{s.script}</span>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="tabular-nums">{s.requests.toLocaleString()} req</span>
+                          {s.errors > 0 && (
+                            <span className="tabular-nums text-red-600">{s.errors} errors</span>
+                          )}
+                          <span className="tabular-nums text-muted-foreground">p50: {s.cpu_time_p50}μs</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* R2 Bucket Breakdown */}
+              {cfOverview.r2.by_bucket.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">R2 Buckets</p>
+                  <div className="space-y-2">
+                    {cfOverview.r2.by_bucket.map((b) => (
+                      <div key={b.bucket} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-mono text-xs">{b.bucket}</span>
+                        <span className="tabular-nums text-sm">{b.operations.toLocaleString()} ops</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* D1 Database Breakdown */}
+              {cfOverview.d1.by_database.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">D1 Databases</p>
+                  <div className="space-y-2">
+                    {cfOverview.d1.by_database.map((d) => (
+                      <div key={d.database} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-mono text-xs truncate max-w-[60%]">{d.database}</span>
+                        <span className="tabular-nums text-sm">{d.queries.toLocaleString()} queries</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
