@@ -38,10 +38,12 @@ _LOCK_KEY = "browser-bridge:lock"           # Global lock (one user at a time)
 _QUEUE_KEY = "browser-bridge:queue"          # Fair scheduling queue
 _PLATFORM_KEY = "browser-bridge:platform"   # Current platform using the browser
 
-# Timing — keep these short to prevent deadlocks
-_LOCK_TIMEOUT = 30           # Auto-release after 30s (enough for one browser interaction)
+# Timing — keep these balanced to prevent deadlocks but allow enough time
+# for browser interactions (navigate + sleep + fetch can take 10-20s,
+# and the personal messenger conversation scraping can take 30-40s)
+_LOCK_TIMEOUT = 90           # Auto-release after 90s (enough for any browser interaction)
 _LOCK_RETRY_DELAY = 0.3      # Time between lock acquisition attempts
-_MAX_WAIT = 30               # Max seconds to wait for the lock
+_MAX_WAIT = 60               # Max seconds to wait for the lock
 
 
 async def _get_redis() -> Any:
