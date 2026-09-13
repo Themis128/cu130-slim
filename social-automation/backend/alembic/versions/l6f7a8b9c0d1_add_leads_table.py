@@ -8,6 +8,7 @@ Create Date: 2026-09-13
 from __future__ import annotations
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from alembic import op
@@ -20,8 +21,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create enums idempotently; columns must use create_type=False so
-    # create_table does not emit a second CREATE TYPE (DuplicateObjectError).
+    # Native PG enums: create once via SQL, then bind with create_type=False.
+    # sa.Enum(create_type=False) still emits CREATE TYPE on table create;
+    # postgresql.ENUM(..., create_type=False) is required under asyncpg.
     op.execute(
         """
         DO $$ BEGIN
@@ -51,7 +53,7 @@ def upgrade() -> None:
         """
     )
 
-    leadsource = sa.Enum(
+    leadsource = postgresql.ENUM(
         "whatsapp_flow",
         "whatsapp_dm",
         "facebook_messenger",
@@ -59,14 +61,14 @@ def upgrade() -> None:
         name="leadsource",
         create_type=False,
     )
-    leadinterest = sa.Enum(
+    leadinterest = postgresql.ENUM(
         "cloud",
         "growth",
         "audit",
         name="leadinterest",
         create_type=False,
     )
-    leadcompanysize = sa.Enum(
+    leadcompanysize = postgresql.ENUM(
         "solo",
         "2-5",
         "6-20",
