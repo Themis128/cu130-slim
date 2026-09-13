@@ -88,21 +88,45 @@ def _extract_meta_error(resp: httpx.Response) -> MetaErrorData | None:
     err = body.get("error")
     if not isinstance(err, dict):
         return None
-    # Keep only keys we care about.
+    # Keep only keys we care about. TypedDict requires literal keys (no dynamic indexing).
     data: MetaErrorData = {}
-    for key in (
-        "message",
-        "type",
-        "code",
-        "error_subcode",
-        "fbtrace_id",
-        "is_transient",
-        "error_user_title",
-        "error_user_msg",
-        "error_data",
-    ):
-        if key in err:
-            data[key] = err[key]  # type: ignore[assignment]
+
+    message = err.get("message")
+    if isinstance(message, str):
+        data["message"] = message
+
+    typ = err.get("type")
+    if isinstance(typ, str):
+        data["type"] = typ
+
+    code = err.get("code")
+    if isinstance(code, int):
+        data["code"] = code
+
+    error_subcode = err.get("error_subcode")
+    if isinstance(error_subcode, int):
+        data["error_subcode"] = error_subcode
+
+    fbtrace_id = err.get("fbtrace_id")
+    if isinstance(fbtrace_id, str):
+        data["fbtrace_id"] = fbtrace_id
+
+    is_transient = err.get("is_transient")
+    if isinstance(is_transient, bool):
+        data["is_transient"] = is_transient
+
+    error_user_title = err.get("error_user_title")
+    if isinstance(error_user_title, str):
+        data["error_user_title"] = error_user_title
+
+    error_user_msg = err.get("error_user_msg")
+    if isinstance(error_user_msg, str):
+        data["error_user_msg"] = error_user_msg
+
+    error_data = err.get("error_data")
+    if isinstance(error_data, dict):
+        data["error_data"] = error_data
+
     return data or None
 
 
