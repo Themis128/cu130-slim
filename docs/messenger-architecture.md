@@ -767,3 +767,129 @@ This applies to all platforms: Threads, Twitter/X, TikTok, and Instagram.
 | Other workers can navigate browser away | Shared browser-novnc | Stop celery-beat during testing |
 | UI selectors are fragile | Instagram UI changes | Multiple fallback selectors |
 | Send via API POST blocked | Opaque redirect | UI interaction (type + Enter) |
+
+---
+
+## Conversational Steering & Language Matching (v2)
+
+### Overview
+
+The bot is designed to **continue the conversation** and **steer customers** toward the correct direction. It replies to ALL user queries (not just the last message) and matches the user's language exactly.
+
+### Multi-Message Context
+
+The worker collects **ALL unread inbound messages** in a conversation, not just the last one. If there are multiple unread messages, they are combined into a single context string so the bot can address each query:
+
+```python
+# Collect all inbound messages (not sent by viewer)
+inbound_messages = []
+for msg in reversed(messages):
+    if not is_outbound and msg.get(text_field):
+        inbound_messages.append(msg_text)
+
+# Combine all unread messages for context
+if len(inbound_messages) > 1:
+    text = "\n".join(inbound_messages)
+    logger.info("Instagram DM: %d unread messages from '%s', combining for context", ...)
+```
+
+### Language Detection & Enforcement
+
+The bot detects the user's language programmatically using `_is_greek_message()` (checks for Greek Unicode characters) and enforces it in **three places**:
+
+1. **System prompt** — `CRITICAL LANGUAGE RULE: The user's message is in {detected_lang}. You MUST reply ONLY in {detected_lang}.`
+2. **User message** — `[Reply in English only] i need help with my infra` (prepended to the user's actual message)
+3. **DMR fallback** — Same language instruction passed to the local DMR model
+
+This three-layer enforcement ensures the 8B model (Llama 3.1) doesn't drift to Greek when the user writes in English, or vice versa.
+
+### Intent-Based Steering
+
+The bot classifies the user's intent (business, personal, question, spam, greeting) and uses intent-specific guidance:
+
+| Intent | Steering Behavior |
+|--------|-------------------|
+| **business** | Ask follow-up questions, mention services, steer to booking |
+| **greeting** | Introduce as bot, ask what they're interested in |
+| **question** | Answer, then ask what they need help with |
+| **personal** | Be friendly, gently steer to Cloudless if business need arises |
+| **spam** | Respond politely but briefly |
+
+### Conversational System Prompt
+
+The business account bot config includes explicit steering rules:
+
+```
+CONVERSATIONAL STEERING:
+- If the user has multiple questions, address EACH one.
+- If they mention a problem, ask a follow-up to understand it better.
+- If they ask about services, explain what Cloudless offers and ask what they need.
+- If they ask about pricing, steer to cloudless.gr for a free audit.
+- If they're ready to proceed, suggest booking a consultation at cloudless.gr.
+- If they're just chatting, be friendly and ask what they're interested in.
+- ALWAYS end with a question to keep the conversation going.
+- Be conversational - this is a chat, not a one-time reply.
+- Remember context from previous messages in the conversation.
+```
+
+### Pricing Guardrail (Deterministic)
+
+Pricing questions are intercepted **before** the LLM to prevent fabricated prices. The deterministic response asks what service they're interested in:
+
+- **English**: `🤖 Hi! I'm the Cloudless bot. Pricing depends on your needs — every project is different. You can start with a free audit at cloudless.gr. What kind of service are you interested in? (cloud, automation, social media)`
+- **Greek**: `🤖 Γεια! Είμαι το Cloudless bot. Η τιμή εξαρτάται από τις ανάγκες σας — κάθε έργο είναι διαφορετικό. Μπορείτε να ξεκινήσετε με δωρεάν αξιολόγηση στο cloudless.gr. Τι είδους υπηρεσία σας ενδιαφέρει; (cloud, αυτοματοποίηση, social media)`
+
+### Conversation Memory (ChromaDB)
+
+The bot stores the last N messages per conversation in ChromaDB. This context is injected into the system prompt so the bot remembers previous messages:
+
+```python
+memory = await get_conversation_memory(account_id, thread_id)
+if memory:
+    memory_text = "\n".join(f"{'You' if m['sender'] == 'me' else 'Them'}: {m['text'][:100]}" for m in memory[-5:])
+    enhanced_prompt += f"\n\nRecent conversation:\n{memory_text}"
+```
+
+### Brand Context (RAG)
+
+The bot retrieves relevant brand knowledge from ChromaDB using embeddings, providing grounded context about Cloudless services:
+
+```python
+brand_context = await retrieve_brand_context(text)
+if brand_context:
+    enhanced_prompt += f"\n\nBrand context:\n{brand_context}"
+```
+
+### Brand Voice Injection
+
+Brand voice rules (banned phrases, preferred phrases, euro pricing, language matching, bot disclosure) are fetched from the Brand system API and injected into the system prompt. Cached for 5 minutes.
+
+### Test Results
+
+**10/10 bot reply tests passed:**
+
+| Test | Language | Intent | Reply Language | Ends with Question |
+|------|----------|--------|----------------|-------------------|
+| English greeting | English | greeting | English ✅ | ✅ |
+| English pricing | English | business | English ✅ | ✅ |
+| English multi-query | English | business | English ✅ | ✅ |
+| English services | English | question | English ✅ | ✅ |
+| English ready to book | English | business | English ✅ | ✅ |
+| Greek greeting | Greek | greeting | Greek ✅ | ✅ |
+| Greek pricing | Greek | business | Greek ✅ | ✅ |
+| Greek multi-query | Greek | business | Greek ✅ | ✅ |
+| Greek services | Greek | question | Greek ✅ | ✅ |
+| Greek ready to book | Greek | business | Greek ✅ | ✅ |
+
+**All platform polls: 0 errors**
+
+| Platform | Accounts | Replies | Errors |
+|----------|---------|---------|--------|
+| Instagram | 1 | 0* | 0 |
+| Threads | 1 | 0 | 0 |
+| Twitter | 1 | 0 | 0 |
+| TikTok | 1 | 0 | 0 |
+| Personal Messenger | 1 | 0 | 0 |
+| LinkedIn | 2 | 0 | 0 |
+
+*Instagram reply was sent in a previous poll (confirmed in DM thread)
