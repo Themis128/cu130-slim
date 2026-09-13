@@ -11,7 +11,7 @@
 
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 473 tests, 1 skipped).
+1. `pytest tests/unit -q` inside `social-api` — must pass (currently 572 tests, 2 skipped).
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -216,6 +216,17 @@ Queries the Cloudflare GraphQL Analytics API (free, uses existing `CLOUDFLARE_AP
 - `get_cf_overview(days)` — aggregates all of the above into a single dashboard response.
 
 Live data (7-day window): 1,010 AI requests (1,210 neurons, 68,790 free remaining), 59K Worker invocations, 9,275 R2 operations, 19,605 D1 queries, 68 KV ops.
+
+**Frontend** (`app/(dashboard)/analytics/page.tsx`):
+The analytics page (`/analytics`) has two new sections below the existing post/follower/engagement metrics:
+- **Bot Reply Analytics** — KPI cards (total replies, success rate, guardrail triggers, pricing guardrails, Greek/English, avg latency, failures), provider breakdown (Cloudflare/DMR/deterministic with icons), and daily activity bar chart (replies/errors/guardrails).
+- **Cloudflare Infrastructure Analytics** — KPI cards for Workers AI (requests, neurons, free-tier remaining), Workers (requests, errors), R2 operations, D1 queries, KV operations; Workers AI model breakdown, Worker script breakdown, R2 bucket breakdown, D1 database breakdown.
+
+Frontend data flow:
+- Types: `BotAnalyticsSummary`, `CloudflareAIUsage`, `CloudflareOverview` in `src/types/index.ts`.
+- API client: `analyticsApi.getBotSummary()`, `getCloudflareAIUsage()`, `getCloudflareOverview()` in `src/services/api.ts`.
+- Hooks: `useBotSummary(days)`, `useCloudflareAIUsage(days)`, `useCloudflareOverview(days)` in `src/hooks/useQueries.ts` (30s/60s refetch intervals).
+- E2E tests: `tests/analytics.test.ts` checks both new sections render.
 
 ### Auto token refresh
 

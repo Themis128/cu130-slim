@@ -339,6 +339,14 @@ Queries the free Cloudflare GraphQL Analytics API using the existing
 - `d1QueriesAdaptiveGroups` — D1 query counts per database
 - `kvOperationsAdaptiveGroups` — KV read/write/delete operations
 - `vectorizeQueriesAdaptiveGroups` — Vectorize query counts per index
+
+**Frontend analytics dashboard** (`app/(dashboard)/analytics/page.tsx`):
+The `/analytics` page renders two new sections below the existing post/follower/engagement metrics:
+- **Bot Reply Analytics** — KPI cards (total replies, success rate, guardrail triggers, pricing guardrails, Greek/English, avg latency, failures), provider breakdown with icons (Cloudflare/DMR/deterministic), and daily activity bar chart (replies/errors/guardrails stacked).
+- **Cloudflare Infrastructure Analytics** — KPI cards for Workers AI (requests, neurons, free-tier remaining), Workers (requests, errors), R2 operations, D1 queries, KV operations; Workers AI model breakdown, Worker script breakdown, R2 bucket breakdown, D1 database breakdown.
+
+Frontend data flow: `src/types/index.ts` (types) → `src/services/api.ts` (API methods) → `src/hooks/useQueries.ts` (React Query hooks with 30s/60s refetch) → `app/(dashboard)/analytics/page.tsx` (UI). E2E tests in `tests/analytics.test.ts`.
+
 While paused, the bot skips all inbound messages for that thread. Resume
 via the corresponding resume endpoint. Paused threads are listed in the
 Bot Builder UI with a Resume button.
