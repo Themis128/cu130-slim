@@ -1672,12 +1672,17 @@ class BrowserBridgeClient:
         """Send an Instagram DM via the web API.
 
         Uses fetch() from the browser context to call the Instagram web API
-        (direct_v2/threads/broadcast/text/).
+        (direct_v2/threads/broadcast/text/). Based on the instagram-private-api
+        broadcast format: recipient_users is double-wrapped as [["userid"]],
+        client_context and mutation_token are the same GUID, and _csrftoken,
+        _uuid, device_id are required form fields.
         """
         import json as _json
         import time as _time
+        import uuid as _uuid_mod
 
-        client_context = str(int(_time.time() * 1000))
+        mutationToken = str(_uuid_mod.uuid4())
+        deviceUuid = str(_uuid_mod.uuid4())
         # Pass the text as a JSON string and use encodeURIComponent in JS to
         # properly handle Greek/Unicode characters in the form body.
         text_json = _json.dumps(text)
@@ -1686,23 +1691,33 @@ class BrowserBridgeClient:
             try {{
                 const text = {text_json};
                 const recipientId = "{recipient_id}";
-                const clientContext = "{client_context}";
-                const body = "recipient_users=" + encodeURIComponent(
-                    JSON.stringify([recipientId])
-                ) + "&client_context=" + encodeURIComponent(
-                    JSON.stringify({{mutation_token: clientContext}})
-                ) + "&text=" + encodeURIComponent(text)
-                  + "&action=send_item&entry=inbox";
+                const mutationToken = "{mutationToken}";
+                const deviceUuid = "{deviceUuid}";
+                // Get CSRF token from cookie (required for POST requests)
+                const csrfMatch = document.cookie.match(/csrftoken=([^;]+)/);
+                const csrfToken = csrfMatch ? csrfMatch[1] : "";
+                // Build form body matching instagram-private-api broadcast format
+                const params = new URLSearchParams();
+                params.append("recipient_users", JSON.stringify([[recipientId]]));
+                params.append("client_context", mutationToken);
+                params.append("_csrftoken", csrfToken);
+                params.append("device_id", deviceUuid);
+                params.append("mutation_token", mutationToken);
+                params.append("_uuid", deviceUuid);
+                params.append("text", text);
+                params.append("action", "send_item");
+                params.append("entry", "inbox");
                 const resp = await fetch(
                     "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
                     {{
                         method: "POST",
                         headers: {{
                             "x-ig-app-id": "936619743392459",
+                            "x-csrftoken": csrfToken,
                             "content-type": "application/x-www-form-urlencoded",
                         }},
                         credentials: "include",
-                        body: body
+                        body: params.toString()
                     }}
                 );
                 if (!resp.ok) return {{error: "HTTP " + resp.status}};

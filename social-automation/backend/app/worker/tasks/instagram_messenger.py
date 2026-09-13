@@ -382,10 +382,25 @@ async def _process_account(
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
             # 9. Send reply via Instagram Messaging API
-            if client is not None:
-                await client.send_dm(recipient_id, reply_text)
-            elif bridge is not None:
-                await bridge.send_instagram_dm_message(recipient_id, reply_text)
+            send_ok = False
+            try:
+                if client is not None:
+                    await client.send_dm(recipient_id, reply_text)
+                    send_ok = True
+                elif bridge is not None:
+                    send_result = await bridge.send_instagram_dm_message(recipient_id, reply_text)
+                    if isinstance(send_result, dict) and send_result.get("error"):
+                        logger.warning(
+                            "Instagram DM send failed for %s: %s",
+                            account.id, send_result["error"],
+                        )
+                    else:
+                        send_ok = True
+            except Exception as exc:
+                logger.warning("Instagram DM send failed for %s: %s", account.id, exc)
+
+            if not send_ok:
+                continue  # Don't mark as seen if send failed
 
             # 10. Mark conversation as read
             try:
