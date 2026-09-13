@@ -24,12 +24,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+from app.services.messenger_chatbot import track_bot_reply
 
 logger = logging.getLogger(__name__)
 
@@ -567,6 +569,7 @@ async def generate_contextual_reply(
     # bot disclosure, language matching). CF Workers AI has a generous free tier.
     # DMR (local, free, private) is the fallback when CF is unavailable.
 
+    cf_start = time.perf_counter()
     # 1. Try Cloudflare Workers AI first (best prompt adherence, handles Greek + English)
     model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
     if cf_token and cf_account:
@@ -592,11 +595,36 @@ async def generate_contextual_reply(
                         if text:
                             if not disclosed:
                                 await mark_disclosed(account_id, phone)
-                            return f"{disclosure_prefix}{text}" if not disclosed else text
+                            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+                            await track_bot_reply(
+                                account_id, phone,
+                                provider="cloudflare", model=model,
+                                user_message=user_message,
+                                reply_text=reply,
+                                latency_ms=int(
+                                    (time.perf_counter() - cf_start) * 1000
+                                ),
+                                intent=intent,
+                                language="greek" if any(
+                                    0x0370 <= ord(c) <= 0x03FF
+                                    for c in user_message
+                                ) else "english",
+                            )
+                            return reply
         except Exception as exc:
             logger.warning("Cloudflare AI bot reply failed: %s", exc)
+            await track_bot_reply(
+                account_id, phone,
+                provider="cloudflare", model=model,
+                user_message=user_message, reply_text="",
+                latency_ms=int(
+                    (time.perf_counter() - cf_start) * 1000
+                ),
+                success=False, error=str(exc), intent=intent,
+            )
 
     # 2. Fallback: DMR (local, free, private)
+    dmr_start = time.perf_counter()
     try:
         from app.services.dmr import call_dmr_chat
         result = await call_dmr_chat(
@@ -609,9 +637,32 @@ async def generate_contextual_reply(
         if text:
             if not disclosed:
                 await mark_disclosed(account_id, phone)
-            return f"{disclosure_prefix}{text}" if not disclosed else text
+            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+            await track_bot_reply(
+                account_id, phone,
+                provider="dmr", model=settings.DMR_TEXT_MODEL,
+                user_message=user_message, reply_text=reply,
+                latency_ms=int(
+                    (time.perf_counter() - dmr_start) * 1000
+                ),
+                intent=intent,
+                language="greek" if any(
+                    0x0370 <= ord(c) <= 0x03FF
+                    for c in user_message
+                ) else "english",
+            )
+            return reply
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
+        await track_bot_reply(
+            account_id, phone,
+            provider="dmr", model=settings.DMR_TEXT_MODEL,
+            user_message=user_message, reply_text="",
+            latency_ms=int(
+                (time.perf_counter() - dmr_start) * 1000
+            ),
+            success=False, error=str(exc), intent=intent,
+        )
 
     # 3. Final fallback: static text (with disclosure if first contact)
     if not disclosed:

@@ -1149,3 +1149,182 @@ async def list_tiktok_videos(
         cursor=int((data.get("data") or {}).get("cursor", cursor) or cursor),
         has_more=bool((data.get("data") or {}).get("has_more", False)),
     )
+
+
+# ── Bot Analytics ────────────────────────────────────────────────────
+
+
+class BotAnalyticsSummary(BaseModel):
+    total_replies: int
+    successful_replies: int
+    failed_replies: int
+    guardrail_triggers: int
+    pricing_guardrail_triggers: int
+    greek_replies: int
+    english_replies: int
+    avg_latency_ms: int | None
+    by_provider: list[dict]
+    by_account: list[dict]
+    by_day: list[dict]
+
+
+class CloudflareAIUsage(BaseModel):
+    total_requests: int
+    total_neurons: int
+    total_errors: int
+    free_tier_limit: int
+    free_tier_remaining: int
+    by_model: list[dict]
+    by_day: list[dict]
+
+
+@router.get("/bots/summary", response_model=BotAnalyticsSummary)
+async def get_bot_analytics_summary(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bot reply analytics from local PostgreSQL (AnalyticsEvent).
+
+    Tracks: total replies, success/failure rate, guardrail triggers,
+    language breakdown (Greek/English), latency, per-provider and
+    per-account breakdowns, and daily time series.
+    """
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    events = await db.execute(
+        select(
+            AnalyticsEvent.meta_data["provider"].astext.label("provider"),
+            AnalyticsEvent.meta_data["language"].astext.label("language"),
+            AnalyticsEvent.meta_data["guardrail"].astext.label("guardrail"),
+            AnalyticsEvent.meta_data["success"].astext.label("success"),
+            AnalyticsEvent.meta_data["latency_ms"].astext.cast(Integer).label("latency_ms"),
+            AnalyticsEvent.social_account_id,
+            func.date_trunc(
+                "day", func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at)
+            ).label("day"),
+            func.count().label("count"),
+        )
+        .where(
+            AnalyticsEvent.team_id == team.id,
+            AnalyticsEvent.event_type == "bot_reply",
+            AnalyticsEvent.occurred_at >= since,
+        )
+        .group_by(
+            "provider", "language", "guardrail", "success", "latency_ms",
+            AnalyticsEvent.social_account_id, "day",
+        )
+    )
+
+    rows = events.all()
+    total_replies = 0
+    successful = 0
+    failed = 0
+    guardrail_triggers = 0
+    pricing_triggers = 0
+    greek = 0
+    english = 0
+    latencies: list[int] = []
+    by_provider: dict[str, dict] = {}
+    by_account: dict[str, dict] = {}
+    by_day: dict[str, dict] = {}
+
+    for row in rows:
+        count = row.count or 0
+        provider = row.provider or "unknown"
+        language = row.language or "english"
+        guardrail = row.guardrail or ""
+        success = row.success == "true"
+        latency = row.latency_ms or 0
+        acct = str(row.social_account_id) if row.social_account_id else "unknown"
+        day = row.day.isoformat() if row.day else ""
+
+        total_replies += count
+        if success:
+            successful += count
+        else:
+            failed += count
+        if guardrail:
+            guardrail_triggers += count
+            if guardrail == "pricing":
+                pricing_triggers += count
+        if language == "greek":
+            greek += count
+        else:
+            english += count
+        if latency > 0:
+            latencies.extend([latency] * count)
+
+        if provider not in by_provider:
+            by_provider[provider] = {
+                "provider": provider, "replies": 0, "errors": 0,
+            }
+        by_provider[provider]["replies"] += count if success else 0
+        by_provider[provider]["errors"] += count if not success else 0
+
+        if acct not in by_account:
+            by_account[acct] = {
+                "account_id": acct, "replies": 0, "errors": 0,
+            }
+        by_account[acct]["replies"] += count if success else 0
+        by_account[acct]["errors"] += count if not success else 0
+
+        if day:
+            if day not in by_day:
+                by_day[day] = {
+                    "date": day, "replies": 0, "errors": 0, "guardrails": 0,
+                }
+            by_day[day]["replies"] += count if success else 0
+            by_day[day]["errors"] += count if not success else 0
+            by_day[day]["guardrails"] += count if guardrail else 0
+
+    avg_latency = (
+        int(sum(latencies) / len(latencies)) if latencies else None
+    )
+
+    return BotAnalyticsSummary(
+        total_replies=total_replies,
+        successful_replies=successful,
+        failed_replies=failed,
+        guardrail_triggers=guardrail_triggers,
+        pricing_guardrail_triggers=pricing_triggers,
+        greek_replies=greek,
+        english_replies=english,
+        avg_latency_ms=avg_latency,
+        by_provider=sorted(
+            by_provider.values(), key=lambda x: x["replies"], reverse=True
+        ),
+        by_account=sorted(
+            by_account.values(), key=lambda x: x["replies"], reverse=True
+        ),
+        by_day=sorted(by_day.values(), key=lambda x: x["date"]),
+    )
+
+
+@router.get("/bots/cloudflare-ai", response_model=CloudflareAIUsage)
+async def get_cloudflare_ai_usage(
+    days: int = Query(7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+):
+    """Workers AI usage from Cloudflare GraphQL Analytics API (free).
+
+    Shows: total requests, neurons consumed, errors, free-tier limit
+    (10,000 neurons/day), per-model breakdown, and daily time series.
+    """
+    from app.services.cf_analytics import get_workers_ai_usage
+
+    usage = await get_workers_ai_usage(days=days)
+    free_limit = 10000 * days
+    return CloudflareAIUsage(
+        total_requests=usage["total_requests"],
+        total_neurons=usage["total_neurons"],
+        total_errors=usage["total_errors"],
+        free_tier_limit=free_limit,
+        free_tier_remaining=max(0, free_limit - usage["total_neurons"]),
+        by_model=usage["by_model"],
+        by_day=usage["by_day"],
+    )

@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +43,86 @@ import httpx
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+async def track_bot_reply(
+    account_id: str,
+    thread_id: str,
+    *,
+    provider: str,
+    model: str,
+    user_message: str,
+    reply_text: str,
+    latency_ms: int | None = None,
+    success: bool = True,
+    error: str | None = None,
+    intent: str = "",
+    guardrail_triggered: str = "",
+    language: str = "",
+    team_id: uuid.UUID | None = None,
+) -> None:
+    """Log a bot reply to ai_usage_logs and analytics_events (non-blocking)."""
+    try:
+        from app.services.usage_tracker import track_inference
+        await track_inference(
+            provider=provider, model=model,
+            prompt=user_message[:500],
+            team_id=team_id, endpoint="bot_reply",
+            latency_ms=latency_ms, success=success, error=error,
+            meta_data={
+                "account_id": account_id,
+                "thread_id": thread_id,
+                "reply_length": len(reply_text),
+                "intent": intent,
+                "guardrail": guardrail_triggered,
+                "language": language,
+            },
+        )
+    except Exception as exc:
+        logger.debug("Failed to track bot AI usage: %s", exc)
+
+    try:
+        from app.db.session import async_session_maker
+        from app.models.analytics import AnalyticsEvent
+        event = AnalyticsEvent(
+            team_id=team_id or uuid.UUID(
+                "00000000-0000-0000-0000-000000000000"
+            ),
+            social_account_id=(
+                uuid.UUID(account_id)
+                if _is_valid_uuid(account_id) else None
+            ),
+            event_type="bot_reply",
+            platform="messenger",
+            occurred_at=datetime.now(UTC),
+            meta_data={
+                "thread_id": thread_id,
+                "provider": provider,
+                "model": model,
+                "success": success,
+                "error": error,
+                "intent": intent,
+                "guardrail": guardrail_triggered,
+                "language": language,
+                "reply_length": len(reply_text),
+                "latency_ms": latency_ms,
+            },
+        )
+        async with async_session_maker() as s:
+            s.add(event)
+            await s.commit()
+    except Exception as exc:
+        logger.debug("Failed to track bot analytics event: %s", exc)
+
+
+def _is_valid_uuid(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        uuid.UUID(val)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
 
 settings = get_settings()
 
@@ -625,7 +707,18 @@ async def generate_contextual_reply(
         if not disclosed:
             await mark_disclosed(account_id, thread_id)
         lang = "greek" if _is_greek_message(user_message) else "english"
-        return _PRICING_RESPONSES[lang]
+        reply = _PRICING_RESPONSES[lang]
+        await track_bot_reply(
+            account_id, thread_id,
+            provider="deterministic",
+            model="pricing-guardrail",
+            user_message=user_message,
+            reply_text=reply,
+            guardrail_triggered="pricing",
+            language=lang,
+            intent=intent or "",
+        )
+        return reply
 
     # Build enhanced system prompt
     enhanced_prompt = system_prompt
@@ -680,6 +773,7 @@ async def generate_contextual_reply(
     # DMR (local, free, private) is the fallback when CF is unavailable.
     # Strategy: try CF first (both Greek and English), fall back to DMR, then static.
 
+    cf_start = time.perf_counter()
     # 1. Try Cloudflare Workers AI first (best prompt adherence, handles Greek + English)
     model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
     if cf_token and cf_account:
@@ -705,11 +799,33 @@ async def generate_contextual_reply(
                         if text:
                             if not disclosed:
                                 await mark_disclosed(account_id, thread_id)
-                            return f"{disclosure_prefix}{text}" if not disclosed else text
+                            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+                            await track_bot_reply(
+                                account_id, thread_id,
+                                provider="cloudflare", model=model,
+                                user_message=user_message,
+                                reply_text=reply,
+                                latency_ms=int(
+                                    (time.perf_counter() - cf_start) * 1000
+                                ),
+                                intent=intent,
+                                language="greek" if _is_greek_message(user_message) else "english",
+                            )
+                            return reply
         except Exception as exc:
             logger.warning("Cloudflare AI bot reply failed: %s", exc)
+            await track_bot_reply(
+                account_id, thread_id,
+                provider="cloudflare", model=model,
+                user_message=user_message, reply_text="",
+                latency_ms=int(
+                    (time.perf_counter() - cf_start) * 1000
+                ),
+                success=False, error=str(exc), intent=intent,
+            )
 
     # 2. Fallback: DMR (local, free, private)
+    dmr_start = time.perf_counter()
     try:
         from app.services.dmr import call_dmr_chat
         result = await call_dmr_chat(
@@ -722,9 +838,29 @@ async def generate_contextual_reply(
         if text:
             if not disclosed:
                 await mark_disclosed(account_id, thread_id)
-            return f"{disclosure_prefix}{text}" if not disclosed else text
+            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+            await track_bot_reply(
+                account_id, thread_id,
+                provider="dmr", model=settings.DMR_TEXT_MODEL,
+                user_message=user_message, reply_text=reply,
+                latency_ms=int(
+                    (time.perf_counter() - dmr_start) * 1000
+                ),
+                intent=intent,
+                language="greek" if _is_greek_message(user_message) else "english",
+            )
+            return reply
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
+        await track_bot_reply(
+            account_id, thread_id,
+            provider="dmr", model=settings.DMR_TEXT_MODEL,
+            user_message=user_message, reply_text="",
+            latency_ms=int(
+                (time.perf_counter() - dmr_start) * 1000
+            ),
+            success=False, error=str(exc), intent=intent,
+        )
 
     # 3. Final fallback: static text (with disclosure if first contact)
     if not disclosed:
