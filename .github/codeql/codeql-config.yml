@@ -6,6 +6,8 @@ paths-ignore:
   - "social-automation/frontend/.next/**"
   - "env-manager/frontend/.next/**"
   - "**/.nyc_output/**"
+  # Local Cursor agent scratch / debug helpers (not deployed)
+  - ".cursor/**"
   # Test files are not production attack surface
   - "social-automation/frontend/tests/**"
   - "social-automation/backend/tests/**"
