@@ -727,3 +727,145 @@ class InstagramAPIClient:
             resp = await client.post(url, params=self._params(), json=payload)
             self._raise_for_status(resp, url)
             return resp.json()
+
+
+class InstagramWebDMClient:
+    """Instagram DM client using the web API (sessionid cookie).
+
+    Fallback for accounts that can't use the Graph API
+    (personal accounts or business accounts without App Review).
+    Uses the sessionid cookie from a browser login to read/send DMs
+    via https://www.instagram.com/api/v1/.
+    """
+
+    WEB_API_BASE = "https://www.instagram.com/api/v1"
+    IG_APP_ID = "936619743392459"
+
+    def __init__(
+        self,
+        session_id: str,
+        csrf_token: str = "",
+        ds_user_id: str = "",
+        proxy: str | None = None,
+    ) -> None:
+        self._session_id = session_id
+        self._csrf_token = csrf_token
+        self._ds_user_id = ds_user_id
+        self._proxy = proxy
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "x-csrftoken": self._csrf_token,
+            "x-ig-app-id": self.IG_APP_ID,
+            "x-instagram-ajax": "1",
+            "cookie": (
+                f"sessionid={self._session_id}; "
+                f"csrftoken={self._csrf_token}; "
+                f"ds_user_id={self._ds_user_id}"
+            ),
+            "content-type": "application/x-www-form-urlencoded",
+            "user-agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
+
+    def _client(self) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "timeout": 20.0,
+            "headers": self._headers(),
+            "follow_redirects": False,
+        }
+        if self._proxy:
+            kwargs["proxy"] = self._proxy
+        return httpx.AsyncClient(**kwargs)
+
+    async def get_conversations(self, limit: int = 25) -> dict[str, Any]:
+        """Fetch recent DM conversations via the web API."""
+        async with self._client() as c:
+            resp = await c.get(
+                f"{self.WEB_API_BASE}/direct_v2/inbox/",
+                params={"thread_message_limit": "10", "limit": str(limit)},
+            )
+            if resp.status_code != 200:
+                raise InstagramAPIError(
+                    resp.status_code, resp.text[:400],
+                    f"{self.WEB_API_BASE}/direct_v2/inbox/",
+                )
+            data = resp.json()
+            threads = data.get("inbox", {}).get("threads", [])
+            conversations = []
+            for t in threads:
+                users = t.get("users", [])
+                conversations.append({
+                    "id": t.get("thread_id", ""),
+                    "participants": {
+                        "data": [
+                            {"id": str(u.get("pk", "")), "name": u.get("username", "Unknown")}
+                            for u in users
+                        ]
+                    },
+                })
+            return {"data": conversations}
+
+    async def get_dm_messages(
+        self, conversation_id: str, limit: int = 20
+    ) -> dict[str, Any]:
+        """Fetch messages in a DM thread via the web API."""
+        async with self._client() as c:
+            resp = await c.get(
+                f"{self.WEB_API_BASE}/direct_v2/threads/{conversation_id}/",
+            )
+            if resp.status_code != 200:
+                raise InstagramAPIError(
+                    resp.status_code, resp.text[:400],
+                    f"{self.WEB_API_BASE}/direct_v2/threads/{conversation_id}/",
+                )
+            data = resp.json()
+            items = data.get("thread", {}).get("items", [])
+            messages = []
+            for item in items:
+                sender = item.get("user_id", "")
+                text = item.get("text", "") or item.get("share_text", "")
+                if text:
+                    messages.append({
+                        "id": item.get("item_id", ""),
+                        "from": {"id": str(sender)},
+                        "message": text,
+                        "created_time": item.get("timestamp", ""),
+                    })
+            return {"data": messages}
+
+    async def send_dm(self, recipient_id: str, message: str) -> dict[str, Any]:
+        """Send a DM via the web API."""
+        import time
+        async with self._client() as c:
+            resp = await c.post(
+                f"{self.WEB_API_BASE}/direct_v2/threads/broadcast/text/",
+                data={
+                    "recipient_users": f'["{recipient_id}"]',
+                    "client_context": f'{{"mutation_token":"{int(time.time()*1000)}"}}',
+                    "text": message,
+                    "action": "send_item",
+                    "entry": "inbox",
+                },
+            )
+            if resp.status_code != 200:
+                raise InstagramAPIError(
+                    resp.status_code, resp.text[:400],
+                    f"{self.WEB_API_BASE}/direct_v2/threads/broadcast/text/",
+                )
+            return resp.json()
+
+    async def mark_dm_read(self, conversation_id: str) -> dict[str, Any]:
+        """Mark a DM thread as read via the web API."""
+        async with self._client() as c:
+            resp = await c.post(
+                f"{self.WEB_API_BASE}/direct_v2/threads/{conversation_id}/items/{conversation_id}/seen/",
+            )
+            return {"status": "ok"} if resp.status_code == 200 else {"status": "error"}
+
+    async def send_typing_indicator(self, recipient_id: str) -> dict[str, Any]:
+        """Send typing indicator via the web API (non-fatal)."""
+        return {"status": "ok"}

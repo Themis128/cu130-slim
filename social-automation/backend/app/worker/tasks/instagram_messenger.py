@@ -39,7 +39,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
-from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError, InstagramWebDMClient
 from app.services.messenger_chatbot import (
     check_cooldown,
     detect_intent,
@@ -175,24 +175,47 @@ async def _process_account(
 
     Uses InstagramAPIClient (Instagram Messaging API / Graph API v23.0).
     """
-    try:
-        token = decrypt_token(account.access_token_enc)
-    except Exception as exc:
-        logger.warning(
-            "Instagram DM: account %s has invalid encrypted token: %s — "
-            "needs re-authentication. Skipping.",
-            account.id, exc,
-        )
-        return 0
+    meta = account.meta_data or {}
     ig_user_id = account.account_id or ""
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
-    if not ig_user_id:
-        logger.warning("Instagram account %s has no account_id (IG user ID)", account.id)
-        return 0
+    # Try Graph API first (business/creator accounts with App Review)
+    client = None
+    try:
+        token = decrypt_token(account.access_token_enc)
+        graph_client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+        # Probe with a 1-conversation fetch to detect capability errors
+        await graph_client.get_conversations(limit=1)
+        client = graph_client
+    except Exception as exc:
+        logger.info(
+            "Instagram Graph API unavailable for %s: %s — trying web API fallback",
+            account.id, exc,
+        )
+        client = None
 
-    client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+    # Fall back to web API (sessionid cookie from browser login)
+    if client is None:
+        session_id = meta.get("private_api_session_id", "")
+        csrf_token = meta.get("private_api_csrf_token", "")
+        ds_user_id = meta.get("private_api_ds_user_id", "")
+        if session_id and not session_id.startswith("enc:"):
+            proxy = getattr(get_settings(), "INSTAGRAM_PROXY", None)
+            client = InstagramWebDMClient(
+                session_id=session_id,
+                csrf_token=csrf_token,
+                ds_user_id=ds_user_id,
+                proxy=proxy,
+            )
+            logger.info("Instagram DM: using web API fallback for %s", account.id)
+        else:
+            logger.warning(
+                "Instagram DM: account %s has no valid Graph API token and no "
+                "web session cookie. Skipping. Re-login via VNC to enable DM bot.",
+                account.id,
+            )
+            return 0
 
     # 1. Fetch conversations
     try:
@@ -233,7 +256,8 @@ async def _process_account(
             for msg in reversed(messages):
                 sender = msg.get("from", {})
                 sender_id = sender.get("id", "") if isinstance(sender, dict) else str(sender)
-                if sender_id != ig_user_id and msg.get("message"):
+                my_id = ig_user_id or meta.get("private_api_ds_user_id", "")
+                if sender_id != my_id and msg.get("message"):
                     last_inbound = msg
                     break
 
