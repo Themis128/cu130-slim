@@ -1678,7 +1678,6 @@ class BrowserBridgeClient:
         _uuid, device_id are required form fields.
         """
         import json as _json
-        import time as _time
         import uuid as _uuid_mod
 
         mutationToken = str(_uuid_mod.uuid4())
