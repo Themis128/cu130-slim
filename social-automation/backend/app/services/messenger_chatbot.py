@@ -517,18 +517,16 @@ async def generate_contextual_reply(
             "normal response."
         )
 
-    # Language-aware model routing:
-    # DMR Qwen3 8B / Llama 3.2 produce poor Greek output, but handle English well.
-    # Cloudflare Llama 3.1 8B handles Greek correctly.
-    # Strategy: if the message contains Greek characters, try CF first.
-    # Otherwise, try DMR first (free, local, private).
-    # Fallback: the other provider, then static text.
-    has_greek = any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF
-                    for c in user_message)
+    # Model routing for bot replies:
+    # Cloudflare Workers AI (Llama 3.1 8B) is the primary for bot replies because
+    # it follows system prompts much better than DMR Qwen3 8B (recruiting mode,
+    # pricing rules, bot disclosure). CF Workers AI has a generous free tier.
+    # DMR (local, free, private) is the fallback when CF is unavailable.
+    # Strategy: try CF first (both Greek and English), fall back to DMR, then static.
 
-    if has_greek and cf_token and cf_account:
-        # Greek message — Cloudflare handles Greek better
-        model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
+    # 1. Try Cloudflare Workers AI first (best prompt adherence, handles Greek + English)
+    model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
+    if cf_token and cf_account:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
             async with httpx.AsyncClient(timeout=30) as client:
@@ -553,10 +551,9 @@ async def generate_contextual_reply(
                                 await mark_disclosed(account_id, thread_id)
                             return f"{disclosure_prefix}{text}" if not disclosed else text
         except Exception as exc:
-            logger.warning("Cloudflare AI (Greek) failed: %s", exc)
-        # Fall through to DMR if CF failed
+            logger.warning("Cloudflare AI bot reply failed: %s", exc)
 
-    # 1. Try DMR first (local, free, primary)
+    # 2. Fallback: DMR (local, free, private)
     try:
         from app.services.dmr import call_dmr_chat
         result = await call_dmr_chat(
@@ -567,40 +564,11 @@ async def generate_contextual_reply(
         )
         text = result.get("text", "").strip()
         if text:
-            # Mark as disclosed after successful reply
             if not disclosed:
                 await mark_disclosed(account_id, thread_id)
             return f"{disclosure_prefix}{text}" if not disclosed else text
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
-
-    # 2. Fallback: Cloudflare Workers AI (skip if already tried for Greek)
-    model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
-    if cf_token and cf_account and not has_greek:
-        try:
-            url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    url,
-                    headers={"Authorization": f"Bearer {cf_token}"},
-                    json={
-                        "messages": [
-                            {"role": "system", "content": enhanced_prompt},
-                            {"role": "user", "content": user_message},
-                        ],
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("result") and data["result"].get("response"):
-                        text = data["result"]["response"].strip()
-                        if not disclosed:
-                            await mark_disclosed(account_id, thread_id)
-                        return f"{disclosure_prefix}{text}" if not disclosed else text
-        except Exception as exc:
-            logger.warning("Cloudflare AI failed: %s", exc)
 
     # 3. Final fallback: static text (with disclosure if first contact)
     if not disclosed:
