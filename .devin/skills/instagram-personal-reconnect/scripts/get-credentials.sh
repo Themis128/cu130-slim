@@ -25,7 +25,7 @@ if [[ -z "$TOKEN" ]]; then
   exit 1
 fi
 
-# Get the account info to find the username and type
+# Get the account info to find the username
 ACCOUNT_INFO=$(curl -s "http://localhost:8083/api/v1/accounts" \
   -H "Authorization: Bearer $TOKEN" 2>/dev/null)
 
@@ -42,8 +42,10 @@ for a in accounts:
 
 # Determine the secret key names based on account type
 if [[ "$ACCOUNT_TYPE" == "personal" ]]; then
+  # Personal account uses t_baltzakis username
   USERNAME_KEY="INSTAGRAM_USERNAME_T_BALTZAKIS"
 else
+  # Business account uses cloudless.gr username
   USERNAME_KEY="INSTAGRAM_USERNAME"
 fi
 
@@ -71,7 +73,7 @@ for a in accounts:
 " 2>/dev/null)
 fi
 
-# Get the password from the secret store (key: INSTAGRAM_PASSWORD)
+# Get the password from the secret store
 PASSWORD=$(curl -s "http://localhost:8083/api/v1/secrets/INSTAGRAM_PASSWORD" \
   -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
 import sys, json
