@@ -451,10 +451,19 @@ async def send_card(
         if not wa_account:
             raise HTTPException(status_code=400, detail="No active WhatsApp account found. Connect one first.")
         # Get token and phone_number_id from meta_data
+        # Token is stored encrypted — decrypt if it doesn't look like a raw Meta token
+        from app.core.security import decrypt_token
+
         token = wa_account.meta_data.get("access_token", "")
         phone_number_id = wa_account.meta_data.get("phone_number_id", "")
         if not token or not phone_number_id:
             raise HTTPException(status_code=400, detail="WhatsApp account missing access_token or phone_number_id")
+        # Decrypt token if it's encrypted (raw Meta tokens start with "EA")
+        if isinstance(token, str) and not token.startswith("EA"):
+            try:
+                token = decrypt_token(token)
+            except Exception:
+                pass  # Token might be stored in a different format
         # Send via WhatsApp Cloud API
         url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
         payload = {
@@ -497,6 +506,12 @@ async def send_card(
         page_id = fb_account.account_id
         if not token:
             raise HTTPException(status_code=400, detail="Facebook Page missing access_token or page_token")
+        # Decrypt token if encrypted (raw Meta tokens start with "EA")
+        if isinstance(token, str) and not token.startswith("EA"):
+            try:
+                token = decrypt_token(token)
+            except Exception:
+                pass  # Token might be stored in a different format
         # Send via Messenger Platform API
         url = f"https://graph.facebook.com/v21.0/{page_id}/messages"
         payload = {
@@ -556,19 +571,53 @@ async def create_card_from_brand(
     )
     accounts = result.scalars().all()
 
-    platform_urls = {
-        "facebook": "https://facebook.com/{handle}",
-        "instagram": "https://instagram.com/{handle}",
-        "linkedin": "https://linkedin.com/company/{handle}",
-        "twitter": "https://twitter.com/{handle}",
-        "threads": "https://threads.net/@{handle}",
-        "tiktok": "https://tiktok.com/@{handle}",
-    }
+    def _build_social_url(platform: str, account_type: str | None, handle: str) -> str | None:
+        """Build a public profile URL for a social account.
+
+        Handles platform-specific URL patterns and sanitizes handles.
+        Returns None if no valid URL can be constructed.
+        """
+        if not handle:
+            return None
+        # Sanitize: strip spaces, remove mailto: prefix, URL-encode spaces
+        clean = handle.strip()
+        if not clean or "@" in clean and platform != "twitter":
+            # Email-as-username (LinkedIn personal sometimes stores email)
+            # Can't build a public profile URL from an email
+            return None
+        # URL-encode spaces (Facebook personal accounts sometimes have "First Last")
+        clean = clean.replace(" ", ".")
+
+        if platform == "facebook":
+            if account_type == "page":
+                return f"https://facebook.com/{clean}"
+            # Personal accounts with display names aren't directly linkable
+            # Use the profile ID if available, otherwise skip
+            return None
+        if platform == "instagram":
+            return f"https://instagram.com/{clean}"
+        if platform == "linkedin":
+            if account_type == "organization":
+                return f"https://linkedin.com/company/{clean}"
+            # Personal LinkedIn — use /in/ format if handle looks like a vanity slug
+            if "/" not in clean and "." not in clean:
+                return f"https://linkedin.com/in/{clean}"
+            return None
+        if platform == "twitter":
+            return f"https://twitter.com/{clean}"
+        if platform == "threads":
+            return f"https://threads.net/@{clean}"
+        if platform == "tiktok":
+            return f"https://tiktok.com/@{clean}"
+        if platform == "whatsapp":
+            # WhatsApp doesn't have a public profile URL
+            return None
+        return None
+
     social_links = []
     for acc in accounts:
         handle = acc.username or acc.display_name or ""
-        url_template = platform_urls.get(acc.platform, "")
-        url = url_template.format(handle=handle) if handle and url_template else None
+        url = _build_social_url(acc.platform, acc.account_type, handle)
         social_links.append({
             "platform": acc.platform,
             "handle": handle,
