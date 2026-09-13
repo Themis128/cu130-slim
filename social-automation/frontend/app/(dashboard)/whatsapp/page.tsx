@@ -145,8 +145,10 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
   })
 
   const status = data?.data
-  const isConfigured = status?.has_credentials && status?.webhook_subscribed
-  const tokenExpired = status?.has_credentials && !status?.can_send_messages
+  const hasCredentials = Boolean(status?.credentials_configured ?? status?.has_credentials)
+  const phoneRegistered = Boolean(status?.phone_number_registered ?? status?.phone_registered)
+  const isConfigured = hasCredentials && status?.webhook_subscribed
+  const tokenExpired = hasCredentials && !status?.can_send_messages
 
   // Reconnect via Facebook OAuth
   const reconnectMutation = useMutation({
@@ -190,8 +192,8 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
           <div className="space-y-2">
             <StatusRow
               label="Credentials"
-              ok={status?.has_credentials}
-              detail={status?.has_credentials ? 'Access token and phone number ID configured' : 'Not configured — update credentials below'}
+              ok={hasCredentials}
+              detail={hasCredentials ? 'Access token and phone number ID configured' : 'Not configured — update credentials below'}
             />
             <StatusRow
               label="Webhook Subscribed"
@@ -200,8 +202,8 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
             />
             <StatusRow
               label="Phone Registered"
-              ok={status?.phone_registered}
-              detail={status?.phone_registered ? 'Phone number registered for API use' : 'Phone number not registered'}
+              ok={phoneRegistered}
+              detail={phoneRegistered ? 'Phone number registered for API use' : 'Phone number not registered'}
             />
             {status?.display_phone_number && (
               <div className="flex items-center gap-2 text-sm pt-2 border-t">
