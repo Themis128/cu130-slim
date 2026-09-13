@@ -736,7 +736,7 @@ async def generate_contextual_reply(
         if not disclosed:
             await mark_disclosed(account_id, thread_id)
         lang = "greek" if _is_greek_message(user_message) else "english"
-        reply = _PRICING_RESPONSES[lang]
+        reply = _ensure_steering_question(_PRICING_RESPONSES[lang], lang == "greek")
         await track_bot_reply(
             account_id, thread_id,
             provider="deterministic",
@@ -809,7 +809,15 @@ async def generate_contextual_reply(
         "Reply naturally. Keep it short and conversational. "
         "Always end with a question to keep the conversation going and "
         "guide the customer toward the next step (booking, consultation, "
-        "or providing more details about their needs)."
+        "or providing more details about their needs).\n\n"
+        "Example good replies:\n"
+        "User: Hi, what do you offer?\n"
+        "You: Hi! I'm the Cloudless bot. We offer cloud, AI, and custom "
+        "software for startups. What are you most interested in?\n"
+        "User: I need help with my infrastructure\n"
+        "You: Great! We specialize in cloud architecture. Do you have "
+        "existing infrastructure or starting from scratch? What exactly "
+        "do you need?"
     )
 
     # Add Greek-specific steering and quality instructions when the user
@@ -824,7 +832,14 @@ async def generate_contextual_reply(
             "3. Γράφε σωστά ελληνικά — όχι ακατανόητες λέξεις ή μεταφράσεις.\n"
             "4. Ναι είσαι bot. Να το αναφέρεις φυσικά.\n"
             "5. Τιμές μόνο σε ευρώ (€). Μην καταχωρείς συγκεκριμένες τιμές.\n"
-            "6. Κράτα το σύντομο: 1-3 προτάσεις + μία ερώτηση στο τέλος."
+            "6. Κράτα το σύντομο: 1-3 προτάσεις + μία ερώτηση στο τέλος.\n\n"
+            "Παραδείγματα σωστών απαντήσεων:\n"
+            "Χρήστης: Γεια, τι προσφέρετε;\n"
+            "Εσύ: Γεια σας! Είμαι το Cloudless bot. Προσφέρουμε cloud, AI και "
+            "custom software για startups. Τι σας ενδιαφέρει περισσότερο;\n"
+            "Χρήστης: Θέλω βοήθεια με το cloud\n"
+            "Εσύ: Υπέροχα! Ειδικευόμαστε σε cloud architecture. Έχετε ήδη "
+            "υποδομή ή ξεκινάτε από το μηδέν; Τι ακριβώς χρειάζεστε;"
         )
 
     # Check if we need to disclose the bot's automated nature (Meta policy)
