@@ -16,8 +16,8 @@ and releases the lock. Other workers wait their turn.
 Usage:
     from app.services.browser_orchestrator import browser_session
 
-    async with browser_session("instagram", bridge) as bridge:
-        convos = await bridge.get_instagram_dm_conversations()
+    async with browser_session("instagram", bridge) as b:
+        convos = await b.get_instagram_dm_conversations()
         # ... do work ...
     # Lock auto-released on exit
 """
@@ -38,10 +38,10 @@ _LOCK_KEY = "browser-bridge:lock"           # Global lock (one user at a time)
 _QUEUE_KEY = "browser-bridge:queue"          # Fair scheduling queue
 _PLATFORM_KEY = "browser-bridge:platform"   # Current platform using the browser
 
-# Timing
-_LOCK_TIMEOUT = 120          # Auto-release after 120s to prevent deadlocks
-_LOCK_RETRY_DELAY = 0.5      # Time between lock acquisition attempts
-_MAX_WAIT = 90               # Max seconds to wait for the lock
+# Timing — keep these short to prevent deadlocks
+_LOCK_TIMEOUT = 30           # Auto-release after 30s (enough for one browser interaction)
+_LOCK_RETRY_DELAY = 0.3      # Time between lock acquisition attempts
+_MAX_WAIT = 30               # Max seconds to wait for the lock
 
 
 async def _get_redis() -> Any:
@@ -73,11 +73,11 @@ class BrowserSession:
         self.max_wait = max_wait
         self._lock_token: str | None = None
         self._acquired = False
-        self._wait_time = 0.0
+        self._start_time = 0.0
 
     async def __aenter__(self) -> Any:
         """Acquire the browser lock. Returns the bridge instance."""
-        start = time.perf_counter()
+        self._start_time = time.perf_counter()
         try:
             r = await _get_redis()
         except Exception as exc:
@@ -88,17 +88,17 @@ class BrowserSession:
             )
             return self.bridge
 
-        self._lock_token = str(time.time())
+        self._lock_token = f"{self.platform}:{time.time()}"
 
         # Fair scheduling: add to queue, wait for our turn
-        queue_pos = await r.rpush(_QUEUE_KEY, f"{self.platform}:{self._lock_token}")
+        await r.rpush(_QUEUE_KEY, self._lock_token)
 
         try:
             deadline = time.perf_counter() + self.max_wait
             while time.perf_counter() < deadline:
                 # Check if we're at the front of the queue
                 front = await r.lindex(_QUEUE_KEY, 0)
-                if front and f"{self.platform}:{self._lock_token}" == front:
+                if front == self._lock_token:
                     # We're next — try to acquire the lock
                     acquired = await r.set(
                         _LOCK_KEY, self._lock_token,
@@ -107,17 +107,17 @@ class BrowserSession:
                     if acquired:
                         self._acquired = True
                         await r.set(_PLATFORM_KEY, self.platform, ex=_LOCK_TIMEOUT)
-                        self._wait_time = time.perf_counter() - start
-                        if self._wait_time > 1.0:
+                        wait_time = time.perf_counter() - self._start_time
+                        if wait_time > 1.0:
                             logger.info(
                                 "Browser orchestrator: %s acquired lock "
-                                "after %.1fs wait (queue pos %d)",
-                                self.platform, self._wait_time, queue_pos,
+                                "after %.1fs wait",
+                                self.platform, wait_time,
                             )
                         else:
                             logger.debug(
                                 "Browser orchestrator: %s acquired lock (%.1fs)",
-                                self.platform, self._wait_time,
+                                self.platform, wait_time,
                             )
                         return self.bridge
 
@@ -125,10 +125,11 @@ class BrowserSession:
                 await asyncio.sleep(_LOCK_RETRY_DELAY)
 
             # Timeout — remove from queue and proceed without lock
+            wait_time = time.perf_counter() - self._start_time
             logger.warning(
                 "Browser orchestrator: %s timed out after %.1fs waiting for lock — "
                 "proceeding without lock (best effort)",
-                self.platform, self.max_wait,
+                self.platform, wait_time,
             )
             await self._remove_from_queue(r)
             return self.bridge
@@ -147,6 +148,8 @@ class BrowserSession:
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Release the browser lock."""
+        hold_time = time.perf_counter() - self._start_time if self._start_time else 0
+
         if not self._acquired or self._lock_token is None:
             return
 
@@ -159,7 +162,7 @@ class BrowserSession:
                 await r.delete(_PLATFORM_KEY)
                 logger.debug(
                     "Browser orchestrator: %s released lock (held %.1fs)",
-                    self.platform, time.perf_counter() - start,
+                    self.platform, hold_time,
                 )
             # Remove ourselves from the queue
             await self._remove_from_queue(r)
@@ -169,14 +172,10 @@ class BrowserSession:
     async def _remove_from_queue(self, r: Any) -> None:
         """Remove our entry from the fair scheduling queue."""
         try:
-            await r.lrem(_QUEUE_KEY, 0, f"{self.platform}:{self._lock_token}")
+            if self._lock_token:
+                await r.lrem(_QUEUE_KEY, 0, self._lock_token)
         except Exception:
             pass
-
-    @property
-    def start(self) -> float:
-        """Compatibility for __aexit__ timing."""
-        return getattr(self, "_start_time", time.perf_counter())
 
 
 def browser_session(
@@ -189,7 +188,7 @@ def browser_session(
     Args:
         platform: The platform name (instagram, threads, twitter, tiktok, facebook, linkedin)
         bridge: The BrowserBridgeClient instance
-        max_wait: Maximum seconds to wait for the lock (default 90s)
+        max_wait: Maximum seconds to wait for the lock (default 30s)
 
     Returns:
         A context manager that provides exclusive browser bridge access.
