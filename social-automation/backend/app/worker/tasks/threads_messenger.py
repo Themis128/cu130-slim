@@ -239,7 +239,7 @@ async def _process_account(
                 account.id, thread_id,
                 cf_token, cf_account, dmr_url,
                 intent=intent,
-                brand_context=brand_context,
+                brand_context=brand_context, team_id=account.team_id,
             )
 
             if not reply_text:

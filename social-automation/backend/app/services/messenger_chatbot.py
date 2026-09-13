@@ -656,6 +656,7 @@ async def generate_contextual_reply(
     dmr_url: str,
     intent: str = "",
     brand_context: str = "",
+    team_id: uuid.UUID | None = None,
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
@@ -809,6 +810,7 @@ async def generate_contextual_reply(
                                 ),
                                 intent=intent,
                                 language="greek" if _is_greek_message(user_message) else "english",
+                                team_id=team_id,
                             )
                             return reply
         except Exception as exc:
@@ -821,6 +823,7 @@ async def generate_contextual_reply(
                     (time.perf_counter() - cf_start) * 1000
                 ),
                 success=False, error=str(exc), intent=intent,
+                team_id=team_id,
             )
 
     # 2. Fallback: DMR (local, free, private)
@@ -847,6 +850,7 @@ async def generate_contextual_reply(
                 ),
                 intent=intent,
                 language="greek" if _is_greek_message(user_message) else "english",
+                team_id=team_id,
             )
             return reply
     except Exception as exc:
@@ -859,6 +863,7 @@ async def generate_contextual_reply(
                 (time.perf_counter() - dmr_start) * 1000
             ),
             success=False, error=str(exc), intent=intent,
+            team_id=team_id,
         )
 
     # 3. Final fallback: static text (with disclosure if first contact)

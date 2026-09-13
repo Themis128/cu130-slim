@@ -773,7 +773,7 @@ async def process_inbound_message(
         cf_account=cf_account,
         dmr_url=dmr_url,
         intent=intent,
-        brand_context=brand_context,
+        brand_context=brand_context, team_id=team_id,
     )
 
     # 9. Set the cooldown
