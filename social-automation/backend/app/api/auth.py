@@ -1722,9 +1722,10 @@ async def instagram_onboarding_authorize(
     if not settings.FACEBOOK_CLIENT_ID:
         raise HTTPException(status_code=400, detail="Facebook OAuth not configured (FACEBOOK_CLIENT_ID missing)")
 
-    from app.core.security import sign_oauth_state
     import json as _json
     from urllib.parse import quote
+
+    from app.core.security import sign_oauth_state
 
     state_b64 = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
 

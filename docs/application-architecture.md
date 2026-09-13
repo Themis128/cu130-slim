@@ -470,11 +470,28 @@ Beat Schedule:
 | Platform | OAuth | Publishing | Analytics | Profile | Messenger | Special |
 |----------|-------|-----------|-----------|---------|-----------|---------|
 | Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal (E2EE) + Bot Builder | Page sidecar, browser bridge |
-| Instagram | ✓ | ✓ | ✓ | ✓ (Graph + private) | — | Private API sidecar |
+| Instagram | ✓ | ✓ (Business Login + FB Login) | ✓ | ✓ (Graph + private) | ✓ DM (Messenger Platform) | Private API sidecar, Web API |
 | LinkedIn | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Company Page, browser sidecar |
-| Twitter/X | ✗ | ✓ | ✓ | ✓ (API) | — | API v2 |
-| TikTok | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Browser sidecar |
-| Threads | ✓ | ✓ | — | ✓ (API) | — | Instagram-based |
+| Twitter/X | ✓ (OAuth 2.0 PKCE) | ✓ | ✓ | ✓ (API) | ✓ DM (API v2) | API v2, free tier 50/day |
+| TikTok | ✓ | ✓ (Direct Post + Upload) | ✓ | ✓ (API + browser) | ✓ DM (Business Messaging) | Browser sidecar, domain verification |
+| Threads | ✓ | ✓ (text, image, video, carousel) | ✓ | ✓ (API) | — | Instagram-based, v1.0 |
+| WhatsApp | ✓ | — | — | ✓ (Cloud API) | ✓ Cloud API | WABA, phone verification |
+
+### API Versions (as of September 2026)
+
+| Platform | API Version | Base URL | Version Header |
+|----------|------------|----------|----------------|
+| Facebook Graph | v26.0 | `graph.facebook.com` | URL path |
+| Instagram Graph | v26.0 | `graph.facebook.com` | URL path |
+| Instagram Business Login | v26.0 | `graph.instagram.com` | URL path |
+| LinkedIn REST | 202608 | `api.linkedin.com/rest` | `Linkedin-Version` header |
+| Twitter/X | v2 | `api.x.com/2` | URL path |
+| TikTok | v2 | `open.tiktokapis.com/v2` | URL path |
+| Threads | v1.0 | `graph.threads.net/v1.0` | URL path |
+| WhatsApp Cloud | v26.0 | `graph.facebook.com` | URL path |
+| Messenger | v26.0 | `graph.facebook.com` | URL path |
+
+See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
 ## Docker Compose Stack (32 services)
 
