@@ -68,9 +68,11 @@ jobs:
       - name: Upload Trivy filesystem results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
+        continue-on-error: true
         with:
           sarif_file: trivy-fs-results.sarif
           category: trivy-filesystem
+          wait-for-processing: false
 
   trivy-images:
     name: Trivy Image Scan
@@ -156,9 +158,11 @@ jobs:
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
           category: 'trivy-docker-image-${{ matrix.service }}'
+          wait-for-processing: false
 
   trivy-sbom:
     name: Generate SBOM

@@ -168,9 +168,13 @@ jobs:
       - name: Upload ${{ matrix.service }} Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
+        # Reporting only — CRITICAL/HIGH gate is the previous step.
+        # wait-for-processing often flakes with GitHub Code Scanning API timeouts.
+        continue-on-error: true
         with:
           sarif_file: 'trivy-${{ matrix.service }}.sarif'
           category: 'trivy-${{ matrix.service }}'
+          wait-for-processing: false
 
 
   sast-scan:
