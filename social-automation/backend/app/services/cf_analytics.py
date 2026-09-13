@@ -464,7 +464,7 @@ async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
             filter: {datetime_geq: $datetimeStart,
                      datetime_leq: $datetimeEnd}
           ) {
-            dimensions { indexName datetime }
+            dimensions { datetime }
           }
         }
       }
@@ -499,7 +499,7 @@ async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
         sums = row.get("sum", {})
         vq = sums.get("vectorsQueried", 0) or 0
         vi = sums.get("vectorsInserted", 0) or 0
-        index = dims.get("indexName", "unknown")
+        index = dims.get("datetime", "unknown")
 
         total_queries += vq + vi
         total_vectors_queried += vq
