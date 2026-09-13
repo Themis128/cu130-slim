@@ -1590,10 +1590,10 @@ class BrowserBridgeClient:
         (direct_v2/inbox). Returns conversations with thread IDs and participants.
         Requires a logged-in Instagram browser session.
         """
-        await self.navigate("https://www.instagram.com/direct/inbox/")
+        await self.navigate("https://www.instagram.com/")
         await asyncio.sleep(3)
 
-        result = await self.evaluate("""async () => {
+        response = await self.evaluate("""async () => {
             try {
                 const resp = await fetch(
                     "https://www.instagram.com/api/v1/direct_v2/inbox/?thread_message_limit=10&limit=25",
@@ -1623,7 +1623,9 @@ class BrowserBridgeClient:
             }
         }""")
 
-        return result
+        # Extract the result from the browser bridge response
+        result = response.get("result", response) if isinstance(response, dict) else response
+        return result if isinstance(result, dict) else {"error": str(result)}
 
     async def get_instagram_dm_messages(self, thread_id: str) -> dict[str, Any]:
         """Read messages in an Instagram DM thread via the web API.
@@ -1631,7 +1633,7 @@ class BrowserBridgeClient:
         Uses fetch() from the browser context to call the Instagram web API
         (direct_v2/threads/{thread_id}). Returns messages with sender IDs and text.
         """
-        result = await self.evaluate(f"""async () => {{
+        response = await self.evaluate(f"""async () => {{
             try {{
                 const resp = await fetch(
                     "https://www.instagram.com/api/v1/direct_v2/threads/{thread_id}/",
@@ -1658,7 +1660,9 @@ class BrowserBridgeClient:
             }}
         }}""")
 
-        return result
+        # Extract the result from the browser bridge response
+        result = response.get("result", response) if isinstance(response, dict) else response
+        return result if isinstance(result, dict) else {"error": str(result)}
 
     async def send_instagram_dm_message(self, recipient_id: str, text: str) -> dict[str, Any]:
         """Send an Instagram DM via the web API.
@@ -1672,7 +1676,7 @@ class BrowserBridgeClient:
         client_context = str(int(_time.time() * 1000))
         encoded_text = _json.dumps(text)
 
-        result = await self.evaluate(f"""async () => {{
+        response = await self.evaluate(f"""async () => {{
             try {{
                 const resp = await fetch(
                     "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
@@ -1698,4 +1702,6 @@ class BrowserBridgeClient:
             }}
         }}""")
 
-        return result
+        # Extract the result from the browser bridge response
+        result = response.get("result", response) if isinstance(response, dict) else response
+        return result if isinstance(result, dict) else {"error": str(result)}
