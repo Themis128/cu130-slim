@@ -1033,7 +1033,7 @@ class BrowserBridgeClient:
         await self.navigate("https://www.threads.com/direct/inbox/")
         await asyncio.sleep(4)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const conversations = [];
             const seen = new Set();
 
@@ -1083,7 +1083,7 @@ class BrowserBridgeClient:
             return { conversations: conversations, count: conversations.length };
         }""")
 
-        return result
+        return response.get("result", response) if isinstance(response, dict) else response
 
     async def get_threads_dm_messages(self, thread_id: str) -> dict[str, Any]:
         """Read messages in a Threads DM thread.
@@ -1101,7 +1101,7 @@ class BrowserBridgeClient:
         }""")
         await asyncio.sleep(1)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const messages = [];
 
             // Threads DM messages are in various container patterns
@@ -1132,6 +1132,8 @@ class BrowserBridgeClient:
             return { thread_id: arguments[0], messages: messages, count: messages.length };
         }""")
 
+        # Extract the result from the browser bridge response
+        result = response.get("result", response) if isinstance(response, dict) else response
         # The evaluate doesn't pass arguments well, fix thread_id
         if isinstance(result, dict):
             result["thread_id"] = thread_id
@@ -1222,7 +1224,7 @@ class BrowserBridgeClient:
         await self.navigate("https://x.com/messages")
         await asyncio.sleep(4)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const conversations = [];
             const seen = new Set();
 
@@ -1272,7 +1274,7 @@ class BrowserBridgeClient:
             return { conversations: conversations, count: conversations.length };
         }""")
 
-        return result
+        return response.get("result", response) if isinstance(response, dict) else response
 
     async def get_twitter_dm_messages(self, thread_id: str) -> dict[str, Any]:
         """Read messages in a Twitter/X DM thread.
@@ -1292,7 +1294,7 @@ class BrowserBridgeClient:
         }""")
         await asyncio.sleep(1)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const messages = [];
 
             // Twitter/X DM messages are in various container patterns
@@ -1322,6 +1324,7 @@ class BrowserBridgeClient:
             return { messages: messages, count: messages.length };
         }""")
 
+        result = response.get("result", response) if isinstance(response, dict) else response
         if isinstance(result, dict):
             result["thread_id"] = thread_id
 
@@ -1405,7 +1408,7 @@ class BrowserBridgeClient:
         await self.navigate("https://www.tiktok.com/messages")
         await asyncio.sleep(4)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const conversations = [];
             const seen = new Set();
 
@@ -1456,7 +1459,7 @@ class BrowserBridgeClient:
             return { conversations: conversations, count: conversations.length };
         }""")
 
-        return result
+        return response.get("result", response) if isinstance(response, dict) else response
 
     async def get_tiktok_dm_messages(self, thread_id: str) -> dict[str, Any]:
         """Read messages in a TikTok DM thread.
@@ -1476,7 +1479,7 @@ class BrowserBridgeClient:
         }""")
         await asyncio.sleep(1)
 
-        result = await self.evaluate("""() => {
+        response = await self.evaluate("""() => {
             const messages = [];
 
             // TikTok DM messages are in various container patterns
@@ -1507,6 +1510,7 @@ class BrowserBridgeClient:
             return { messages: messages, count: messages.length };
         }""")
 
+        result = response.get("result", response) if isinstance(response, dict) else response
         if isinstance(result, dict):
             result["thread_id"] = thread_id
 
@@ -1674,10 +1678,21 @@ class BrowserBridgeClient:
         import time as _time
 
         client_context = str(int(_time.time() * 1000))
-        encoded_text = _json.dumps(text)
+        # Pass the text as a JSON string and use encodeURIComponent in JS to
+        # properly handle Greek/Unicode characters in the form body.
+        text_json = _json.dumps(text)
 
         response = await self.evaluate(f"""async () => {{
             try {{
+                const text = {text_json};
+                const recipientId = "{recipient_id}";
+                const clientContext = "{client_context}";
+                const body = "recipient_users=" + encodeURIComponent(
+                    JSON.stringify([recipientId])
+                ) + "&client_context=" + encodeURIComponent(
+                    JSON.stringify({{mutation_token: clientContext}})
+                ) + "&text=" + encodeURIComponent(text)
+                  + "&action=send_item&entry=inbox";
                 const resp = await fetch(
                     "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
                     {{
@@ -1687,11 +1702,7 @@ class BrowserBridgeClient:
                             "content-type": "application/x-www-form-urlencoded",
                         }},
                         credentials: "include",
-                        body: "recipient_users=%5B%22{recipient_id}%22%5D"
-                            + "&client_context=%7B%22mutation_token%22%3A%22"
-                            + "{client_context}%22%7D"
-                            + "&text={encoded_text}"
-                            + "&action=send_item&entry=inbox"
+                        body: body
                     }}
                 );
                 if (!resp.ok) return {{error: "HTTP " + resp.status}};
