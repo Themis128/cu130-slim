@@ -1216,7 +1216,7 @@ async def get_bot_analytics_summary(
             func.date_trunc(
                 "day", func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at)
             ).label("day"),
-            func.count().label("count"),
+            func.count().label("reply_count"),
         )
         .where(
             AnalyticsEvent.team_id == team.id,
@@ -1243,7 +1243,7 @@ async def get_bot_analytics_summary(
     by_day: dict[str, dict] = {}
 
     for row in rows:
-        count = row.count or 0
+        reply_count = int(row.reply_count or 0)
         provider = row.provider or "unknown"
         language = row.language or "english"
         guardrail = row.guardrail or ""
@@ -1252,44 +1252,44 @@ async def get_bot_analytics_summary(
         acct = str(row.social_account_id) if row.social_account_id else "unknown"
         day = row.day.isoformat() if row.day else ""
 
-        total_replies += count
+        total_replies += reply_count
         if success:
-            successful += count
+            successful += reply_count
         else:
-            failed += count
+            failed += reply_count
         if guardrail:
-            guardrail_triggers += count
+            guardrail_triggers += reply_count
             if guardrail == "pricing":
-                pricing_triggers += count
+                pricing_triggers += reply_count
         if language == "greek":
-            greek += count
+            greek += reply_count
         else:
-            english += count
+            english += reply_count
         if latency > 0:
-            latencies.extend([latency] * count)
+            latencies.extend([latency] * reply_count)
 
         if provider not in by_provider:
             by_provider[provider] = {
                 "provider": provider, "replies": 0, "errors": 0,
             }
-        by_provider[provider]["replies"] += count if success else 0
-        by_provider[provider]["errors"] += count if not success else 0
+        by_provider[provider]["replies"] += reply_count if success else 0
+        by_provider[provider]["errors"] += reply_count if not success else 0
 
         if acct not in by_account:
             by_account[acct] = {
                 "account_id": acct, "replies": 0, "errors": 0,
             }
-        by_account[acct]["replies"] += count if success else 0
-        by_account[acct]["errors"] += count if not success else 0
+        by_account[acct]["replies"] += reply_count if success else 0
+        by_account[acct]["errors"] += reply_count if not success else 0
 
         if day:
             if day not in by_day:
                 by_day[day] = {
                     "date": day, "replies": 0, "errors": 0, "guardrails": 0,
                 }
-            by_day[day]["replies"] += count if success else 0
-            by_day[day]["errors"] += count if not success else 0
-            by_day[day]["guardrails"] += count if guardrail else 0
+            by_day[day]["replies"] += reply_count if success else 0
+            by_day[day]["errors"] += reply_count if not success else 0
+            by_day[day]["guardrails"] += reply_count if guardrail else 0
 
     avg_latency = (
         int(sum(latencies) / len(latencies)) if latencies else None

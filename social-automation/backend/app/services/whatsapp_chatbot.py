@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -490,6 +491,7 @@ async def generate_contextual_reply(
     dmr_url: str,
     intent: str = "",
     brand_context: str = "",
+    team_id: uuid.UUID | None = None,
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
@@ -609,6 +611,7 @@ async def generate_contextual_reply(
                                     0x0370 <= ord(c) <= 0x03FF
                                     for c in user_message
                                 ) else "english",
+                                team_id=team_id,
                             )
                             return reply
         except Exception as exc:
@@ -621,6 +624,7 @@ async def generate_contextual_reply(
                     (time.perf_counter() - cf_start) * 1000
                 ),
                 success=False, error=str(exc), intent=intent,
+                team_id=team_id,
             )
 
     # 2. Fallback: DMR (local, free, private)
@@ -650,6 +654,7 @@ async def generate_contextual_reply(
                     0x0370 <= ord(c) <= 0x03FF
                     for c in user_message
                 ) else "english",
+                team_id=team_id,
             )
             return reply
     except Exception as exc:
@@ -662,6 +667,7 @@ async def generate_contextual_reply(
                 (time.perf_counter() - dmr_start) * 1000
             ),
             success=False, error=str(exc), intent=intent,
+            team_id=team_id,
         )
 
     # 3. Final fallback: static text (with disclosure if first contact)
@@ -763,6 +769,12 @@ async def process_inbound_message(
     brand_context = await retrieve_brand_context(message_text)
 
     # 8. Generate a context-aware AI reply
+    team_uuid: uuid.UUID | None = None
+    try:
+        team_uuid = uuid.UUID(team_id) if team_id else None
+    except (TypeError, ValueError):
+        team_uuid = None
+
     reply_text = await generate_contextual_reply(
         config=config,
         user_message=message_text,
@@ -773,7 +785,8 @@ async def process_inbound_message(
         cf_account=cf_account,
         dmr_url=dmr_url,
         intent=intent,
-        brand_context=brand_context, team_id=team_id,
+        brand_context=brand_context,
+        team_id=team_uuid,
     )
 
     # 9. Set the cooldown
