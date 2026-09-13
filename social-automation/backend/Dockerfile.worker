@@ -8,6 +8,7 @@ RUN apt-get update && apt-get update --fix-missing && \
     apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    poppler-utils \
     && apt-get full-upgrade -y && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

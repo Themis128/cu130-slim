@@ -53,6 +53,12 @@ dependencies = [
     "playwright>=1.46.0",
     # Instagram private API (username/password posting fallback while Graph API restricted)
     "instagrapi>=2.1.0,<3.0.0",
+    # PDF libraries — carousel PDF generation, page extraction, and rendering
+    "PyMuPDF>=1.24.0",        # primary: fast PDF read/render (fitz)
+    "pypdf>=4.0.0",           # lightweight PDF read/merge/split
+    "reportlab>=4.0.0",       # PDF generation from scratch
+    "pdfplumber>=0.11.0",     # text/table extraction from PDFs
+    "pdf2image>=1.17.0",      # PDF page -> PIL Image (needs poppler-utils)
 ]
 
 [project.optional-dependencies]
