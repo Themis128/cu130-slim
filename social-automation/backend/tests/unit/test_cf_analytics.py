@@ -90,7 +90,6 @@ async def test_vectorize_usage_no_nameerror_on_rows():
                                 "vectorsInserted": 3,
                             },
                             "dimensions": {
-                                "indexName": "brand-index",
                                 "datetime": "2026-09-13T00:00:00Z",
                             },
                         }
@@ -107,7 +106,7 @@ async def test_vectorize_usage_no_nameerror_on_rows():
     assert result["total_vectors_queried"] == 10
     assert result["total_vectors_inserted"] == 3
     assert result["total_queries"] == 13
-    assert result["by_index"][0]["index"] == "brand-index"
+    assert result["by_index"][0]["index"] == "2026-09-13T00:00:00Z"
     assert result["by_index"][0]["queries"] == 13
 
 

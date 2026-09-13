@@ -32,7 +32,12 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
-from app.services.messenger_chatbot import track_bot_reply
+from app.services.messenger_chatbot import (
+    _PRICING_RESPONSES,
+    _is_greek_message,
+    _is_pricing_question,
+    track_bot_reply,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -520,6 +525,28 @@ async def generate_contextual_reply(
     max_tokens = thread_config.get("max_tokens", config.get("max_tokens", 300))
     temperature = thread_config.get("temperature", config.get("temperature", 0.7))
     fallback = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
+
+    # Deterministic safeguard: intercept pricing questions before the LLM
+    # to prevent fabricated prices. The 8B model often invents specific euro
+    # amounts despite instructions not to. This guarantees a safe, grounded
+    # response for all pricing inquiries.
+    if _is_pricing_question(user_message):
+        disclosed = await has_disclosed(account_id, phone)
+        if not disclosed:
+            await mark_disclosed(account_id, phone)
+        lang = "greek" if _is_greek_message(user_message) else "english"
+        reply = _PRICING_RESPONSES[lang]
+        await track_bot_reply(
+            account_id, phone,
+            provider="deterministic",
+            model="pricing-guardrail",
+            user_message=user_message,
+            reply_text=reply,
+            guardrail_triggered="pricing",
+            language=lang,
+            intent=intent or "",
+        )
+        return reply
 
     # Build enhanced system prompt
     enhanced_prompt = system_prompt
