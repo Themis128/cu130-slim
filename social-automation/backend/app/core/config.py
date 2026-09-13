@@ -299,6 +299,16 @@ class Settings(BaseSettings):
     # Payload: {event: "lead.created", lead: {...}}
     LEAD_CREATED_WEBHOOK_URL: str = ""
 
+    # Optional: Cloudless app webhook for lead upserts (create or update).
+    # When set, SocialAuto POSTs a best-effort JSON payload after any lead create/update
+    # that actually changes persisted data.
+    #
+    # Env:
+    # - CLOUDLESS_LEADS_WEBHOOK_URL: e.g. https://cloudless.gr/api/webhooks/socialauto-leads
+    # - CLOUDLESS_LEADS_WEBHOOK_SECRET: sent as X-SocialAuto-Webhook-Secret
+    CLOUDLESS_LEADS_WEBHOOK_URL: str = ""
+    CLOUDLESS_LEADS_WEBHOOK_SECRET: str = ""
+
     # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
     # EMAIL_PROVIDER=smtp|local|cloudflare
     # smtp = Resend (same free relay as omv-ha mail); cloudflare = paid, unused

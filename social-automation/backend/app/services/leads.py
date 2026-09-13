@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import uuid
@@ -70,6 +71,58 @@ def coerce_interest(value: str | None) -> LeadInterest | None:
         if v == item.value:
             return item
     return None
+
+
+def _lead_payload(lead: Lead) -> dict[str, Any]:
+    return {
+        "id": str(lead.id),
+        "source": lead.source.value,
+        "name": lead.name,
+        "email": lead.email,
+        "interest": lead.interest.value if lead.interest else None,
+        "company_size": lead.company_size.value if lead.company_size else None,
+        "notes": lead.notes,
+        "thread_id": lead.thread_id,
+        "social_account_id": str(lead.social_account_id) if lead.social_account_id else None,
+        "meta_data": lead.meta_data or {},
+        "created_at": lead.created_at.isoformat() if getattr(lead, "created_at", None) else None,
+        "updated_at": lead.updated_at.isoformat() if getattr(lead, "updated_at", None) else None,
+    }
+
+
+def _fire_and_forget(coro, *, label: str) -> None:
+    """Schedule best-effort async work without blocking lead capture."""
+
+    async def _runner() -> None:
+        try:
+            await coro
+        except Exception:
+            logger.debug("%s failed (non-fatal)", label, exc_info=True)
+
+    try:
+        asyncio.create_task(_runner())
+    except RuntimeError:
+        # No running loop (shouldn't happen in FastAPI/Celery async paths).
+        logger.debug("%s skipped (no running event loop)", label)
+
+
+async def _post_cloudless_leads_webhook(payload: dict[str, Any]) -> None:
+    """Best-effort POST to the Cloudless app webhook, if configured."""
+    settings = get_settings()
+    webhook_url = (getattr(settings, "CLOUDLESS_LEADS_WEBHOOK_URL", "") or "").strip()
+    if not webhook_url:
+        return
+
+    secret = (getattr(settings, "CLOUDLESS_LEADS_WEBHOOK_SECRET", "") or "").strip()
+    headers: dict[str, str] = {}
+    if secret:
+        headers["X-SocialAuto-Webhook-Secret"] = secret
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(webhook_url, json=payload, headers=headers)
+    except Exception:
+        logger.debug("Cloudless leads webhook POST failed (non-fatal) url=%s", webhook_url, exc_info=True)
 
 
 async def upsert_lead(
@@ -150,6 +203,12 @@ async def upsert_lead(
             if changed:
                 existing.updated_at = datetime.now(UTC)
                 await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
             return existing
 
     if dedupe_on_email:
@@ -192,6 +251,12 @@ async def upsert_lead(
             if changed:
                 existing.updated_at = datetime.now(UTC)
                 await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
             return existing
 
     lead = Lead(
@@ -212,8 +277,15 @@ async def upsert_lead(
     db.add(lead)
     await db.commit()
 
+    payload = {
+        "event": "lead.upserted",
+        "operation": "created",
+        "lead": _lead_payload(lead),
+    }
+    _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+
     try:
-        await notify_lead_created(lead)
+        _fire_and_forget(notify_lead_created(lead), label="lead notifications")
     except Exception:
         logger.debug("Lead notifications failed (non-fatal)", exc_info=True)
 
@@ -286,6 +358,12 @@ async def create_lead(
             if changed:
                 existing.updated_at = datetime.now(UTC)
                 await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
             return existing
 
     lead = Lead(
@@ -306,9 +384,16 @@ async def create_lead(
     db.add(lead)
     await db.commit()
 
+    payload = {
+        "event": "lead.upserted",
+        "operation": "created",
+        "lead": _lead_payload(lead),
+    }
+    _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+
     # Non-blocking integrations.
     try:
-        await notify_lead_created(lead)
+        _fire_and_forget(notify_lead_created(lead), label="lead notifications")
     except Exception:
         logger.debug("Lead notifications failed (non-fatal)", exc_info=True)
 
