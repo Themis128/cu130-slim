@@ -29,6 +29,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token
 from app.models.social_account import SocialAccount
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -37,7 +38,8 @@ celery_app.set_current()
 logger = logging.getLogger(__name__)
 
 GRAPH_IG_URL = "https://graph.instagram.com"
-GRAPH_FB_URL = "https://graph.facebook.com"
+# Versioned Graph API base (Meta recommends explicit versioning).
+GRAPH_FB_URL = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
 REFRESH_THRESHOLD_DAYS = 5  # Refresh if token expires within 5 days
 
 

@@ -48,6 +48,7 @@ from app.services.instagram_private_api import (
 from app.services.instagrapi_client import InstagrapiClient, InstagrapiError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION, facebook_graph_url
 from app.services.spellcheck import auto_correct
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient
@@ -640,7 +641,7 @@ async def _facebook_page_token(user_token: str, page_id: str) -> str:
     """Return a Page access token for `page_id`, or fall back to `user_token`."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
-            "https://graph.facebook.com/me/accounts",
+            facebook_graph_url("me/accounts"),
             params={"access_token": user_token, "fields": "id,access_token"},
         )
     if resp.status_code != 200:
@@ -752,7 +753,7 @@ async def _publish_facebook(
             platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
         )
 
-    graph_base = "https://graph.facebook.com/v20.0"
+    graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
     async with httpx.AsyncClient(timeout=90.0) as client:
         # Upload each photo as unpublished, then publish as album/multi-photo
         photo_ids: list[str] = []
@@ -1160,7 +1161,7 @@ async def _publish_instagram_via_graph(
     if meta.get("account_type", "person") == "person" and not meta.get("ig_business_id"):
         async with httpx.AsyncClient(timeout=10.0) as probe:
             r = await probe.get(
-                f"https://graph.facebook.com/v20.0/{ig_user_id}",
+                facebook_graph_url(str(ig_user_id)),
                 params={"fields": "account_type", "access_token": access_token},
             )
             data = r.json()

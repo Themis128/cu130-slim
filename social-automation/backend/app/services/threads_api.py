@@ -27,6 +27,10 @@ from typing import Any
 import httpx
 
 THREADS_API_BASE = "https://graph.threads.net"
+# Threads API versions are documented separately from Graph API versioning.
+# Default to v1.0 per Meta Threads docs:
+# https://developers.facebook.com/documentation/threads/overview
+THREADS_API_VERSION = "v1.0"
 MAX_TEXT_CHARS = 500
 
 logger = logging.getLogger(__name__)
@@ -86,7 +90,7 @@ class ThreadsAPIClient:
         self,
         access_token: str,
         user_id: str,
-        api_version: str = "v1.0",
+        api_version: str = THREADS_API_VERSION,
     ):
         self.access_token = access_token
         self.user_id = str(user_id)

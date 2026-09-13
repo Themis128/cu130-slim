@@ -34,6 +34,8 @@ from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.facebook_api import _sanitize_log_text
 from app.services.whatsapp_api import (
+    DEFAULT_API_VERSION,
+    FACEBOOK_GRAPH_BASE,
     WhatsAppAPIClient,
     parse_webhook_event,
 )
@@ -1538,7 +1540,7 @@ async def request_phone_code(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"https://graph.facebook.com/v21.0/{phone_number_id}/request_code",
+            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/request_code",
             params={
                 "code_method": code_method,
                 "language": language,
@@ -1578,7 +1580,7 @@ async def verify_account_phone_code(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"https://graph.facebook.com/v21.0/{phone_number_id}/verify_code",
+            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/verify_code",
             params={"code": code, "access_token": token},
         )
 
@@ -1615,7 +1617,7 @@ async def register_account_phone(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"https://graph.facebook.com/v21.0/{phone_number_id}/register",
+            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}/register",
             json={
                 "messaging_product": "whatsapp",
                 "pin": pin,
@@ -1660,7 +1662,7 @@ async def get_phone_status(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
-            f"https://graph.facebook.com/v21.0/{phone_number_id}",
+            f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}",
             params={
                 "fields": "display_phone_number,quality_rating,code_verification_status",
                 "access_token": token,
@@ -1671,7 +1673,7 @@ async def get_phone_status(
         # Try without fields — some accounts don't support all fields
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
-                f"https://graph.facebook.com/v21.0/{phone_number_id}",
+                f"{FACEBOOK_GRAPH_BASE}/{DEFAULT_API_VERSION}/{phone_number_id}",
                 params={"access_token": token},
             )
 

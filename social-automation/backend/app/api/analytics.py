@@ -21,6 +21,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
 from app.services.analytics_sync import sync_team_analytics
 from app.services.linkedin_api import LinkedInAPIClient
+from app.services.meta_graph import facebook_graph_url
 from app.worker.tasks.analytics import sync_team_analytics_task
 
 router = APIRouter()
@@ -133,7 +134,7 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
         page_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://graph.facebook.com/v20.0/{page_id}",
+                facebook_graph_url(str(page_id)),
                 params={"fields": "followers_count,fan_count", "access_token": token},
             )
             if resp.status_code == 200:
@@ -154,7 +155,7 @@ async def _instagram_follower_count(account: SocialAccount) -> int:
         ig_user_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://graph.facebook.com/v20.0/{ig_user_id}",
+                facebook_graph_url(str(ig_user_id)),
                 params={"fields": "followers_count", "access_token": token},
             )
             if resp.status_code == 200:

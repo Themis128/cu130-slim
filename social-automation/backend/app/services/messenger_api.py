@@ -27,10 +27,10 @@ from typing import Any
 import httpx
 
 from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
 
-FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
-# Keep in sync with app/services/facebook_api.py to avoid version drift.
-DEFAULT_API_VERSION = "v25.0"
+# Backward-compatible alias; single source of truth is app.services.meta_graph.
+DEFAULT_API_VERSION = FACEBOOK_GRAPH_VERSION
 DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)

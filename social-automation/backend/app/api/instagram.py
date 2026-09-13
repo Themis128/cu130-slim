@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
+from app.services.meta_graph import facebook_graph_url
 
 router = APIRouter()
 
@@ -401,7 +402,7 @@ async def get_app_review_status(
                 if ig_user_id:
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         resp = await client.get(
-                            f"https://graph.facebook.com/v25.0/{ig_user_id}/conversations",
+                            facebook_graph_url(f"{ig_user_id}/conversations"),
                             params={
                                 "platform": "instagram",
                                 "access_token": token,

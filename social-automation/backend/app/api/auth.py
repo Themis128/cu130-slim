@@ -26,6 +26,7 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
+from app.services.meta_graph import facebook_graph_url
 
 settings = get_settings()
 
@@ -279,8 +280,8 @@ instagram_client = BaseOAuth2(
     settings.INSTAGRAM_CLIENT_ID,
     settings.INSTAGRAM_CLIENT_SECRET,
     authorize_endpoint="https://www.facebook.com/dialog/oauth",
-    access_token_endpoint="https://graph.facebook.com/oauth/access_token",
-    refresh_token_endpoint="https://graph.facebook.com/oauth/access_token",
+    access_token_endpoint=facebook_graph_url("oauth/access_token"),
+    refresh_token_endpoint=facebook_graph_url("oauth/access_token"),
     base_scopes=["instagram_basic", "instagram_content_publish", "pages_show_list"],
     name="instagram",
 )
@@ -1161,7 +1162,7 @@ async def oauth_callback(
             scopes = ["tweet.read", "tweet.write", "users.read"]
         elif platform == "facebook":
             resp = await http.get(
-                "https://graph.facebook.com/me",
+                facebook_graph_url("me"),
                 headers=headers,
                 params={"fields": "id,name,email,picture"},
             )
@@ -1171,7 +1172,7 @@ async def oauth_callback(
 
             # Exchange short-lived user token for long-lived token (~60 days)
             ll_resp = await http.get(
-                "https://graph.facebook.com/oauth/access_token",
+                facebook_graph_url("oauth/access_token"),
                 params={
                     "grant_type": "fb_exchange_token",
                     "client_id": settings.FACEBOOK_CLIENT_ID,
@@ -1184,7 +1185,7 @@ async def oauth_callback(
 
             # Fetch managed pages — page tokens are permanent and required for posting
             pages_resp = await http.get(
-                "https://graph.facebook.com/me/accounts",
+                facebook_graph_url("me/accounts"),
                 params={"fields": "id,name,access_token,picture,category", "access_token": long_lived_token},
             )
             pages = pages_resp.json().get("data", [])
@@ -1221,7 +1222,7 @@ async def oauth_callback(
             if original_platform == "whatsapp":
                 # Get the user's businesses (WABA is nested under business)
                 biz_resp = await http.get(
-                    "https://graph.facebook.com/v25.0/me/businesses",
+                    facebook_graph_url("me/businesses"),
                     params={"access_token": long_lived_token, "fields": "id,name"},
                 )
                 businesses = biz_resp.json().get("data", [])
@@ -1232,7 +1233,7 @@ async def oauth_callback(
                     biz_id = biz["id"]
                     # Try to get the WABA for this business
                     waba_resp = await http.get(
-                        f"https://graph.facebook.com/v25.0/{biz_id}/owned_whatsapp_business_accounts",
+                        facebook_graph_url(f"{biz_id}/owned_whatsapp_business_accounts"),
                         params={"access_token": long_lived_token},
                     )
                     if waba_resp.status_code == 200:
@@ -1241,7 +1242,7 @@ async def oauth_callback(
                             waba_id = waba_data[0]["id"]
                             # Get phone numbers for this WABA
                             phones_resp = await http.get(
-                                f"https://graph.facebook.com/v25.0/{waba_id}/phone_numbers",
+                                facebook_graph_url(f"{waba_id}/phone_numbers"),
                                 params={
                                     "access_token": long_lived_token,
                                     "fields": "id,display_phone_number,verified_name,quality_rating",
@@ -1329,12 +1330,16 @@ async def oauth_callback(
             avatar_url = user_info.get("threads_profile_picture_url")
             scopes = ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"]
         elif platform == "instagram":
-            resp = await http.get("https://graph.facebook.com/me", headers=headers, params={"fields": "id,name,picture"})
+            resp = await http.get(
+                facebook_graph_url("me"),
+                headers=headers,
+                params={"fields": "id,name,picture"},
+            )
             fb_info = resp.json()
 
             # Exchange for long-lived token (~60 days)
             ll_resp = await http.get(
-                "https://graph.facebook.com/oauth/access_token",
+                facebook_graph_url("oauth/access_token"),
                 params={
                     "grant_type": "fb_exchange_token",
                     "client_id": settings.FACEBOOK_CLIENT_ID,
@@ -1346,7 +1351,7 @@ async def oauth_callback(
 
             # Fetch all pages with page tokens + IG business account link
             ig_resp = await http.get(
-                "https://graph.facebook.com/me/accounts",
+                facebook_graph_url("me/accounts"),
                 params={
                     "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
                     "access_token": long_lived_token,
@@ -1367,7 +1372,7 @@ async def oauth_callback(
                 for page in ig_data.get("data", []):
                     pt = page.get("access_token", long_lived_token)
                     pbi_resp = await http.get(
-                        f"https://graph.facebook.com/{page['id']}/page_backed_instagram_accounts",
+                        facebook_graph_url(f"{page['id']}/page_backed_instagram_accounts"),
                         params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": pt},
                     )
                     for acct in pbi_resp.json().get("data", []):
@@ -1381,12 +1386,12 @@ async def oauth_callback(
             # Fallback: check Business Manager owned pages
             if not ig_account:
                 biz_resp = await http.get(
-                    "https://graph.facebook.com/me/businesses",
+                    facebook_graph_url("me/businesses"),
                     params={"access_token": long_lived_token},
                 )
                 for biz in biz_resp.json().get("data", []):
                     biz_ig = await http.get(
-                        f"https://graph.facebook.com/{biz['id']}/instagram_accounts",
+                        facebook_graph_url(f"{biz['id']}/instagram_accounts"),
                         params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": long_lived_token},
                     )
                     for acct in biz_ig.json().get("data", []):

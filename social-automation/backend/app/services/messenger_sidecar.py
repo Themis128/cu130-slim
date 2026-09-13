@@ -30,6 +30,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("messenger-sidecar")
 
@@ -56,7 +58,7 @@ _seen_message_ids: deque = deque(maxlen=10000)  # idempotency
 
 # Facebook object ids are numeric (optional underscore compound ids).
 _FB_ID_RE = re.compile(r"^[0-9]{1,64}(_[0-9]{1,64})?$")
-_GRAPH_MESSAGES_TMPL = "https://graph.facebook.com/v25.0/{page_id}/messages"
+_GRAPH_MESSAGES_TMPL = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}" + "/{page_id}/messages"
 
 
 def _sanitize_log_text(text: str, max_len: int = 200) -> str:
