@@ -91,12 +91,16 @@ processing, and unified MCP tool access across both channels.
   │  └──────────────────────────────────────────────────────────┘    │
   │                                                                  │
   │  ┌─ English / other ─────────────────────────────────────────┐    │
-  │  │  DMR (Llama 3.2, local, free, private)  ← primary         │    │
+  │  │  Cloudflare Workers AI (Llama 3.1 8B)  ← primary         │    │
   │  │    ↓ on failure                                          │    │
-  │  │  Cloudflare Workers AI (Llama 3.1 8B)                    │    │
+  │  │  DMR (Llama 3.2 / Qwen3 8B, local, free, private)         │    │
   │  │    ↓ on failure                                          │    │
   │  │  Static fallback text (with bot disclosure)              │    │
   │  └──────────────────────────────────────────────────────────┘    │
+  │                                                                  │
+  │  Deterministic safeguards (before LLM):                          │
+  │    Pricing questions → hardcoded response (no LLM)               │
+  │    Brand voice rules → injected from Brand system API            │
   │                                                                  │
   │  DMR config (RTX 3070 8GB VRAM):                                │
   │    llama3.2:   ctx=8192, flash-attn=on, n-gpu-layers=99         │
@@ -184,7 +188,9 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 │  │        - Check human handoff pause                           │   │
 │  │        - Detect intent (DMR→CF fallback)                    │   │
 │  │        - Retrieve brand context (RAG) + memory              │   │
-│  │        - Generate reply (Greek→CF, English→DMR)             │   │
+│  │        - Check deterministic pricing safeguard              │   │
+│  │        - Inject brand voice rules (Brand system API)        │   │
+│  │        - Generate reply (CF Workers AI → DMR → static)      │   │
 │  │        - Send typing indicator (natural delay)              │   │
 │  │        - Send reply via browser bridge                       │   │
 │  │        - Store in memory (ChromaDB) + set cooldown          │   │
