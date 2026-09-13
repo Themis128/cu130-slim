@@ -20,8 +20,8 @@ import logging
 import re
 from typing import Any
 
-from app.services.facebook_api import _sanitize_log_text, _validate_id
-from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
+from app.services.facebook_api import _validate_id
+from app.services.meta_graph import FACEBOOK_GRAPH_VERSION
 from app.services.whatsapp_cloud_client import (
     WhatsAppCloudClient,
     WhatsAppPhoneVerificationError,

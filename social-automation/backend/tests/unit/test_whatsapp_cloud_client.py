@@ -1,8 +1,9 @@
-import pytest
 from unittest.mock import patch
 
-from app.services.whatsapp_api import WhatsAppAPIClient
+import pytest
+
 from app.services import whatsapp_cloud_client as wac
+from app.services.whatsapp_api import WhatsAppAPIClient
 
 
 class _FakeResponse:
@@ -125,6 +126,7 @@ async def test_request_verification_code_surfaces_136024_with_rate_limit():
     fake = _FakeAsyncClient(
         [
             _FakeResponse(500, {"error": {"message": "upstream error", "type": "Server", "code": 1, "fbtrace_id": "t0"}}),
+            _FakeResponse(200, {"id": "105954558954427"}),  # fallback GET without fields
             _FakeResponse(
                 400,
                 {

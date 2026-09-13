@@ -34,8 +34,6 @@ from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.facebook_api import _sanitize_log_text
 from app.services.whatsapp_api import (
-    DEFAULT_API_VERSION,
-    FACEBOOK_GRAPH_BASE,
     WhatsAppAPIClient,
     parse_webhook_event,
 )

@@ -21,7 +21,7 @@ from typing import Any, TypedDict
 
 import httpx
 
-from app.services.facebook_api import _sanitize_log_text, _validate_id
+from app.services.facebook_api import _sanitize_log_text
 from app.services.meta_graph import FACEBOOK_GRAPH_VERSION, facebook_graph_url
 
 logger = logging.getLogger(__name__)
