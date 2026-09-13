@@ -37,10 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.services.browser_bridge import BrowserBridgeClient
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
-from app.services.instagram_api import InstagramAPIClient, InstagramAPIError, InstagramWebDMClient, InstagramWebDMClient
+from app.services.browser_bridge import BrowserBridgeClient
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.messenger_chatbot import (
     check_cooldown,
     detect_intent,
@@ -378,11 +378,15 @@ async def _process_account(
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
             # 9. Send reply via Instagram Messaging API
-            await client.send_dm(recipient_id, reply_text)
+            if client is not None:
+                await client.send_dm(recipient_id, reply_text)
+            elif bridge is not None:
+                await bridge.send_instagram_dm_message(recipient_id, reply_text)
 
             # 10. Mark conversation as read
             try:
-                await client.mark_dm_read(convo_id)
+                if client is not None:
+                    await client.mark_dm_read(convo_id)
             except Exception:
                 pass  # Non-fatal
 

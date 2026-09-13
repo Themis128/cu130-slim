@@ -1682,7 +1682,11 @@ class BrowserBridgeClient:
                             "content-type": "application/x-www-form-urlencoded",
                         }},
                         credentials: "include",
-                        body: "recipient_users=%5B%22{recipient_id}%22%5D&client_context=%7B%22mutation_token%22%3A%22{client_context}%22%7D&text={encoded_text}&action=send_item&entry=inbox"
+                        body: "recipient_users=%5B%22{recipient_id}%22%5D"
+                            + "&client_context=%7B%22mutation_token%22%3A%22"
+                            + "{client_context}%22%7D"
+                            + "&text={encoded_text}"
+                            + "&action=send_item&entry=inbox"
                     }}
                 );
                 if (!resp.ok) return {{error: "HTTP " + resp.status}};
