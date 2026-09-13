@@ -108,6 +108,8 @@ export default function WhatsAppPage() {
       {selectedAccountId ? (
         <>
           <SetupStatusCard accountId={selectedAccountId} />
+          <CredentialsCard accountId={selectedAccountId} />
+          <PhoneRegistrationCard accountId={selectedAccountId} />
           <BusinessProfileCard accountId={selectedAccountId} />
           <SendMessageCard accountId={selectedAccountId} />
           <AutoReplyCard accountId={selectedAccountId} />
@@ -137,6 +139,26 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
 
   const status = data?.data
   const isConfigured = status?.has_credentials && status?.webhook_subscribed
+  const tokenExpired = status?.has_credentials && !status?.can_send_messages
+
+  // Reconnect via Facebook OAuth
+  const reconnectMutation = useMutation({
+    mutationFn: async () => {
+      const resp = await accountsApi.connect('whatsapp', '')
+      return resp.data
+    },
+    onSuccess: (data: { authorization_url?: string }) => {
+      if (data?.authorization_url) {
+        window.location.href = data.authorization_url
+      }
+    },
+  })
+
+  // Subscribe to webhooks
+  const subscribeMutation = useMutation({
+    mutationFn: () => whatsappApi.subscribeWebhooks({ waba_id: status?.waba_id || '' }),
+    onSuccess: () => refetch(),
+  })
 
   return (
     <Card>
@@ -182,6 +204,61 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
                   <span className="text-muted-foreground">— {status.verified_name}</span>
                 )}
               </div>
+            )}
+            {status?.next_step && (
+              <div className="flex items-start gap-2 text-sm pt-2 border-t">
+                <AlertCircle className="h-4 w-4 text-yellow-500 mt-0.5" />
+                <div>
+                  <span className="font-medium">Next step:</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">{status.next_step}</p>
+                </div>
+              </div>
+            )}
+            {tokenExpired && (
+              <div className="flex items-start gap-2 text-sm pt-2 border-t">
+                <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-medium text-red-600">Token expired or invalid</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    The access token is expired or the user logged out. Reconnect via Facebook OAuth
+                    or paste a new permanent System User token below.
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                size="sm"
+                onClick={() => reconnectMutation.mutate()}
+                disabled={reconnectMutation.isPending}
+              >
+                {reconnectMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                Reconnect via Facebook
+              </Button>
+              {!status?.webhook_subscribed && status?.waba_id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => subscribeMutation.mutate()}
+                  disabled={subscribeMutation.isPending}
+                >
+                  {subscribeMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Globe className="h-4 w-4 mr-1" />
+                  )}
+                  Subscribe Webhooks
+                </Button>
+              )}
+            </div>
+            {reconnectMutation.isError && (
+              <p className="text-sm text-red-600">
+                Reconnect failed: {reconnectMutation.error instanceof Error ? reconnectMutation.error.message : 'Unknown error'}
+              </p>
             )}
           </div>
         )}
@@ -312,6 +389,206 @@ function CredentialsCard({ accountId }: { accountId: string }) {
             <p className="text-sm text-green-600">Credentials saved successfully</p>
           )}
         </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ------------------------------------------------------------------
+// Phone Registration Card (4-step flow)
+// ------------------------------------------------------------------
+
+function PhoneRegistrationCard({ accountId }: { accountId: string }) {
+  const queryClient = useQueryClient()
+  const { data: statusData } = useQuery({
+    queryKey: ['whatsapp-setup-status', accountId],
+    queryFn: () => whatsappApi.getSetupStatus(accountId),
+    refetchInterval: 30000,
+  })
+  const status = statusData?.data
+  const isRegistered = status?.phone_number_registered
+
+  const [step, setStep] = useState<'idle' | 'request' | 'verify' | 'register' | 'done'>('idle')
+  const [codeMethod, setCodeMethod] = useState('SMS')
+  const [language, setLanguage] = useState('en_US')
+  const [code, setCode] = useState('')
+  const [pin, setPin] = useState('')
+
+  const requestCodeMutation = useMutation({
+    mutationFn: () => whatsappApi.requestPhoneCode(accountId, { code_method: codeMethod, language }),
+    onSuccess: () => setStep('verify'),
+  })
+
+  const verifyCodeMutation = useMutation({
+    mutationFn: () => whatsappApi.verifyPhoneCode(accountId, { code }),
+    onSuccess: () => setStep('register'),
+  })
+
+  const registerMutation = useMutation({
+    mutationFn: () => whatsappApi.registerPhone(accountId, { pin }),
+    onSuccess: () => {
+      setStep('done')
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-setup-status', accountId] })
+    },
+  })
+
+  if (isRegistered) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Phone className="h-4 w-4" />
+            Phone Registration
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <span className="font-medium text-green-600">Phone number registered and ready</span>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Phone className="h-4 w-4" />
+          Phone Registration
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-start gap-2 text-sm">
+          <AlertCircle className="h-4 w-4 text-yellow-500 mt-0.5" />
+          <div>
+            <span className="font-medium">Phone number not registered</span>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Complete the 3-step registration flow to enable sending messages.
+              You'll receive a verification code via SMS or voice call.
+            </p>
+          </div>
+        </div>
+
+        {step === 'idle' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium">Code Method</label>
+                <select
+                  value={codeMethod}
+                  onChange={(e) => setCodeMethod(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border bg-card text-sm"
+                >
+                  <option value="SMS">SMS</option>
+                  <option value="VOICE">Voice Call</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Language</label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border bg-card text-sm"
+                >
+                  <option value="en_US">English</option>
+                  <option value="el_GR">Greek</option>
+                </select>
+              </div>
+            </div>
+            <Button
+              onClick={() => requestCodeMutation.mutate()}
+              disabled={requestCodeMutation.isPending}
+            >
+              {requestCodeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Phone className="h-4 w-4 mr-2" />}
+              Request Verification Code
+            </Button>
+            {requestCodeMutation.isError && (
+              <p className="text-sm text-red-600">
+                Error: {requestCodeMutation.error instanceof Error ? requestCodeMutation.error.message : 'Failed to request code'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'verify' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Enter the 6-digit verification code sent to your phone ({status?.display_phone_number}).
+            </p>
+            <div>
+              <label className="text-sm font-medium">Verification Code</label>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="123456"
+                maxLength={6}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => verifyCodeMutation.mutate()}
+                disabled={verifyCodeMutation.isPending || code.length < 6}
+              >
+                {verifyCodeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Verify Code
+              </Button>
+              <Button variant="outline" onClick={() => setStep('idle')}>
+                Back
+              </Button>
+            </div>
+            {verifyCodeMutation.isError && (
+              <p className="text-sm text-red-600">
+                Error: {verifyCodeMutation.error instanceof Error ? verifyCodeMutation.error.message : 'Verification failed'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'register' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Enter your 6-digit two-step verification PIN to complete registration.
+            </p>
+            <div>
+              <label className="text-sm font-medium">2-Step Verification PIN</label>
+              <Input
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="123456"
+                maxLength={6}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => registerMutation.mutate()}
+                disabled={registerMutation.isPending || pin.length !== 6}
+              >
+                {registerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Register Number
+              </Button>
+              <Button variant="outline" onClick={() => setStep('verify')}>
+                Back
+              </Button>
+            </div>
+            {registerMutation.isError && (
+              <p className="text-sm text-red-600">
+                Error: {registerMutation.error instanceof Error ? registerMutation.error.message : 'Registration failed'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'done' && (
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <span className="font-medium text-green-600">Phone number registered successfully!</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
