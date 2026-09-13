@@ -566,6 +566,164 @@ export const messengerApi = {
     api.get(`/messenger/${accountId}/bot/personalities`),
 }
 
+// WhatsApp Business Cloud API endpoints
+export const whatsappApi = {
+  // Setup & credentials
+  setup: (accountId: string, data?: { greeting_text?: string }) =>
+    api.post(`/whatsapp/${accountId}/setup`, data || {}),
+  updateCredentials: (accountId: string, data: {
+    access_token: string
+    phone_number_id: string
+    waba_id?: string
+    display_phone_number?: string
+    subscribe_webhooks?: boolean
+  }) => api.put(`/whatsapp/${accountId}/credentials`, data),
+  getSetupStatus: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/setup-status`),
+
+  // Business profile
+  getProfile: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/profile`),
+  updateProfile: (accountId: string, data: {
+    about?: string
+    address?: string
+    description?: string
+    email?: string
+    websites?: string[]
+    vertical?: string
+  }) => api.put(`/whatsapp/${accountId}/profile`, data),
+
+  // Phone number registration (4-step flow)
+  createNumber: (data: { waba_id: string; cc: string; phone_number: string; verified_name: string }) =>
+    api.post('/whatsapp/register/create-number', data),
+  requestCode: (data: { phone_number_id: string; code_method?: string; language?: string }) =>
+    api.post('/whatsapp/register/request-code', data),
+  verifyCode: (data: { phone_number_id: string; code: string }) =>
+    api.post('/whatsapp/register/verify-code', data),
+  registerNumber: (data: { phone_number_id: string; pin: string }) =>
+    api.post('/whatsapp/register/number', data),
+  deregisterNumber: (data: { phone_number_id: string }) =>
+    api.post('/whatsapp/register/deregister', data),
+
+  // Per-account phone registration
+  requestPhoneCode: (accountId: string, data: { code_method?: string; language?: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/request-code`, data),
+  verifyPhoneCode: (accountId: string, data: { code: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/verify-code`, data),
+  registerPhone: (accountId: string, data: { pin: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/register`, data),
+  getPhoneStatus: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/phone/status`),
+
+  // Webhook subscriptions
+  subscribeWebhooks: (data: { waba_id: string }) =>
+    api.post('/whatsapp/webhooks/subscribe', data),
+  getWebhookSubscriptions: (wabaId: string) =>
+    api.get(`/whatsapp/webhooks/subscriptions/${wabaId}`),
+  unsubscribeWebhooks: (data: { waba_id: string }) =>
+    api.delete('/whatsapp/webhooks/subscribe', { params: data }),
+
+  // Messaging
+  sendMessage: (accountId: string, data: {
+    to: string
+    text?: string
+    image_url?: string
+    document_url?: string
+    filename?: string
+    caption?: string
+    preview_url?: boolean
+    messaging_type?: string
+  }) => api.post(`/whatsapp/${accountId}/send`, data),
+  sendTemplate: (accountId: string, data: {
+    to: string
+    template_name: string
+    language_code?: string
+    components?: unknown[]
+  }) => api.post(`/whatsapp/${accountId}/send-template`, data),
+
+  // AI auto-reply
+  getAutoReply: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/auto-reply`),
+  updateAutoReply: (accountId: string, data: {
+    enabled: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+  }) => api.put(`/whatsapp/${accountId}/auto-reply`, data),
+
+  // Bot management
+  createBot: (accountId: string, data: { name?: string; personality?: string; language?: string; custom_prompt?: string }) =>
+    api.post(`/whatsapp/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/bot`),
+  updateBot: (accountId: string, data: {
+    name?: string
+    enabled?: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+    temperature?: number
+    cooldown_seconds?: number
+    business_hours_start?: string | null
+    business_hours_end?: string | null
+    reply_to_spam?: boolean
+    reply_to_greetings?: boolean
+    quick_replies?: unknown[]
+  }) => api.put(`/whatsapp/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/bot/deactivate`),
+  getBotPersonalities: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/bot/personalities`),
+
+  // Thread management
+  pauseThread: (accountId: string, data: { phone: string }) =>
+    api.post(`/whatsapp/${accountId}/threads/pause`, data),
+  resumeThread: (accountId: string, data: { phone: string }) =>
+    api.post(`/whatsapp/${accountId}/threads/resume`, data),
+  getThreadConfig: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/config`),
+  updateThreadConfig: (accountId: string, phone: string, data: Record<string, unknown>) =>
+    api.put(`/whatsapp/${accountId}/threads/${phone}/config`, data),
+  getThreadMemory: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/memory`),
+  getThreadWindow: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/window`),
+
+  // Brand indexing for RAG
+  indexBrand: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/index-brand`),
+
+  // WhatsApp Flows
+  listFlows: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/flows`),
+  getFlow: (accountId: string, flowId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/${flowId}`),
+  createFlow: (accountId: string, data: { name: string; categories: string[]; endpoint_uri?: string }) =>
+    api.post(`/whatsapp/${accountId}/flows`, data),
+  updateFlow: (accountId: string, flowId: string, data: { name?: string; categories?: string[]; endpoint_uri?: string }) =>
+    api.put(`/whatsapp/${accountId}/flows/${flowId}`, data),
+  updateFlowJson: (accountId: string, flowId: string, data: Record<string, unknown>) =>
+    api.put(`/whatsapp/${accountId}/flows/${flowId}/json`, data),
+  getFlowJson: (accountId: string, flowId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/${flowId}/json`),
+  validateFlow: (accountId: string, flowId: string) =>
+    api.post(`/whatsapp/${accountId}/flows/${flowId}/validate`),
+  publishFlow: (accountId: string, flowId: string) =>
+    api.post(`/whatsapp/${accountId}/flows/${flowId}/publish`),
+  deleteFlow: (accountId: string, flowId: string) =>
+    api.delete(`/whatsapp/${accountId}/flows/${flowId}`),
+  sendFlow: (accountId: string, data: { to: string; flow_id: string; flow_token: string; flow_action?: string; flow_action_payload?: Record<string, unknown> }) =>
+    api.post(`/whatsapp/${accountId}/flows/send`, data),
+  listFlowTemplates: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/templates/list`),
+  createFlowFromTemplate: (accountId: string, data: { template_id: string; name: string }) =>
+    api.post(`/whatsapp/${accountId}/flows/from-template`, data),
+}
+
 // Publishing endpoints
 export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
