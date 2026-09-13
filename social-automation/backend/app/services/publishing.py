@@ -1398,7 +1398,7 @@ async def _publish_instagram(
             graph_token, text, account, post, media_paths, storage_paths,
         )
 
-    # 4. Graph API (last resort)
+    # 5. Facebook Login Graph API (last resort)
     graph_token = await _resolve_ig_user_token(access_token, account, db)
     return await _publish_instagram_via_graph(
         graph_token, text, account, post, media_paths, storage_paths,
