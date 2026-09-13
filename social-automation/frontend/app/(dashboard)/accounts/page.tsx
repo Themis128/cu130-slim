@@ -695,104 +695,143 @@ export default function AccountsPage() {
                             Token expires in {status.daysLeft} day{status.daysLeft !== 1 ? 's' : ''} — reconnect soon
                           </div>
                         )}
-                        {/* Show ALL connected accounts for this platform */}
-                        <div className="space-y-3">
-                          {status.accounts.map((acct: SocialAccount) => {
-                            const acctExpired = acct.token_expires_at && new Date(acct.token_expires_at) < new Date()
-                            const acctExpiringSoon = acct.token_expires_at && !acctExpired && Math.ceil((new Date(acct.token_expires_at).getTime() - Date.now()) / 86400000) <= EXPIRY_WARN_DAYS
-                            return (
-                              <div key={acct.id} className="space-y-2 text-sm border-b last:border-b-0 pb-3 last:pb-0">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-muted-foreground">Account</span>
-                                  <span className="font-medium truncate max-w-[150px]">
-                                    {acct.username || acct.display_name || 'Connected'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span className="text-muted-foreground">Type</span>
-                                  <div className="flex items-center gap-1.5">
-                                    {acct.is_business && (
-                                      <Badge variant="secondary" className="text-[10px]">
-                                        {acct.account_type === 'organization' ? 'Business' :
-                                         acct.account_type === 'page' ? 'Page' :
-                                         acct.account_type === 'business' ? 'Business' :
-                                         acct.account_type === 'creator' ? 'Creator' : 'Business'}
-                                      </Badge>
+                        {/* Show connected accounts separated by Business / Personal */}
+                        <div className="space-y-4">
+                          {(() => {
+                            const businessAccts = status.accounts.filter((a: SocialAccount) => a.is_business)
+                            const personalAccts = status.accounts.filter((a: SocialAccount) => !a.is_business)
+
+                            const renderAccount = (acct: SocialAccount) => {
+                              const acctExpired = acct.token_expires_at && new Date(acct.token_expires_at) < new Date()
+                              const acctExpiringSoon = acct.token_expires_at && !acctExpired && Math.ceil((new Date(acct.token_expires_at).getTime() - Date.now()) / 86400000) <= EXPIRY_WARN_DAYS
+                              return (
+                                <div key={acct.id} className="space-y-2 text-sm border-b last:border-b-0 pb-3 last:pb-0">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Account</span>
+                                    <span className="font-medium truncate max-w-[150px]">
+                                      {acct.username || acct.display_name || 'Connected'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Type</span>
+                                    <div className="flex items-center gap-1.5">
+                                      {acct.is_business && (
+                                        <Badge variant="secondary" className="text-[10px]">
+                                          {acct.account_type === 'organization' ? 'Business' :
+                                           acct.account_type === 'page' ? 'Page' :
+                                           acct.account_type === 'business' ? 'Business' :
+                                           acct.account_type === 'creator' ? 'Creator' : 'Business'}
+                                        </Badge>
+                                      )}
+                                      {!acct.is_business && (
+                                        <Badge variant="outline" className="text-[10px]">Personal</Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Status</span>
+                                    <Badge variant={acctExpired ? 'destructive' : acctExpiringSoon ? 'outline' : 'success'}>
+                                      {acctExpired ? 'Expired' : acctExpiringSoon ? `${Math.ceil((new Date(acct.token_expires_at!).getTime() - Date.now()) / 86400000)}d left` : 'Active'}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    {!acct.is_business && ['facebook', 'instagram', 'linkedin'].includes(platform.id) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={() => handleSyncBusiness(acct.id, platform.name)}
+                                        disabled={syncBusinessMutation.isPending}
+                                      >
+                                        {syncBusinessMutation.isPending ? (
+                                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Building2 className="mr-1.5 h-3.5 w-3.5" />
+                                        )}
+                                        Sync Business
+                                      </Button>
                                     )}
-                                    {!acct.is_business && (
-                                      <Badge variant="outline" className="text-[10px]">Personal</Badge>
+                                    {(acctExpired || acctExpiringSoon) && (
+                                      <Button
+                                        size="sm"
+                                        className="flex-1"
+                                        onClick={() => handleConnect(platform.id)}
+                                        disabled={connectingPlatform === platform.id}
+                                      >
+                                        {connectingPlatform === platform.id
+                                          ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                          : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                        }
+                                        Reconnect
+                                      </Button>
                                     )}
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="flex-1"
+                                      onClick={() => handleDisconnect(acct.id, platform.name)}
+                                      disabled={disconnectMutation.isPending}
+                                    >
+                                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                      Disconnect
+                                    </Button>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="flex-1"
+                                      onClick={() => setSelectedProfileAccount(acct)}
+                                    >
+                                      <User className="mr-1.5 h-3.5 w-3.5" />
+                                      Edit Profile
+                                    </Button>
                                   </div>
                                 </div>
-                                <div className="flex items-center justify-between">
-                                  <span className="text-muted-foreground">Status</span>
-                                  <Badge variant={acctExpired ? 'destructive' : acctExpiringSoon ? 'outline' : 'success'}>
-                                    {acctExpired ? 'Expired' : acctExpiringSoon ? `${Math.ceil((new Date(acct.token_expires_at!).getTime() - Date.now()) / 86400000)}d left` : 'Active'}
-                                  </Badge>
-                                </div>
-                                <div className="flex gap-2">
-                                  {!acct.is_business && ['facebook', 'instagram', 'linkedin'].includes(platform.id) && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="flex-1"
-                                      onClick={() => handleSyncBusiness(acct.id, platform.name)}
-                                      disabled={syncBusinessMutation.isPending}
-                                    >
-                                      {syncBusinessMutation.isPending ? (
-                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <Building2 className="mr-1.5 h-3.5 w-3.5" />
-                                      )}
-                                      Sync Business
-                                    </Button>
-                                  )}
-                                  {(acctExpired || acctExpiringSoon) && (
-                                    <Button
-                                      size="sm"
-                                      className="flex-1"
-                                      onClick={() => handleConnect(platform.id)}
-                                      disabled={connectingPlatform === platform.id}
-                                    >
-                                      {connectingPlatform === platform.id
-                                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                        : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                                      }
-                                      Reconnect
-                                    </Button>
-                                  )}
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    onClick={() => handleDisconnect(acct.id, platform.name)}
-                                    disabled={disconnectMutation.isPending}
-                                  >
-                                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                                    Disconnect
-                                  </Button>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="flex-1"
-                                    onClick={() => setSelectedProfileAccount(acct)}
-                                  >
-                                    <User className="mr-1.5 h-3.5 w-3.5" />
-                                    Edit Profile
-                                  </Button>
-                                </div>
-                              </div>
+                              )
+                            }
+
+                            return (
+                              <>
+                                {/* Business / Page accounts */}
+                                {businessAccts.length > 0 && (
+                                  <div>
+                                    <div className="flex items-center gap-1.5 mb-2 pb-1 border-b">
+                                      <Building2 className="h-3.5 w-3.5 text-primary" />
+                                      <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                                        Business / Page ({businessAccts.length})
+                                      </span>
+                                    </div>
+                                    <div className="space-y-3">
+                                      {businessAccts.map(renderAccount)}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Personal accounts */}
+                                {personalAccts.length > 0 && (
+                                  <div>
+                                    <div className="flex items-center gap-1.5 mb-2 pb-1 border-b">
+                                      <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Personal ({personalAccts.length})
+                                      </span>
+                                    </div>
+                                    <div className="space-y-3">
+                                      {personalAccts.map(renderAccount)}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
                             )
-                          })}
+                          })()}
                         </div>
                         {/* Always show "Add another" button so admin can connect more accounts */}
-                        <div className="mt-3">
+                        <div className="mt-3 flex gap-2">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full"
+                            className="flex-1"
                             onClick={() => handleConnect(platform.id)}
                             disabled={isConnecting || connectMutation.isPending}
                           >
@@ -839,28 +878,43 @@ export default function AccountsPage() {
                         })()}
                       </>
                     ) : (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-muted-foreground mb-1">Not connected yet</p>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Click Connect to sign in. If you hit a credentials error, open Setup (advanced).
+                      <div className="space-y-3 py-2">
+                        <p className="text-sm text-muted-foreground text-center">
+                          Not connected yet
                         </p>
-                        <Button
-                          className="w-full"
-                          onClick={() => handleConnect(platform.id)}
-                          disabled={isConnecting || connectMutation.isPending}
-                        >
-                          {isConnecting ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Connecting…
-                            </>
-                          ) : (
-                            <>
-                              <Icon className="mr-2 h-4 w-4" />
-                              Connect {platform.name}
-                            </>
-                          )}
-                        </Button>
+                        <p className="text-xs text-muted-foreground text-center">
+                          Sign in with your personal or business account. After connecting, you can sync business pages.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            className="flex-col h-auto py-2"
+                            onClick={() => handleConnect(platform.id)}
+                            disabled={isConnecting || connectMutation.isPending}
+                          >
+                            {isConnecting ? (
+                              <Loader2 className="h-4 w-4 mb-1 animate-spin" />
+                            ) : (
+                              <User className="h-4 w-4 mb-1" />
+                            )}
+                            <span className="text-xs">Personal</span>
+                          </Button>
+                          <Button
+                            className="flex-col h-auto py-2"
+                            onClick={() => handleConnect(platform.id)}
+                            disabled={isConnecting || connectMutation.isPending}
+                          >
+                            {isConnecting ? (
+                              <Loader2 className="h-4 w-4 mb-1 animate-spin" />
+                            ) : (
+                              <Building2 className="h-4 w-4 mb-1" />
+                            )}
+                            <span className="text-xs">Business / Page</span>
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground text-center">
+                          Both use the same {platform.name} sign-in. The account type is detected after login.
+                        </p>
                       </div>
                     )}
                   </CardContent>
