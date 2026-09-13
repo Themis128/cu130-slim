@@ -134,6 +134,8 @@ For organic capture, prefer **Page CTA** that opens Messenger (or WhatsApp) rath
 Environment variables (all optional):
 
 - `LEAD_CREATED_WEBHOOK_URL`: POST a `lead.created` JSON payload to an external workflow (ideal for n8n).
+- `CLOUDLESS_LEADS_WEBHOOK_URL`: POST a `lead.upserted` JSON payload (create or update) to the Cloudless app.
+- `CLOUDLESS_LEADS_WEBHOOK_SECRET`: sent as `X-SocialAuto-Webhook-Secret` when posting to `CLOUDLESS_LEADS_WEBHOOK_URL`.
 - `SLACK_LEADS_WEBHOOK_URL`: Incoming Slack webhook for lead notifications.
 - `SLACK_LEADS_CHANNEL_ID`: Slack channel id when posting via token (fallback).
 
