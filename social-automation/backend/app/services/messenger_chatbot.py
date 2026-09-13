@@ -646,6 +646,31 @@ def _is_greek_message(message: str) -> bool:
                for c in message)
 
 
+# Steering questions appended when the LLM reply doesn't end with one.
+_STEERING_QUESTIONS_EN = [
+    " What would you like to know more about?",
+    " Can you tell me more about your needs?",
+    " Would you like to explore how we can help?",
+]
+_STEERING_QUESTIONS_GR = [
+    " Τι θα θέλατε να μάθετε περισσότερα;",
+    " Μπορείτε να μου πείτε περισσότερα για τις ανάγκες σας;",
+    " Θέλετε να δούμε πώς μπορούμε να σας βοηθήσουμε;",
+]
+
+
+def _ensure_steering_question(text: str, is_greek: bool) -> str:
+    """Append a steering question if the reply doesn't end with one."""
+    if not text:
+        return text
+    stripped = text.rstrip()
+    if stripped.endswith("?") or stripped.endswith(";"):
+        return text
+    questions = _STEERING_QUESTIONS_GR if is_greek else _STEERING_QUESTIONS_EN
+    import random
+    return stripped + random.choice(questions)
+
+
 # ── Context-aware reply generation ───────────────────────────────────
 
 
@@ -787,6 +812,21 @@ async def generate_contextual_reply(
         "or providing more details about their needs)."
     )
 
+    # Add Greek-specific steering and quality instructions when the user
+    # writes in Greek. The 8B model often ignores English instructions for
+    # Greek replies, so we repeat the key rules in Greek.
+    if is_greek:
+        enhanced_prompt += (
+            "\n\nΟΔΗΓΙΕΣ ΓΙΑ ΕΛΛΗΝΙΚΑ (Greek instructions — follow strictly):\n"
+            "1. ΑΠΑΝΤΑ ΜΟΝΟ ΣΤΑ ΕΛΛΗΝΙΚΑ. Μην αναμειγνύεις γλώσσες.\n"
+            "2. Η απάντηση πρέπει να τελειώνει ΠΑΝΤΑ με ερώτηση (;) για να "
+            "συνεχιστεί η συζήτηση και να καθοδηγηθεί ο πελάτης.\n"
+            "3. Γράφε σωστά ελληνικά — όχι ακατανόητες λέξεις ή μεταφράσεις.\n"
+            "4. Ναι είσαι bot. Να το αναφέρεις φυσικά.\n"
+            "5. Τιμές μόνο σε ευρώ (€). Μην καταχωρείς συγκεκριμένες τιμές.\n"
+            "6. Κράτα το σύντομο: 1-3 προτάσεις + μία ερώτηση στο τέλος."
+        )
+
     # Check if we need to disclose the bot's automated nature (Meta policy)
     disclosed = await has_disclosed(account_id, thread_id)
     disclosure_prefix = ""
@@ -835,6 +875,8 @@ async def generate_contextual_reply(
                     if data.get("result") and data["result"].get("response"):
                         text = data["result"]["response"].strip()
                         if text:
+                            # Ensure Greek replies end with a steering question
+                            text = _ensure_steering_question(text, is_greek)
                             if not disclosed:
                                 await mark_disclosed(account_id, thread_id)
                             reply = f"{disclosure_prefix}{text}" if not disclosed else text
@@ -876,6 +918,8 @@ async def generate_contextual_reply(
         )
         text = result.get("text", "").strip()
         if text:
+            # Ensure Greek replies end with a steering question
+            text = _ensure_steering_question(text, is_greek)
             if not disclosed:
                 await mark_disclosed(account_id, thread_id)
             reply = f"{disclosure_prefix}{text}" if not disclosed else text
