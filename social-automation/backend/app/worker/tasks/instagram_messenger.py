@@ -217,6 +217,8 @@ async def _process_account(
             )
             return 0
 
+    assert client is not None
+
     # 1. Fetch conversations
     try:
         convos_result = await client.get_conversations(limit=25)
