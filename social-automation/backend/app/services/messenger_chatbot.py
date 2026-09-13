@@ -774,7 +774,6 @@ async def generate_contextual_reply(
     # Detect language programmatically and enforce it
     is_greek = _is_greek_message(user_message)
     detected_lang = "Greek" if is_greek else "English"
-    lang_code = "el" if is_greek else "en"
 
     enhanced_prompt += (
         f"\n\nCRITICAL LANGUAGE RULE: The user's message is in {detected_lang}. "
