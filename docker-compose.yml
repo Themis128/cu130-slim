@@ -135,11 +135,13 @@ services:
     - ./storage-user/output:/home/user/ComfyUI/output
     - ./storage-user/input:/home/user/ComfyUI/input
     environment:
-    # ── GPU-first: keep everything in VRAM, use fp16 to fit in 8GB ───────
-    # --gpu-only: force text encoders/CLIP/models onto GPU (minimum RAM)
+    # ── GPU sharing: ComfyUI + local-diffusers coexist on 8GB RTX 3070 ───
+    # Remove --gpu-only so ComfyUI uses CPU offload (default behavior) and
+    # only moves models to GPU during generation. This frees VRAM between
+    # requests so local-diffusers (SD 1.5) can use the GPU too.
     # --force-fp16: halves VRAM usage with minimal quality loss
-    # --reserve-vram 1: keep 1GB VRAM free for DMR so ComfyUI doesn't OOM it
-    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --gpu-only --force-fp16 --reserve-vram 1
+    # --reserve-vram 4: keep 4GB VRAM free for local-diffusers + DMR
+    - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --force-fp16 --reserve-vram 4
     - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
     - FAL_KEY=${FAL_KEY}
     - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
