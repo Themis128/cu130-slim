@@ -1640,6 +1640,11 @@ class BrowserBridgeClient:
         Uses fetch() from the browser context to call the Instagram web API
         (direct_v2/threads/{thread_id}). Returns messages with sender IDs and text.
         """
+        # Navigate to Instagram first — the browser may be on another platform
+        # (Facebook, Threads, etc.) if another worker navigated it.
+        await self.navigate("https://www.instagram.com/")
+        await asyncio.sleep(2)
+
         response = await self.evaluate(f"""async () => {{
             try {{
                 const resp = await fetch(
