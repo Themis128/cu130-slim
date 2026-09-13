@@ -771,9 +771,18 @@ async def generate_contextual_reply(
         memory_text = "\n".join(f"{'You' if m['sender'] == 'me' else 'Them'}: {m['text'][:100]}" for m in memory[-5:])
         enhanced_prompt += f"\n\nRecent conversation:\n{memory_text}"
 
+    # Detect language programmatically and enforce it
+    is_greek = _is_greek_message(user_message)
+    detected_lang = "Greek" if is_greek else "English"
+    lang_code = "el" if is_greek else "en"
+
     enhanced_prompt += (
-        "\n\nReply naturally in the same language as the user's message. "
-        "Keep it short and conversational. "
+        f"\n\nCRITICAL LANGUAGE RULE: The user's message is in {detected_lang}. "
+        f"You MUST reply ONLY in {detected_lang}. "
+        f"Do NOT mix languages. Do NOT translate to another language. "
+        f"Do NOT add translations or parenthetical text in other languages. "
+        f"Reply in {detected_lang} from the first word to the last.\n\n"
+        "Reply naturally. Keep it short and conversational. "
         "Always end with a question to keep the conversation going and "
         "guide the customer toward the next step (booking, consultation, "
         "or providing more details about their needs)."
@@ -807,13 +816,16 @@ async def generate_contextual_reply(
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
             async with httpx.AsyncClient(timeout=30) as client:
+                # Prepend language instruction to the user message so the LLM
+                # sees it in context, not just the system prompt
+                lang_instruction = f"[Reply in {detected_lang} only] {user_message}"
                 resp = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {cf_token}"},
                     json={
                         "messages": [
                             {"role": "system", "content": enhanced_prompt},
-                            {"role": "user", "content": user_message},
+                            {"role": "user", "content": lang_instruction},
                         ],
                         "max_tokens": max_tokens,
                         "temperature": temperature,
@@ -858,7 +870,7 @@ async def generate_contextual_reply(
     try:
         from app.services.dmr import call_dmr_chat
         result = await call_dmr_chat(
-            user_message,
+            lang_instruction,
             system=enhanced_prompt,
             max_tokens=max_tokens,
             temperature=temperature,

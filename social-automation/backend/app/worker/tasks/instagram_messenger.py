@@ -281,9 +281,13 @@ async def _process_account(
             if not messages:
                 continue
 
-            # 3. Find last inbound message (not from us)
+            # 3. Find ALL unread inbound messages (not from us)
             my_id = ig_user_id or meta.get("private_api_ds_user_id", "")
-            last_inbound = None
+            seen_key = str(convo_id)
+            last_seen_text = seen.get(seen_key, "")
+
+            # Collect all inbound messages (not sent by viewer)
+            inbound_messages = []
             for msg in reversed(messages):
                 if sender_field:
                     sender = msg.get(sender_key, {})
@@ -295,19 +299,31 @@ async def _process_account(
                     sender_id = msg.get(sender_key, "")
                     is_outbound = sender_id == my_id
                 if not is_outbound and msg.get(text_field):
-                    last_inbound = msg
-                    break
+                    msg_text = (msg.get(text_field) or "").strip()
+                    if msg_text:
+                        inbound_messages.append(msg_text)
 
-            if not last_inbound:
+            if not inbound_messages:
                 continue
 
-            text = (last_inbound.get(text_field) or "").strip()
+            # 4. Check if already replied — compare the latest message
+            latest_text = inbound_messages[-1]
+            if last_seen_text == latest_text:
+                continue
+
+            # 5. Combine all unread inbound messages for context
+            # If there are multiple unread messages, combine them so the bot
+            # can address ALL the user's queries, not just the last one.
+            if len(inbound_messages) > 1:
+                text = "\n".join(inbound_messages)
+                logger.info(
+                    "Instagram DM: %d unread messages from '%s', combining for context",
+                    len(inbound_messages), convo_name,
+                )
+            else:
+                text = inbound_messages[0]
+
             if not text:
-                continue
-
-            # 4. Check if already replied
-            seen_key = str(convo_id)
-            if seen.get(seen_key, "") == text:
                 continue
 
             # 5. Check cooldown
