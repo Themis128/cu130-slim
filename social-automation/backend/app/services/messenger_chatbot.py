@@ -599,6 +599,17 @@ async def generate_contextual_reply(
     temperature = thread_config.get("temperature", 0.7)
     fallback = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
+    # Deterministic safeguard: intercept pricing questions before the LLM
+    # to prevent fabricated prices. The 8B model often invents specific euro
+    # amounts despite instructions not to. This guarantees a safe, grounded
+    # response for all pricing inquiries.
+    if _is_pricing_question(user_message):
+        disclosed = await has_disclosed(account_id, thread_id)
+        if not disclosed:
+            await mark_disclosed(account_id, thread_id)
+        lang = "greek" if _is_greek_message(user_message) else "english"
+        return _PRICING_RESPONSES[lang]
+
     # Build enhanced system prompt
     enhanced_prompt = system_prompt
 
