@@ -37,9 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.services.browser_bridge import BrowserBridgeClient
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
-from app.services.instagram_api import InstagramAPIClient, InstagramAPIError, InstagramWebDMClient
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError, InstagramWebDMClient, InstagramWebDMClient
 from app.services.messenger_chatbot import (
     check_cooldown,
     detect_intent,
@@ -195,33 +196,45 @@ async def _process_account(
         )
         client = None
 
-    # Fall back to web API (sessionid cookie from browser login)
+    # Fall back to browser bridge (uses logged-in Instagram web session)
+    bridge = None
     if client is None:
-        session_id = meta.get("private_api_session_id", "")
-        csrf_token = meta.get("private_api_csrf_token", "")
-        ds_user_id = meta.get("private_api_ds_user_id", "")
-        if session_id and not session_id.startswith("enc:"):
-            proxy = getattr(get_settings(), "INSTAGRAM_PROXY", None)
-            client = InstagramWebDMClient(
-                session_id=session_id,
-                csrf_token=csrf_token,
-                ds_user_id=ds_user_id,
-                proxy=proxy,
-            )
-            logger.info("Instagram DM: using web API fallback for %s", account.id)
-        else:
+        settings = get_settings()
+        bridge_url = getattr(settings, "BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+        bridge = BrowserBridgeClient(base_url=bridge_url)
+        try:
+            await bridge.ensure_session("instagram")
+            logger.info("Instagram DM: using browser bridge fallback for %s", account.id)
+        except Exception as exc:
             logger.warning(
-                "Instagram DM: account %s has no valid Graph API token and no "
-                "web session cookie. Skipping. Re-login via VNC to enable DM bot.",
-                account.id,
+                "Instagram DM: browser bridge unavailable for %s: %s. "
+                "Login via noVNC (http://localhost:6080) to enable DM bot.",
+                account.id, exc,
             )
             return 0
 
-    assert client is not None
-
     # 1. Fetch conversations
     try:
-        convos_result = await client.get_conversations(limit=25)
+        if client is not None:
+            convos_result = await client.get_conversations(limit=25)
+        elif bridge is not None:
+            bridge_result = await bridge.get_instagram_dm_conversations()
+            if "error" in bridge_result:
+                logger.warning("Instagram DM browser bridge error: %s", bridge_result["error"])
+                return 0
+            convos_result = {"data": [
+                {
+                    "id": c.get("id", ""),
+                    "participants": {
+                        "data": [
+                            {"id": c.get("participant_id", ""), "name": c.get("name", "Unknown")}
+                        ]
+                    },
+                }
+                for c in bridge_result.get("conversations", [])
+            ]}
+        else:
+            return 0
     except InstagramAPIError as exc:
         logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
         return 0
@@ -248,25 +261,43 @@ async def _process_account(
 
         try:
             # 2. Read messages in this conversation
-            msgs_result = await client.get_dm_messages(convo_id, limit=20)
-            messages = msgs_result.get("data", [])
+            if client is not None:
+                msgs_result = await client.get_dm_messages(convo_id, limit=20)
+                messages = msgs_result.get("data", [])
+                sender_key = "from"
+                sender_field = "id"
+                text_field = "message"
+            elif bridge is not None:
+                bridge_msgs = await bridge.get_instagram_dm_messages(convo_id)
+                if "error" in bridge_msgs:
+                    continue
+                messages = bridge_msgs.get("messages", [])
+                sender_key = "sender_id"
+                sender_field = None
+                text_field = "text"
+            else:
+                continue
+
             if not messages:
                 continue
 
             # 3. Find last inbound message (not from us)
+            my_id = ig_user_id or meta.get("private_api_ds_user_id", "")
             last_inbound = None
             for msg in reversed(messages):
-                sender = msg.get("from", {})
-                sender_id = sender.get("id", "") if isinstance(sender, dict) else str(sender)
-                my_id = ig_user_id or meta.get("private_api_ds_user_id", "")
-                if sender_id != my_id and msg.get("message"):
+                if sender_field:
+                    sender = msg.get(sender_key, {})
+                    sender_id = sender.get(sender_field, "") if isinstance(sender, dict) else str(sender)
+                else:
+                    sender_id = msg.get(sender_key, "")
+                if sender_id != my_id and msg.get(text_field):
                     last_inbound = msg
                     break
 
             if not last_inbound:
                 continue
 
-            text = (last_inbound.get("message") or "").strip()
+            text = (last_inbound.get(text_field) or "").strip()
             if not text:
                 continue
 
@@ -303,9 +334,13 @@ async def _process_account(
                     },
                 )
                 if lead_reply:
-                    await client.send_dm(recipient_id, lead_reply.text)
+                    if client is not None:
+                        await client.send_dm(recipient_id, lead_reply.text)
+                    elif bridge is not None:
+                        await bridge.send_instagram_dm_message(recipient_id, lead_reply.text)
                     try:
-                        await client.mark_dm_read(convo_id)
+                        if client is not None:
+                            await client.mark_dm_read(convo_id)
                     except Exception:
                         pass
 
@@ -321,7 +356,8 @@ async def _process_account(
 
             # 7. Send typing indicator (feels more natural)
             try:
-                await client.send_typing_indicator(recipient_id)
+                if client is not None:
+                    await client.send_typing_indicator(recipient_id)
             except Exception:
                 pass  # Non-fatal
 

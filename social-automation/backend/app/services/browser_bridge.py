@@ -1575,3 +1575,122 @@ class BrowserBridgeClient:
         await asyncio.sleep(2)
 
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
+
+
+    # ── Instagram DM (direct messages) ──────────────────────────────────
+    # Instagram's Graph API requires App Review for instagram_business_manage_messages.
+    # These methods use the Instagram web API (www.instagram.com/api/v1/) via the
+    # browser context, which has the sessionid cookie and can read/send DMs.
+    # Requires a logged-in Instagram browser session in browser-novnc.
+
+    async def get_instagram_dm_conversations(self) -> dict[str, Any]:
+        """Read Instagram DM conversation list via the web API.
+
+        Uses fetch() from the browser context to call the Instagram web API
+        (direct_v2/inbox). Returns conversations with thread IDs and participants.
+        Requires a logged-in Instagram browser session.
+        """
+        await self.navigate("https://www.instagram.com/direct/inbox/")
+        await asyncio.sleep(3)
+
+        result = await self.evaluate("""async () => {
+            try {
+                const resp = await fetch(
+                    "https://www.instagram.com/api/v1/direct_v2/inbox/?thread_message_limit=10&limit=25",
+                    {
+                        headers: {"x-ig-app-id": "936619743392459"},
+                        credentials: "include"
+                    }
+                );
+                if (!resp.ok) return {error: "HTTP " + resp.status};
+                const data = await resp.json();
+                const threads = data.inbox?.threads || [];
+                const conversations = threads.map(t => {
+                    const users = t.users || [];
+                    const items = t.items || [];
+                    const lastItem = items[items.length - 1] || {};
+                    return {
+                        id: t.thread_id || "",
+                        name: users[0]?.username || "Unknown",
+                        participant_id: String(users[0]?.pk || ""),
+                        preview: lastItem.text || lastItem.share_text || "",
+                        timestamp: t.last_activity_at || "",
+                    };
+                });
+                return {conversations: conversations, count: conversations.length};
+            } catch(e) {
+                return {error: e.message};
+            }
+        }""")
+
+        return result
+
+    async def get_instagram_dm_messages(self, thread_id: str) -> dict[str, Any]:
+        """Read messages in an Instagram DM thread via the web API.
+
+        Uses fetch() from the browser context to call the Instagram web API
+        (direct_v2/threads/{thread_id}). Returns messages with sender IDs and text.
+        """
+        result = await self.evaluate(f"""async () => {{
+            try {{
+                const resp = await fetch(
+                    "https://www.instagram.com/api/v1/direct_v2/threads/{thread_id}/",
+                    {{
+                        headers: {{"x-ig-app-id": "936619743392459"}},
+                        credentials: "include"
+                    }}
+                );
+                if (!resp.ok) return {{error: "HTTP " + resp.status}};
+                const data = await resp.json();
+                const items = data.thread?.items || [];
+                const messages = items.map(item => {{
+                    return {{
+                        id: item.item_id || "",
+                        sender_id: String(item.user_id || ""),
+                        text: item.text || item.share_text || "",
+                        timestamp: item.timestamp || "",
+                    }};
+                }});
+                return {{messages: messages, count: messages.length}};
+            }} catch(e) {{
+                return {{error: e.message}};
+            }}
+        }}""")
+
+        return result
+
+    async def send_instagram_dm_message(self, recipient_id: str, text: str) -> dict[str, Any]:
+        """Send an Instagram DM via the web API.
+
+        Uses fetch() from the browser context to call the Instagram web API
+        (direct_v2/threads/broadcast/text/).
+        """
+        import json as _json
+        import time as _time
+
+        client_context = str(int(_time.time() * 1000))
+        encoded_text = _json.dumps(text)
+
+        result = await self.evaluate(f"""async () => {{
+            try {{
+                const resp = await fetch(
+                    "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+                    {{
+                        method: "POST",
+                        headers: {{
+                            "x-ig-app-id": "936619743392459",
+                            "content-type": "application/x-www-form-urlencoded",
+                        }},
+                        credentials: "include",
+                        body: "recipient_users=%5B%22{recipient_id}%22%5D&client_context=%7B%22mutation_token%22%3A%22{client_context}%22%7D&text={encoded_text}&action=send_item&entry=inbox"
+                    }}
+                );
+                if (!resp.ok) return {{error: "HTTP " + resp.status}};
+                const data = await resp.json();
+                return {{status: "ok", sent: true, action: data.action || "sent"}};
+            }} catch(e) {{
+                return {{error: e.message}};
+            }}
+        }}""")
+
+        return result
