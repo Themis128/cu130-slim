@@ -17,11 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.services.meta_graph import facebook_graph_url
 from app.core.security import decrypt_token
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
+from app.services.meta_graph import facebook_graph_url
 
 LINKEDIN_VERSION = "202608"
 ENGAGEMENT_TYPES = ("impression", "click", "like", "comment", "share")
