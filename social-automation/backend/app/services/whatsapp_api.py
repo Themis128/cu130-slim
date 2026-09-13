@@ -23,9 +23,16 @@ from typing import Any
 import httpx
 
 from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
 
-FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
-DEFAULT_API_VERSION = "v21.0"
+# WhatsApp Business Platform Cloud API is built on the Meta Graph API and uses
+# the same `graph.facebook.com/<API_VERSION>/...` scheme. Meta docs show v26.0
+# in current examples (e.g. media upload):
+# https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/media
+WHATSAPP_CLOUD_API_VERSION = FACEBOOK_GRAPH_VERSION
+
+# Backward-compatible alias used by existing callers.
+DEFAULT_API_VERSION = WHATSAPP_CLOUD_API_VERSION
 DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)

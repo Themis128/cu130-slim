@@ -25,9 +25,8 @@ from typing import Any, TypedDict
 import httpx
 
 from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
+from app.services.meta_graph import FACEBOOK_GRAPH_BASE
 from app.services.whatsapp_api import DEFAULT_API_VERSION, DEFAULT_TIMEOUT, _validate_phone
-
-FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
 
 logger = logging.getLogger(__name__)
 

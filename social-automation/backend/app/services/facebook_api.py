@@ -26,8 +26,13 @@ from typing import Any
 
 import httpx
 
-FACEBOOK_GRAPH_BASE = "https://graph.facebook.com"
-DEFAULT_API_VERSION = "v25.0"
+from app.services.meta_graph import (
+    FACEBOOK_GRAPH_BASE,
+    FACEBOOK_GRAPH_VERSION,
+)
+
+# Backward-compatible alias used throughout the codebase/tests.
+DEFAULT_API_VERSION = FACEBOOK_GRAPH_VERSION
 DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)

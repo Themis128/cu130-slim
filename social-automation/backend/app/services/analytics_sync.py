@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.meta_graph import facebook_graph_url
 from app.core.security import decrypt_token
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
@@ -590,7 +591,7 @@ async def _fetch_facebook_post_metrics(
     client: httpx.AsyncClient, page_token: str, post_id: str,
 ) -> MetricBundle:
     """Fetch insights for a Facebook page post via Graph API."""
-    url = f"https://graph.facebook.com/v20.0/{post_id}/insights"
+    url = facebook_graph_url(f"{post_id}/insights")
     params = {
         "metric": "post_impressions,post_clicks,post_reactions_like_total,post_comments,post_shares",
         "access_token": page_token,
@@ -637,7 +638,7 @@ async def sync_facebook_account(
     page_token = token
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
-            "https://graph.facebook.com/v20.0/me/accounts",
+            facebook_graph_url("me/accounts"),
             params={"access_token": token},
         )
         if resp.status_code == 200:
@@ -684,7 +685,7 @@ async def _fetch_instagram_media_metrics(
     client: httpx.AsyncClient, token: str, ig_user_id: str, media_id: str,
 ) -> MetricBundle:
     """Fetch insights for an Instagram media post via Graph API."""
-    url = f"https://graph.facebook.com/v20.0/{media_id}/insights"
+    url = facebook_graph_url(f"{media_id}/insights")
     params = {
         "metric": "impressions,reach,likes,comments,saves",
         "access_token": token,
