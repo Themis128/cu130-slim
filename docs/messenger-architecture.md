@@ -474,11 +474,10 @@ to Facebook Page        (POST, 5s)          /webhook             /process
      │                    │                    │              7. Config check
      │                    │                    │              8. typing_on
      │                    │                    │              9. AI generate
-     │                    │                    │                 Language-aware:
-     │                    │                    │                 Greek → CF Workers AI
-     │                    │                    │                 English → DMR (Llama 3.2)
-     │                    │                    │                 → other provider
-     │                    │                    │                 → static fallback
+     │                    │                    │                 Deterministic pricing safeguard
+     │                    │                    │                 Brand voice injection (Brand API)
+     │                    │                    │                 Unified routing:
+     │                    │                    │                 CF Workers AI (primary) → DMR → static
      │                    │                    │             10. Send reply
      │                    │                    │             11. typing_off
      │                    │                    │                    │
@@ -518,22 +517,23 @@ to personal Messenger   (Chromium)           (every 2 min)
      │                    │                    │     (DMR→CF)         │
      │                    │                    │ 11. Retrieve brand  │
      │                    │                    │     context (RAG)   │
-     │                    │                    │ 12. AI generate     │
+     │                    │                    │ 12. Pricing safeguard│
+     │                    │                    │     Brand voice inject│
+     │                    │                    │ 13. AI generate     │
      │                    │                    │───────────────────▶│
-     │                    │                    │     Greek → CF      │
-     │                    │                    │     English → DMR   │
-     │                    │                    │     → other → static│
-     │                    │                    │ 13. Reply text      │
+     │                    │                    │     CF Workers AI   │
+     │                    │                    │     → DMR → static  │
+     │                    │                    │ 14. Reply text      │
      │                    │                    │◀───────────────────│
-     │                    │                    │ 14. Typing delay    │
-     │                    │                    │ 15. Send via bridge │
+     │                    │                    │ 15. Typing delay    │
+     │                    │                    │ 16. Send via bridge │
      │                    │◀───────────────────│                    │
-     │                    │ 16. Type + Enter   │                    │
-     │  17. Reply appears │                    │                    │
+     │                    │ 17. Type + Enter   │                    │
+     │  18. Reply appears │                    │                    │
      │◀───────────────────│                    │                    │
-     │                    │                    │ 18. Store memory   │
+     │                    │                    │ 19. Store memory   │
      │                    │                    │     (ChromaDB)      │
-     │                    │                    │ 19. Set cooldown   │
+     │                    │                    │ 20. Set cooldown   │
 ```
 
 ## API Endpoints
