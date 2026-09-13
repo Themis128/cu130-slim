@@ -40,6 +40,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
 from app.services.browser_bridge import BrowserBridgeClient
+from app.services.browser_orchestrator import browser_session
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.messenger_chatbot import (
     check_cooldown,
@@ -218,7 +219,9 @@ async def _process_account(
         if client is not None:
             convos_result = await client.get_conversations(limit=25)
         elif bridge is not None:
-            bridge_result = await bridge.get_instagram_dm_conversations()
+            # Use orchestrator for exclusive browser access
+            async with browser_session("instagram", bridge) as b:
+                bridge_result = await b.get_instagram_dm_conversations()
             if "error" in bridge_result:
                 logger.warning("Instagram DM browser bridge error: %s", bridge_result["error"])
                 return 0
@@ -268,7 +271,8 @@ async def _process_account(
                 sender_field = "id"
                 text_field = "message"
             elif bridge is not None:
-                bridge_msgs = await bridge.get_instagram_dm_messages(convo_id)
+                async with browser_session("instagram", bridge) as b:
+                    bridge_msgs = await b.get_instagram_dm_messages(convo_id)
                 if "error" in bridge_msgs:
                     continue
                 messages = bridge_msgs.get("messages", [])
@@ -417,7 +421,8 @@ async def _process_account(
                     await client.send_dm(recipient_id, reply_text)
                     send_ok = True
                 elif bridge is not None:
-                    send_result = await bridge.send_instagram_dm_message(recipient_id, reply_text)
+                    async with browser_session("instagram", bridge) as b:
+                        send_result = await b.send_instagram_dm_message(recipient_id, reply_text)
                     if isinstance(send_result, dict) and send_result.get("error"):
                         logger.warning(
                             "Instagram DM send failed for %s: %s",

@@ -36,6 +36,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.models.social_account import SocialAccount
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+from app.services.browser_orchestrator import browser_session
 from app.services.messenger_chatbot import (
     check_cooldown,
     detect_intent,
@@ -180,7 +181,8 @@ async def _process_account(
 
     # 1. Fetch conversations
     try:
-        convos_result = await bridge.get_threads_dm_conversations()
+        async with browser_session("threads", bridge) as b:
+            convos_result = await b.get_threads_dm_conversations()
     except (BrowserBridgeError, Exception) as exc:
         logger.warning("Browser bridge error for account %s: %s", account.id, exc)
         return 0
@@ -195,7 +197,8 @@ async def _process_account(
 
         try:
             # 2. Read recent messages
-            msgs_result = await bridge.get_threads_dm_messages(thread_id)
+            async with browser_session("threads", bridge) as b:
+                msgs_result = await b.get_threads_dm_messages(thread_id)
             messages = msgs_result.get("messages", [])
             if not messages:
                 continue
@@ -246,7 +249,8 @@ async def _process_account(
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
 
             # 8. Send the reply
-            await bridge.send_threads_dm_message(thread_id, reply_text)
+            async with browser_session("threads", bridge) as b:
+                await b.send_threads_dm_message(thread_id, reply_text)
 
             # 9. Store both messages in conversation memory (ChromaDB)
             await store_message_memory(

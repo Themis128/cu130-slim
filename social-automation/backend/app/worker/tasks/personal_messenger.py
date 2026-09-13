@@ -182,6 +182,7 @@ async def _process_account(
 ) -> int:
     """Process a single personal account — poll conversations and reply."""
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+    from app.services.browser_orchestrator import browser_session
 
     bridge = BrowserBridgeClient(bridge_url)
     replies_sent = 0
@@ -202,7 +203,8 @@ async def _process_account(
 
     # 1. Fetch conversations (use fast mobile-basic read first, fallback to full SPA)
     try:
-        convos_result = await bridge.get_personal_messenger_conversations_fast()
+        async with browser_session("facebook", bridge) as b:
+            convos_result = await b.get_personal_messenger_conversations_fast()
     except (BrowserBridgeError, Exception) as exc:
         logger.warning("Browser bridge error for account %s: %s", account.id, exc)
         return 0
@@ -221,7 +223,8 @@ async def _process_account(
 
         try:
             # 2. Read recent messages (fast mobile-basic first, fallback to SPA)
-            msgs_result = await bridge.get_personal_messenger_messages_fast(thread_id, is_e2ee=is_e2ee)
+            async with browser_session("facebook", bridge) as b:
+                msgs_result = await b.get_personal_messenger_messages_fast(thread_id, is_e2ee=is_e2ee)
             messages = msgs_result.get("messages", [])
             if not messages:
                 continue
@@ -281,7 +284,8 @@ async def _process_account(
                 pass  # Non-fatal — typing indicator is a nice-to-have
 
             # 11. Send the reply (pass is_e2ee for correct URL)
-            await bridge.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
+            async with browser_session("facebook", bridge) as b:
+                await b.send_personal_messenger_message(thread_id, reply_text, is_e2ee=is_e2ee)
 
             # 12. Store both messages in conversation memory (ChromaDB)
             await store_message_memory(
