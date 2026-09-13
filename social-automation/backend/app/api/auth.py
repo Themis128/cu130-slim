@@ -1098,6 +1098,12 @@ async def oauth_callback(
     # The state may carry the original platform alias (e.g. "whatsapp" uses Facebook OAuth)
     original_platform: str | None = state_data.get("p")
 
+    # Instagram onboarding uses Facebook Login for Business with IG_API_ONBOARDING
+    # extras. The callback comes through the Facebook OAuth path, but we need to
+    # treat it as an Instagram connection and discover the IG business account
+    # that was linked during the onboarding flow.
+    is_ig_onboarding = original_platform == "instagram-onboarding"
+
     # Resolve the OAuth client and redirect URI.
     # WhatsApp and Messenger use the Facebook OAuth client and redirect URI.
     oauth_platform = "facebook" if platform in ("whatsapp", "messenger") else platform
@@ -1183,40 +1189,106 @@ async def oauth_callback(
             ll_data = ll_resp.json()
             long_lived_token = ll_data.get("access_token", access_token)
 
-            # Fetch managed pages — page tokens are permanent and required for posting
-            pages_resp = await http.get(
-                facebook_graph_url("me/accounts"),
-                params={"fields": "id,name,access_token,picture,category", "access_token": long_lived_token},
-            )
-            pages = pages_resp.json().get("data", [])
-            # Store the USER account as the main account (with user token)
-            # so sync-business-accounts can call /me/accounts later.
-            # Page accounts are stored as separate business accounts below.
-            account_id = user_info["id"]
-            username = user_info.get("email") or user_info.get("name")
-            display_name = user_info.get("name", "")
-            avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
-            access_token = long_lived_token
-            # Stash pages for later storage as business accounts
-            fb_pages = pages
-            fb_info = {"id": user_info["id"]}
-            # Use the scopes requested (Facebook returns them in the token response as a comma/space-separated string)
-            _raw_scope = token.get("scope", "")
-            if isinstance(_raw_scope, str) and _raw_scope:
-                scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+            # If this is an Instagram onboarding flow, handle it as an Instagram
+            # connection. The IG_API_ONBOARDING extras flow creates/links a
+            # Facebook Page to the Instagram account, so the Page's
+            # instagram_business_account field should now return the IG account.
+            if is_ig_onboarding:
+                # Query pages for the linked Instagram business account
+                ig_resp = await http.get(
+                    facebook_graph_url("me/accounts"),
+                    params={
+                        "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
+                        "access_token": long_lived_token,
+                    },
+                )
+                ig_data = ig_resp.json()
+                ig_account = None
+                page_token = None
+
+                for page in ig_data.get("data", []):
+                    if page.get("instagram_business_account"):
+                        ig_account = page["instagram_business_account"]
+                        page_token = page.get("access_token")
+                        break
+
+                # Fallback: check page_backed_instagram_accounts
+                if not ig_account:
+                    for page in ig_data.get("data", []):
+                        pt = page.get("access_token", long_lived_token)
+                        pbi_resp = await http.get(
+                            facebook_graph_url(f"{page['id']}/page_backed_instagram_accounts"),
+                            params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": pt},
+                        )
+                        for acct in pbi_resp.json().get("data", []):
+                            if acct.get("id"):
+                                ig_account = acct
+                                page_token = pt
+                                break
+                        if ig_account:
+                            break
+
+                if ig_account:
+                    account_id = ig_account["id"]
+                    username = ig_account.get("username")
+                    display_name = ig_account.get("name") or ig_account.get("username", "")
+                    avatar_url = ig_account.get("profile_picture_url")
+                    access_token = page_token or long_lived_token
+                    platform = "instagram"
+                    scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement"]
+                    fb_pages = []
+                    fb_info = {"id": user_info["id"]}
+                else:
+                    # IG onboarding didn't link an IG account — fall through to
+                    # normal Facebook handling but flag the error
+                    logger.warning(
+                        "Instagram onboarding flow completed but no IG business account found. "
+                        "Falling back to Facebook user account."
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Instagram onboarding completed but no Instagram Business account was found "
+                            "linked to your Facebook Pages. Ensure your Instagram account is a Professional "
+                            "account and try reconnecting."
+                        ),
+                    )
             else:
-                scopes = [
-                    "public_profile", "email",
-                    "user_about_me", "user_birthday", "user_hometown", "user_location",
-                    "user_website", "user_work_history", "user_education_history",
-                    "user_relationships", "user_religion_politics", "user_likes",
-                    "user_posts", "user_photos", "user_videos", "user_friends",
-                    "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-                    "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
-                    "pages_read_user_content", "read_insights",
-                    "ads_management", "ads_read", "business_management",
-                    "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
-                ]
+                # Normal Facebook Login flow
+                # Fetch managed pages — page tokens are permanent and required for posting
+                pages_resp = await http.get(
+                    facebook_graph_url("me/accounts"),
+                    params={"fields": "id,name,access_token,picture,category", "access_token": long_lived_token},
+                )
+                pages = pages_resp.json().get("data", [])
+                # Store the USER account as the main account (with user token)
+                # so sync-business-accounts can call /me/accounts later.
+                # Page accounts are stored as separate business accounts below.
+                account_id = user_info["id"]
+                username = user_info.get("email") or user_info.get("name")
+                display_name = user_info.get("name", "")
+                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+                access_token = long_lived_token
+                # Stash pages for later storage as business accounts
+                fb_pages = pages
+                fb_info = {"id": user_info["id"]}
+                # Use the scopes requested (Facebook returns them in the token response as a comma/space-separated string)
+                _raw_scope = token.get("scope", "")
+                if isinstance(_raw_scope, str) and _raw_scope:
+                    scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+                else:
+                    scopes = [
+                        "public_profile", "email",
+                        "user_about_me", "user_birthday", "user_hometown", "user_location",
+                        "user_website", "user_work_history", "user_education_history",
+                        "user_relationships", "user_religion_politics", "user_likes",
+                        "user_posts", "user_photos", "user_videos", "user_friends",
+                        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+                        "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+                        "pages_read_user_content", "read_insights",
+                        "ads_management", "ads_read", "business_management",
+                        "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+                    ]
 
             # If this was a WhatsApp connect, fetch WABA and phone numbers
             if original_platform == "whatsapp":
@@ -1614,6 +1686,61 @@ async def oauth_callback(
 # ── Instagram Business Login (Instagram API with Instagram Login) ─────────────
 # Separate path from the Facebook-Login flow above. Uses graph.instagram.com
 # and an Instagram user token (no Facebook Page required).
+
+# Two flows are supported:
+#   1. Pure Instagram Business Login (instagram2) — requires the Instagram
+#      product to be added to the Meta app with "API setup with Instagram
+#      login". Uses a separate Instagram App ID and graph.instagram.com.
+#   2. Facebook Login for Business with IG API Onboarding (instagram-onboarding)
+#      — works with the existing Facebook Login app. The extras parameter
+#      {"setup":{"channel":"IG_API_ONBOARDING"}} triggers an Instagram-first
+#      onboarding flow that creates/links a Facebook Page automatically,
+#      solving the error #10 (Page-Instagram linkage) problem.
+
+@router.get("/oauth/instagram-onboarding/authorize")
+async def instagram_onboarding_authorize(
+    team_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """Initiate Facebook Login for Business with IG API Onboarding.
+
+    This flow works with the existing Facebook Login app configuration.
+    It shows an Instagram-first login window that:
+    - Lets the user log in with Instagram credentials
+    - Creates a Facebook Page if needed
+    - Links the Instagram account to the Page
+    - Returns a Facebook user token with instagram_content_publish scope
+
+    This solves the error (#10) permission issue by automatically creating
+    the Page-Instagram linkage that the normal Facebook Login flow misses.
+    """
+    if not settings.FACEBOOK_CLIENT_ID:
+        raise HTTPException(status_code=400, detail="Facebook OAuth not configured (FACEBOOK_CLIENT_ID missing)")
+
+    from app.core.security import sign_oauth_state
+    import json as _json
+    from urllib.parse import quote
+
+    state_b64 = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
+
+    # Facebook Login for Business with IG API Onboarding
+    # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-login-for-instagram/
+    extras = _json.dumps({"setup": {"channel": "IG_API_ONBOARDING"}})
+    scope = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement"
+    redirect_uri = settings.FACEBOOK_REDIRECT_URI
+
+    auth_url = (
+        f"https://www.facebook.com/dialog/oauth"
+        f"?client_id={settings.FACEBOOK_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope={scope}"
+        f"&state={state_b64}"
+        f"&display=page"
+        f"&extras={quote(extras)}"
+    )
+    return {"authorization_url": auth_url}
+
 
 @router.get("/oauth/instagram2/authorize")
 async def instagram2_authorize(
