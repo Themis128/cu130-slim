@@ -1152,7 +1152,7 @@ class BrowserBridgeClient:
         # Escape the text for safe JS embedding
         import json as _json
         escaped_text = _json.dumps(text)
-        result = await self.evaluate(f"""() => {{
+        type_response = await self.evaluate(f"""() => {{
             const editor = document.querySelector(
                 'div[contenteditable="true"][role="textbox"], ' +
                 'textarea[class*="message"], ' +
@@ -1669,64 +1669,121 @@ class BrowserBridgeClient:
         return result if isinstance(result, dict) else {"error": str(result)}
 
     async def send_instagram_dm_message(self, recipient_id: str, text: str) -> dict[str, Any]:
-        """Send an Instagram DM via the web API.
+        """Send an Instagram DM via the web UI.
 
-        Uses fetch() from the browser context to call the Instagram web API
-        (direct_v2/threads/broadcast/text/). Based on the instagram-private-api
-        broadcast format: recipient_users is double-wrapped as [["userid"]],
-        client_context and mutation_token are the same GUID, and _csrftoken,
-        _uuid, device_id are required form fields.
+        Instagram's web API POST endpoint (direct_v2/threads/broadcast/text/)
+        returns an opaque redirect when called from the browser context, so we
+        use UI interaction instead: navigate to the DM thread, type the message
+        in the contenteditable editor, and press Enter / click Send.
+        This mirrors the approach used for Threads, Twitter, and TikTok.
         """
         import json as _json
-        import uuid as _uuid_mod
 
-        mutationToken = str(_uuid_mod.uuid4())
-        deviceUuid = str(_uuid_mod.uuid4())
-        # Pass the text as a JSON string and use encodeURIComponent in JS to
-        # properly handle Greek/Unicode characters in the form body.
-        text_json = _json.dumps(text)
+        escaped_text = _json.dumps(text)
 
-        response = await self.evaluate(f"""async () => {{
+        # 1. Navigate to the DM thread URL using the recipient's user ID.
+        # Instagram DM URLs use the thread_id, but we can also open a DM
+        # with a user via https://www.instagram.com/direct/t/{thread_id}/
+        # Since we have recipient_id (user pk), we first need the thread_id.
+        # We can find it from the inbox, or navigate directly to the user's DM.
+        # The simplest approach: navigate to the inbox and find the thread.
+        await self.navigate("https://www.instagram.com/direct/inbox/")
+        await asyncio.sleep(3)
+
+        # 2. Find the thread with this recipient and click it
+        click_result = await self.evaluate(f"""async () => {{
             try {{
-                const text = {text_json};
-                const recipientId = "{recipient_id}";
-                const mutationToken = "{mutationToken}";
-                const deviceUuid = "{deviceUuid}";
-                // Get CSRF token from cookie (required for POST requests)
-                const csrfMatch = document.cookie.match(/csrftoken=([^;]+)/);
-                const csrfToken = csrfMatch ? csrfMatch[1] : "";
-                // Build form body matching instagram-private-api broadcast format
-                const params = new URLSearchParams();
-                params.append("recipient_users", JSON.stringify([[recipientId]]));
-                params.append("client_context", mutationToken);
-                params.append("_csrftoken", csrfToken);
-                params.append("device_id", deviceUuid);
-                params.append("mutation_token", mutationToken);
-                params.append("_uuid", deviceUuid);
-                params.append("text", text);
-                params.append("action", "send_item");
-                params.append("entry", "inbox");
-                const resp = await fetch(
-                    "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+                // Fetch inbox to find the thread_id for this recipient
+                const r = await fetch(
+                    "https://www.instagram.com/api/v1/direct_v2/inbox/?limit=50",
                     {{
-                        method: "POST",
-                        headers: {{
-                            "x-ig-app-id": "936619743392459",
-                            "x-csrftoken": csrfToken,
-                            "content-type": "application/x-www-form-urlencoded",
-                        }},
-                        credentials: "include",
-                        body: params.toString()
+                        headers: {{"x-ig-app-id": "936619743392459"}},
+                        credentials: "include"
                     }}
                 );
-                if (!resp.ok) return {{error: "HTTP " + resp.status}};
-                const data = await resp.json();
-                return {{status: "ok", sent: true, action: data.action || "sent"}};
+                if (!r.ok) return {{error: "Inbox fetch failed: HTTP " + r.status}};
+                const data = await r.json();
+                const threads = data.inbox?.threads || [];
+                const targetId = "{recipient_id}";
+                const thread = threads.find(t =>
+                    (t.users || []).some(u => String(u.pk) === targetId)
+                );
+                if (!thread) return {{error: "Thread not found for recipient " + targetId}};
+                const threadId = thread.thread_id;
+
+                // Navigate to the thread
+                window.location.href = "https://www.instagram.com/direct/t/" + threadId + "/";
+                return {{status: "navigating", thread_id: threadId}};
             }} catch(e) {{
                 return {{error: e.message}};
             }}
         }}""")
 
-        # Extract the result from the browser bridge response
-        result = response.get("result", response) if isinstance(response, dict) else response
-        return result if isinstance(result, dict) else {"error": str(result)}
+        result = click_result.get("result", click_result) if isinstance(click_result, dict) else click_result
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        await asyncio.sleep(4)
+
+        # 3. Type the message in the contenteditable editor
+        type_result = await self.evaluate(f"""() => {{
+            // Instagram DM input is a contenteditable div
+            const editor = document.querySelector(
+                'div[contenteditable="true"][role="textbox"], ' +
+                'div[contenteditable="true"][data-lexical-editor="true"], ' +
+                'textarea[placeholder*="Message"], ' +
+                'div[contenteditable="true"]'
+            );
+            if (!editor) return {{error: 'Could not find message input'}};
+
+            editor.focus();
+            if (editor.isContentEditable) {{
+                document.execCommand('insertText', false, {escaped_text});
+            }} else {{
+                editor.value = {escaped_text};
+                editor.dispatchEvent(new Event('input', {{bubbles: true}}));
+            }}
+            return {{status: 'typed'}};
+        }}""")
+
+        result = type_result.get("result", type_result) if isinstance(type_result, dict) else type_result
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        await asyncio.sleep(1)
+
+        # 4. Click Send button or press Enter
+        send_result = await self.evaluate("""() => {
+            // Instagram DM send button
+            const sendBtn = document.querySelector(
+                'button[type="button"][aria-label*="Send"], ' +
+                'button[type="submit"], ' +
+                'div[role="button"][aria-label*="Send"], ' +
+                'button:has-text("Send")'
+            );
+            if (sendBtn) {
+                sendBtn.click();
+                return {status: 'sent', method: 'button'};
+            }
+            // Try pressing Enter on the editor
+            const editor = document.querySelector(
+                'div[contenteditable="true"], textarea'
+            );
+            if (editor) {
+                editor.dispatchEvent(
+                    new KeyboardEvent('keydown', {
+                        key: 'Enter', keyCode: 13, which: 13, bubbles: true
+                    })
+                );
+                return {status: 'sent', method: 'enter'};
+            }
+            return {status: 'no_button'};
+        }""")
+
+        await asyncio.sleep(2)
+
+        send_result = send_result.get("result", send_result) if isinstance(send_result, dict) else send_result
+        if isinstance(send_result, dict) and send_result.get("status") == "no_button":
+            return {"error": "Could not find send button or press Enter"}
+
+        return {"status": "ok", "sent": True, "recipient_id": recipient_id, "text": text}
