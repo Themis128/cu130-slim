@@ -1327,20 +1327,36 @@ async def _publish_instagram(
     """Publish to Instagram.
 
     Publishing priority (first success wins):
-        1. **instagrapi** — direct Python private mobile API. Requires
+        1. **Business Login Graph API** (graph.instagram.com) — when the
+           account was connected via Instagram Business Login (instagram2).
+           Uses the Instagram user token directly; no Facebook Page linkage
+           required. This is the official, most reliable path.
+        2. **instagrapi** — direct Python private mobile API. Requires
            INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD in env. Works for any
            account type without Meta App Review.
-        2. **Web API** (rupload_igphoto) — uses browser sessionid cookie
+        3. **Web API** (rupload_igphoto) — uses browser sessionid cookie
            directly against www.instagram.com. Requires private_api_session_id,
            private_api_csrf_token, private_api_ds_user_id in meta_data.
-        3. **Sidecar** (aiograpi-rest private mobile API) — fallback for
+        4. **Sidecar** (aiograpi-rest private mobile API) — fallback for
            video uploads or when the above paths are unavailable.
-        4. **Graph API** — last resort (requires Meta App Review for
-           instagram_content_publish permission).
+        5. **Facebook Login Graph API** (graph.facebook.com) — last resort
+           (requires Meta App Review + Page-Instagram linkage).
     """
     meta = account.meta_data or {}
 
-    # 1. instagrapi (direct Python) — primary path when credentials are set
+    # 1. Business Login Graph API (graph.instagram.com) — highest priority
+    # when the account was connected via Instagram Business Login (instagram2).
+    # This path uses the Instagram user token directly against graph.instagram.com
+    # and does NOT require a Facebook Page to be linked.
+    if meta.get("login_type") == "business_login":
+        graph_result = await _publish_instagram_via_graph(
+            access_token, text, account, post, media_paths, storage_paths,
+        )
+        if graph_result.success:
+            return graph_result
+        logger.warning("Business Login Graph API failed: %s — trying fallback paths", graph_result.error)
+
+    # 2. instagrapi (direct Python) — primary fallback when credentials are set
     if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
         ig_result = await _publish_instagram_via_instagrapi(text, post, media_paths)
         if ig_result.success:
@@ -1356,13 +1372,13 @@ async def _publish_instagram(
     has_sidecar_session = bool(_decrypted_session)
     web_result: PublishResult | None = None
 
-    # 2. Web API (rupload_igphoto)
+    # 3. Web API (rupload_igphoto)
     if has_web_session:
         web_result = await _publish_instagram_via_web(account, text, post, media_paths)
         if web_result.success:
             return web_result
 
-    # 3. Sidecar (aiograpi-rest)
+    # 4. Sidecar (aiograpi-rest)
     if has_sidecar_session:
         result = await _publish_instagram_via_sidecar(account, text, post, media_paths)
         if result.success:
