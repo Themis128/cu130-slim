@@ -13,6 +13,13 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Switch } from '@/components/ui/Switch'
 import { whatsappApi, accountsApi } from '@/services/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { AxiosError } from 'axios'
+
+/** Extract the detail message from a backend error response. */
+function getErrorMessage(err: unknown, fallback = 'Unknown error'): string {
+  const axiosErr = err as AxiosError<{ detail?: string }>
+  return axiosErr?.response?.data?.detail || axiosErr?.message || fallback
+}
 
 export default function WhatsAppPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
@@ -257,7 +264,7 @@ function SetupStatusCard({ accountId }: { accountId: string }) {
             </div>
             {reconnectMutation.isError && (
               <p className="text-sm text-red-600">
-                Reconnect failed: {reconnectMutation.error instanceof Error ? reconnectMutation.error.message : 'Unknown error'}
+                Reconnect failed: {getErrorMessage(reconnectMutation.error, 'Unknown error')}
               </p>
             )}
           </div>
@@ -382,7 +389,7 @@ function CredentialsCard({ accountId }: { accountId: string }) {
           </Button>
           {mutation.isError && (
             <p className="text-sm text-red-600">
-              Error: {mutation.error instanceof Error ? mutation.error.message : 'Failed to save'}
+              Error: {getErrorMessage(mutation.error, 'Failed to save')}
             </p>
           )}
           {mutation.isSuccess && (
@@ -506,7 +513,7 @@ function PhoneRegistrationCard({ accountId }: { accountId: string }) {
             </Button>
             {requestCodeMutation.isError && (
               <p className="text-sm text-red-600">
-                Error: {requestCodeMutation.error instanceof Error ? requestCodeMutation.error.message : 'Failed to request code'}
+              Error: {getErrorMessage(requestCodeMutation.error, 'Failed to request code')}
               </p>
             )}
           </div>
@@ -541,7 +548,7 @@ function PhoneRegistrationCard({ accountId }: { accountId: string }) {
             </div>
             {verifyCodeMutation.isError && (
               <p className="text-sm text-red-600">
-                Error: {verifyCodeMutation.error instanceof Error ? verifyCodeMutation.error.message : 'Verification failed'}
+                Error: {getErrorMessage(verifyCodeMutation.error, 'Verification failed')}
               </p>
             )}
           </div>
@@ -577,7 +584,7 @@ function PhoneRegistrationCard({ accountId }: { accountId: string }) {
             </div>
             {registerMutation.isError && (
               <p className="text-sm text-red-600">
-                Error: {registerMutation.error instanceof Error ? registerMutation.error.message : 'Registration failed'}
+                Error: {getErrorMessage(registerMutation.error, 'Registration failed')}
               </p>
             )}
           </div>
@@ -821,7 +828,7 @@ function SendMessageCard({ accountId }: { accountId: string }) {
           )}
           {mutation.isError && (
             <p className="text-sm text-red-600 ml-2">
-              Error: {mutation.error instanceof Error ? mutation.error.message : 'Failed to send'}
+              Error: {getErrorMessage(mutation.error, 'Failed to send')}
             </p>
           )}
         </form>
