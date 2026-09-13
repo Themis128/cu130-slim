@@ -24,6 +24,7 @@ import {
   Server,
   MessageCircle,
   PhoneCall,
+  Contact,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -40,6 +41,7 @@ const navigation = [
   { name: 'AI Images', href: '/media/generate', icon: Wand2 },
   { name: 'Workflows', href: '/workflows', icon: Zap },
   { name: 'Brand', href: '/brand', icon: Palette },
+  { name: 'Digital Card', href: '/card', icon: Contact },
   { name: 'Channels', href: '/accounts', icon: Users },
   { name: 'Messenger', href: '/messenger', icon: MessageCircle },
   { name: 'WhatsApp', href: '/whatsapp', icon: PhoneCall },
