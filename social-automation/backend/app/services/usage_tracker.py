@@ -57,6 +57,14 @@ async def track_inference(
 ) -> None:
     """Insert a usage log row, swallowing any DB or serialization errors."""
     try:
+        # Sanitize meta_data: convert any UUID values to strings so JSONB
+        # serialization doesn't fail with "Object of type UUID is not JSON serializable".
+        clean_meta: dict[str, Any] = {}
+        for k, v in (meta_data or {}).items():
+            if isinstance(v, uuid.UUID):
+                clean_meta[k] = str(v)
+            else:
+                clean_meta[k] = v
         log = AIUsageLog(
             team_id=team_id,
             user_id=user_id,
@@ -71,7 +79,7 @@ async def track_inference(
             latency_ms=latency_ms,
             success=success,
             error=error,
-            meta_data=meta_data or {},
+            meta_data=clean_meta,
         )
         # Persist in a short-lived session so usage logging never holds or
         # interferes with the caller's transaction.
