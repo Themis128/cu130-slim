@@ -821,7 +821,9 @@ async def generate_image(
             from app.services.cf_models import CF_TXT2IMG_FREE
 
             _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
-            model = request.model or model or CF_TXT2IMG_FREE
+            # Use request.model if provided; otherwise use CF_TXT2IMG_FREE (not the
+            # team's text model, which may be a chat model like llama-3.2-3b).
+            model = request.model or CF_TXT2IMG_FREE
             if not _is_workers_ai_image_model(model):
                 raise HTTPException(
                     status_code=400,
