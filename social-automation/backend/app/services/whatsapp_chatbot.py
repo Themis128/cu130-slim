@@ -518,6 +518,13 @@ async def generate_contextual_reply(
     # Build enhanced system prompt
     enhanced_prompt = system_prompt
 
+    # Inject brand voice rules from the brand system so the WhatsApp bot
+    # also enforces banned phrases, euro pricing, and bilingual matching.
+    from app.services.messenger_chatbot import _get_brand_voice_block
+    brand_voice_block = await _get_brand_voice_block()
+    if brand_voice_block and brand_voice_block not in enhanced_prompt:
+        enhanced_prompt += brand_voice_block
+
     if intent:
         intent_guidance = {
             INTENT_BUSINESS: "This is a business inquiry. Be professional and informative. Mention Cloudless.gr services if relevant.",

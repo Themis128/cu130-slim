@@ -38,8 +38,10 @@ from app.models.social_account import SocialAccount
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 from app.services.messenger_chatbot import (
     check_cooldown,
+    detect_intent,
     generate_contextual_reply,
     is_thread_paused,
+    retrieve_brand_context,
     set_cooldown,
     store_message_memory,
 )
@@ -227,11 +229,17 @@ async def _process_account(
                 logger.debug("Thread %s paused (human handoff), skipping", thread_id)
                 continue
 
-            # 7. Generate AI reply (CF Workers AI)
+            # 7. Detect intent and retrieve brand context (RAG)
+            intent = await detect_intent(last_text, cf_token, cf_account, dmr_url)
+            brand_context = await retrieve_brand_context(last_text)
+
+            # 8. Generate AI reply (CF Workers AI)
             reply_text = await generate_contextual_reply(
                 config, last_text, account_name,
                 account.id, thread_id,
                 cf_token, cf_account, dmr_url,
+                intent=intent,
+                brand_context=brand_context,
             )
 
             if not reply_text:

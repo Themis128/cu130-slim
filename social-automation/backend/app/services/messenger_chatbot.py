@@ -437,6 +437,67 @@ Reply with only the category name, nothing else."""
     return INTENT_PERSONAL
 
 
+# ── Brand voice injection ────────────────────────────────────────────
+
+_brand_voice_cache: dict = {}
+_brand_voice_cache_ts: float = 0
+_BRAND_VOICE_TTL = 300  # 5 minutes
+
+
+async def _get_brand_voice_block() -> str:
+    """Fetch brand voice rules from the brand system and return a text block
+    to append to bot system prompts.
+
+    Caches the result for 5 minutes to avoid hitting the API on every message.
+    Returns an empty string if the brand system is unavailable.
+    """
+    import time
+
+    global _brand_voice_cache, _brand_voice_cache_ts
+    now = time.time()
+    if _brand_voice_cache and (now - _brand_voice_cache_ts) < _BRAND_VOICE_TTL:
+        return _brand_voice_cache.get("block", "")
+
+    try:
+        import os
+        import httpx
+
+        api_base = os.getenv("SOCIAL_API_BASE", "http://localhost:8083")
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{api_base}/api/v1/brand/voice")
+            if resp.status_code != 200:
+                return ""
+            data = resp.json()
+
+        banned = data.get("banned_phrases", [])
+        preferred = data.get("preferred_phrases", [])
+        sig = data.get("voice_signature", {})
+
+        lines = ["\n\nBRAND VOICE RULES:"]
+        if preferred:
+            lines.append(f"- Use: {', '.join(preferred[:8])}")
+        if banned:
+            lines.append(f"- Never use: {', '.join(banned[:8])}")
+        if sig.get("pricing_currency") == "EUR":
+            lines.append("- Always quote prices in euros (€). Never use dollars or USD.")
+        if sig.get("language"):
+            lines.append(
+                "- You must support both Greek and English. Always match the user "
+                "language exactly. If the user writes in Greek, reply in Greek. "
+                "If in English, reply in English. Never mix languages."
+            )
+        if sig.get("disclosure"):
+            lines.append("- Always say you are a bot. Be honest.")
+        lines.append("- Be warm, direct, confident. Keep it 1-3 sentences.")
+
+        block = "\n".join(lines)
+        _brand_voice_cache = {"block": block}
+        _brand_voice_cache_ts = now
+        return block
+    except Exception:
+        return ""
+
+
 # ── Context-aware reply generation ───────────────────────────────────
 
 
@@ -481,6 +542,14 @@ async def generate_contextual_reply(
 
     # Build enhanced system prompt
     enhanced_prompt = system_prompt
+
+    # Fetch brand voice rules from the brand system and inject them
+    # so ALL bots enforce banned phrases, preferred phrases, euro pricing,
+    # and bilingual language matching — even if the per-account system_prompt
+    # doesn't include them explicitly.
+    brand_voice_block = await _get_brand_voice_block()
+    if brand_voice_block and brand_voice_block not in enhanced_prompt:
+        enhanced_prompt += brand_voice_block
 
     if intent:
         intent_guidance = {
