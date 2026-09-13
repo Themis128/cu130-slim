@@ -1,8 +1,8 @@
+import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import uuid
 
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.services import leads as leads_service
