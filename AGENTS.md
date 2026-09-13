@@ -160,6 +160,30 @@ SocialAuto supports six social platforms across OAuth, publishing, analytics, to
 - Threads
 - TikTok
 
+### Bot auto-reply architecture
+
+All six platforms share a unified bot reply engine in `app/services/messenger_chatbot.py` (`generate_contextual_reply`). WhatsApp uses a parallel implementation in `app/services/whatsapp_chatbot.py` with the same architecture.
+
+**Reply pipeline (per inbound message):**
+1. **Deterministic pricing safeguard** — keyword detection (English + Greek) intercepts pricing questions before the LLM and returns a hardcoded response directing to `cloudless.gr` for a free audit. Prevents the 8B model from hallucinating specific euro amounts.
+2. **Intent detection** — classifies as business, personal, question, spam, or greeting (DMR → CF fallback).
+3. **Brand knowledge RAG** — retrieves relevant brand context from ChromaDB/Vectorize.
+4. **Brand voice injection** — fetches banned phrases, preferred phrases, euro pricing enforcement, bilingual Greek/English rules, and bot disclosure from the Brand system API (`GET /api/v1/brand/voice`). Cached for 5 minutes. Injected into every bot's system prompt even if the per-account prompt doesn't include them.
+5. **Conversation memory** — last 10 messages from ChromaDB for context-aware replies.
+6. **Reply generation** — Cloudflare Workers AI (Llama 3.1 8B) is primary for all languages. DMR (Qwen3 8B, local) is fallback. Static text is final fallback.
+7. **Bot disclosure** — first contact in a thread gets `🤖 Auto-reply:` prefix (Meta policy). Tracked in Redis with 24h TTL.
+8. **Cooldown** — per-thread 5-minute cooldown in Redis to avoid spam.
+9. **Human handoff** — threads can be paused/resumed per account.
+
+**All 6 polling tasks** (personal_messenger, instagram_messenger, threads_messenger, twitter_messenger, tiktok_messenger, linkedin_messenger) now pass `intent` and `brand_context` to `generate_contextual_reply`.
+
+**Brand voice rules** (enforced on all 11 bot configs):
+- Banned phrases: synergy, leverage, best-in-class, cutting-edge, state-of-the-art, world-class, next-generation, revolutionary, game-changing, disruptive, paradigm shift
+- Preferred phrases: Clear skies. Zero friction., The third way, We earn your business every month, Your code is yours, No lock-in contracts, Results in 14 days, Without the enterprise BS, Free audit first, Transparent pricing in euros
+- Pricing: always euros (€), never USD. Don't make up specific prices.
+- Language: bilingual Greek + English, match user language exactly, never mix.
+- Disclosure: always say you are a bot.
+
 ### Auto token refresh
 
 A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It refreshes any active account token expiring within the next 4 hours:
@@ -459,7 +483,7 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 - Publishing gets 3 slots (I/O-bound, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
 - Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this 8GB-RAM host.
 - Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
-- Messenger gets 2 slots with `max-tasks-per-child=50` — AI inference (DMR Qwen3 8B) + ChromaDB RAG + intent detection is RAM-heavy, so processes recycle often. One slot for the 120s poller, one for ad-hoc bot tasks (brand indexing, thread pause/resume).
+- Messenger gets 2 slots with `max-tasks-per-child=50` — AI inference (CF Workers AI + DMR Qwen3 8B fallback) + ChromaDB RAG + intent detection + brand voice injection is RAM-heavy, so processes recycle often. One slot for the 120s poller, one for ad-hoc bot tasks (brand indexing, thread pause/resume).
 - `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acked after completion — a worker crash triggers redelivery instead of silent loss.
 - `result_expires=3600`: Redis result backend auto-cleans after 1 hour.
 - Per-task time limits via `task_annotations` in `celery_app.py`:
