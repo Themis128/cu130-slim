@@ -23,6 +23,59 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30.0
 
+# Redis-based browser bridge lock — prevents concurrent browser navigation
+# by multiple workers (Instagram, Threads, Twitter, TikTok, personal Messenger).
+# The browser bridge has a single shared browser session, so only one worker
+# can use it at a time. Without this lock, workers navigate the browser to
+# different platforms simultaneously, causing "Failed to fetch" errors.
+_BROWSER_LOCK_KEY = "browser-bridge:lock"
+_BROWSER_LOCK_TIMEOUT = 60  # seconds — auto-release after 60s to prevent deadlocks
+_BROWSER_LOCK_RETRY_DELAY = 0.5  # seconds between lock acquisition attempts
+
+
+async def _acquire_browser_lock(timeout: float = 30.0) -> Any:
+    """Acquire a Redis-based lock for exclusive browser bridge access.
+
+    Returns a lock handle (asyncio.Lock-like) or None if Redis is unavailable.
+    Other workers will wait until the lock is released before proceeding.
+    """
+    try:
+        from app.core.redis import get_redis_client
+        redis = await get_redis_client()
+        if redis is None:
+            return None  # Redis unavailable — proceed without lock
+        # Use SET with NX (only if not exists) + EX (expire) for atomic lock
+        import time
+        lock_token = str(time.time())
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            acquired = await redis.set(_BROWSER_LOCK_KEY, lock_token, nx=True, ex=_BROWSER_LOCK_TIMEOUT)
+            if acquired:
+                return lock_token
+            await asyncio.sleep(_BROWSER_LOCK_RETRY_DELAY)
+        logger.warning("Browser bridge lock acquisition timed out after %ss", timeout)
+        return None  # Timeout — proceed without lock (best effort)
+    except Exception as exc:
+        logger.debug("Browser bridge lock unavailable (non-fatal): %s", exc)
+        return None  # Non-fatal — proceed without lock
+
+
+async def _release_browser_lock(lock_token: Any) -> None:
+    """Release the browser bridge lock."""
+    if lock_token is None:
+        return
+    try:
+        from app.core.redis import get_redis_client
+        redis = await get_redis_client()
+        if redis is None:
+            return
+        # Only delete if we still own the lock (token matches)
+        current = await redis.get(_BROWSER_LOCK_KEY)
+        if current and str(current) == str(lock_token):
+            await redis.delete(_BROWSER_LOCK_KEY)
+    except Exception as exc:
+        logger.debug("Browser bridge lock release failed (non-fatal): %s", exc)
+
 
 class BrowserBridgeError(Exception):
     """Raised when the browser bridge returns an error."""
