@@ -272,7 +272,7 @@ async def _process_account(
                 if "error" in bridge_msgs:
                     continue
                 messages = bridge_msgs.get("messages", [])
-                sender_key = "sender_id"
+                sender_key = "is_sent_by_viewer"
                 sender_field = None
                 text_field = "text"
             else:
@@ -288,9 +288,13 @@ async def _process_account(
                 if sender_field:
                     sender = msg.get(sender_key, {})
                     sender_id = sender.get(sender_field, "") if isinstance(sender, dict) else str(sender)
+                    is_outbound = sender_id == my_id
+                elif sender_key == "is_sent_by_viewer":
+                    is_outbound = bool(msg.get(sender_key, False))
                 else:
                     sender_id = msg.get(sender_key, "")
-                if sender_id != my_id and msg.get(text_field):
+                    is_outbound = sender_id == my_id
+                if not is_outbound and msg.get(text_field):
                     last_inbound = msg
                     break
 

@@ -1647,6 +1647,7 @@ class BrowserBridgeClient:
                     return {{
                         id: item.item_id || "",
                         sender_id: String(item.user_id || ""),
+                        is_sent_by_viewer: item.is_sent_by_viewer || false,
                         text: item.text || item.share_text || "",
                         timestamp: item.timestamp || "",
                     }};
