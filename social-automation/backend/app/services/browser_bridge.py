@@ -1342,7 +1342,7 @@ class BrowserBridgeClient:
 
         import json as _json
         escaped_text = _json.dumps(text)
-        result = await self.evaluate(f"""() => {{
+        type_response = await self.evaluate(f"""() => {{
             const editor = document.querySelector(
                 'div[contenteditable="true"][data-testid="tweetTextarea_0"], ' +
                 'div[contenteditable="true"][role="textbox"], ' +
@@ -1363,13 +1363,14 @@ class BrowserBridgeClient:
             return {{ status: 'typed' }};
         }}""")
 
+        result = type_response.get("result", type_response) if isinstance(type_response, dict) else type_response
         if isinstance(result, dict) and result.get("error"):
             return result
 
         await asyncio.sleep(1)
 
         # Click Send button or press Enter
-        send_result = await self.evaluate("""() => {
+        send_response = await self.evaluate("""() => {
             const sendBtn = document.querySelector(
                 'button[data-testid="dmSendButton"], ' +
                 'button[aria-label*="Send"], ' +
@@ -1382,7 +1383,8 @@ class BrowserBridgeClient:
             return { status: 'no_button' };
         }""")
 
-        if send_result.get("status") == "no_button":
+        send_result = send_response.get("result", send_response) if isinstance(send_response, dict) else send_response
+        if isinstance(send_result, dict) and send_result.get("status") == "no_button":
             await self.evaluate("""() => {
                 const editor = document.querySelector('div[contenteditable="true"][role="textbox"], textarea');
                 if (editor) {
