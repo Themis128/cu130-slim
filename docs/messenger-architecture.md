@@ -1051,3 +1051,33 @@ A comprehensive health check was performed across the entire SocialAuto app:
 - **MCP server module** (`app/mcp/server.py`) imports the `mcp` package which is in `dev` optional dependencies — not installed in the production container. The MCP server is a standalone dev tool run locally with `python -m app.mcp.server`.
 - **Instagram DM sender detection** in the browser bridge uses `is_sent_by_viewer` from the Instagram web API rather than DOM-based detection (TODO marker at `browser_bridge.py:742`).
 - **Browser bridge orchestrator** serializes all platform workers through one shared browser — prevents races but introduces wait latency.
+
+### Bot quality audit (2026-09-13)
+
+All 9 social accounts were tested for bot reply quality in both English and Greek:
+
+| Platform | Account | EN lang | EN steering | GR lang | GR steering |
+|----------|---------|---------|-------------|---------|------------|
+| Facebook Page | Cloudless.gr | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| Facebook User | Themistoklis | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| Instagram | cloudless.gr | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| LinkedIn Org | cloudless-gr | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| LinkedIn Person | baltzakis.themis | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| Threads | cloudless_gr | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| TikTok | cloudless.gr | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| Twitter | TBaltzakis | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+| WhatsApp | Themistoklis | English ✅ | ? ✅ | Greek ✅ | ; ✅ |
+
+**All 18 replies pass**: correct language, end with steering question, no garbled Greek.
+
+#### Fixes applied
+
+1. **Greek steering enforcement**: Added bilingual Greek instructions in the enhanced system prompt — the 8B Llama model was ignoring English-only instructions for Greek replies. Greek instructions now explicitly require:
+   - Reply only in Greek
+   - Always end with a question (;)
+   - Write correct Greek (no garbled words)
+   - Keep it short: 1-3 sentences + one question
+
+2. **Post-generation steering guard**: `_ensure_steering_question()` appends a steering question (Greek or English) if the LLM reply doesn't end with `?` or `;`. Applied to both Cloudflare Workers AI and DMR reply paths.
+
+3. **LinkedIn session restoration**: Both LinkedIn accounts (cloudless-gr org + personal) were expired/rate-limited. Cleared the rate-limit circuit breaker and restored to active/valid status.
