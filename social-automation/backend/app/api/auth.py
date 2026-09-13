@@ -958,6 +958,10 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         # Instagram Business Login uses a custom flow
         return await instagram2_authorize(team_id, current_user)
 
+    if platform == "instagram-onboarding":
+        # Facebook Login for Business with IG API Onboarding uses a custom flow
+        return await instagram_onboarding_authorize(team_id, current_user)
+
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
@@ -1567,6 +1571,7 @@ async def oauth_callback(
             account.meta_data = {
                 **(account.meta_data or {}),
                 "account_type": _acct_type,
+                "login_type": "fb_onboarding" if is_ig_onboarding else (account.meta_data or {}).get("login_type"),
             }
     else:
         _meta: dict = {}
@@ -1587,7 +1592,7 @@ async def oauth_callback(
                 "access_token": "",
             }
         elif platform == "instagram":
-            _meta = {"account_type": "business"}
+            _meta = {"account_type": "business", "login_type": "fb_onboarding" if is_ig_onboarding else "facebook_login"}
         _expires_in = token.get("expires_in")
         _token_expires_at = None
         if _expires_in:
