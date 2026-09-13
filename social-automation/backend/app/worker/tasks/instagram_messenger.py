@@ -306,11 +306,6 @@ async def _process_account(
             if not inbound_messages:
                 continue
 
-            # 4. Check if already replied — compare the latest message
-            latest_text = inbound_messages[-1]
-            if last_seen_text == latest_text:
-                continue
-
             # 5. Combine all unread inbound messages for context
             # If there are multiple unread messages, combine them so the bot
             # can address ALL the user's queries, not just the last one.
@@ -324,6 +319,12 @@ async def _process_account(
                 text = inbound_messages[0]
 
             if not text:
+                continue
+
+            # 4. Check if already replied — compare the combined text
+            # Compare against the full combined text, not just the latest message,
+            # to prevent duplicate replies when multiple messages are unread.
+            if last_seen_text == text:
                 continue
 
             # 5. Check cooldown
@@ -396,6 +397,18 @@ async def _process_account(
 
             if not reply_text:
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
+
+            # Guard: if the AI just echoed the user's message (8B model sometimes
+            # does this), use the fallback instead to avoid a confusing reply.
+            if reply_text.strip().lower() == text.strip().lower() or (
+                len(inbound_messages) == 1 and reply_text.strip().lower() == inbound_messages[0].strip().lower()
+            ):
+                logger.warning(
+                    "Instagram DM: AI echoed user message, using fallback. "
+                    "User: %r, AI: %r",
+                    text[:50], reply_text[:50],
+                )
+                reply_text = config.get("fallback_text", "Thanks for your message! I'm the Cloudless bot. How can I help you today?")
 
             # 9. Send reply via Instagram Messaging API
             send_ok = False
