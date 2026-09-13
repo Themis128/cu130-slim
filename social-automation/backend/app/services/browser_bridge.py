@@ -1185,7 +1185,7 @@ class BrowserBridgeClient:
         send_response = await self.evaluate("""() => {
             const sendBtn = document.querySelector(
                 'button[type="submit"], ' +
-                'button[aria-label*="Send"]
+                'button[aria-label*="Send"]'
             );
             if (sendBtn) {
                 sendBtn.click();
@@ -1372,7 +1372,7 @@ class BrowserBridgeClient:
         send_response = await self.evaluate("""() => {
             const sendBtn = document.querySelector(
                 'button[data-testid="dmSendButton"], ' +
-                'button[aria-label*="Send"]
+                'button[aria-label*="Send"]'
             );
             if (sendBtn) {
                 sendBtn.click();
@@ -1561,7 +1561,7 @@ class BrowserBridgeClient:
             const sendBtn = document.querySelector(
                 'button[type="submit"], ' +
                 'button[aria-label*="Send"], ' +
-                'button[data-e2e="send-button"]
+                'button[data-e2e="send-button"]'
             );
             if (sendBtn) {
                 sendBtn.click();

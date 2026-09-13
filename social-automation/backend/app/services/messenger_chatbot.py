@@ -620,12 +620,16 @@ _PRICING_KEYWORDS = [
 # Deterministic pricing responses (Greek + English)
 _PRICING_RESPONSES = {
     "greek": (
-        "🤖 Γεια! Είμαι το Cloudless bot. Η τιμή εξαρτάται από τις ανάγκες σας. "
-        "Ξεκινήστε με δωρεάν αξιολόγηση στο cloudless.gr!"
+        "🤖 Γεια! Είμαι το Cloudless bot. Η τιμή εξαρτάται από τις ανάγκες σας "
+        "— κάθε έργο είναι διαφορετικό. Μπορείτε να ξεκινήσετε με δωρεάν "
+        "αξιολόγηση στο cloudless.gr. Τι είδους υπηρεσία σας ενδιαφέρει; "
+        "(cloud, αυτοματοποίηση, social media)"
     ),
     "english": (
-        "🤖 Hi! I'm the Cloudless bot. Pricing depends on your needs. "
-        "Get started at cloudless.gr for a free audit!"
+        "🤖 Hi! I'm the Cloudless bot. Pricing depends on your needs — "
+        "every project is different. You can start with a free audit at "
+        "cloudless.gr. What kind of service are you interested in? "
+        "(cloud, automation, social media)"
     ),
 }
 
@@ -733,11 +737,28 @@ async def generate_contextual_reply(
 
     if intent:
         intent_guidance = {
-            INTENT_BUSINESS: "This is a business inquiry. Be professional and informative. Mention Cloudless.gr services if relevant.",
-            INTENT_PERSONAL: "This is a personal conversation. Be friendly and casual.",
-            INTENT_QUESTION: "This is a question. Answer concisely and accurately.",
+            INTENT_BUSINESS: (
+                "This is a business inquiry. Be professional and informative. "
+                "Ask a follow-up question to understand their needs better. "
+                "Mention relevant Cloudless.gr services (cloud infrastructure, automation, "
+                "social media management). Steer them toward booking a free consultation "
+                "at cloudless.gr or emailing hello@cloudless.gr."
+            ),
+            INTENT_PERSONAL: (
+                "This is a personal conversation. Be friendly and casual. "
+                "If they mention a business need, gently steer toward Cloudless.gr."
+            ),
+            INTENT_QUESTION: (
+                "This is a question. Answer concisely and accurately. "
+                "If the question is about services or pricing, steer them to "
+                "cloudless.gr for a free audit. Ask what they need help with."
+            ),
             INTENT_SPAM: "This appears to be spam. Respond politely but briefly.",
-            INTENT_GREETING: "This is a greeting. Respond warmly and ask how you can help.",
+            INTENT_GREETING: (
+                "This is a greeting. Respond warmly, introduce yourself as the Cloudless bot, "
+                "and ask what they're interested in — services, pricing, or just chatting. "
+                "Steer the conversation toward understanding their needs."
+            ),
         }
         enhanced_prompt += f"\n\nIntent: {intent_guidance.get(intent, '')}"
 
@@ -750,7 +771,13 @@ async def generate_contextual_reply(
         memory_text = "\n".join(f"{'You' if m['sender'] == 'me' else 'Them'}: {m['text'][:100]}" for m in memory[-5:])
         enhanced_prompt += f"\n\nRecent conversation:\n{memory_text}"
 
-    enhanced_prompt += "\n\nReply naturally in the same language as the user's message. Keep it short and conversational."
+    enhanced_prompt += (
+        "\n\nReply naturally in the same language as the user's message. "
+        "Keep it short and conversational. "
+        "Always end with a question to keep the conversation going and "
+        "guide the customer toward the next step (booking, consultation, "
+        "or providing more details about their needs)."
+    )
 
     # Check if we need to disclose the bot's automated nature (Meta policy)
     disclosed = await has_disclosed(account_id, thread_id)
