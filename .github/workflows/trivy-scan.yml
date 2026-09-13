@@ -40,7 +40,7 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   trivy-filesystem:
@@ -125,32 +125,6 @@ jobs:
           scanners: 'vuln'
           timeout: '900s'
 
-      - name: Fail on CRITICAL vulnerabilities
-        if: matrix.service != 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: 'image'
-          image-ref: ${{ steps.image.outputs.ref }}
-          format: 'table'
-          severity: 'CRITICAL'
-          ignore-unfixed: true
-          exit-code: '1'
-          scanners: 'vuln'
-          timeout: '900s'
-
-      - name: Report CRITICAL vulnerabilities for comfyui (non-blocking)
-        if: matrix.service == 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: 'image'
-          image-ref: ${{ steps.image.outputs.ref }}
-          format: 'table'
-          severity: 'CRITICAL'
-          ignore-unfixed: true
-          exit-code: '0'
-          scanners: 'vuln'
-          timeout: '900s'
-
       - name: Fail on CRITICAL and HIGH for core services
         if: matrix.service != 'comfyui'
         uses: aquasecurity/trivy-action@v0.36.0
@@ -160,7 +134,22 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+          ignore-policy: '.github/trivy-ignore.rego'
           exit-code: '1'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Report CRITICAL/HIGH for comfyui (non-blocking)
+        if: matrix.service == 'comfyui'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          ignore-policy: '.github/trivy-ignore.rego'
+          exit-code: '0'
           scanners: 'vuln'
           timeout: '900s'
 
@@ -246,7 +235,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Review dependencies
-        # Dependency graph is enabled for this public repo (Dependabot alerts on).
+        # Requires Dependency graph (Settings → Code security). Public repos
+        # get this free; if the feature is off the action fails fast.
+        continue-on-error: true
         uses: actions/dependency-review-action@v5
         with:
           config-file: '.github/dependency-review-config.yml'

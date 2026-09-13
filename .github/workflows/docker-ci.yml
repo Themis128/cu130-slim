@@ -4,15 +4,31 @@ on:
   push:
     branches: [master]
     tags: ['v*']
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/test.env'
   pull_request:
     branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/test.env'
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
@@ -67,11 +83,14 @@ jobs:
         run: |
           # Dependabot / fork PRs cannot read org secrets — fall back so tags
           # remain valid for local build + Trivy scan (push is still gated).
+          # Never emit an empty user: docker tags like "/cu130-slim-*:pr-N" are invalid.
           USER="${{ secrets.DOCKERHUB_USERNAME }}"
+          USER="$(echo "$USER" | tr -d '[:space:]')"
           if [ -z "$USER" ]; then
             USER="baltzakist"
           fi
           echo "user=$USER" >> "$GITHUB_OUTPUT"
+          echo "Using Docker Hub namespace: $USER"
 
       - name: Extract metadata for ${{ matrix.service.name }}
         id: meta

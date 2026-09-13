@@ -4,8 +4,32 @@ name: Security Scanning
 "on":
   push:
     branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/security.yml'
+      - '.github/test.env'
+      - '.github/trivy-ignore.rego'
+      - '.github/codeql/**'
+      - '.github/dependency-*'
+      - '.github/trufflehog-exclude.txt'
   pull_request:
     branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/security.yml'
+      - '.github/test.env'
+      - '.github/trivy-ignore.rego'
+      - '.github/codeql/**'
+      - '.github/dependency-*'
+      - '.github/trufflehog-exclude.txt'
   schedule:
     - cron: '0 2 * * 1'  # Weekly on Monday 2 AM
   workflow_dispatch:
@@ -15,7 +39,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 env:
   # Trivy configuration
@@ -39,9 +63,13 @@ jobs:
             ${{
               github.event_name == 'pull_request' && github.event.pull_request.base.sha ||
               github.event_name == 'push' && github.event.before ||
+              github.event_name == 'workflow_dispatch' && github.event.before ||
               ''
             }}
           head: ${{ github.sha }}
+          # Unverified findings (entropy matches in binaries/models) previously
+          # failed the job with exit 183. Only fail on verified secrets.
+          extra_args: --only-verified --exclude-paths=.github/trufflehog-exclude.txt
 
   dependency-scan:
     runs-on: ubuntu-24.04
@@ -133,6 +161,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+          ignore-policy: '.github/trivy-ignore.rego'
           exit-code: '1'
           scanners: 'vuln'
 

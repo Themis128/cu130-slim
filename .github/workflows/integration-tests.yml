@@ -4,8 +4,20 @@ name: Full Stack Integration Tests
 "on":
   push:
     branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/integration-tests.yml'
+      - '.github/test.env'
   pull_request:
     branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/integration-tests.yml'
+      - '.github/test.env'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +25,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   integration-test:
