@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
   Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
+  Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'

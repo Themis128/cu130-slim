@@ -676,6 +676,34 @@ export function useFollowerGrowth(days?: number) {
   })
 }
 
+// Bot analytics hooks
+export function useBotSummary(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'bots', 'summary', days],
+    queryFn: () => analyticsApi.getBotSummary({ days }),
+    select: (response) => response.data,
+    refetchInterval: 30000,
+  })
+}
+
+export function useCloudflareAIUsage(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'bots', 'cloudflare-ai', days],
+    queryFn: () => analyticsApi.getCloudflareAIUsage({ days }),
+    select: (response) => response.data,
+    refetchInterval: 60000,
+  })
+}
+
+export function useCloudflareOverview(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'bots', 'cloudflare-overview', days],
+    queryFn: () => analyticsApi.getCloudflareOverview({ days }),
+    select: (response) => response.data,
+    refetchInterval: 60000,
+  })
+}
+
 // AI hooks
 export function useGenerateContent() {
   return useMutation({

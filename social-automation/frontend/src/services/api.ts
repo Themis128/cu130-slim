@@ -600,6 +600,13 @@ export const analyticsApi = {
     api.post('/analytics/sync', data || { days: 365, async_mode: true }),
   listSnapshots: (params?: { days?: number; post_id?: string; limit?: number }) =>
     api.get('/analytics/snapshots', { params }),
+  // Bot analytics
+  getBotSummary: (params?: { days?: number }) =>
+    api.get('/analytics/bots/summary', { params }),
+  getCloudflareAIUsage: (params?: { days?: number }) =>
+    api.get('/analytics/bots/cloudflare-ai', { params }),
+  getCloudflareOverview: (params?: { days?: number }) =>
+    api.get('/analytics/bots/cloudflare-overview', { params }),
 }
 
 // AI endpoints

@@ -223,6 +223,67 @@ export interface PostAnalytics {
   engagement_rate: number
 }
 
+/** Bot reply analytics from GET /analytics/bots/summary */
+export interface BotAnalyticsSummary {
+  total_replies: number
+  successful_replies: number
+  failed_replies: number
+  guardrail_triggers: number
+  pricing_guardrail_triggers: number
+  greek_replies: number
+  english_replies: number
+  avg_latency_ms: number | null
+  by_provider: Array<{ provider: string; replies: number; errors: number }>
+  by_account: Array<{ account_id: string; replies: number; errors: number }>
+  by_day: Array<{ date: string; replies: number; errors: number; guardrails: number }>
+}
+
+/** Cloudflare Workers AI usage from GET /analytics/bots/cloudflare-ai */
+export interface CloudflareAIUsage {
+  total_requests: number
+  total_neurons: number
+  total_errors: number
+  free_tier_limit: number
+  free_tier_remaining: number
+  by_model: Array<{ model: string; requests: number; neurons: number; errors: number }>
+  by_day: Array<{ date: string; requests: number; neurons: number }>
+}
+
+/** Combined Cloudflare overview from GET /analytics/bots/cloudflare-overview */
+export interface CloudflareOverview {
+  workers_ai: {
+    total_requests: number
+    total_neurons: number
+    free_tier_limit: number
+    free_tier_remaining: number
+    by_model: Array<{ model: string; requests: number; neurons: number; errors: number }>
+    by_day: Array<{ date: string; requests: number; neurons: number }>
+  }
+  workers: {
+    total_requests: number
+    total_errors: number
+    by_script: Array<{ script: string; requests: number; errors: number; cpu_time_p50: number; cpu_time_p99: number }>
+  }
+  r2: {
+    total_operations: number
+    total_storage_bytes: number
+    by_bucket: Array<{ bucket: string; operations: number; storage_bytes: number }>
+    by_action: Array<{ action: string; requests: number }>
+  }
+  d1: {
+    total_queries: number
+    by_database: Array<{ database: string; queries: number }>
+  }
+  kv: {
+    total_operations: number
+    by_action: Array<{ action: string; requests: number }>
+  }
+  vectorize: {
+    total_queries: number
+    by_index: Array<{ index: string; queries: number }>
+  }
+}
+
 export interface AuthState {
   user: User | null
   access_token: string | null
