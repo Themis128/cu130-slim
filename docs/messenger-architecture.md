@@ -1078,6 +1078,26 @@ All 9 social accounts were tested for bot reply quality in both English and Gree
    - Write correct Greek (no garbled words)
    - Keep it short: 1-3 sentences + one question
 
-2. **Post-generation steering guard**: `_ensure_steering_question()` appends a steering question (Greek or English) if the LLM reply doesn't end with `?` or `;`. Applied to both Cloudflare Workers AI and DMR reply paths.
+2. **Post-generation steering guard**: `_ensure_steering_question()` appends a steering question (Greek or English) if the LLM reply doesn't end with `?` or `;`. Applied to all three reply paths: Cloudflare Workers AI, DMR, and deterministic pricing guardrail.
 
 3. **LinkedIn session restoration**: Both LinkedIn accounts (cloudless-gr org + personal) were expired/rate-limited. Cleared the rate-limit circuit breaker and restored to active/valid status.
+
+4. **Few-shot examples** (based on LLM best practices research): Added 2 example interactions per language (English + Greek) to the system prompt. Research shows examples calibrate model behavior better than instructions alone (PE Collective, BuiltABot, llmbestpractices.com). Greek examples use correct, natural Greek to help the 8B model avoid garbled words — research on Llama-Krikri-8B (ILSP) confirms few-shot prompting yields highest-quality Greek outputs.
+
+5. **Pricing guardrail steering**: The deterministic pricing response ended with parenthetical options (e.g. "(cloud, automation, social media)") instead of a question mark. Now applies `_ensure_steering_question()` to append a steering question.
+
+#### Full test results (36/36 PASS)
+
+All 9 accounts tested with 4 message types (English greeting, English pricing, Greek greeting, Greek pricing):
+
+| Platform | Account | EN greeting | EN pricing | GR greeting | GR pricing |
+|----------|---------|-------------|------------|-------------|------------|
+| Facebook Page | Cloudless.gr | PASS | PASS | PASS | PASS |
+| Facebook User | Themistoklis | PASS | PASS | PASS | PASS |
+| Instagram | cloudless.gr | PASS | PASS | PASS | PASS |
+| LinkedIn Org | cloudless-gr | PASS | PASS | PASS | PASS |
+| LinkedIn Person | baltzakis.themis | PASS | PASS | PASS | PASS |
+| Threads | cloudless_gr | PASS | PASS | PASS | PASS |
+| TikTok | cloudless.gr | PASS | PASS | PASS | PASS |
+| Twitter | TBaltzakis | PASS | PASS | PASS | PASS |
+| WhatsApp | Themistoklis | PASS | PASS | PASS | PASS |
