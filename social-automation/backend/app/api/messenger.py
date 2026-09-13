@@ -93,6 +93,80 @@ def _get_messenger_client(account: SocialAccount) -> MessengerAPIClient:
     )
 
 
+def _icebreaker_payload_to_interest(payload: str) -> str | None:
+    p = (payload or "").strip().upper()
+    mapping = {
+        "LEAD_CLOUD": "cloud",
+        "LEAD_GROWTH": "growth",
+        "LEAD_AUDIT": "audit",
+    }
+    return mapping.get(p)
+
+
+async def _upsert_icebreaker_lead(
+    db: AsyncSession,
+    *,
+    page_id: str,
+    sender_psid: str,
+    payload: str,
+    message_mid: str,
+    timestamp_ms: int,
+) -> None:
+    interest_raw = _icebreaker_payload_to_interest(payload)
+    if not interest_raw:
+        return
+
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.platform == "facebook",
+            SocialAccount.account_id == page_id,
+            SocialAccount.account_type == "page",
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        return
+
+    # Keep webhook handling fast: do not call Graph APIs here (Meta requires <5s ack).
+    suffix = (sender_psid or "").strip()[-6:]
+    name = f"Messenger lead {suffix}".strip() if suffix else "Messenger lead"
+    profile: dict[str, Any] = {}
+
+    try:
+        from app.models.lead import LeadInterest, LeadSource
+        from app.services.leads import synthetic_email_for_messenger_psid, upsert_lead
+
+        await upsert_lead(
+            db,
+            team_id=account.team_id,
+            source=LeadSource.facebook_messenger,
+            social_account_id=account.id,
+            thread_id=sender_psid,
+            name=name,
+            email=synthetic_email_for_messenger_psid(sender_psid),
+            interest=LeadInterest(interest_raw),
+            meta_data={
+                "messenger": {
+                    "page_id": page_id,
+                    "sender_psid": sender_psid,
+                    "icebreaker_payload": (payload or "").strip(),
+                    "message_mid": message_mid,
+                    "timestamp_ms": timestamp_ms,
+                    "profile": profile,
+                }
+            },
+            dedupe_on_thread_id=True,
+            dedupe_on_email=True,
+            overwrite_interest=True,
+        )
+    except Exception as exc:
+        logger.debug(
+            "Icebreaker lead upsert failed (non-fatal) page_id=%s: %s",
+            _sanitize_log_text(str(page_id or "")),
+            _sanitize_log_text(str(exc)),
+        )
+
+
 # ------------------------------------------------------------------
 # Pydantic schemas
 # ------------------------------------------------------------------
@@ -628,6 +702,17 @@ async def receive_webhook(
         postback_payload = event.get("postback_payload", "")
         message_mid = event.get("message_id", "")
 
+        # Ice-breaker postbacks: persist a lead even when the sidecar path is enabled.
+        if sender_psid and page_id and postback_payload:
+            await _upsert_icebreaker_lead(
+                db,
+                page_id=str(page_id),
+                sender_psid=str(sender_psid),
+                payload=str(postback_payload),
+                message_mid=str(message_mid or ""),
+                timestamp_ms=int(event.get("timestamp", 0) or 0),
+            )
+
         if message_type in ("text", "postback") and sender_psid:
             # Dispatch to sidecar for async processing (if configured)
             if sidecar_url:
@@ -642,6 +727,7 @@ async def receive_webhook(
                                 "recipient_id": page_id,
                                 "message_text": message_text,
                                 "message_type": message_type,
+                                "postback_payload": postback_payload,
                                 "message_mid": message_mid,
                                 "timestamp": event.get("timestamp", 0),
                             },

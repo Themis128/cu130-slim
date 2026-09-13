@@ -87,6 +87,7 @@ class WebhookEvent(BaseModel):
     recipient_id: str
     message_text: str = ""
     message_type: str = ""  # text, postback, delivery, read, echo
+    postback_payload: str = ""
     message_mid: str = ""
     timestamp: int = 0
 
@@ -122,6 +123,7 @@ async def process_event(event: WebhookEvent) -> JSONResponse:
         "sender_psid": event.sender_psid,
         "type": event.message_type,
         "text": event.message_text[:100],
+        "payload": event.postback_payload[:100],
         "ts": time.time(),
     })
 

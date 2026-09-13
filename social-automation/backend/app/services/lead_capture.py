@@ -15,8 +15,8 @@ from app.models.lead import LeadCompanySize, LeadInterest, LeadSource
 from app.services.leads import (
     coerce_company_size,
     coerce_interest,
-    create_lead,
     is_valid_email,
+    upsert_lead,
 )
 
 logger = logging.getLogger(__name__)
@@ -265,7 +265,7 @@ async def handle_lead_capture_message(
             state["fields"] = fields
             state["step"] = LeadCaptureStep.done
 
-            lead = await create_lead(
+            lead = await upsert_lead(
                 db,
                 team_id=team_id,
                 source=source,
@@ -285,6 +285,7 @@ async def handle_lead_capture_message(
                     },
                     **meta_data,
                 },
+                dedupe_on_thread_id=True,
             )
 
             # Clear session; if the user re-triggers, start fresh.

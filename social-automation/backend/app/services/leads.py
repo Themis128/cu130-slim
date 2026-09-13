@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -14,9 +15,26 @@ from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 
 logger = logging.getLogger(__name__)
 
+_SYNTHETIC_EMAIL_DOMAINS = {"messenger.local", "instagram.local"}
+
 
 def _norm_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def _is_synthetic_email(email: str) -> bool:
+    e = _norm_email(email)
+    if "@" not in e:
+        return False
+    _local, _, domain = e.partition("@")
+    return domain in _SYNTHETIC_EMAIL_DOMAINS
+
+
+def synthetic_email_for_messenger_psid(psid: str) -> str:
+    """Deterministic placeholder email for Messenger leads (no email available via PSID)."""
+    raw = (psid or "").strip()
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24] if raw else uuid.uuid4().hex[:24]
+    return f"psid.{digest}@messenger.local"
 
 
 def is_valid_email(email: str) -> bool:
@@ -52,6 +70,154 @@ def coerce_interest(value: str | None) -> LeadInterest | None:
         if v == item.value:
             return item
     return None
+
+
+async def upsert_lead(
+    db: AsyncSession,
+    *,
+    team_id: uuid.UUID,
+    source: LeadSource,
+    name: str,
+    email: str,
+    company_size: LeadCompanySize | None = None,
+    interest: LeadInterest | None = None,
+    notes: str | None = None,
+    social_account_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
+    meta_data: dict[str, Any] | None = None,
+    dedupe_on_email: bool = True,
+    dedupe_on_thread_id: bool = True,
+    overwrite_interest: bool = False,
+) -> Lead:
+    """Create or update a lead, preferring thread-based dedupe for DM channels.
+
+    Used for:
+    - Messenger postbacks without a real email (synthetic email + thread_id dedupe)
+    - Later qualification flows attaching a real email to the same thread_id
+    """
+    email_n = _norm_email(email)
+    if not is_valid_email(email_n):
+        raise ValueError("Invalid email")
+    name_n = (name or "").strip()
+    if not name_n:
+        raise ValueError("Name is required")
+
+    if dedupe_on_thread_id and thread_id:
+        existing = (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team_id,
+                    Lead.source == source,
+                    Lead.thread_id == thread_id,
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            changed = False
+
+            if email_n and existing.email != email_n:
+                if _is_synthetic_email(existing.email) and not _is_synthetic_email(email_n):
+                    existing.email = email_n
+                    changed = True
+
+            if name_n and (not (existing.name or "").strip() or (existing.name or "").lower().startswith("messenger ")):
+                existing.name = name_n
+                changed = True
+
+            if company_size and not existing.company_size:
+                existing.company_size = company_size
+                changed = True
+
+            if interest:
+                if overwrite_interest or not existing.interest:
+                    existing.interest = interest
+                    changed = True
+
+            if notes and not existing.notes:
+                existing.notes = notes
+                changed = True
+
+            if social_account_id and not existing.social_account_id:
+                existing.social_account_id = social_account_id
+                changed = True
+
+            if meta_data:
+                md = dict(existing.meta_data or {})
+                md.update(meta_data)
+                existing.meta_data = md
+                changed = True
+
+            if changed:
+                existing.updated_at = datetime.now(UTC)
+                await db.commit()
+            return existing
+
+    if dedupe_on_email:
+        existing = (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team_id,
+                    Lead.source == source,
+                    Lead.email == email_n,
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            changed = False
+
+            if not existing.name and name_n:
+                existing.name = name_n
+                changed = True
+            if not existing.company_size and company_size:
+                existing.company_size = company_size
+                changed = True
+            if interest and (overwrite_interest or not existing.interest):
+                existing.interest = interest
+                changed = True
+            if not existing.notes and notes:
+                existing.notes = notes
+                changed = True
+            if social_account_id and not existing.social_account_id:
+                existing.social_account_id = social_account_id
+                changed = True
+            if thread_id and not existing.thread_id:
+                existing.thread_id = thread_id
+                changed = True
+            if meta_data:
+                md = dict(existing.meta_data or {})
+                md.update(meta_data)
+                existing.meta_data = md
+                changed = True
+
+            if changed:
+                existing.updated_at = datetime.now(UTC)
+                await db.commit()
+            return existing
+
+    lead = Lead(
+        id=uuid.uuid4(),
+        team_id=team_id,
+        source=source,
+        social_account_id=social_account_id,
+        thread_id=thread_id,
+        name=name_n,
+        email=email_n,
+        company_size=company_size,
+        interest=interest,
+        notes=notes,
+        meta_data=meta_data or {},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    db.add(lead)
+    await db.commit()
+
+    try:
+        await notify_lead_created(lead)
+    except Exception:
+        logger.debug("Lead notifications failed (non-fatal)", exc_info=True)
+
+    return lead
 
 
 async def create_lead(
