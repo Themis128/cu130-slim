@@ -463,9 +463,24 @@ async def _get_brand_voice_block() -> str:
 
         import httpx
 
-        api_base = os.getenv("SOCIAL_API_BASE", "http://localhost:8083")
+        api_base = os.getenv("SOCIAL_API_BASE", "http://social-api:8000")
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{api_base}/api/v1/brand/voice")
+            # Authenticate to get a token (admin credentials from env)
+            admin_email = os.getenv("SOCIAL_ADMIN_EMAIL", "")
+            admin_password = os.getenv("SOCIAL_ADMIN_PASSWORD", "")
+            headers = {}
+            if admin_email and admin_password:
+                auth_resp = await client.post(
+                    f"{api_base}/api/v1/auth/login",
+                    data={"username": admin_email, "password": admin_password},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                if auth_resp.status_code == 200:
+                    token = auth_resp.json().get("access_token", "")
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+
+            resp = await client.get(f"{api_base}/api/v1/brand/voice", headers=headers)
             if resp.status_code != 200:
                 return ""
             data = resp.json()
@@ -480,7 +495,11 @@ async def _get_brand_voice_block() -> str:
         if banned:
             lines.append(f"- Never use: {', '.join(banned[:8])}")
         if sig.get("pricing_currency") == "EUR":
-            lines.append("- Always quote prices in euros (€). Never use dollars or USD.")
+            lines.append(
+                "- Always quote prices in euros (€). Never use dollars or USD. "
+                "Do NOT make up specific prices. If asked about pricing, say: "
+                "\"Get started at cloudless.gr for a free audit!\""
+            )
         if sig.get("language"):
             lines.append(
                 "- You must support both Greek and English. Always match the user "
@@ -497,6 +516,45 @@ async def _get_brand_voice_block() -> str:
         return block
     except Exception:
         return ""
+
+
+# ── Deterministic safeguards ─────────────────────────────────────────
+
+# Keywords that indicate a pricing question
+_PRICING_KEYWORDS = [
+    # English
+    "how much", "price", "pricing", "cost", "costs", "expensive", "cheap",
+    "budget", "quote", "rate", "rates", "fee", "fees", "plan", "plans",
+    "subscription", "tier", "tiers", "per month", "per year",
+    # Greek
+    "πόσο", "ποσό", "τιμή", "τιμές", "κόστος", "κόστους", "ακριβό",
+    "φθηνό", "προϋπολογισμός", "παράθεμα", "συνδρομή", "συνδρομές",
+    "τιμολόγιο", "χρέωση", "χρεώσεις",
+]
+
+# Deterministic pricing responses (Greek + English)
+_PRICING_RESPONSES = {
+    "greek": (
+        "🤖 Γεια! Είμαι το Cloudless bot. Η τιμή εξαρτάται από τις ανάγκες σας. "
+        "Ξεκινήστε με δωρεάν αξιολόγηση στο cloudless.gr!"
+    ),
+    "english": (
+        "🤖 Hi! I'm the Cloudless bot. Pricing depends on your needs. "
+        "Get started at cloudless.gr for a free audit!"
+    ),
+}
+
+
+def _is_pricing_question(message: str) -> bool:
+    """Check if a message is asking about pricing."""
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in _PRICING_KEYWORDS)
+
+
+def _is_greek_message(message: str) -> bool:
+    """Check if a message contains Greek characters."""
+    return any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF
+               for c in message)
 
 
 # ── Context-aware reply generation ───────────────────────────────────
