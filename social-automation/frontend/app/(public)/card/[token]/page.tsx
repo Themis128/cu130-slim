@@ -21,33 +21,28 @@ import {
 interface SocialLink {
   platform: string
   handle: string
-  display_name: string
   url: string | null
-  account_type: string
-}
-
-interface Pillar {
-  title: string
-  description: string
+  display_name: string | null
 }
 
 interface CardData {
-  brand_name: string
+  name: string
+  title: string | null
+  company: string | null
   tagline: string | null
-  mission: string | null
-  industry: string | null
-  website: string | null
+  description: string | null
   email: string | null
   phone: string | null
+  website: string | null
   address: string | null
   primary_color: string | null
   accent_color: string | null
   logo_url: string | null
-  socials: SocialLink[]
-  pillars: Pillar[]
-  vcard: string
-  share_token: string | null
+  avatar_url: string | null
+  social_links: SocialLink[]
+  services: { title: string; description: string }[]
   card_url: string | null
+  vcard: string | null
 }
 
 const platformIcons: Record<string, typeof Facebook> = {
@@ -77,7 +72,7 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8083'}/api/v1/brand/digital-card/${params.token}`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8083'}/api/v1/digital-cards/public/${params.token}`)
       .then((res) => {
         if (!res.ok) throw new Error('Card not found')
         return res.json()
@@ -93,14 +88,16 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
   }, [params.token])
 
   const downloadVCard = () => {
-    if (!card) return
+    if (!card?.vcard) return
     const blob = new Blob([card.vcard], { type: 'text/vcard;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${card.brand_name.replace(/\s+/g, '_')}.vcf`
+    a.download = `${card.name.replace(/\s+/g, '_')}.vcf`
     a.click()
     URL.revokeObjectURL(url)
+    // Track save
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8083'}/api/v1/digital-cards/public/${params.token}/track?action=save`, { method: 'POST' }).catch(() => {})
   }
 
   const copyLink = () => {
@@ -113,9 +110,10 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
   const shareViaWhatsApp = () => {
     if (!card) return
     const text = encodeURIComponent(
-      `${card.brand_name} — ${card.tagline || ''}\n${card.card_url || ''}`,
+      `${card.name} — ${card.tagline || ''}\n${card.card_url || ''}`,
     )
     window.open(`https://wa.me/?text=${text}`, '_blank')
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8083'}/api/v1/digital-cards/public/${params.token}/track?action=share`, { method: 'POST' }).catch(() => {})
   }
 
   const shareViaMessenger = () => {
@@ -124,6 +122,7 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
       `https://www.facebook.com/dialog/send?link=${encodeURIComponent(card.card_url)}&app_id=1048494182856834&redirect_uri=${encodeURIComponent(window.location.href)}`,
       '_blank',
     )
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8083'}/api/v1/digital-cards/public/${params.token}/track?action=share`, { method: 'POST' }).catch(() => {})
   }
 
   const shareViaNative = async () => {
@@ -131,8 +130,8 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: card.brand_name,
-          text: `${card.brand_name} — ${card.tagline || ''}`,
+          title: card.name,
+          text: `${card.name} — ${card.tagline || ''}`,
           url: card.card_url || window.location.href,
         })
       } catch {
@@ -185,10 +184,10 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
             style={{ backgroundColor: accent }}
           />
           {/* Logo or initials */}
-          {card.logo_url ? (
+          {card.logo_url || card.avatar_url ? (
             <img
-              src={card.logo_url}
-              alt={card.brand_name}
+              src={card.logo_url || card.avatar_url || ''}
+              alt={card.name}
               className="relative w-24 h-24 mx-auto rounded-2xl object-cover mb-4"
               style={{ border: `2px solid ${accent}44` }}
             />
@@ -204,18 +203,23 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
                 className="text-4xl font-bold"
                 style={{ color: accent, fontFamily: 'Instrument Sans, sans-serif' }}
               >
-                {card.brand_name.charAt(0)}
+                {card.name.charAt(0)}
               </span>
             </div>
           )}
 
-          {/* Brand name */}
+          {/* Name */}
           <h1
             className="relative text-3xl font-bold tracking-tight"
             style={{ color: '#e2e8f0', fontFamily: 'Instrument Sans, sans-serif' }}
           >
-            {card.brand_name}
+            {card.name}
           </h1>
+
+          {/* Title */}
+          {card.title && (
+            <p className="relative mt-1 text-sm text-slate-400">{card.title}</p>
+          )}
 
           {/* Tagline */}
           {card.tagline && (
@@ -226,20 +230,15 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
               {card.tagline}
             </p>
           )}
-
-          {/* Industry */}
-          {card.industry && (
-            <p className="relative mt-1 text-xs text-slate-400">{card.industry}</p>
-          )}
         </div>
 
-        {/* Mission */}
-        {card.mission && (
+        {/* Description */}
+        {card.description && (
           <div className="px-8 pb-4">
             <p className="text-sm text-slate-300 leading-relaxed text-center">
-              {card.mission.length > 150
-                ? `${card.mission.substring(0, 150)}…`
-                : card.mission}
+              {card.description.length > 180
+                ? `${card.description.substring(0, 180)}…`
+                : card.description}
             </p>
           </div>
         )}
@@ -302,10 +301,10 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
         </div>
 
         {/* Social links */}
-        {card.socials.length > 0 && (
+        {card.social_links.length > 0 && (
           <div className="px-8 py-4">
             <div className="flex flex-wrap gap-2 justify-center">
-              {card.socials.map((s, i) => {
+              {card.social_links.map((s, i) => {
                 const Icon = platformIcons[s.platform] || Globe
                 return s.url ? (
                   <a
@@ -331,8 +330,8 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
           </div>
         )}
 
-        {/* Messaging pillars */}
-        {card.pillars.length > 0 && (
+        {/* Services */}
+        {card.services.length > 0 && (
           <div className="px-8 py-4">
             <div
               className="text-xs uppercase tracking-wider mb-3 text-center"
@@ -341,15 +340,17 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
               What we do
             </div>
             <div className="space-y-2">
-              {card.pillars.slice(0, 5).map((p, i) => (
+              {card.services.slice(0, 5).map((s, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <div
                     className="mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: accent }}
                   />
                   <div>
-                    <span className="text-sm font-medium text-slate-200">{p.title}</span>
-                    <span className="text-xs text-slate-400 ml-1">— {p.description}</span>
+                    <span className="text-sm font-medium text-slate-200">{s.title}</span>
+                    {s.description && (
+                      <span className="text-xs text-slate-400 ml-1">— {s.description}</span>
+                    )}
                   </div>
                 </div>
               ))}

@@ -2,12 +2,11 @@
 import os
 import secrets
 import uuid
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -390,7 +389,7 @@ async def get_public_card(
 @router.post("/public/{token}/track", response_model=dict)
 async def track_card_action(
     token: str,
-    action: str = Query(..., regex="^(save|share)$"),
+    action: str = Query(..., pattern="^(save|share)$"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -533,19 +532,23 @@ async def create_card_from_brand(
     db: AsyncSession = Depends(get_db),
 ):
     """Auto-create a digital card from the team's brand identity and social accounts."""
-    from app.models.brand import Brand, BrandVisual
+    from sqlalchemy.orm import selectinload
+
+    from app.models.brand import Brand
 
     team = await _get_team(current_user, db)
 
-    # Get brand
-    result = await db.execute(select(Brand).where(Brand.team_id == team.id))
+    # Get brand with voice eagerly loaded
+    result = await db.execute(
+        select(Brand)
+        .options(selectinload(Brand.voice), selectinload(Brand.visual))
+        .where(Brand.team_id == team.id)
+    )
     brand = result.scalars().first()
     if not brand:
         raise HTTPException(status_code=400, detail="No brand found. Create a brand first.")
 
-    # Get visual identity
-    result = await db.execute(select(BrandVisual).where(BrandVisual.brand_id == brand.id))
-    visual = result.scalars().first()
+    visual = brand.visual
 
     # Get social accounts
     result = await db.execute(
