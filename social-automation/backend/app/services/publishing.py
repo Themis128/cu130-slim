@@ -246,7 +246,16 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
     The original video audio is replaced (not merged) with the music track.
     """
     import asyncio as _asyncio
+    import shutil
     import tempfile
+
+    if not shutil.which("ffmpeg"):
+        logger.error(
+            "[publishing] ffmpeg not installed — cannot mix music_asset into video. "
+            "Install ffmpeg in social-api / worker images."
+        )
+        return video_path
+
     out_path = tempfile.NamedTemporaryFile(suffix="_mixed.mp4", delete=False).name
     cmd = [
         "ffmpeg", "-y",
@@ -269,6 +278,7 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
         err = stderr.decode("utf-8", errors="replace")[:500]
         logger.warning(f"[publishing] ffmpeg mix failed: {err}")
         return video_path  # fall back to original
+    logger.info("[publishing] Mixed music into video → %s", out_path)
     return out_path
 
 
@@ -1522,14 +1532,8 @@ async def _publish_tiktok(
                 error=f"TikTok privacy_level must be one of: {', '.join(privacy_options)}",
             )
 
-    # Photo posts always require PULL_FROM_URL (TikTok has no photo file upload).
-    if not is_video and not public_urls:
-        return PublishResult(
-            success=False,
-            error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
-        )
-
     # Resume an in-flight publish (avoids burning another pending-share slot).
+    # This must come before media URL validation — resuming doesn't need media.
     existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
     if existing_publish_id:
         logger.info(
@@ -1538,6 +1542,13 @@ async def _publish_tiktok(
         )
         return await _poll_tiktok_publish_status(
             client, existing_publish_id, publish_mode, account.username
+        )
+
+    # Photo posts always require PULL_FROM_URL (TikTok has no photo file upload).
+    if not is_video and not public_urls:
+        return PublishResult(
+            success=False,
+            error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
         )
 
     # 1) Initialize the post
