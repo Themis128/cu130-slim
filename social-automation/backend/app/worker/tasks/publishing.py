@@ -292,7 +292,7 @@ async def _process_publish_queue_async() -> None:
                         target.published_at = datetime.now(UTC)
                     if getattr(pub, "platform_meta", None):
                         ps = dict(post.platform_specific or {})
-                        for key, value in pub.platform_meta.items():
+                        for key, value in (pub.platform_meta or {}).items():
                             if isinstance(value, dict):
                                 ps[key] = {**(ps.get(key) or {}), **value}
                             else:
@@ -317,7 +317,7 @@ async def _process_publish_queue_async() -> None:
                                 target.platform_post_id = pub.platform_post_id
                         if getattr(pub, "platform_meta", None):
                             ps = dict(post.platform_specific or {})
-                            for key, value in pub.platform_meta.items():
+                            for key, value in (pub.platform_meta or {}).items():
                                 if isinstance(value, dict):
                                     ps[key] = {**(ps.get(key) or {}), **value}
                                 else:
