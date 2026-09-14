@@ -40,10 +40,14 @@ integration.
 | App ID | 7630494700880906241 |
 | Client key | `TIKTOK_CLIENT_KEY` in `.env` (sbawi6c3634oycojy9) |
 | Client secret | `TIKTOK_CLIENT_SECRET` in `.env` |
-| Current ownership | Individual (needs transfer to organization) |
+| Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
 | Products | Login Kit, Content Posting API |
-| Mode | Sandbox (unaudited) |
+| Mode | Production submitted / **Not approved** (use `MEDIA_UPLOAD`) |
+
+**Ops skill (scripts + MCP):** `.cursor/skills/tiktok-console-ops/` — domain verify, DNS TXT, sidecar session, console inspect. MCP server key: `tiktok-console` in `.devin/mcp_config.json`.
+
+**Console drift to fix:** if Web URL / Login Kit redirect shows `social.cloudless.jp`, replace with `.gr` SocialAuto paths above.
 
 ## Organizations
 

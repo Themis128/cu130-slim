@@ -76,8 +76,7 @@ class _Cha:
         while True:
             block = self._block(ctr)
             ctr = (ctr + 1) & 0xFFFFFFFF
-            for b in block:
-                yield b
+            yield from block
 
     def _p(self, data):
         ks = self._ks()

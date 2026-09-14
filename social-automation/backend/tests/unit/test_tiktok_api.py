@@ -54,8 +54,15 @@ class _FakeAsyncClient:
         self.calls.append({"method": "GET", "url": url, "headers": headers, "params": params})
         return self._next_response()
 
-    async def post(self, url, headers=None, json=None, content=None):
-        self.calls.append({"method": "POST", "url": url, "headers": headers, "json": json, "content": content})
+    async def post(self, url, headers=None, json=None, content=None, params=None):
+        self.calls.append({
+            "method": "POST",
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "content": content,
+            "params": params,
+        })
         return self._next_response()
 
     async def put(self, url, headers=None, content=None):
@@ -415,16 +422,31 @@ async def test_list_videos_success(client):
     assert videos[1]["view_count"] == 200
     assert fake.calls[0]["method"] == "POST"
     assert fake.calls[0]["url"] == "https://open.tiktokapis.com/v2/video/list/"
-    assert fake.calls[0]["json"]["cursor"] == 0
+    # Official API: omit cursor when 0; only send max_count
+    assert "cursor" not in fake.calls[0]["json"]
     assert fake.calls[0]["json"]["max_count"] == 20
+    assert fake.calls[0].get("params", {}).get("fields") or True
 
 
 @pytest.mark.asyncio
 async def test_list_videos_invalid_max_count(client):
-    with pytest.raises(ValueError, match="max_count must be between 1 and 100"):
+    with pytest.raises(ValueError, match="max_count must be between 1 and 20"):
         await client.list_videos(max_count=0)
-    with pytest.raises(ValueError, match="max_count must be between 1 and 100"):
-        await client.list_videos(max_count=101)
+    with pytest.raises(ValueError, match="max_count must be between 1 and 20"):
+        await client.list_videos(max_count=21)
+
+
+@pytest.mark.asyncio
+async def test_cancel_publish_success(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"error": {"code": "ok", "message": "", "log_id": "x"}})
+    )
+    with _patch_client(fake):
+        result = await client.cancel_publish("v_inbox_file~v2.123")
+
+    assert result["error"]["code"] == "ok"
+    assert fake.calls[0]["url"] == "https://open.tiktokapis.com/v2/post/publish/cancel/"
+    assert fake.calls[0]["json"]["publish_id"] == "v_inbox_file~v2.123"
 
 
 @pytest.mark.asyncio
@@ -445,7 +467,7 @@ async def test_query_video_success(client):
     assert len(videos) == 1
     assert videos[0]["view_count"] == 500
     assert fake.calls[0]["url"] == "https://open.tiktokapis.com/v2/video/query/"
-    assert fake.calls[0]["json"]["video_ids"] == ["v1"]
+    assert fake.calls[0]["json"]["filters"]["video_ids"] == ["v1"]
 
 
 @pytest.mark.asyncio
@@ -456,5 +478,5 @@ async def test_query_video_empty_ids(client):
 
 @pytest.mark.asyncio
 async def test_query_video_too_many_ids(client):
-    with pytest.raises(ValueError, match="Cannot query more than 100"):
-        await client.query_video(video_ids=["v"] * 101)
+    with pytest.raises(ValueError, match="Cannot query more than 20"):
+        await client.query_video(video_ids=["v"] * 21)

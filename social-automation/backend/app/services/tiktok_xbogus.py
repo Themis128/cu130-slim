@@ -23,7 +23,7 @@ import base64
 import hashlib
 import struct
 import time
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 # TikTok's custom Base64 alphabet (shifted from standard)
 CUSTOM_B64_ALPHABET = "Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe="

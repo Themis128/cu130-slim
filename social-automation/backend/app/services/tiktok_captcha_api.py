@@ -6,10 +6,6 @@ We intercept this response to get the exact gap position.
 """
 
 import asyncio
-import base64
-import json
-import logging
-import os
 import sys
 
 sys.path.insert(0, "/app/app/services")
@@ -19,7 +15,7 @@ COOKIES = [
     {"name": "sessionid_ss", "value": "74d3a903473419df1fd5242233be73a6", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token_default", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
-    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},
+    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},  # noqa: E501
 ]
 
 TARGET_BIO = "☁️ Serverless Cloud · AI Marketing\n📍 Athens, GR\n🔗 cloudless.gr"
@@ -132,7 +128,7 @@ async def main():
 
             return JSON.stringify(result);
         }""")
-        print(f"\n=== CAPTCHA DOM INFO ===")
+        print("\n=== CAPTCHA DOM INFO ===")
         print(gap_info)
 
         print(f"\n=== CAPTCHA API RESPONSES ({len(captcha_responses)}) ===")

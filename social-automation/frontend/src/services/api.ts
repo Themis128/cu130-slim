@@ -473,6 +473,24 @@ export const browserApi = {
   getTiktokSettings: () => api.get('/profile/tiktok/settings'),
 }
 
+// TikTok management — Content Posting + Display API (official TikTok docs)
+export const tiktokApi = {
+  health: (accountId: string) =>
+    api.get(`/tiktok/accounts/${accountId}/health`),
+  creatorInfo: (accountId: string) =>
+    api.get(`/tiktok/accounts/${accountId}/creator-info`),
+  listVideos: (accountId: string, params?: { cursor?: number; max_count?: number }) =>
+    api.get(`/tiktok/accounts/${accountId}/videos`, { params }),
+  queryVideos: (accountId: string, videoIds: string[]) =>
+    api.post(`/tiktok/accounts/${accountId}/videos/query`, { video_ids: videoIds }),
+  publishStatus: (accountId: string, publishId: string) =>
+    api.post(`/tiktok/accounts/${accountId}/publish/status`, { publish_id: publishId }),
+  publishCancel: (accountId: string, publishId: string) =>
+    api.post(`/tiktok/accounts/${accountId}/publish/cancel`, { publish_id: publishId }),
+  listUploads: (accountId: string, params?: { hours?: number; live_status?: boolean }) =>
+    api.get(`/tiktok/accounts/${accountId}/uploads`, { params }),
+}
+
 // Threads-specific endpoints (profile, insights, posts, replies)
 export const threadsApi = {
   getProfile: (accountId: string) =>

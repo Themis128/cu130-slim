@@ -1,9 +1,7 @@
 """Debug TikTok captcha — extract images and analyze dimensions."""
 
 import asyncio
-import base64
 import json
-import os
 import sys
 
 sys.path.insert(0, "/app/app/services")
@@ -13,7 +11,7 @@ COOKIES = [
     {"name": "sessionid_ss", "value": "74d3a903473419df1fd5242233be73a6", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token_default", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
-    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},
+    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},  # noqa: E501
 ]
 
 TARGET_BIO = "☁️ Serverless Cloud · AI Marketing\n📍 Athens, GR\n🔗 cloudless.gr"
@@ -69,7 +67,9 @@ async def main():
             if (!captchaDialog) return JSON.stringify({error: 'no captcha dialog found', numDialogs: dialogs.length});
 
             const imgs = captchaDialog.querySelectorAll('img');
-            const slider = captchaDialog.querySelector('.secsdk-captcha-drag-icon') || captchaDialog.querySelector('[class*="drag"]') || captchaDialog.querySelector('[class*="slider"]');
+            const slider = captchaDialog.querySelector('.secsdk-captcha-drag-icon')
+                || captchaDialog.querySelector('[class*="drag"]')
+                || captchaDialog.querySelector('[class*="slider"]');
             const allElements = captchaDialog.querySelectorAll('*');
 
             // Get all image info

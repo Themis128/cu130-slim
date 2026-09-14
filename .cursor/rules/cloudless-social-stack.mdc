@@ -18,6 +18,7 @@ This repo runs Docker Compose (`cu130-slim`) with social-api, social-worker, n8n
 - `.cursor/skills/cloudless-carousel-pipeline/SKILL.md`
 - `.cursor/skills/n8n-cloudless/SKILL.md`
 - `.cursor/skills/social-stack-ops/SKILL.md`
+- `.cursor/skills/tiktok-console-ops/SKILL.md` — TikTok domain verify, sidecar, console MCP (`tiktok-console`)
 
 ## Safety
 

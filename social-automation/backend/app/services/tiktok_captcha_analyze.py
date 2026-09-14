@@ -2,18 +2,16 @@
 
 import asyncio
 import base64
+
 import cv2
-import json
 import numpy as np
-import os
-import sys
 
 COOKIES = [
     {"name": "sessionid", "value": "74d3a903473419df1fd5242233be73a6", "domain": ".tiktok.com", "path": "/"},
     {"name": "sessionid_ss", "value": "74d3a903473419df1fd5242233be73a6", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token_default", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
-    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},
+    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},  # noqa: E501
 ]
 
 TARGET_BIO = "☁️ Serverless Cloud · AI Marketing\n📍 Athens, GR\n🔗 cloudless.gr"
@@ -113,7 +111,7 @@ async def main():
 
         # Method 4: Template matching at different scales
         piece_edges = cv2.Canny(piece_gray, 50, 150)
-        print(f"\nTemplate matching at different scales:")
+        print("\nTemplate matching at different scales:")
         for scale in [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]:
             sw = int(piece_edges.shape[1] * scale)
             sh = int(piece_edges.shape[0] * scale)
@@ -134,7 +132,7 @@ async def main():
         print(f"\nGap (diff from row mean): {gap_diff} (diff={col_diff[gap_diff]:.1f})")
 
         # Print column stats every 20px
-        print(f"\nColumn stats (every 20px):")
+        print("\nColumn stats (every 20px):")
         for i in range(0, bg_gray.shape[1], 20):
             print(f"  col {i}: mean={col_means[i]:.1f}, var={col_vars[i]:.1f}, edges={edge_cols[i]}, diff={col_diff[i]:.1f}")
 

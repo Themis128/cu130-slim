@@ -25,6 +25,7 @@ from app.api import (
     secrets,
     teams,
     threads,
+    tiktok,
     twitter_tiktok,
     usage,
     whatsapp,
@@ -43,6 +44,7 @@ api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"]
 api_router.include_router(linkedin.router, prefix="/linkedin", tags=["linkedin"])
 api_router.include_router(instagram.router, prefix="/instagram", tags=["instagram"])
 api_router.include_router(threads.router, prefix="/threads", tags=["threads"])
+api_router.include_router(tiktok.router, prefix="/tiktok", tags=["tiktok"])
 api_router.include_router(publishing.router, prefix="/publishing", tags=["publishing"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])

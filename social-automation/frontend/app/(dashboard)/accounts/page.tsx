@@ -29,6 +29,7 @@ import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { formatErrorToast } from '@/lib/humanizeError'
+import { accountsApi } from '@/services/api'
 
 // ── platform metadata ─────────────────────────────────────────────────────────
 
@@ -786,7 +787,51 @@ export default function AccountsPage() {
                                       <User className="mr-1.5 h-3.5 w-3.5" />
                                       Edit Profile
                                     </Button>
+                                    {platform.id === 'tiktok' && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="flex-1"
+                                        asChild
+                                      >
+                                        <Link href="/tiktok">Manage</Link>
+                                      </Button>
+                                    )}
                                   </div>
+                                  {platform.id === 'tiktok' && (
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={async () => {
+                                          try {
+                                            await accountsApi.validate(acct.id)
+                                            toast.success('TikTok token is valid')
+                                          } catch (err) {
+                                            toast.error(formatErrorToast('TikTok token validation failed.', err))
+                                          }
+                                        }}
+                                      >
+                                        Validate
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={async () => {
+                                          try {
+                                            await accountsApi.refresh(acct.id)
+                                            toast.success('TikTok token refreshed')
+                                          } catch (err) {
+                                            toast.error(formatErrorToast('TikTok refresh failed — reconnect.', err))
+                                          }
+                                        }}
+                                      >
+                                        Refresh token
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             }

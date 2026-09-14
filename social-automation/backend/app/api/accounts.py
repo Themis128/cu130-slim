@@ -242,7 +242,9 @@ async def connect_account_body(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
+        # Official Login Kit + Content Posting + Display scopes.
+        # video.list required for /v2/video/list/ and /v2/video/query/.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
     }.get(data.platform, [])
 
     # Twitter and TikTok OAuth 2.0 require PKCE
@@ -309,7 +311,9 @@ async def connect_account(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
+        # Official Login Kit + Content Posting + Display scopes.
+        # video.list required for /v2/video/list/ and /v2/video/query/.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
     }.get(platform, [])
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
@@ -597,10 +601,27 @@ async def refresh_account_token(
     if new_refresh:
         account.refresh_token_enc = encrypt_token(new_refresh)
     account.status = "active"
+
+    # Keep expiry in sync with Celery token_refresh task behavior.
+    from datetime import UTC, datetime, timedelta
+
+    expires_in = token.get("expires_in")
+    if expires_in:
+        account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+    elif platform == "tiktok":
+        # TikTok often omits expires_in on refresh — access tokens last 24h.
+        account.token_expires_at = datetime.now(UTC) + timedelta(seconds=86400)
+    elif platform in ("facebook", "instagram", "threads"):
+        account.token_expires_at = datetime.now(UTC) + timedelta(days=60)
+
     await log_action(db, user=current_user, action="refresh_token", resource_type="social_account", resource_id=str(account_id), meta={"platform": platform})
     await db.commit()
 
-    return {"message": "Token refreshed", "status": "active"}
+    return {
+        "message": "Token refreshed",
+        "status": "active",
+        "token_expires_at": account.token_expires_at.isoformat() if account.token_expires_at else None,
+    }
 
 
 @router.get("/{account_id}/validate")

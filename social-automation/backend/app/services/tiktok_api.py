@@ -108,11 +108,13 @@ class TikTokAPIClient:
         self._base_url = f"{TIKTOK_API_BASE}/{TIKTOK_API_VERSION}"
 
     def _headers(self) -> dict[str, str]:
+        # Official Content Posting / Display API docs require charset=UTF-8.
+        # https://developers.tiktok.com/doc/content-posting-api-reference-query-creator-info
         if not self.access_token:
             raise ValueError("TikTok access token is required")
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=UTF-8",
         }
 
     def _map_status_code(self, status_code: int) -> int:
@@ -424,9 +426,33 @@ class TikTokAPIClient:
             return data
 
     async def check_publish_status(self, publish_id: str) -> dict[str, Any]:
-        """Check the publish status of a previously initialized post."""
+        """Poll post status via official Get Post Status endpoint.
+
+        POST /v2/post/publish/status/fetch/
+        Scope: video.upload or video.publish
+        Docs: https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status
+        Rate limit: 30 requests/min per user access token.
+        """
         publish_id = _validate_id(publish_id, "publish_id")
         url = f"{self._base_url}/post/publish/status/fetch/"
+        payload = {"publish_id": publish_id}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
+    async def cancel_publish(self, publish_id: str) -> dict[str, Any]:
+        """Cancel an ongoing PULL_FROM_URL / upload task (best-effort).
+
+        POST /v2/post/publish/cancel/
+        Scope: video.upload or video.publish
+        Docs: https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide
+        Final states return ``publish_not_cancellable``.
+        """
+        publish_id = _validate_id(publish_id, "publish_id")
+        url = f"{self._base_url}/post/publish/cancel/"
         payload = {"publish_id": publish_id}
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
@@ -439,21 +465,34 @@ class TikTokAPIClient:
 
     async def list_videos(
         self,
-        fields: str = "id,create_time,title,share_url,view_count,like_count,comment_count,share_count",
+        fields: str = (
+            "id,create_time,cover_image_url,share_url,video_description,"
+            "duration,title,like_count,comment_count,share_count,view_count"
+        ),
         cursor: int = 0,
         max_count: int = 20,
     ) -> dict[str, Any]:
-        """List the creator's videos via the TikTok Display API.
+        """List the creator's public videos via Display API.
 
-        Requires the ``video.list`` scope. Returns video metadata including
-        view/like/comment/share counts. Paginated via ``cursor``.
+        POST /v2/video/list/?fields=...
+        Scope: video.list
+        Docs: https://developers.tiktok.com/doc/tiktok-api-v2-video-list
+        ``max_count`` default 10, maximum 20 (official).
+        ``cursor`` is a UTC Unix timestamp in milliseconds when paginating.
         """
-        if max_count < 1 or max_count > 100:
-            raise ValueError("max_count must be between 1 and 100")
+        if max_count < 1 or max_count > 20:
+            raise ValueError("max_count must be between 1 and 20 (TikTok Display API limit)")
         url = f"{self._base_url}/video/list/"
-        payload = {"fields": fields, "cursor": cursor, "max_count": max_count}
+        payload: dict[str, Any] = {"max_count": max_count}
+        if cursor:
+            payload["cursor"] = cursor
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
+            resp = await client.post(
+                url,
+                headers=self._headers(),
+                params={"fields": fields},
+                json=payload,
+            )
             self._raise_for_status(resp, url)
             data = resp.json() or {}
             self._check_tiktok_error(data, url)
@@ -462,21 +501,31 @@ class TikTokAPIClient:
     async def query_video(
         self,
         video_ids: list[str],
-        fields: str = "id,create_time,title,share_url,view_count,like_count,comment_count,share_count",
+        fields: str = (
+            "id,create_time,cover_image_url,share_url,video_description,"
+            "duration,title,like_count,comment_count,share_count,view_count"
+        ),
     ) -> dict[str, Any]:
-        """Query specific videos by ID via the TikTok Display API.
+        """Query specific videos by ID via Display API.
 
-        Requires the ``video.list`` scope. Returns per-video metadata
-        including engagement metrics.
+        POST /v2/video/query/?fields=...
+        Scope: video.list
+        Docs: https://developers.tiktok.com/doc/tiktok-api-v2-video-query
+        Up to 20 video IDs per request (official).
         """
         if not video_ids:
             raise ValueError("At least one video_id is required")
-        if len(video_ids) > 100:
-            raise ValueError("Cannot query more than 100 videos at once")
+        if len(video_ids) > 20:
+            raise ValueError("Cannot query more than 20 videos at once (TikTok Display API limit)")
         url = f"{self._base_url}/video/query/"
-        payload = {"fields": fields, "video_ids": video_ids}
+        payload = {"filters": {"video_ids": video_ids}}
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
+            resp = await client.post(
+                url,
+                headers=self._headers(),
+                params={"fields": fields},
+                json=payload,
+            )
             self._raise_for_status(resp, url)
             data = resp.json() or {}
             self._check_tiktok_error(data, url)

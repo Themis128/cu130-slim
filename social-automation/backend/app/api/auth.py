@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
 from httpx_oauth.clients.linkedin import LinkedInOAuth2
@@ -1086,6 +1086,7 @@ async def oauth_callback(
     code: str | None = None,
     error: str | None = None,
     error_description: str | None = None,
+    granted_scopes: str | None = Query(None, alias="scopes"),
 ):
     if platform == "instagram2":
         # Instagram Business Login uses a custom callback handler
@@ -1511,8 +1512,15 @@ async def oauth_callback(
             username = tt_info.get("display_name") or account_id
             display_name = tt_info.get("display_name", "")
             avatar_url = tt_info.get("avatar_url")
-            # Store open_id in metadata — needed for every API call
-            scopes = ["user.info.basic", "video.publish", "video.upload"]
+            # Prefer scopes actually granted (callback query or token response).
+            # Hardcoding used to drop video.list even when TikTok authorized it.
+            _raw_scope = granted_scopes or token.get("scope") or ""
+            if isinstance(_raw_scope, list | tuple):
+                scopes = [str(s).strip() for s in _raw_scope if str(s).strip()]
+            elif isinstance(_raw_scope, str) and _raw_scope.strip():
+                scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+            else:
+                scopes = ["user.info.basic", "video.publish", "video.upload", "video.list"]
         else:
             raise HTTPException(status_code=400, detail="Unsupported platform")
 

@@ -11,7 +11,6 @@ free tiktok-signer instead of the proprietary TikSign library.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import random
@@ -74,8 +73,7 @@ class _Cha:
         while True:
             block = self._block(ctr)
             ctr = (ctr + 1) & 0xFFFFFFFF
-            for b in block:
-                yield b
+            yield from block
 
     def _p(self, data):
         ks = self._ks()
@@ -234,7 +232,7 @@ def _get_params(iid: str = "", dev: str = "") -> dict:
         "browser_language": "en",
         "browser_platform": "Linux aarch64",
         "browser_name": "Mozilla",
-        "browser_version": "5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/143.0.7499.34 Mobile Safari/537.36 BytedanceWebview/d8a21c6",
+        "browser_version": "5.0 (Linux; Android 11; Redmi Note 8 Pro Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/143.0.7499.34 Mobile Safari/537.36 BytedanceWebview/d8a21c6",  # noqa: E501
     }
 
 

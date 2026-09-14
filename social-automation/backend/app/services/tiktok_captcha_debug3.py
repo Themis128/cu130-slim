@@ -1,15 +1,13 @@
 """Debug what happens after the captcha is 'solved'."""
 
 import asyncio
-import base64
 import json
 import logging
-import os
 import random
 import sys
 
 sys.path.insert(0, "/app/app/services")
-from tiktok_captcha import decrypt_edata, find_gap_from_api_images, _generate_human_trajectory, _decode_img
+from tiktok_captcha import _generate_human_trajectory, decrypt_edata
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -19,7 +17,7 @@ COOKIES = [
     {"name": "sessionid_ss", "value": "74d3a903473419df1fd5242233be73a6", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
     {"name": "passport_csrf_token_default", "value": "a8e7c9792736b29c18cca0cab49426a4", "domain": ".tiktok.com", "path": "/"},
-    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},
+    {"name": "msToken", "value": "RUKaZ6CkenRtl8rZuFpuwpOgDPK2XER_Fg9vj9SBOEhkZcr-mJYMaTiDK7qPseiUpq3mq9bxCNsZL4ucZNC1qmS16hBdisEPDJyrG-gxx8HToR1zb1BrRDc1hKFtuRZ73nMIRcN5ZTKS8OUj2nd4apw32DyiG8PGmTl5R-GRn5g=", "domain": ".tiktok.com", "path": "/"},  # noqa: E501
 ]
 
 TARGET_BIO = "☁️ Serverless Cloud · AI Marketing\n📍 Athens, GR\n🔗 cloudless.gr"
@@ -52,7 +50,7 @@ async def main():
                         "status": response.status,
                         "body": body[:500],
                     })
-                except:
+                except Exception:
                     pass
         page.on("response", handle_response)
 
@@ -125,14 +123,14 @@ async def main():
                             captcha_edata = data["edata"]
                         elif "data" in data and isinstance(data["data"], dict) and "edata" in data["data"]:
                             captcha_edata = data["data"]["edata"]
-                    except:
+                    except Exception:
                         pass
 
             if captcha_edata:
                 decrypted = decrypt_edata(captcha_edata)
                 captcha_data = json.loads(decrypted)
                 cyfreso = captcha_data.get("data", {}).get("cyfreso")
-                print(f"\n=== CAPTCHA DATA ===")
+                print("\n=== CAPTCHA DATA ===")
                 print(f"cyfreso: {cyfreso}")
                 print(f"mode: {captcha_data.get('data', {}).get('challenges', [{}])[0].get('mode')}")
 

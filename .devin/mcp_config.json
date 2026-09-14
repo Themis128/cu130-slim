@@ -30,6 +30,16 @@
       "command": "docker",
       "args": ["compose", "exec", "-T", "-e", "SOCIALAUTO_URL=http://social-api:8000", "-e", "SOCIALAUTO_ADMIN_EMAIL=tbaltzakis@cloudless.gr", "-e", "SOCIALAUTO_ADMIN_PASSWORD=${env:SOCIAL_ADMIN_PASSWORD}", "social-api", "python3", "-m", "app.mcp.server"],
       "cwd": "/home/tbaltzakis/cu130-slim"
+    },
+    "tiktok-console": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.cursor/skills/tiktok-console-ops/scripts/tiktok-console-mcp-server.py"
+      ],
+      "cwd": "/home/tbaltzakis/cu130-slim",
+      "env": {
+        "CU130_ROOT": "/home/tbaltzakis/cu130-slim"
+      }
     }
   }
 }
