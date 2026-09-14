@@ -58,7 +58,7 @@ Bearer token from `POST /api/v1/auth/login`.
 | Facebook personal | ✅ | about | ✅ | ❌ | Playwright (username+password) |
 | LinkedIn | ✅ | headline, about | ❌ | ❌ | Playwright (username+password) |
 | Twitter/X | ✅ | name, bio, location, website | ✅ | ✅ | `tweepy` v1.1 API credentials |
-| TikTok | ✅ | name/nickname, bio/signature | ✅ | ❌ | `tiktok-private-api` signing key |
+| TikTok | ✅ | name/nickname, bio/signature | ❌ | ❌ | **Blocked** — slider captcha + tt-ticket-guard anti-bot |
 
 ## Scripts
 
@@ -107,3 +107,16 @@ Run from repo root `cu130-slim/`:
 - Twitter profile writes require a paid API tier (Basic/Pro) with v1.1
   credentials.
 - The `aiograpi-rest` sidecar must be running for Instagram (`docker compose up -d instagram-private-api`).
+- **TikTok profile writes are blocked** by TikTok's multi-layer anti-bot system:
+  - **Slider captcha**: The Edit Profile dialog triggers a "Drag the slider to
+    fit the puzzle" captcha. Synthetic mouse events lack `isTrusted` and are
+    rejected. The slider button is disabled until the captcha images load.
+  - **Web API** (`POST /api/update/profile/`): Returns
+    `tt-ticket-guard-result: 1104` (captcha required) even with valid
+    `X-Bogus` signatures (from `window.byted_acrawler.frontierSign()`) and
+    `msToken` cookies. The request body requires `signature` (bio text) and
+    `tt_csrf_token`.
+  - **Private mobile API** (`api-h2.tiktokv.com`): Returns HTTP 403.
+  - Profile reads via the official Display API work correctly.
+  - To update the TikTok bio manually: open the TikTok app or website →
+    Edit Profile → change Bio → solve the slider captcha → Save.
