@@ -30,7 +30,7 @@ PROFILE_URL = "https://www.tiktok.com/@user3113682023385?lang=en"
 
 # Import the captcha solver
 sys.path.insert(0, "/app/app/services")
-from tiktok_captcha import find_gap_position, solve_slider_captcha, solve_captcha_and_save
+from tiktok_captcha import solve_captcha_and_save
 
 
 async def main():
