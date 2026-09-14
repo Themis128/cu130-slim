@@ -23,6 +23,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -84,9 +85,16 @@ async def _request_code(phone_id: str, token: str, method: str = "SMS") -> dict:
         return data
 
 
-async def _check_and_request() -> dict:
+async def _check_and_request() -> dict[str, Any]:
     """Check all WhatsApp accounts and request codes for unverified ones."""
-    stats = {"checked": 0, "already_verified": 0, "code_sent": 0, "rate_limited": 0, "errors": 0, "details": []}
+    stats: dict[str, Any] = {
+        "checked": 0,
+        "already_verified": 0,
+        "code_sent": 0,
+        "rate_limited": 0,
+        "errors": 0,
+        "details": [],
+    }
 
     async with _get_db() as db:
         from app.models.social_account import SocialAccount

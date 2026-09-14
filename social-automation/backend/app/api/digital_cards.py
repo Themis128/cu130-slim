@@ -292,10 +292,14 @@ async def update_card(
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     updates = data.model_dump(exclude_unset=True)
-    if "social_links" in updates and updates["social_links"] is not None:
-        updates["social_links"] = [s.model_dump() if hasattr(s, "model_dump") else s for s in data.social_links]
-    if "services" in updates and updates["services"] is not None:
-        updates["services"] = [s.model_dump() if hasattr(s, "model_dump") else s for s in data.services]
+    if "social_links" in updates and data.social_links is not None:
+        updates["social_links"] = [
+            s.model_dump() if hasattr(s, "model_dump") else s for s in data.social_links
+        ]
+    if "services" in updates and data.services is not None:
+        updates["services"] = [
+            s.model_dump() if hasattr(s, "model_dump") else s for s in data.services
+        ]
     for k, v in updates.items():
         setattr(card, k, v)
     await db.commit()

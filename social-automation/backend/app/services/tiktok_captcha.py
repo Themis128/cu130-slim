@@ -134,7 +134,9 @@ def _sobel(img: np.ndarray) -> np.ndarray:
     ax = cv2.convertScaleAbs(gx)
     ay = cv2.convertScaleAbs(gy)
     grad = cv2.addWeighted(ax, 0.5, ay, 0.5, 0)
-    return cv2.normalize(grad, None, 0, 255, cv2.NORM_MINMAX)
+    out = np.empty_like(grad)
+    cv2.normalize(grad, out, 0, 255, cv2.NORM_MINMAX)
+    return out
 
 
 def _enhance(img: np.ndarray) -> np.ndarray:
