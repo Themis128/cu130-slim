@@ -1489,6 +1489,24 @@ async def _publish_tiktok(
 
     from app.services.tiktok_api import _video_chunk_plan
 
+    def _tiktok_direct_post_kwargs(opts: dict) -> dict:
+        """Map SocialAuto platform_specific.tiktok → TikTok Direct Post fields."""
+        out: dict = {
+            "brand_content_toggle": bool(opts.get("brand_content_toggle", False)),
+            "brand_organic_toggle": bool(opts.get("brand_organic_toggle", False)),
+        }
+        for key in ("disable_duet", "disable_stitch", "disable_comment"):
+            if key in opts and opts[key] is not None:
+                out[key] = bool(opts[key])
+        if opts.get("video_cover_timestamp_ms") is not None:
+            try:
+                out["video_cover_timestamp_ms"] = int(opts["video_cover_timestamp_ms"])
+            except (TypeError, ValueError):
+                pass
+        if opts.get("is_aigc") is not None:
+            out["is_aigc"] = bool(opts["is_aigc"])
+        return out
+
     # Resolve public URLs for media using storage_paths (works with R2/MinIO)
     public_urls: list[str] = []
     for sp in (storage_paths or []):
@@ -1518,11 +1536,15 @@ async def _publish_tiktok(
     )
 
     tiktok_options = (post.platform_specific or {}).get("tiktok", {}) or {}
+    # MEDIA_UPLOAD opens TikTok's native editor (music library, effects, stickers).
+    # DIRECT_POST publishes from SocialAuto only — TikTok does not expose its
+    # commercial music catalog over the Content Posting API.
     publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
     if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
         return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
 
     privacy_level = str(tiktok_options.get("privacy_level", "SELF_ONLY")).upper()
+    direct_kwargs = _tiktok_direct_post_kwargs(tiktok_options)
     if publish_mode == "DIRECT_POST":
         creator = await client.get_creator_info()
         privacy_options = (creator.get("data") or {}).get("privacy_level_options") or []
@@ -1573,6 +1595,7 @@ async def _publish_tiktok(
                 privacy_level=privacy_level,
                 video_size=video_size,
                 chunk_size=planned_chunk_size,
+                **direct_kwargs,
             )
         upload_url = init.get("data", {}).get("upload_url")
     elif is_video and publish_mode == "MEDIA_UPLOAD":
@@ -1596,6 +1619,7 @@ async def _publish_tiktok(
             video_url=public_urls[0],
             title=text[:2200],
             privacy_level=privacy_level,
+            **direct_kwargs,
         )
     elif publish_mode == "MEDIA_UPLOAD":
         init = await client.init_photo_post_media_upload(
@@ -1604,10 +1628,30 @@ async def _publish_tiktok(
             description=text[:4000],
         )
     else:
+        photo_kwargs = {
+            k: v
+            for k, v in direct_kwargs.items()
+            if k
+            in (
+                "disable_comment",
+                "brand_content_toggle",
+                "brand_organic_toggle",
+                "is_aigc",
+            )
+        }
+        if "auto_add_music" in tiktok_options:
+            photo_kwargs["auto_add_music"] = bool(tiktok_options.get("auto_add_music"))
+        if "photo_cover_index" in tiktok_options:
+            try:
+                photo_kwargs["photo_cover_index"] = int(tiktok_options["photo_cover_index"])
+            except (TypeError, ValueError):
+                pass
         init = await client.init_photo_post(
             photo_urls=public_urls[:35],
             title=text[:90],
             privacy_level=privacy_level,
+            description=text[:4000],
+            **photo_kwargs,
         )
 
     publish_id = init.get("data", {}).get("publish_id")

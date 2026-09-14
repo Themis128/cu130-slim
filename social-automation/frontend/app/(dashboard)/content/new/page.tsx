@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
 import { useAccounts, useCreatePost, useUploadMedia, useGenerateContent, usePillars, useBriefs, useContentTemplates } from '@/hooks/useQueries'
-import { contentApi, aiApi, mediaUrl, brandApi } from '@/services/api'
+import { contentApi, aiApi, mediaUrl, brandApi, tiktokApi } from '@/services/api'
 import { MediaPickerDialog } from '@/components/ui/MediaPickerDialog'
 import { MusicPickerDialog } from '@/components/ui/MusicPickerDialog'
 import type { SocialAccount, MediaAsset } from '@/types'
@@ -350,6 +350,7 @@ export default function NewPostPage() {
   const generateContentMutation = useGenerateContent()
   const { setCtx } = useAdvisor()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
 
   const [content, setContent] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
@@ -361,7 +362,21 @@ export default function NewPostPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [tiktokPublishMode, setTiktokPublishMode] = useState<'MEDIA_UPLOAD' | 'DIRECT_POST'>('MEDIA_UPLOAD')
-  const [tiktokPrivacyLevel, setTiktokPrivacyLevel] = useState('SELF_ONLY')
+  const [tiktokPrivacyLevel, setTiktokPrivacyLevel] = useState('PUBLIC_TO_EVERYONE')
+  const [tiktokDisableComment, setTiktokDisableComment] = useState(false)
+  const [tiktokDisableDuet, setTiktokDisableDuet] = useState(false)
+  const [tiktokDisableStitch, setTiktokDisableStitch] = useState(false)
+  const [tiktokBrandOrganic, setTiktokBrandOrganic] = useState(true)
+  const [tiktokBrandContent, setTiktokBrandContent] = useState(false)
+  const [tiktokIsAigc, setTiktokIsAigc] = useState(false)
+  const [tiktokAutoAddMusic, setTiktokAutoAddMusic] = useState(false)
+  const [tiktokCoverMs, setTiktokCoverMs] = useState('')
+  const [tiktokPrivacyOptions, setTiktokPrivacyOptions] = useState<string[]>([
+    'PUBLIC_TO_EVERYONE',
+    'SELF_ONLY',
+    'MUTUAL_FOLLOW_FRIENDS',
+    'FOLLOWER_OF_CREATOR',
+  ])
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiUsed, setAiUsed] = useState(false)
   const [providerInfo, setProviderInfo] = useState<{ provider?: string; fallback?: boolean; primary?: string } | null>(null)
@@ -398,6 +413,30 @@ export default function NewPostPage() {
   useEffect(() => {
     setCtx({ content, selectedPlatforms, hasMedia: mediaFiles.length > 0, aiUsed })
   }, [content, selectedPlatforms, mediaFiles, aiUsed, setCtx])
+
+  // Load TikTok creator privacy options when a TikTok account is selected.
+  useEffect(() => {
+    if (!selectedPlatforms.includes('tiktok')) return
+    const tiktokAccount = connectedAccounts.find(
+      (a) => a.platform === 'tiktok' && selectedAccountIds.includes(a.id)
+    )
+    if (!tiktokAccount) return
+    let cancelled = false
+    tiktokApi.creatorInfo(tiktokAccount.id)
+      .then((res) => {
+        const data = (res as { data?: { privacy_level_options?: string[] } })?.data
+          ?? (res as { privacy_level_options?: string[] })
+        const opts = data?.privacy_level_options
+        if (!cancelled && Array.isArray(opts) && opts.length > 0) {
+          setTiktokPrivacyOptions(opts)
+          if (!opts.includes(tiktokPrivacyLevel)) {
+            setTiktokPrivacyLevel(opts[0])
+          }
+        }
+      })
+      .catch(() => { /* keep defaults */ })
+    return () => { cancelled = true }
+  }, [selectedPlatforms, selectedAccountIds, connectedAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select all accounts on first load; for LinkedIn always use cloudless-gr org
   useEffect(() => {
@@ -585,7 +624,22 @@ export default function NewPostPage() {
         music_asset_id: musicAssetId || undefined,
         targets,
         platform_specific: selectedPlatforms.includes('tiktok')
-          ? { tiktok: { publish_mode: tiktokPublishMode, privacy_level: tiktokPrivacyLevel } }
+          ? {
+              tiktok: {
+                publish_mode: tiktokPublishMode,
+                privacy_level: tiktokPrivacyLevel,
+                disable_comment: tiktokDisableComment,
+                disable_duet: tiktokDisableDuet,
+                disable_stitch: tiktokDisableStitch,
+                brand_organic_toggle: tiktokBrandOrganic,
+                brand_content_toggle: tiktokBrandContent,
+                is_aigc: tiktokIsAigc,
+                auto_add_music: tiktokAutoAddMusic,
+                ...(tiktokCoverMs.trim()
+                  ? { video_cover_timestamp_ms: Number(tiktokCoverMs) || 0 }
+                  : {}),
+              },
+            }
           : undefined,
         scheduled_at: action === 'schedule' ? athensDateTimeLocalToIso(scheduleDate) : undefined,
         pillar_id: pillarId,
@@ -800,32 +854,98 @@ export default function NewPostPage() {
                 )
               })}
               {selectedPlatforms.includes('tiktok') && (
-                <div className="mt-4 space-y-1.5">
-                  <label htmlFor="tiktok-publish-mode" className="text-xs font-medium">TikTok publishing</label>
-                  <select
-                    id="tiktok-publish-mode"
-                    value={tiktokPublishMode}
-                    onChange={(event) => setTiktokPublishMode(event.target.value as 'MEDIA_UPLOAD' | 'DIRECT_POST')}
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  >
-                    <option value="MEDIA_UPLOAD">Upload draft — finish in TikTok inbox</option>
-                    <option value="DIRECT_POST">Direct publish</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Upload draft uses video.upload. Direct publish requires video.publish approval.
-                  </p>
-                  {tiktokPublishMode === 'DIRECT_POST' && (
+                <div className="mt-4 space-y-3 rounded-lg border p-3">
+                  <div>
+                    <label htmlFor="tiktok-publish-mode" className="text-xs font-medium">TikTok publishing (via SocialAuto)</label>
                     <select
-                      aria-label="TikTok privacy"
-                      value={tiktokPrivacyLevel}
-                      onChange={(event) => setTiktokPrivacyLevel(event.target.value)}
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      id="tiktok-publish-mode"
+                      value={tiktokPublishMode}
+                      onChange={(event) => setTiktokPublishMode(event.target.value as 'MEDIA_UPLOAD' | 'DIRECT_POST')}
+                      className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm"
                     >
-                      <option value="SELF_ONLY">Only me</option>
-                      <option value="MUTUAL_FOLLOW_FRIENDS">Friends</option>
-                      <option value="FOLLOWER_OF_CREATOR">Followers</option>
-                      <option value="PUBLIC_TO_EVERYONE">Everyone</option>
+                      <option value="MEDIA_UPLOAD">TikTok editor — music library, effects, stickers (finish in TikTok app)</option>
+                      <option value="DIRECT_POST">Direct from SocialAuto — API controls only (no TikTok music catalog)</option>
                     </select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      TikTok does not expose its commercial music catalog to apps. To pick a TikTok sound, use
+                      <strong> TikTok editor</strong> mode — SocialAuto uploads the draft; you finish music/effects in TikTok.
+                      Direct mode posts from SocialAuto with caption, privacy, and engagement toggles below.
+                    </p>
+                  </div>
+
+                  {tiktokPublishMode === 'DIRECT_POST' && (
+                    <>
+                      <div>
+                        <label htmlFor="tiktok-privacy" className="text-xs font-medium">Who can view</label>
+                        <select
+                          id="tiktok-privacy"
+                          value={tiktokPrivacyLevel}
+                          onChange={(event) => setTiktokPrivacyLevel(event.target.value)}
+                          className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        >
+                          {tiktokPrivacyOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt === 'PUBLIC_TO_EVERYONE' ? 'Everyone'
+                                : opt === 'SELF_ONLY' ? 'Only me'
+                                  : opt === 'MUTUAL_FOLLOW_FRIENDS' ? 'Friends'
+                                    : opt === 'FOLLOWER_OF_CREATOR' ? 'Followers'
+                                      : opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokDisableComment} onChange={(e) => setTiktokDisableComment(e.target.checked)} />
+                          Disable comments
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokDisableDuet} onChange={(e) => setTiktokDisableDuet(e.target.checked)} />
+                          Disable Duet
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokDisableStitch} onChange={(e) => setTiktokDisableStitch(e.target.checked)} />
+                          Disable Stitch
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokIsAigc} onChange={(e) => setTiktokIsAigc(e.target.checked)} />
+                          Label as AI-generated
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokBrandOrganic} onChange={(e) => setTiktokBrandOrganic(e.target.checked)} />
+                          Promoting own business
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokBrandContent} onChange={(e) => setTiktokBrandContent(e.target.checked)} />
+                          Paid partnership
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={tiktokAutoAddMusic} onChange={(e) => setTiktokAutoAddMusic(e.target.checked)} />
+                          Auto-add TikTok music (photos only)
+                        </label>
+                      </div>
+
+                      <div>
+                        <label htmlFor="tiktok-cover-ms" className="text-xs font-medium">Cover frame (ms into video)</label>
+                        <Input
+                          id="tiktok-cover-ms"
+                          type="number"
+                          min={0}
+                          placeholder="e.g. 1000"
+                          value={tiktokCoverMs}
+                          onChange={(e) => setTiktokCoverMs(e.target.value)}
+                          className="mt-1 h-9"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {tiktokPublishMode === 'MEDIA_UPLOAD' && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      After SocialAuto publishes, open the TikTok app inbox on cloudless.gr to pick music,
+                      trim, add effects, and post. This is the only way to use TikTok&apos;s full music library.
+                    </p>
                   )}
                 </div>
               )}
@@ -1045,15 +1165,17 @@ export default function NewPostPage() {
             </CardContent>
           </Card>
 
-          {/* Music / Audio Track */}
-          <Card>
+          {/* Music / Audio Track — you pick the sound */}
+          <Card data-tour="music-track">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Music className="h-4 w-4 text-muted-foreground" />
-                Music Track
+                Your Music / Sound
               </CardTitle>
               <CardDescription>
-                Add background music to video posts (TikTok, Instagram Reels). Audio is mixed into the video before publishing.
+                Your own audio file, mixed into the video before publish.
+                To use a sound from <strong>TikTok&apos;s music library</strong>, choose
+                &quot;TikTok editor&quot; mode above and finish the post in the TikTok app.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1066,6 +1188,14 @@ export default function NewPostPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMusicPickerOpen(true)}
+                    >
+                      Change
+                    </Button>
+                    <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => { setMusicAssetId(null); setMusicFileName('') }}
@@ -1075,7 +1205,7 @@ export default function NewPostPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -1085,21 +1215,61 @@ export default function NewPostPage() {
                     <Layers className="mr-2 h-3.5 w-3.5" />
                     Pick from Library
                   </Button>
-                  <MusicPickerDialog
-                    open={musicPickerOpen}
-                    onOpenChange={setMusicPickerOpen}
-                    onSelect={(asset) => {
-                      setMusicAssetId(String(asset.id))
-                      setMusicFileName(asset.filename || asset.storage_path || 'Audio track')
-                      setMusicPickerOpen(false)
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadMediaMutation.isPending}
+                    onClick={() => audioInputRef.current?.click()}
+                  >
+                    <Music className="mr-2 h-3.5 w-3.5" />
+                    {uploadMediaMutation.isPending ? 'Uploading…' : 'Upload audio file'}
+                  </Button>
+                  <input
+                    ref={audioInputRef}
+                    type="file"
+                    accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      if (!file) return
+                      try {
+                        const result = await uploadMediaMutation.mutateAsync({
+                          file,
+                          alt_text: file.name,
+                          tags: 'music,audio,tiktok',
+                        })
+                        const uploadedId =
+                          (result as { data?: { id?: string } })?.data?.id ||
+                          (result as { id?: string })?.id
+                        if (!uploadedId) {
+                          toast.error('Upload succeeded but no asset id returned')
+                          return
+                        }
+                        setMusicAssetId(String(uploadedId))
+                        setMusicFileName(file.name)
+                        toast.success(`Sound ready: ${file.name}`)
+                      } catch {
+                        toast.error(`Failed to upload ${file.name}`)
+                      }
                     }}
-                    title="Select Music Track"
                   />
                 </div>
               )}
+              <MusicPickerDialog
+                open={musicPickerOpen}
+                onOpenChange={setMusicPickerOpen}
+                onSelect={(asset) => {
+                  setMusicAssetId(String(asset.id))
+                  setMusicFileName(asset.filename || asset.storage_path || 'Audio track')
+                  setMusicPickerOpen(false)
+                }}
+                title="Select your music / sound"
+              />
               {!musicAssetId && (
                 <p className="text-xs text-muted-foreground">
-                  Upload audio files (MP3, WAV, AAC, M4A, OGG) to the media library first, then pick from here.
+                  Supported: MP3, WAV, AAC, M4A, OGG, FLAC. Choose any track you own or have rights to use.
                 </p>
               )}
             </CardContent>

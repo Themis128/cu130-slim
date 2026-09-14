@@ -13,6 +13,7 @@ RUN apt-get update && apt-get update --fix-missing && \
     libtinfo6 \
     openssl \
     poppler-utils \
+    ffmpeg \
     && apt-get full-upgrade -y && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

@@ -269,7 +269,8 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 
 ### TikTok Content Posting API
 
-- **Publish modes**: `MEDIA_UPLOAD` (sends to TikTok inbox for manual posting) and `DIRECT_POST` (posts directly — requires app audit). Use `MEDIA_UPLOAD` until the app passes TikTok's audit review.
+- **Publish modes**: `MEDIA_UPLOAD` (sends to TikTok inbox for manual posting — **required to use TikTok’s in-app music library / effects**) and `DIRECT_POST` (posts directly from SocialAuto — requires app audit for public posts). Use `MEDIA_UPLOAD` when the creator must pick TikTok sounds; use `DIRECT_POST` for SocialAuto-only publish with API controls (privacy, duet/stitch/comment, brand toggles, cover frame, photo `auto_add_music`).
+- TikTok does **not** expose its commercial music catalog to third-party apps. SocialAuto can mix **your own** audio (`music_asset_id`) or send a draft via `MEDIA_UPLOAD` so the creator finishes in TikTok.
 - **Media transfer**: `FILE_UPLOAD` (upload video bytes directly — no domain verification needed) and `PULL_FROM_URL` (TikTok downloads from URL — requires domain verification in dev console). SocialAuto's `_publish_tiktok` in `app/services/publishing.py` automatically uses `FILE_UPLOAD` when a local video file is available.
 - **Video encoding**: TikTok rejects/hangs on videos below **23 FPS** (official media transfer guide). Slideshow builder uses `fps=30` + silent AAC. Prefer H.264 / yuv420p / ≥360px.
 - **Photo posts**: `photo_cover_index` is **0-based**. Photos only support `PULL_FROM_URL` (domain verify required).

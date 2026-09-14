@@ -225,6 +225,14 @@ class TikTokAPIClient:
         chunk_size: int | None = None,
         total_chunk_count: int = 1,
         dry_run: bool = False,
+        *,
+        disable_duet: bool | None = None,
+        disable_stitch: bool | None = None,
+        disable_comment: bool | None = None,
+        video_cover_timestamp_ms: int | None = None,
+        brand_content_toggle: bool = False,
+        brand_organic_toggle: bool = False,
+        is_aigc: bool | None = None,
     ) -> dict[str, Any]:
         """Initialize a video post and return the publish info.
 
@@ -237,6 +245,9 @@ class TikTokAPIClient:
         uploading any media.  Useful for pre-flight checks before the real
         publish attempt, especially when the account is near TikTok's
         5-per-24h pending-share spam limit.
+
+        Direct Post ``post_info`` fields follow:
+        https://developers.tiktok.com/doc/content-posting-api-reference-direct-post
         """
         if source not in ("PULL_FROM_URL", "FILE_UPLOAD"):
             raise ValueError("source must be 'PULL_FROM_URL' or 'FILE_UPLOAD'")
@@ -246,7 +257,21 @@ class TikTokAPIClient:
         post_info: dict[str, Any] = {
             "title": title[:MAX_TITLE_CHARS],
             "privacy_level": privacy_level,
+            # Required by TikTok Direct Post schema (paid partnership flags).
+            "brand_content_toggle": bool(brand_content_toggle),
+            "brand_organic_toggle": bool(brand_organic_toggle),
         }
+        if disable_duet is not None:
+            post_info["disable_duet"] = bool(disable_duet)
+        if disable_stitch is not None:
+            post_info["disable_stitch"] = bool(disable_stitch)
+        if disable_comment is not None:
+            post_info["disable_comment"] = bool(disable_comment)
+        if video_cover_timestamp_ms is not None and video_cover_timestamp_ms >= 0:
+            post_info["video_cover_timestamp_ms"] = int(video_cover_timestamp_ms)
+        if is_aigc is not None:
+            post_info["is_aigc"] = bool(is_aigc)
+
         source_info: dict[str, Any] = {"source": source}
         if source == "PULL_FROM_URL":
             source_info["video_url"] = video_url
@@ -402,25 +427,46 @@ class TikTokAPIClient:
         photo_urls: list[str],
         title: str = "",
         privacy_level: str = "SELF_ONLY",
+        *,
+        description: str = "",
+        disable_comment: bool | None = None,
+        auto_add_music: bool = False,
+        brand_content_toggle: bool = False,
+        brand_organic_toggle: bool = False,
+        is_aigc: bool | None = None,
+        photo_cover_index: int = 0,
     ) -> dict[str, Any]:
         """Initialize a photo post and return the publish info.
 
         ``photo_urls`` must be a list of publicly accessible image URLs
         (maximum 35 photos per post).
+
+        ``auto_add_music`` lets TikTok attach recommended music (no specific
+        track selection via API — official Content Posting limitation).
         """
         if not photo_urls:
             raise ValueError("At least one photo URL is required")
         if len(photo_urls) > 35:
             raise ValueError("A photo post cannot have more than 35 photos")
+        cover = max(0, min(int(photo_cover_index), len(photo_urls) - 1))
 
         post_info: dict[str, Any] = {
             "title": title[:MAX_PHOTO_TITLE_CHARS],
             "privacy_level": privacy_level,
+            "brand_content_toggle": bool(brand_content_toggle),
+            "brand_organic_toggle": bool(brand_organic_toggle),
+            "auto_add_music": bool(auto_add_music),
         }
-        # photo_cover_index is 0-based per official Photo Post docs.
+        if description:
+            post_info["description"] = description[:MAX_DESC_CHARS]
+        if disable_comment is not None:
+            post_info["disable_comment"] = bool(disable_comment)
+        if is_aigc is not None:
+            post_info["is_aigc"] = bool(is_aigc)
+
         source_info: dict[str, Any] = {
             "source": "PULL_FROM_URL",
-            "photo_cover_index": 0,
+            "photo_cover_index": cover,
             "photo_images": photo_urls,
         }
 

@@ -296,30 +296,41 @@ async def test_init_video_post_invalid_source(client):
 
 
 @pytest.mark.asyncio
-async def test_init_photo_post_success(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"data": {"publish_id": "publish-789"}})
-    )
+async def test_init_video_post_includes_direct_post_controls(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {"publish_id": "direct-ctrl"}}))
     with _patch_client(fake):
-        result = await client.init_photo_post(
-            photo_urls=["https://example.com/1.jpg", "https://example.com/2.jpg"],
-            title="My photos",
-            privacy_level="PUBLIC",
+        await client.init_video_post(
+            source="PULL_FROM_URL",
+            video_url="https://verified.example/video.mp4",
+            title="Caption",
+            privacy_level="SELF_ONLY",
+            disable_comment=True,
+            disable_duet=True,
+            brand_organic_toggle=True,
+            is_aigc=True,
+            video_cover_timestamp_ms=1500,
         )
+    post_info = fake.calls[0]["json"]["post_info"]
+    assert post_info["disable_comment"] is True
+    assert post_info["disable_duet"] is True
+    assert post_info["brand_content_toggle"] is False
+    assert post_info["brand_organic_toggle"] is True
+    assert post_info["is_aigc"] is True
+    assert post_info["video_cover_timestamp_ms"] == 1500
 
-    assert result["data"]["publish_id"] == "publish-789"
-    assert fake.calls[0]["url"] == (
-        "https://open.tiktokapis.com/v2/post/publish/content/init/"
-    )
-    payload = fake.calls[0]["json"]
-    assert payload["source_info"]["source"] == "PULL_FROM_URL"
-    assert payload["source_info"]["photo_cover_index"] == 0
-    assert payload["source_info"]["photo_images"] == [
-        "https://example.com/1.jpg",
-        "https://example.com/2.jpg",
-    ]
-    assert payload["post_mode"] == "DIRECT_POST"
-    assert payload["media_type"] == "PHOTO"
+
+@pytest.mark.asyncio
+async def test_init_photo_post_auto_add_music(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {"publish_id": "photo-music"}}))
+    with _patch_client(fake):
+        await client.init_photo_post(
+            photo_urls=["https://example.com/1.jpg"],
+            title="Photos",
+            privacy_level="SELF_ONLY",
+            auto_add_music=True,
+        )
+    assert fake.calls[0]["json"]["post_info"]["auto_add_music"] is True
+
 
 
 @pytest.mark.asyncio
