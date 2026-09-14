@@ -4,11 +4,6 @@ Uses OpenCV template matching to find the puzzle gap position, then
 Playwright's native ``page.mouse`` API (CDP-based, ``isTrusted=true``) to
 drag the slider with a human-like trajectory.
 
-Based on open-source implementations:
-- Gisnsl/tiktok-captcha-solver (MIT) — OpenCV Sobel edge detection
-- vsmutok/PuzzleCaptchaSolver (MIT) — template matching
-- DEV Community CDP mouse events article — isTrusted bypass
-
 Key insight: Playwright's ``page.mouse.move()`` uses CDP
 ``Input.dispatchMouseEvent`` which produces events with ``isTrusted=true``.
 Synthetic JavaScript ``MouseEvent`` dispatch produces ``isTrusted=false``
@@ -19,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import io
+import json
 import logging
 import random
 
@@ -59,10 +54,12 @@ def find_gap_position(bg_b64: str, piece_b64: str) -> int:
         piece_b64: Base64-encoded puzzle piece image.
 
     Returns:
-        The X pixel position of the gap in the background image.
+        The X pixel position of the gap in the background image (natural size).
     """
     bg = _decode_b64_image(bg_b64)
     piece = _decode_b64_image(piece_b64)
+
+    logger.info("TikTok captcha: bg shape=%s, piece shape=%s", bg.shape, piece.shape)
 
     # Apply Sobel edge detection to both images
     bg_edges = _sobel(bg)
@@ -88,7 +85,10 @@ def find_gap_position(bg_b64: str, piece_b64: str) -> int:
     results.sort(key=lambda x: x[1], reverse=True)
     best_pos = results[0][0]
 
-    logger.info("TikTok captcha gap position: %d (confidence: %.3f)", best_pos, results[0][1])
+    logger.info(
+        "TikTok captcha gap position: %d (confidence: %.3f, all: %s)",
+        best_pos, results[0][1], [(p, round(c, 3)) for p, c in results],
+    )
     return best_pos
 
 
@@ -103,9 +103,6 @@ def _generate_human_trajectory(
 
     Uses a Bezier curve with random jitter to simulate human movement.
     Returns a list of (x, y, delay_ms) tuples.
-
-    The trajectory avoids the "staircase" pattern that anti-bot systems
-    detect (uniform steps with fixed time deltas).
     """
     points: list[tuple[float, float, float]] = []
 
@@ -145,55 +142,120 @@ async def solve_slider_captcha(page, gap_x: int) -> bool:
     Args:
         page: Playwright Page object.
         gap_x: The X pixel position of the gap in the background image
-                (from ``find_gap_position``).
+                (from ``find_gap_position``, in natural image coordinates).
 
     Returns:
         True if the captcha was solved, False otherwise.
     """
-    # Find the slider element
-    slider = await page.query_selector(".secsdk-captcha-drag-icon")
-    if not slider:
-        logger.error("TikTok captcha: slider element not found")
+    # Find the captcha container and extract image info
+    captcha_info = await page.evaluate("""() => {
+        // Find the captcha container
+        const container = document.querySelector('.captcha-verify-container');
+        if (!container) return {error: 'no captcha-verify-container'};
+
+        // Find the captcha images (alt="Captcha", data:image/webp)
+        const imgs = container.querySelectorAll('img[alt="Captcha"]');
+        if (imgs.length < 2) return {error: 'not enough captcha images', count: imgs.length};
+
+        const bg = imgs[0];
+        const piece = imgs[1];
+
+        const bgRect = bg.getBoundingClientRect();
+        const pieceRect = piece.getBoundingClientRect();
+
+        // Find the slider button
+        const slider = container.querySelector('#captcha_slide_button');
+        const sliderRect = slider ? slider.getBoundingClientRect() : null;
+
+        // Remove disabled class from slider
+        if (slider) {
+            slider.classList.remove('TUXButton--disabled');
+            slider.removeAttribute('aria-disabled');
+            slider.disabled = false;
+        }
+
+        return {
+            bg: {
+                src: bg.src,
+                naturalWidth: bg.naturalWidth,
+                naturalHeight: bg.naturalHeight,
+                displayWidth: bgRect.width,
+                displayHeight: bgRect.height,
+                x: bgRect.x, y: bgRect.y,
+            },
+            piece: {
+                src: piece.src,
+                naturalWidth: piece.naturalWidth,
+                naturalHeight: piece.naturalHeight,
+                displayWidth: pieceRect.width,
+                displayHeight: pieceRect.height,
+                x: pieceRect.x, y: pieceRect.y,
+            },
+            slider: sliderRect ? {
+                x: sliderRect.x, y: sliderRect.y, w: sliderRect.width, h: sliderRect.height,
+            } : null,
+        };
+    }""")
+
+    if "error" in captcha_info:
+        logger.error("TikTok captcha: %s", captcha_info["error"])
         return False
 
-    slider_box = await slider.bounding_box()
-    if not slider_box:
-        logger.error("TikTok captcha: slider has no bounding box")
+    logger.info("TikTok captcha info: %s", json.dumps(captcha_info, indent=2))
+
+    # Extract base64 data from data URLs
+    bg_src = captcha_info["bg"]["src"]
+    piece_src = captcha_info["piece"]["src"]
+
+    if bg_src.startswith("data:"):
+        bg_b64 = bg_src.split(",")[1]
+    else:
+        logger.error("TikTok captcha: bg image is not a data URL")
         return False
 
-    # Find the background image to get the scale factor
-    bg_img = await page.query_selector(
-        'img[alt="Captcha"]'
+    if piece_src.startswith("data:"):
+        piece_b64 = piece_src.split(",")[1]
+    else:
+        logger.error("TikTok captcha: piece image is not a data URL")
+        return False
+
+    # Find the gap position in the natural image
+    gap_x_natural = find_gap_position(bg_b64, piece_b64)
+
+    # Scale to displayed image size
+    bg_natural_w = captcha_info["bg"]["naturalWidth"]
+    bg_display_w = captcha_info["bg"]["displayWidth"]
+    scale = bg_display_w / bg_natural_w if bg_natural_w > 0 else 1.0
+
+    # The drag distance is the gap position minus the initial piece position
+    # The piece starts at the left edge of the captcha area
+    # The slider starts at the left edge of the slider track
+    # We need to drag the slider by the gap distance (scaled)
+    drag_distance = int(gap_x_natural * scale)
+
+    logger.info(
+        "TikTok captcha: gap_x_natural=%d, scale=%.3f, drag_distance=%d, "
+        "bg_natural=%dx%d, bg_display=%.0fx%.0f",
+        gap_x_natural, scale, drag_distance,
+        bg_natural_w, captcha_info["bg"]["naturalHeight"],
+        bg_display_w, captcha_info["bg"]["displayHeight"],
     )
-    if not bg_img:
-        logger.error("TikTok captcha: background image not found")
-        return False
 
-    bg_box = await bg_img.bounding_box()
-    if not bg_box:
-        logger.error("TikTok captcha: background image has no bounding box")
+    if not captcha_info["slider"]:
+        logger.error("TikTok captcha: slider button not found")
         return False
-
-    # The gap_x is in the original image coordinate space.
-    # We need to scale it to the displayed image size.
-    # The background image is typically 347px wide in the raw image.
-    # The displayed width is bg_box["width"].
-    raw_width = 347  # Standard TikTok captcha background width
-    scale = bg_box["width"] / raw_width
-    drag_distance = int(gap_x * scale)
 
     # Slider starting position (center of the slider button)
-    start_x = slider_box["x"] + slider_box["width"] / 2
-    start_y = slider_box["y"] + slider_box["height"] / 2
+    start_x = captcha_info["slider"]["x"] + captcha_info["slider"]["w"] / 2
+    start_y = captcha_info["slider"]["y"] + captcha_info["slider"]["h"] / 2
 
     # Target position
     end_x = start_x + drag_distance
     end_y = start_y + random.uniform(-2, 2)
 
     logger.info(
-        "TikTok captcha: dragging slider from (%.1f, %.1f) to (%.1f, %.1f), "
-        "gap_x=%d, scale=%.3f, drag_distance=%d",
-        start_x, start_y, end_x, end_y, gap_x, scale, drag_distance,
+        "TikTok captcha: dragging slider from (%.1f, %.1f) to (%.1f, %.1f)",
+        start_x, start_y, end_x, end_y,
     )
 
     # Generate human-like trajectory
@@ -219,25 +281,22 @@ async def solve_slider_captcha(page, gap_x: int) -> bool:
     await page.mouse.up()
 
     # Wait for verification
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)
 
     # Check if the captcha was solved
     captcha_solved = await page.evaluate(
         """() => {
-            const dialogs = document.querySelectorAll('[role="dialog"]');
-            for (const d of dialogs) {
-                if (d.textContent.includes('puzzle') || d.textContent.includes('Drag')) {
-                    return false;  // Captcha dialog still present
-                }
-            }
-            return true;  // No captcha dialog = solved
+            const container = document.querySelector('.captcha-verify-container');
+            if (!container) return true;  // Container gone = solved
+            const style = window.getComputedStyle(container);
+            return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
         }"""
     )
 
     if captcha_solved:
         logger.info("TikTok captcha: SOLVED")
     else:
-        logger.warning("TikTok captcha: NOT solved (dialog still present)")
+        logger.warning("TikTok captcha: NOT solved (container still visible)")
 
     return captcha_solved
 
@@ -265,107 +324,78 @@ async def solve_captcha_and_save(page, bio: str) -> bool:
     # Click Save
     save_btn = page.get_by_role("button", name="Save")
     await save_btn.click()
-    await asyncio.sleep(3)
+    await asyncio.sleep(5)
 
     # Check if a captcha appeared
     captcha_present = await page.evaluate(
         """() => {
-            const dialogs = document.querySelectorAll('[role="dialog"]');
-            for (const d of dialogs) {
-                if (d.textContent.includes('puzzle') || d.textContent.includes('Drag')) {
-                    return true;
-                }
-            }
-            return false;
+            const container = document.querySelector('.captcha-verify-container');
+            if (!container) return false;
+            const style = window.getComputedStyle(container);
+            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
         }"""
     )
 
-    if captcha_present:
-        logger.info("TikTok captcha: appeared, solving...")
+    if not captcha_present:
+        logger.info("TikTok captcha: did not appear — save may have succeeded directly")
 
-        # Extract captcha images
-        captcha_data = await page.evaluate(
+        # Check if the edit dialog is gone (save succeeded)
+        edit_open = await page.evaluate(
             """() => {
                 const dialogs = document.querySelectorAll('[role="dialog"]');
                 for (const d of dialogs) {
-                    if (d.textContent.includes('puzzle') || d.textContent.includes('Drag')) {
-                        const imgs = d.querySelectorAll('img');
-                        if (imgs.length >= 2) {
-                            return {
-                                bg: imgs[0].src,
-                                piece: imgs[1].src
-                            };
-                        }
+                    if (d.textContent.includes('Edit profile') && d.textContent.includes('Bio')) {
+                        return true;
                     }
                 }
-                return null;
+                return false;
             }"""
         )
+        return not edit_open
 
-        if not captcha_data:
-            logger.error("TikTok captcha: could not extract images")
-            return False
+    logger.info("TikTok captcha: appeared, solving...")
 
-        # Extract base64 data from data URLs
-        bg_b64 = captcha_data["bg"].split(",")[1] if "," in captcha_data["bg"] else captcha_data["bg"]
-        piece_b64 = captcha_data["piece"].split(",")[1] if "," in captcha_data["piece"] else captcha_data["piece"]
+    # Try solving up to 3 times
+    for attempt in range(3):
+        logger.info("TikTok captcha: attempt %d", attempt + 1)
+        solved = await solve_slider_captcha(page, 0)  # gap_x will be recalculated inside
 
-        # Find the gap position
-        gap_x = find_gap_position(bg_b64, piece_b64)
+        if solved:
+            # Wait for the save to complete after captcha
+            await asyncio.sleep(3)
 
-        # Solve the captcha
-        solved = await solve_slider_captcha(page, gap_x)
-        if not solved:
-            logger.warning("TikTok captcha: first attempt failed, retrying...")
+            # Check if the edit dialog is gone (save succeeded)
+            edit_open = await page.evaluate(
+                """() => {
+                    const dialogs = document.querySelectorAll('[role="dialog"]');
+                    for (const d of dialogs) {
+                        if (d.textContent.includes('Edit profile') && d.textContent.includes('Bio')) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }"""
+            )
+            return not edit_open
 
-            # Try refreshing the captcha and solving again
+        if attempt < 2:
+            # Refresh the captcha
             refresh_btn = await page.query_selector(
-                'button[class*="secsdk-captcha-refresh"]'
+                '[class*="captcha"] [class*="refresh"], [class*="captcha"] button[class*="icon"]'
             )
             if refresh_btn:
                 await refresh_btn.click()
                 await asyncio.sleep(2)
+            else:
+                # Try clicking a refresh icon
+                await page.evaluate("""() => {
+                    const container = document.querySelector('.captcha-verify-container');
+                    if (container) {
+                        const btns = container.querySelectorAll('button, [class*="refresh"], [class*="icon"]');
+                        btns.forEach(b => { if (b.textContent.includes('refresh') || b.className.includes('refresh')) b.click(); });
+                    }
+                }""")
+                await asyncio.sleep(2)
 
-                # Re-extract images
-                captcha_data = await page.evaluate(
-                    """() => {
-                        const dialogs = document.querySelectorAll('[role="dialog"]');
-                        for (const d of dialogs) {
-                            if (d.textContent.includes('puzzle') || d.textContent.includes('Drag')) {
-                                const imgs = d.querySelectorAll('img');
-                                if (imgs.length >= 2) {
-                                    return {bg: imgs[0].src, piece: imgs[1].src};
-                                }
-                            }
-                        }
-                        return null;
-                    }"""
-                )
-
-                if captcha_data:
-                    bg_b64 = captcha_data["bg"].split(",")[1] if "," in captcha_data["bg"] else captcha_data["bg"]
-                    piece_b64 = captcha_data["piece"].split(",")[1] if "," in captcha_data["piece"] else captcha_data["piece"]
-                    gap_x = find_gap_position(bg_b64, piece_b64)
-                    solved = await solve_slider_captcha(page, gap_x)
-
-        if not solved:
-            logger.error("TikTok captcha: failed to solve after retries")
-            return False
-
-        # Wait for the save to complete after captcha
-        await asyncio.sleep(3)
-
-    # Check if the edit dialog is gone (save succeeded)
-    edit_open = await page.evaluate(
-        """() => {
-            const dialogs = document.querySelectorAll('[role="dialog"]');
-            for (const d of dialogs) {
-                if (d.textContent.includes('Edit profile') && d.textContent.includes('Bio')) {
-                    return true;
-                }
-            }
-            return false;
-        }"""
-    )
-
-    return not edit_open
+    logger.error("TikTok captcha: failed to solve after 3 attempts")
+    return False
