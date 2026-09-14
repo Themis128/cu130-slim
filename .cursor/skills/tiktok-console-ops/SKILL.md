@@ -25,6 +25,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 |-------|----------|
 | App name / ID | Cloudless / `7630494700880906241` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
+| Website URL (audit) | `https://cloudless.gr` (public site — not `social.cloudless.gr`) |
 | Web / media domain | `cloudless.gr` (covers `social.cloudless.gr`) |
 | Connected account | sandbox `user3113682023385` / brand cloudless.gr |
 | Publish mode (pre-audit) | `MEDIA_UPLOAD` |
@@ -49,6 +50,12 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 .cursor/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify
 .cursor/skills/tiktok-console-ops/scripts/dns-tiktok-txt.sh list|add <token>
 ```
+
+Audit-fix helpers (Playwright Docker, under `scripts/lib/`):
+
+- `rejection-reason.mjs` — click **See why** and dump reviewer notes
+- `draft-fix-website-url.mjs` / `upload-icon-submit.mjs` — return to draft, set Website URL to `https://cloudless.gr`, restore app icon, submit
+- Prefer Terms/Privacy: `https://cloudless.gr/en/terms` and `https://cloudless.gr/en/privacy`
 
 ## MCP server
 

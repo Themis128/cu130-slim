@@ -235,7 +235,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
                 "sidecar_session": "required for browser privacy APIs",
             },
             "console_drift_to_fix": [
-                "Web URL must be https://social.cloudless.gr (not .jp)",
+                "Website URL must be https://cloudless.gr (not social.cloudless.gr login shell; not .jp)",
                 "Login Kit redirect must match TIKTOK_REDIRECT_URI exactly",
                 "Verify domains under Content Posting API",
             ],

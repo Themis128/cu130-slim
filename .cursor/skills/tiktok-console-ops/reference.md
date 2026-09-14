@@ -48,8 +48,11 @@ Scopes to grant: `user.info.basic,user.info.profile,video.list,video.publish,vid
 Observed on Cloudless app (`7630494700880906241`):
 
 - Ownership: org **cloudless.gr** (transfer done)
-- Production status: **Not approved**
-- Risk: Web URL / redirect showing `social.cloudless.jp` — must be `.gr` SocialAuto paths
+- Production status: **Not approved** (Sep 2026 rejection: Website URL)
+- Website URL must be **`https://cloudless.gr`** (fully developed public site with visible ToS/Privacy). Do **not** use `https://social.cloudless.gr` (login/app shell).
+- Terms / Privacy URLs prefer **`https://cloudless.gr/en/terms`** and **`https://cloudless.gr/en/privacy`** (avoid bare `/terms` `/privacy` 307 redirects that TikTok may flag).
+- OAuth redirect stays `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback`
+- Risk: Web URL / redirect showing `social.cloudless.jp` — must be `.gr`
 - Direct Post toggle may be ON while unaudited — SocialAuto must still prefer `MEDIA_UPLOAD`
 
 ## MCP tools

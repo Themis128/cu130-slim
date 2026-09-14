@@ -1,7 +1,8 @@
 /**
  * Configure Cloudless TikTok app per official docs:
  * - Dismiss cookie banner
- * - Fix Web / Login Kit URLs to social.cloudless.gr SocialAuto paths
+ * - Fix Website URL to https://cloudless.gr (public marketing site; TikTok audit)
+ * - Keep Login Kit redirect on social.cloudless.gr SocialAuto callback
  * - Open Content Posting domain verification and capture token
  * - Optionally click Verify (CLICK_VERIFY=1)
  *
@@ -19,11 +20,13 @@ const CLICK_VERIFY = process.env.CLICK_VERIFY === '1';
 const FIX_URLS = process.env.FIX_URLS !== '0';
 
 const EXPECTED = {
-  webUrl: 'https://social.cloudless.gr',
+  // TikTok rejected social.cloudless.gr as Website URL (login/app shell).
+  // Use the public marketing site; redirect stays on SocialAuto.
+  webUrl: 'https://cloudless.gr',
   redirect: 'https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback',
   domain: 'cloudless.gr',
-  tos: 'https://cloudless.gr/terms',
-  privacy: 'https://cloudless.gr/privacy',
+  tos: 'https://cloudless.gr/en/terms',
+  privacy: 'https://cloudless.gr/en/privacy',
 };
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -156,20 +159,25 @@ try {
   report.url = page.url();
 
   if (FIX_URLS) {
-    const filledRedirect = await fillMatchingInputs(
+    // Website / Web URL only — exact social host without path (not OAuth callback)
+    const filledWebExact = await fillMatchingInputs(
       page,
-      /cloudless\.(jp|app)|email\.cloudless|redirect|oauth\/tiktok/i,
-      EXPECTED.redirect,
-    );
-    // Also set any field that looks like a site URL but wrong TLD
-    const filledWeb = await fillMatchingInputs(
-      page,
-      /^https?:\/\/(www\.)?(social\.)?cloudless\.(jp|app)/i,
+      /^https?:\/\/(www\.)?social\.cloudless\.gr\/?$/i,
       EXPECTED.webUrl,
     );
-    // Specific known bad values
-    const filledEmailHost = await fillMatchingInputs(page, /email\.cloudless\.app/i, EXPECTED.webUrl);
-    report.steps.urlFix = { filledRedirect, filledWeb, filledEmailHost };
+    const filledWebWrongTld = await fillMatchingInputs(
+      page,
+      /^https?:\/\/(www\.)?(social\.)?cloudless\.(jp|app)\/?$/i,
+      EXPECTED.webUrl,
+    );
+    const filledEmailHost = await fillMatchingInputs(page, /^https?:\/\/email\.cloudless\.app\/?$/i, EXPECTED.webUrl);
+    // Do not rewrite the OAuth redirect (disabled field); only fix wrong TLD redirects if editable
+    const filledRedirect = await fillMatchingInputs(
+      page,
+      /cloudless\.(jp|app).*oauth\/tiktok|email\.cloudless.*oauth/i,
+      EXPECTED.redirect,
+    );
+    report.steps.urlFix = { filledWebExact, filledWebWrongTld, filledEmailHost, filledRedirect };
 
     // Save / Apply if present (do not submit for review)
     const saveBtn = page.getByRole('button', { name: /save|apply|update/i }).first();
