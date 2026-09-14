@@ -15,6 +15,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 9. [AI media enhancement](09-ai-media-enhancement.md) — background removal, upscaling, smart crop, quality scoring, platform presets, and batch processing.
 10. [TikTok content posting](10-tiktok-content-posting.md) — upload drafts, direct publishing, media transfer, privacy, and status tracking.
 11. [Meta lead capture](11-meta-lead-capture.md) — WhatsApp Flows + Messenger + Instagram DM lead capture into SocialAuto Leads.
+12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send messages, and AI auto-reply.
 
 ## Product plans
 

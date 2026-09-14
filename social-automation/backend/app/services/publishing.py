@@ -81,13 +81,14 @@ async def publish_to_platform(
     # WhatsApp is a messaging channel (Cloud API), not a feed-style social platform.
     # If a post target includes WhatsApp (e.g. legacy UI or automation), skip it so
     # other platforms can still publish successfully.
-    if account.platform == "whatsapp":
+    if account.platform in ("whatsapp", "telegram"):
+        channel = "WhatsApp" if account.platform == "whatsapp" else "Telegram"
         return PublishResult(
             success=False,
             skipped=True,
             error=(
-                "WhatsApp is a messaging channel in SocialAuto and does not support feed-style post publishing. "
-                "Use the WhatsApp Cloud API send endpoints instead."
+                f"{channel} is a messaging channel in SocialAuto and does not support feed-style post publishing. "
+                f"Use the {channel} send endpoints instead."
             ),
         )
 

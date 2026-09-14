@@ -742,6 +742,57 @@ export const whatsappApi = {
     api.post(`/whatsapp/${accountId}/flows/from-template`, data),
 }
 
+// Telegram Bot API — credentials, webhook, send, auto-reply
+export const telegramApi = {
+  connect: (data: { bot_token: string; set_webhook?: boolean }) =>
+    api.post('/telegram/connect', data),
+  updateCredentials: (accountId: string, data: { bot_token: string; set_webhook?: boolean }) =>
+    api.put(`/telegram/${accountId}/credentials`, data),
+  getSetupStatus: (accountId: string) =>
+    api.get(`/telegram/${accountId}/setup-status`),
+  setupWebhook: (accountId: string) =>
+    api.post(`/telegram/${accountId}/setup-webhook`),
+  deleteWebhook: (accountId: string) =>
+    api.post(`/telegram/${accountId}/delete-webhook`),
+  sendMessage: (accountId: string, data: {
+    chat_id: number | string
+    text: string
+    parse_mode?: string
+    disable_notification?: boolean
+  }) => api.post(`/telegram/${accountId}/send`, data),
+  getAutoReply: (accountId: string) =>
+    api.get(`/telegram/${accountId}/auto-reply`),
+  updateAutoReply: (accountId: string, data: {
+    enabled: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+    temperature?: number
+    cooldown_seconds?: number
+    reply_to_spam?: boolean
+    reply_to_greetings?: boolean
+  }) => api.put(`/telegram/${accountId}/auto-reply`, data),
+  createBot: (accountId: string, data: {
+    name?: string
+    personality?: string
+    language?: string
+    custom_prompt?: string
+  }) => api.post(`/telegram/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/telegram/${accountId}/bot`),
+  updateBot: (accountId: string, data: Record<string, unknown>) =>
+    api.put(`/telegram/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/telegram/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/telegram/${accountId}/bot/deactivate`),
+  pauseThread: (accountId: string, data: { chat_id: string }) =>
+    api.post(`/telegram/${accountId}/threads/pause`, data),
+  resumeThread: (accountId: string, data: { chat_id: string }) =>
+    api.post(`/telegram/${accountId}/threads/resume`, data),
+}
+
 // Publishing endpoints
 export const publishingApi = {
   listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>

@@ -26,6 +26,7 @@ import {
   PhoneCall,
   Contact,
   Video,
+  Send,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -46,6 +47,7 @@ const navigation = [
   { name: 'Channels', href: '/accounts', icon: Users },
   { name: 'Messenger', href: '/messenger', icon: MessageCircle },
   { name: 'WhatsApp', href: '/whatsapp', icon: PhoneCall },
+  { name: 'Telegram', href: '/telegram', icon: Send },
   { name: 'TikTok', href: '/tiktok', icon: Video },
   { name: 'Team', href: '/team', icon: Users },
   { name: 'Visual Login', href: '/browser-login', icon: Monitor },

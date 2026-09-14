@@ -24,6 +24,7 @@ from app.api import (
     publishing,
     secrets,
     teams,
+    telegram,
     threads,
     tiktok,
     twitter_tiktok,
@@ -58,6 +59,7 @@ api_router.include_router(inbox.router, prefix="/inbox", tags=["inbox"])
 api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
 api_router.include_router(whatsapp_flows.router, prefix="/whatsapp", tags=["whatsapp-flows"])
+api_router.include_router(telegram.router, prefix="/telegram", tags=["telegram"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])

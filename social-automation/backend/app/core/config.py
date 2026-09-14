@@ -184,6 +184,8 @@ class Settings(BaseSettings):
     MESSENGER_VERIFY_TOKEN: str = "cloudless_messenger_verify"
     # WhatsApp Business Cloud API — webhook verification token
     WHATSAPP_VERIFY_TOKEN: str = "cloudless_whatsapp_verify"
+    # Telegram Bot API — public HTTPS base for setWebhook (…/api/v1)
+    TELEGRAM_WEBHOOK_BASE: str = "https://social.cloudless.gr/api/v1"
     # Facebook App Secret for webhook signature verification (same as FACEBOOK_CLIENT_SECRET for Meta apps)
     FACEBOOK_APP_SECRET: str = ""
     # Messenger webhook sidecar URL (async event processing)

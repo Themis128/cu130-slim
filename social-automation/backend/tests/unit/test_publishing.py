@@ -202,6 +202,16 @@ async def test_publish_to_platform_whatsapp_is_soft_skipped():
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platform_telegram_is_soft_skipped():
+    account = SimpleNamespace(platform="telegram", access_token_enc=b"unused")
+    post = SimpleNamespace()
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert result.skipped is True
+    assert "telegram" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_publish_twitter_thread(account, post):
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"data": {"id": "1111111111"}}),

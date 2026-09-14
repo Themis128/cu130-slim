@@ -151,18 +151,15 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 
 ## Platform coverage
 
-SocialAuto supports six social platforms across OAuth, publishing, analytics, token refresh, account validation, and SEO scoring:
+SocialAuto supports six feed platforms (OAuth, publishing, analytics, token refresh, SEO) plus messaging channels:
 
-- LinkedIn
-- Twitter / X
-- Facebook
-- Instagram
-- Threads
-- TikTok
+**Feed platforms:** LinkedIn, Twitter / X, Facebook, Instagram, Threads, TikTok
+
+**Messaging channels (no feed publish — soft-skipped):** WhatsApp Business Cloud API, Telegram Bot API, Facebook Messenger
 
 ### Bot auto-reply architecture
 
-All six platforms share a unified bot reply engine in `app/services/messenger_chatbot.py` (`generate_contextual_reply`). WhatsApp uses a parallel implementation in `app/services/whatsapp_chatbot.py` with the same architecture.
+Feed-platform DMs and messaging channels share a unified bot reply engine in `app/services/messenger_chatbot.py` (`generate_contextual_reply`). WhatsApp uses `app/services/whatsapp_chatbot.py`; Telegram Bot API uses `app/services/telegram_chatbot.py` (webhook inbound, `chat_id` threads).
 
 **Reply pipeline (per inbound message):**
 1. **Deterministic pricing safeguard** — keyword detection (English + Greek) intercepts pricing questions before the LLM and returns a hardcoded response directing to `cloudless.gr` for a free audit. Prevents the 8B model from hallucinating specific euro amounts.
@@ -506,6 +503,8 @@ Current chain (oldest → newest):
 8. [Brand identity setup](08-brand-identity-setup.md)
 9. [AI media enhancement](09-ai-media-enhancement.md)
 10. [TikTok content posting](10-tiktok-content-posting.md)
+11. [Meta lead capture](11-meta-lead-capture.md)
+12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply
 
 ## Current plans
 

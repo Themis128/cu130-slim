@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
-  Building2, User, Plus,
+  Building2, User, Plus, Send,
 } from 'lucide-react'
 import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 
@@ -310,6 +310,34 @@ const platforms: PlatformSetup[] = [
       },
     ],
   },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    icon: Send,
+    color: 'bg-sky-600',
+    textColor: 'text-sky-600',
+    description: 'Telegram Bot API — BotFather token, webhooks, send & AI auto-reply',
+    devPortalUrl: 'https://core.telegram.org/bots',
+    scopes: ['bot'],
+    envVars: ['TELEGRAM_WEBHOOK_BASE'],
+    steps: [
+      {
+        text: 'Open @BotFather in Telegram and create a bot with /newbot. Copy the authentication token.',
+        code: 'https://t.me/BotFather',
+      },
+      {
+        text: 'In SocialAuto, open the Telegram page and paste the token (Connect bot), or use Manage below after adding the channel.',
+        code: '/telegram',
+      },
+      {
+        text: 'Click Setup webhook so Telegram POSTs updates to SocialAuto (requires public HTTPS, e.g. social.cloudless.gr).',
+        code: 'https://social.cloudless.gr/api/v1/telegram/webhook/{account_id}',
+      },
+      {
+        text: 'Enable AI auto-reply or create a bot persona. Users must message the bot first — bots cannot start chats.',
+      },
+    ],
+  },
 ]
 
 const platformColors: Record<string, string> = {
@@ -319,6 +347,7 @@ const platformColors: Record<string, string> = {
   facebook: 'bg-blue-700',
   threads: 'bg-gray-900',
   tiktok: 'bg-black',
+  telegram: 'bg-sky-600',
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
@@ -468,6 +497,11 @@ export default function AccountsPage() {
   }
 
   const handleConnect = async (platformId: string) => {
+    // Telegram uses BotFather credentials on /telegram (not OAuth).
+    if (platformId === 'telegram') {
+      window.location.href = '/telegram'
+      return
+    }
     // Messenger uses Facebook OAuth — redirect to Facebook connect
     const connectPlatform = platformId === 'messenger' ? 'facebook' : platformId
     setConnectingPlatform(platformId)
@@ -795,6 +829,16 @@ export default function AccountsPage() {
                                         asChild
                                       >
                                         <Link href="/tiktok">Manage</Link>
+                                      </Button>
+                                    )}
+                                    {platform.id === 'telegram' && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="flex-1"
+                                        asChild
+                                      >
+                                        <Link href="/telegram">Manage</Link>
                                       </Button>
                                     )}
                                   </div>
