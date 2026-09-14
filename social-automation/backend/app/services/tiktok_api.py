@@ -19,8 +19,12 @@ Photo posts accept a list of public photo URLs. All requests require an
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 import re
+import shutil
+import subprocess
 from typing import Any
 
 import httpx
@@ -43,6 +47,153 @@ TIKTOK_MAX_DIMENSION = 4096
 TIKTOK_MAX_DURATION_SEC = 600
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_log_text(text: str, max_len: int = 400) -> str:
+    """Sanitize API response text for safe logging -- strips newlines/control chars."""
+    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
+    return cleaned[:max_len]
+
+
+def is_tiktok_publish_id(value: str | None) -> bool:
+    """True if ``value`` looks like a Content Posting ``publish_id``, not a Display video id.
+
+    Publish IDs often look like ``v_inbox_file~v2.123`` or ``p_pub_photo~v2.…``.
+    Display API video IDs are numeric strings.
+    """
+    v = (value or "").strip()
+    if not v:
+        return False
+    if "~" in v:
+        return True
+    if v.startswith(("v_", "p_")):
+        return True
+    return False
+
+
+def _parse_frame_rate(rate: str | None) -> float | None:
+    """Parse ffprobe ``r_frame_rate`` / ``avg_frame_rate`` (``num/den`` or float)."""
+    if not rate or rate in ("0/0", "N/A"):
+        return None
+    try:
+        if "/" in rate:
+            num_s, den_s = rate.split("/", 1)
+            num, den = float(num_s), float(den_s)
+            if den == 0:
+                return None
+            return num / den
+        return float(rate)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def probe_tiktok_video(path: str) -> dict[str, Any] | None:
+    """Return width/height/fps/duration via ffprobe, or None if unavailable."""
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,r_frame_rate,avg_frame_rate,duration:format=duration",
+                "-of",
+                "json",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("[tiktok] ffprobe failed for %s: %s", path, exc)
+        return None
+    if proc.returncode != 0:
+        logger.warning(
+            "[tiktok] ffprobe exit %s: %s",
+            proc.returncode,
+            _sanitize_log_text(proc.stderr or ""),
+        )
+        return None
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    streams = payload.get("streams") or []
+    if not streams:
+        return None
+    stream = streams[0]
+    fps = _parse_frame_rate(stream.get("avg_frame_rate")) or _parse_frame_rate(
+        stream.get("r_frame_rate")
+    )
+    duration = None
+    for raw in (stream.get("duration"), (payload.get("format") or {}).get("duration")):
+        try:
+            if raw is not None:
+                duration = float(raw)
+                break
+        except (TypeError, ValueError):
+            continue
+    width = stream.get("width")
+    height = stream.get("height")
+    try:
+        width_i = int(width) if width is not None else None
+        height_i = int(height) if height is not None else None
+    except (TypeError, ValueError):
+        width_i, height_i = None, None
+    return {
+        "width": width_i,
+        "height": height_i,
+        "fps": fps,
+        "duration_sec": duration,
+    }
+
+
+def validate_tiktok_video_constraints(path: str) -> str | None:
+    """Return an error message if the local video violates TikTok media rules.
+
+    When ffprobe is missing or cannot read the file, returns None (advisory —
+    upload still proceeds) so environments without ffmpeg are not hard-blocked.
+    """
+    info = probe_tiktok_video(path)
+    if info is None:
+        logger.warning(
+            "[tiktok] Skipping media preflight for %s (ffprobe unavailable or unreadable)",
+            path,
+        )
+        return None
+    width = info.get("width")
+    height = info.get("height")
+    fps = info.get("fps")
+    duration = info.get("duration_sec")
+    issues: list[str] = []
+    if isinstance(width, int) and isinstance(height, int):
+        short_side = min(width, height)
+        long_side = max(width, height)
+        if short_side < TIKTOK_MIN_DIMENSION:
+            issues.append(
+                f"resolution {width}x{height} (short side must be ≥{TIKTOK_MIN_DIMENSION}px)"
+            )
+        if long_side > TIKTOK_MAX_DIMENSION:
+            issues.append(
+                f"resolution {width}x{height} (long side must be ≤{TIKTOK_MAX_DIMENSION}px)"
+            )
+    if isinstance(fps, float) and not math.isnan(fps) and fps > 0:
+        if fps < TIKTOK_MIN_FPS:
+            issues.append(f"{fps:.2f} FPS (TikTok requires ≥{TIKTOK_MIN_FPS} FPS)")
+    if isinstance(duration, float) and duration > TIKTOK_MAX_DURATION_SEC:
+        issues.append(
+            f"{duration:.0f}s duration (max {TIKTOK_MAX_DURATION_SEC}s / 10 minutes)"
+        )
+    if not issues:
+        return None
+    return "TikTok media validation failed: " + "; ".join(issues)
 
 
 def _video_chunk_plan(video_size: int) -> tuple[int, int]:
@@ -82,13 +233,6 @@ def _expected_chunk_count(video_size: int, chunk_size: int) -> int:
 _ID_RE = re.compile(r"^[a-zA-Z0-9_\-~.]+$")
 
 
-def _sanitize_log_text(text: str, max_len: int = 400) -> str:
-    """Sanitize API response text for safe logging -- strips newlines/control chars."""
-    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
-    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
-    return cleaned[:max_len]
-
-
 def _validate_id(value: str, field: str = "ID") -> str:
     """Validate a TikTok identifier to prevent injection via crafted values."""
     value = value.strip()
@@ -120,6 +264,11 @@ class TikTokAPIError(Exception):
         if message is None:
             message = f"TikTok API error {status_code} for {url}: {response_text[:400]}"
         super().__init__(message)
+
+    @property
+    def detail(self) -> str:
+        """HTTPException-compatible alias used by API routers."""
+        return self.response_text or str(self)
 
 
 class TikTokAPIClient:

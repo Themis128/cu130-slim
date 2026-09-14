@@ -290,6 +290,15 @@ async def _process_publish_queue_async() -> None:
                         target.platform_post_id = pub.platform_post_id
                         target.platform_url = pub.platform_url
                         target.published_at = datetime.now(UTC)
+                    if getattr(pub, "platform_meta", None):
+                        ps = dict(post.platform_specific or {})
+                        for key, value in pub.platform_meta.items():
+                            if isinstance(value, dict):
+                                ps[key] = {**(ps.get(key) or {}), **value}
+                            else:
+                                ps[key] = value
+                        post.platform_specific = ps
+                        flag_modified(post, "platform_specific")
                     await _notify_publish_success(post, account, pub.platform_url)
                 elif getattr(pub, "skipped", False):
                     # Soft-skip: do not retry, do not fail the whole post.
@@ -304,6 +313,17 @@ async def _process_publish_queue_async() -> None:
                         if target:
                             target.status = "failed"
                             target.error_message = pub.error
+                            if pub.platform_post_id:
+                                target.platform_post_id = pub.platform_post_id
+                        if getattr(pub, "platform_meta", None):
+                            ps = dict(post.platform_specific or {})
+                            for key, value in pub.platform_meta.items():
+                                if isinstance(value, dict):
+                                    ps[key] = {**(ps.get(key) or {}), **value}
+                                else:
+                                    ps[key] = value
+                            post.platform_specific = ps
+                            flag_modified(post, "platform_specific")
                         await _notify_publish_failure(
                             post=post,
                             account=account,

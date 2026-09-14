@@ -949,38 +949,72 @@ async def sync_threads_account(
 
 # ── TikTok ────────────────────────────────────────────────────────────────────
 
+def _resolve_tiktok_display_video_id(target: PostTarget) -> str | None:
+    """Return a Display API video id suitable for analytics, or None to skip.
+
+    Direct Post success stores ``publicaly_available_post_id`` as
+    ``platform_post_id`` (and in ``platform_specific.tiktok``). Inbox
+    MEDIA_UPLOAD keeps the Content Posting ``publish_id`` until the creator
+    finishes in TikTok — those cannot be queried via Display API.
+    """
+    from app.services.tiktok_api import is_tiktok_publish_id
+
+    ps = {}
+    if target.post is not None:
+        ps = (target.post.platform_specific or {}).get("tiktok") or {}
+    public = ps.get("publicaly_available_post_id") or ps.get("public_post_id")
+    if public:
+        return str(public)
+    video_id = (target.platform_post_id or "").strip()
+    if not video_id:
+        return None
+    if is_tiktok_publish_id(video_id):
+        return None
+    return video_id
+
+
 async def _fetch_tiktok_video_stats(
     client: httpx.AsyncClient, token: str, video_id: str,
 ) -> MetricBundle:
-    """Fetch stats for a TikTok video via TikTok Display API.
+    """Fetch stats for a TikTok video via Display API ``POST /v2/video/query/``.
 
-    Uses the /v2/video/list/ endpoint which returns video stats for the
-    authenticated user's own videos. Requires video.list scope.
+    Docs: https://developers.tiktok.com/doc/tiktok-api-v2-video-query
+    Requires ``video.list`` scope. Fields mirror the official Video Object
+    (no ``reach_count`` — that field is not documented for Display API).
     """
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    # The Display API video/list endpoint fetches the user's own videos
-    # with stats. We filter by the specific video_id we're interested in.
-    url = "https://open.tiktokapis.com/v2/video/list/"
-    params = {"fields": "id,view_count,like_count,comment_count,share_count,reach_count"}
-    resp = await client.get(url, headers=headers, params=params)
+    fields = "id,view_count,like_count,comment_count,share_count,share_url,title"
+    url = "https://open.tiktokapis.com/v2/video/query/"
+    resp = await client.post(
+        url,
+        headers=headers,
+        params={"fields": fields},
+        json={"filters": {"video_ids": [video_id]}},
+    )
     if resp.status_code != 200:
         return MetricBundle(notes=f"tiktok stats HTTP {resp.status_code}")
     data = resp.json() or {}
+    error = data.get("error") or {}
+    if error.get("code") not in (None, "", "ok"):
+        return MetricBundle(
+            notes=f"tiktok stats error: {error.get('code')} {error.get('message')}"
+        )
     videos = (data.get("data") or {}).get("videos", [])
     for v in videos:
-        if v.get("id") == video_id:
+        if str(v.get("id")) == str(video_id):
+            views = int(v.get("view_count", 0) or 0)
             return MetricBundle(
-                impressions=int(v.get("view_count", 0) or 0),
+                impressions=views,
                 likes=int(v.get("like_count", 0) or 0),
                 comments=int(v.get("comment_count", 0) or 0),
                 shares=int(v.get("share_count", 0) or 0),
-                reach=int(v.get("reach_count", 0) or v.get("view_count", 0) or 0),
+                reach=views,
                 raw=v,
             )
-    return MetricBundle(notes="tiktok_video_not_found_in_list")
+    return MetricBundle(notes="tiktok_video_not_found")
 
 
 async def sync_tiktok_account(
@@ -1011,8 +1045,13 @@ async def sync_tiktok_account(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for t in targets:
-            video_id = t.platform_post_id or ""
+            video_id = _resolve_tiktok_display_video_id(t)
             if not video_id:
+                result.skipped += 1
+                result.errors.append(
+                    f"tiktok skip post={t.post_id}: no Display video id "
+                    f"(inbox publish_id={t.platform_post_id})"
+                )
                 continue
             metrics = await _fetch_tiktok_video_stats(client, token, video_id)
             await _persist_snapshot(
@@ -1021,7 +1060,7 @@ async def sync_tiktok_account(
                 result=result, platform="tiktok",
             )
 
-    if result.synced == 0:
+    if result.synced == 0 and result.skipped == 0:
         result.skipped = len(targets)
     await db.commit()
     return result

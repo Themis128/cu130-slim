@@ -402,12 +402,16 @@ async def tiktok_list_uploads(
     )
     targets = result.scalars().all()
     client = _client_for(account) if live_status else None
+    from app.services.tiktok_api import is_tiktok_publish_id
+
     out: list[UploadRecordOut] = []
     for t in targets:
-        publish_id = t.platform_post_id or ""
+        ps = (getattr(t.post, "platform_specific", None) or {}).get("tiktok") or {}
+        publish_id = str(ps.get("publish_id") or t.platform_post_id or "").strip()
         status = None
         fail_reason = None
-        if client and publish_id:
+        # Only poll Content Posting status for real publish_ids (not Display video ids).
+        if client and publish_id and is_tiktok_publish_id(publish_id):
             try:
                 raw = await client.check_publish_status(publish_id)
                 data = raw.get("data") or {}
@@ -416,6 +420,8 @@ async def tiktok_list_uploads(
             except TikTokAPIError as exc:
                 status = "LOOKUP_FAILED"
                 fail_reason = str(exc)[:200]
+        elif publish_id and not is_tiktok_publish_id(publish_id):
+            status = "PUBLISH_COMPLETE"
         out.append(
             UploadRecordOut(
                 publish_id=publish_id,

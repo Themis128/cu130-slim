@@ -285,7 +285,10 @@ async def test_publish_tiktok_supports_direct_post(monkeypatch):
     result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
 
     assert result.success is True
+    assert result.platform_post_id == "video-123"
     assert result.platform_url == "https://www.tiktok.com/@creator/video/video-123"
+    assert result.platform_meta["tiktok"]["publish_id"] == "direct-123"
+    assert result.platform_meta["tiktok"]["publicaly_available_post_id"] == "video-123"
     client.init_video_post.assert_awaited_once()
     client.init_video_upload.assert_not_awaited()
 
@@ -311,6 +314,10 @@ async def test_publish_tiktok_file_upload_uses_local_video(monkeypatch, tmp_path
     )
     monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    monkeypatch.setattr(
+        "app.services.tiktok_api.validate_tiktok_video_constraints",
+        lambda _path: None,
+    )
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
     post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "MEDIA_UPLOAD"}})
 
@@ -320,12 +327,39 @@ async def test_publish_tiktok_file_upload_uses_local_video(monkeypatch, tmp_path
 
     assert result.success is True
     assert result.platform_post_id == "v_inbox_file~v2.1"
+    assert result.platform_meta["tiktok"]["publish_id"] == "v_inbox_file~v2.1"
     client.init_video_upload.assert_awaited_once()
     kwargs = client.init_video_upload.await_args.kwargs
     assert kwargs["source"] == "FILE_UPLOAD"
     assert kwargs["video_size"] == 2048
     assert kwargs["chunk_size"] == 2048
     client.upload_video_file.assert_awaited_once()
+    client.init_video_post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_rejects_low_fps_local_video(monkeypatch, tmp_path):
+    video_path = tmp_path / "slow.mp4"
+    video_path.write_bytes(b"\x00" * 1024)
+    client = SimpleNamespace(
+        init_video_upload=AsyncMock(),
+        init_video_post=AsyncMock(),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr(
+        "app.services.tiktok_api.validate_tiktok_video_constraints",
+        lambda _path: "TikTok media validation failed: 15.00 FPS (TikTok requires ≥23 FPS)",
+    )
+    account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
+    post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "MEDIA_UPLOAD"}})
+
+    result = await pub._publish_tiktok(
+        "token", "Caption", account, post, [str(video_path)], ["uploads/slow.mp4"]
+    )
+
+    assert result.success is False
+    assert "23 FPS" in (result.error or "")
+    client.init_video_upload.assert_not_awaited()
     client.init_video_post.assert_not_awaited()
 
 

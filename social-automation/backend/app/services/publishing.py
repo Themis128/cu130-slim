@@ -66,6 +66,9 @@ class PublishResult:
     platform_url: str | None = None
     error: str | None = None
     skipped: bool = False
+    # Merged into Post.platform_specific by the publishing worker (e.g. TikTok
+    # publish_id kept alongside the public Display API video id).
+    platform_meta: dict[str, Any] | None = None
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
@@ -1577,10 +1580,15 @@ async def _publish_tiktok(
     upload_url: str | None = None
     planned_chunk_size: int | None = None
     if is_video and local_video_path:
-        # FILE_UPLOAD path — read the video bytes and upload directly
+        # FILE_UPLOAD path — validate media rules then upload bytes directly
         video_size = os.path.getsize(local_video_path)
         if video_size <= 0:
             return PublishResult(success=False, error="TikTok video file is empty")
+        from app.services.tiktok_api import validate_tiktok_video_constraints
+
+        media_error = validate_tiktok_video_constraints(local_video_path)
+        if media_error:
+            return PublishResult(success=False, error=media_error)
         planned_chunk_size, _ = _video_chunk_plan(video_size)
         if publish_mode == "MEDIA_UPLOAD":
             init = await client.init_video_upload(
@@ -1698,6 +1706,12 @@ async def _poll_tiktok_publish_status(
     """Poll TikTok Get Post Status until a terminal state or timeout."""
     import asyncio as _asyncio
 
+    def _meta(extra: dict | None = None) -> dict:
+        tiktok_meta = {"publish_id": publish_id, "publish_mode": publish_mode}
+        if extra:
+            tiktok_meta.update(extra)
+        return {"tiktok": tiktok_meta}
+
     last_status = ""
     last_uploaded_bytes: int | None = None
     for attempt in range(attempts):
@@ -1717,17 +1731,33 @@ async def _poll_tiktok_publish_status(
                 status_value,
             )
         if publish_mode == "MEDIA_UPLOAD" and status_value == "SEND_TO_USER_INBOX":
-            return PublishResult(success=True, platform_post_id=publish_id)
-        if status_value == "PUBLISH_COMPLETE":
-            ids = status_data.get("publicaly_available_post_id") or []
-            tt_post_id = ids[0] if ids else None
+            # Inbox drafts have no Display video id yet — keep publish_id.
             return PublishResult(
                 success=True,
                 platform_post_id=publish_id,
+                platform_meta=_meta({"status": status_value}),
+            )
+        if status_value == "PUBLISH_COMPLETE":
+            ids = status_data.get("publicaly_available_post_id") or []
+            tt_post_id = str(ids[0]) if ids else None
+            # Prefer public Display API video id for analytics; keep publish_id in meta.
+            return PublishResult(
+                success=True,
+                platform_post_id=tt_post_id or publish_id,
                 platform_url=(
                     f"https://www.tiktok.com/@{username}/video/{tt_post_id}"
                     if tt_post_id and username
                     else None
+                ),
+                platform_meta=_meta(
+                    {
+                        "status": status_value,
+                        **(
+                            {"publicaly_available_post_id": tt_post_id}
+                            if tt_post_id
+                            else {}
+                        ),
+                    }
                 ),
             )
         if status_value in ("FAILED", "CANCELLED"):
@@ -1736,6 +1766,7 @@ async def _poll_tiktok_publish_status(
                 success=False,
                 platform_post_id=publish_id,
                 error=f"TikTok publish failed: {fail_reason}",
+                platform_meta=_meta({"status": status_value, "fail_reason": fail_reason}),
             )
 
     action = "upload" if publish_mode == "MEDIA_UPLOAD" else "publish"
@@ -1751,6 +1782,7 @@ async def _poll_tiktok_publish_status(
             "/api/v1/tiktok/accounts/{id}/publish/cancel. "
             "Videos must be ≥23 FPS, ≥360px, H.264/MP4 per TikTok media rules."
         ),
+        platform_meta=_meta({"status": last_status or "timeout"}),
     )
 
 

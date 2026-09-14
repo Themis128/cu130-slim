@@ -527,3 +527,37 @@ async def test_query_video_empty_ids(client):
 async def test_query_video_too_many_ids(client):
     with pytest.raises(ValueError, match="Cannot query more than 20"):
         await client.query_video(video_ids=["v"] * 21)
+
+
+def test_tiktok_api_error_has_detail_alias():
+    exc = api.TikTokAPIError(400, "bad request body", "https://example/x")
+    assert exc.detail == "bad request body"
+    assert "400" in str(exc)
+
+
+def test_validate_tiktok_video_constraints_rejects_low_fps(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "probe_tiktok_video",
+        lambda _path: {"width": 1080, "height": 1920, "fps": 15.0, "duration_sec": 8.0},
+    )
+    err = api.validate_tiktok_video_constraints("/tmp/x.mp4")
+    assert err is not None
+    assert "23" in err
+
+
+def test_validate_tiktok_video_constraints_ok(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "probe_tiktok_video",
+        lambda _path: {"width": 1080, "height": 1920, "fps": 30.0, "duration_sec": 8.0},
+    )
+    assert api.validate_tiktok_video_constraints("/tmp/x.mp4") is None
+
+
+def test_parse_frame_rate():
+    assert api._parse_frame_rate("30/1") == 30.0
+    assert api._parse_frame_rate("30000/1001") == pytest.approx(29.97, rel=1e-3)
+    assert api._parse_frame_rate("0/0") is None
+    assert api._parse_frame_rate(None) is None
+
