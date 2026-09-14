@@ -21,12 +21,12 @@ Related:
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
 
