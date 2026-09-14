@@ -332,6 +332,32 @@ async def test_init_photo_post_auto_add_music(client):
     assert fake.calls[0]["json"]["post_info"]["auto_add_music"] is True
 
 
+@pytest.mark.asyncio
+async def test_init_photo_post_success(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": {"publish_id": "publish-789"}})
+    )
+    with _patch_client(fake):
+        result = await client.init_photo_post(
+            photo_urls=["https://example.com/1.jpg", "https://example.com/2.jpg"],
+            title="My photos",
+            privacy_level="PUBLIC",
+        )
+
+    assert result["data"]["publish_id"] == "publish-789"
+    assert fake.calls[0]["url"] == (
+        "https://open.tiktokapis.com/v2/post/publish/content/init/"
+    )
+    payload = fake.calls[0]["json"]
+    assert payload["source_info"]["source"] == "PULL_FROM_URL"
+    assert payload["source_info"]["photo_cover_index"] == 0
+    assert payload["source_info"]["photo_images"] == [
+        "https://example.com/1.jpg",
+        "https://example.com/2.jpg",
+    ]
+    assert payload["post_mode"] == "DIRECT_POST"
+    assert payload["media_type"] == "PHOTO"
+
 
 @pytest.mark.asyncio
 async def test_init_photo_post_requires_at_least_one_url(client):
