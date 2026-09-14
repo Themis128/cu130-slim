@@ -66,6 +66,34 @@ Tools: `tiktok_check_config`, `tiktok_sidecar_status`, `tiktok_sidecar_ensure_se
 `tiktok_dns_list`, `tiktok_dns_add_domain_txt`, `tiktok_console_inspect`,
 `tiktok_domain_verify`, `tiktok_api_smoke`, `tiktok_docs_checklist`.
 
+### Docker Playwright MCP (required for browser automation)
+
+The Cursor Playwright **plugin** (`npx @playwright/mcp`) looks for Google Chrome and
+fails with `Chromium distribution 'chrome' is not found`. Use the **Docker** MCP
+instead (already in `.devin/mcp_config.json` and project `.cursor/mcp.json`):
+
+- Image: `mcr.microsoft.com/playwright/mcp:latest`
+- Browser: `--browser chromium`
+- Profile: `.playwright-data/profile`
+- Config: `.playwright-data/pw-mcp-config.json`
+
+After adding/updating `.cursor/mcp.json`, reload MCP servers in Cursor so
+`plugin-playwright` is replaced by the Docker `playwright` server.
+
+TikTok browser sidecar (`:9224`) also runs Playwright in Docker. New helpers:
+
+- `POST /browse` `{ "url": "https://www.tiktok.com/..." }` — navigate logged-in page
+- `GET /screenshot` — PNG base64 of current page
+
+**MEDIA_UPLOAD inbox drafts** from Content Posting API appear in the **TikTok
+mobile app inbox**, not reliably on tiktok.com web. Web Playwright can confirm
+login/session but finishing the draft usually requires the phone app.
+
+`TIKTOK_DEV_EMAIL` / `TIKTOK_DEV_PASSWORD` are for the **developers.tiktok.com**
+portal (and optionally tiktok.com if the same password works). If sidecar ensure
+returns `Username or password doesn't match`, update the TikTok.com password or
+log in once via noVNC / Playwright MCP interactively.
+
 ## Agent workflow
 
 1. `check-config.sh` / `tiktok_check_config` — fix `.env` redirect/scopes drift first

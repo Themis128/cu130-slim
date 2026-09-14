@@ -33,21 +33,48 @@ MAX_DESC_CHARS = 4000
 MIN_CHUNK_SIZE = 5 * 1024 * 1024
 DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
 MAX_CHUNK_SIZE = 64 * 1024 * 1024
+MAX_FINAL_CHUNK_SIZE = 128 * 1024 * 1024
 MAX_CHUNK_COUNT = 1000
+# Official Content Posting media restrictions:
+# https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide
+TIKTOK_MIN_FPS = 23
+TIKTOK_MIN_DIMENSION = 360
+TIKTOK_MAX_DIMENSION = 4096
+TIKTOK_MAX_DURATION_SEC = 600
 
 logger = logging.getLogger(__name__)
 
 
 def _video_chunk_plan(video_size: int) -> tuple[int, int]:
+    """Return ``(chunk_size, total_chunk_count)`` per TikTok media transfer rules.
+
+    Rules (official Media Transfer Guide):
+    - Videos under 5 MB must be uploaded whole (``chunk_size == video_size``).
+    - Videos greater than 64 MB must be uploaded in multiple chunks.
+    - For everything ≤ 64 MB we use a single whole-file upload with
+      ``chunk_size == video_size`` so init metadata matches the PUT body.
+    - Larger videos use 10 MB chunks; ``total_chunk_count`` is floor division
+      and the final chunk may exceed ``chunk_size`` (up to 128 MB).
+    """
     if video_size <= 0:
         raise ValueError("video_size must be positive")
-    if video_size < MIN_CHUNK_SIZE:
+    if video_size <= MAX_CHUNK_SIZE:
         return video_size, 1
-    chunk_size = min(DEFAULT_CHUNK_SIZE, video_size)
-    total_chunk_count = max(1, video_size // chunk_size)
+    chunk_size = DEFAULT_CHUNK_SIZE
+    total_chunk_count = _expected_chunk_count(video_size, chunk_size)
+    final_chunk = video_size - (total_chunk_count - 1) * chunk_size
+    if final_chunk > MAX_FINAL_CHUNK_SIZE:
+        raise ValueError("final TikTok upload chunk would exceed 128 MB")
     if total_chunk_count > MAX_CHUNK_COUNT:
         raise ValueError("video requires more than 1000 chunks")
     return chunk_size, total_chunk_count
+
+
+def _expected_chunk_count(video_size: int, chunk_size: int) -> int:
+    """Floor division matching TikTok's documented total_chunk_count rule."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    return max(1, video_size // chunk_size)
 
 # TikTok publish IDs and open IDs are alphanumeric with hyphens.
 # FILE_UPLOAD publish IDs use a format like "v_inbox_file~v2.7681096048080848918"
@@ -228,12 +255,14 @@ class TikTokAPIClient:
                 raise ValueError("video_size must be positive when source is FILE_UPLOAD")
             planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
             resolved_chunk_size = chunk_size or planned_chunk_size
-            resolved_chunk_count = total_chunk_count if chunk_size else planned_chunk_count
+            resolved_chunk_count = (
+                total_chunk_count if chunk_size is not None else planned_chunk_count
+            )
             if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
                 raise ValueError("chunk_size must be positive and no larger than 64 MB")
             if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
                 raise ValueError("total_chunk_count must be between 1 and 1000")
-            if resolved_chunk_count != max(1, video_size // resolved_chunk_size):
+            if resolved_chunk_count != _expected_chunk_count(video_size, resolved_chunk_size):
                 raise ValueError("total_chunk_count does not match video_size and chunk_size")
             source_info.update(
                 {
@@ -279,13 +308,17 @@ class TikTokAPIClient:
                 raise ValueError("video_size must be positive when source is FILE_UPLOAD")
             planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
             resolved_chunk_size = chunk_size or planned_chunk_size
-            resolved_chunk_count = total_chunk_count if chunk_size else planned_chunk_count
+            resolved_chunk_count = (
+                total_chunk_count if chunk_size is not None else planned_chunk_count
+            )
             if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
                 raise ValueError("chunk_size must be positive and no larger than 64 MB")
             if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
                 raise ValueError("total_chunk_count must be between 1 and 1000")
-            if resolved_chunk_count != max(1, video_size // resolved_chunk_size):
-                raise ValueError("total_chunk_count must equal video_size divided by chunk_size, rounded down")
+            if resolved_chunk_count != _expected_chunk_count(video_size, resolved_chunk_size):
+                raise ValueError(
+                    "total_chunk_count must equal video_size divided by chunk_size, rounded down"
+                )
             source_info.update(
                 {
                     "video_size": video_size,
@@ -324,19 +357,25 @@ class TikTokAPIClient:
         size = len(video_bytes)
         resolved_chunk_size, total_chunk_count = _video_chunk_plan(size)
         if chunk_size is not None:
-            minimum = size if size < MIN_CHUNK_SIZE else MIN_CHUNK_SIZE
-            if chunk_size < minimum or chunk_size > min(size, MAX_CHUNK_SIZE):
-                raise ValueError("chunk_size is outside TikTok's allowed range")
-            resolved_chunk_size = chunk_size
-            total_chunk_count = max(1, size // resolved_chunk_size)
-            if total_chunk_count > MAX_CHUNK_COUNT:
-                raise ValueError("video requires more than 1000 chunks")
+            # Whole-file uploads declare chunk_size == size (including <5 MB).
+            # Multi-chunk uploads require each non-final chunk in [5 MB, 64 MB].
+            if chunk_size == size:
+                resolved_chunk_size, total_chunk_count = size, 1
+            else:
+                if chunk_size < MIN_CHUNK_SIZE or chunk_size > min(size, MAX_CHUNK_SIZE):
+                    raise ValueError("chunk_size is outside TikTok's allowed range")
+                resolved_chunk_size = chunk_size
+                total_chunk_count = _expected_chunk_count(size, resolved_chunk_size)
+                if total_chunk_count > MAX_CHUNK_COUNT:
+                    raise ValueError("video requires more than 1000 chunks")
         offset = 0
         async with httpx.AsyncClient(timeout=300.0) as client:
             for index in range(total_chunk_count):
                 is_last = index == total_chunk_count - 1
                 end = size if is_last else offset + resolved_chunk_size
                 chunk = video_bytes[offset:end]
+                if is_last and len(chunk) > MAX_FINAL_CHUNK_SIZE:
+                    raise ValueError("final TikTok upload chunk exceeds 128 MB")
                 headers = {
                     "Content-Length": str(len(chunk)),
                     "Content-Range": f"bytes {offset}-{end - 1}/{size}",
@@ -344,6 +383,18 @@ class TikTokAPIClient:
                 }
                 resp = await client.put(upload_url, headers=headers, content=chunk)
                 self._raise_for_status(resp, upload_url)
+                # Official media transfer guide: intermediate chunks → 206,
+                # final chunk → 201 Created.
+                if is_last and resp.status_code not in (200, 201):
+                    logger.warning(
+                        "TikTok final chunk upload returned HTTP %s (expected 201)",
+                        resp.status_code,
+                    )
+                elif not is_last and resp.status_code not in (200, 206):
+                    logger.warning(
+                        "TikTok intermediate chunk upload returned HTTP %s (expected 206)",
+                        resp.status_code,
+                    )
                 offset = end
 
     async def init_photo_post(
@@ -366,8 +417,10 @@ class TikTokAPIClient:
             "title": title[:MAX_PHOTO_TITLE_CHARS],
             "privacy_level": privacy_level,
         }
+        # photo_cover_index is 0-based per official Photo Post docs.
         source_info: dict[str, Any] = {
             "source": "PULL_FROM_URL",
+            "photo_cover_index": 0,
             "photo_images": photo_urls,
         }
 
@@ -410,7 +463,8 @@ class TikTokAPIClient:
             },
             "source_info": {
                 "source": "PULL_FROM_URL",
-                "photo_cover_index": 1,
+                # Official docs: index starting from 0.
+                "photo_cover_index": 0,
                 "photo_images": photo_urls,
             },
             "post_mode": "MEDIA_UPLOAD",

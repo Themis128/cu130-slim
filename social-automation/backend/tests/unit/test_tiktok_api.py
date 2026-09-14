@@ -88,7 +88,16 @@ def client():
 
 def test_video_chunk_plan():
     assert api._video_chunk_plan(1024) == (1024, 1)
-    assert api._video_chunk_plan(25_000_000) == (10 * 1024 * 1024, 2)
+    # Whole-file upload for anything ≤ 64 MB (init chunk_size == size).
+    assert api._video_chunk_plan(7 * 1024 * 1024) == (7 * 1024 * 1024, 1)
+    assert api._video_chunk_plan(15 * 1024 * 1024) == (15 * 1024 * 1024, 1)
+    assert api._video_chunk_plan(25_000_000) == (25_000_000, 1)
+    assert api._video_chunk_plan(64 * 1024 * 1024) == (64 * 1024 * 1024, 1)
+    # Above 64 MB → multi-chunk with 10 MB pieces (floor division).
+    size_70 = 70 * 1024 * 1024
+    assert api._video_chunk_plan(size_70) == (10 * 1024 * 1024, size_70 // (10 * 1024 * 1024))
+    # Official example shape: floor division with trailing bytes in final chunk.
+    assert api._expected_chunk_count(50_000_123, 10_000_000) == 5
 
 
 def _patch_client(fake: _FakeAsyncClient):
@@ -304,6 +313,7 @@ async def test_init_photo_post_success(client):
     )
     payload = fake.calls[0]["json"]
     assert payload["source_info"]["source"] == "PULL_FROM_URL"
+    assert payload["source_info"]["photo_cover_index"] == 0
     assert payload["source_info"]["photo_images"] == [
         "https://example.com/1.jpg",
         "https://example.com/2.jpg",

@@ -132,7 +132,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )
         elif name == "list_media":
             resp = await client.get(
-                f"{SOCIALAUTO_URL}/api/v1/media",
+                f"{SOCIALAUTO_URL}/api/v1/media/assets",
                 headers={"Authorization": f"Bearer {SOCIALAUTO_TOKEN}"},
             )
         return [TextContent(type="text", text=json.dumps(resp.json(), indent=2))]

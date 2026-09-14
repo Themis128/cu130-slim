@@ -1475,8 +1475,9 @@ async def _publish_tiktok(
     media_paths: list[str],
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
-    import asyncio as _asyncio
     import os
+
+    from app.services.tiktok_api import _video_chunk_plan
 
     # Resolve public URLs for media using storage_paths (works with R2/MinIO)
     public_urls: list[str] = []
@@ -1485,20 +1486,28 @@ async def _publish_tiktok(
         if url:
             public_urls.append(url)
 
-    client = TikTokAPIClient(access_token=access_token, open_id=account.account_id)
+    open_id = getattr(account, "meta_data", None) or {}
+    if isinstance(open_id, dict):
+        open_id = open_id.get("open_id") or account.account_id
+    else:
+        open_id = account.account_id
+    client = TikTokAPIClient(access_token=access_token, open_id=open_id)
 
     # Detect video: single media file with a video extension.
     # Prefer FILE_UPLOAD when a local file is available (avoids TikTok
     # domain-verification requirement for PULL_FROM_URL).
+    _VIDEO_EXTS = (".mp4", ".mov", ".webm")
     local_video_path: str | None = None
-    if len(media_paths) == 1 and media_paths[0].lower().endswith((".mp4", ".mov", ".webm")):
+    if len(media_paths) == 1 and media_paths[0].lower().endswith(_VIDEO_EXTS):
         if os.path.exists(media_paths[0]):
             local_video_path = media_paths[0]
     is_video = local_video_path is not None or (
-        len(public_urls) == 1 and media_paths and media_paths[0].lower().endswith((".mp4", ".mov", ".webm"))
+        len(public_urls) == 1
+        and bool(media_paths)
+        and media_paths[0].lower().endswith(_VIDEO_EXTS)
     )
 
-    tiktok_options = (post.platform_specific or {}).get("tiktok", {})
+    tiktok_options = (post.platform_specific or {}).get("tiktok", {}) or {}
     publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
     if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
         return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
@@ -1520,15 +1529,31 @@ async def _publish_tiktok(
             error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
         )
 
+    # Resume an in-flight publish (avoids burning another pending-share slot).
+    existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
+    if existing_publish_id:
+        logger.info(
+            "[publishing] TikTok resuming status poll for existing publish_id=%s",
+            existing_publish_id,
+        )
+        return await _poll_tiktok_publish_status(
+            client, existing_publish_id, publish_mode, account.username
+        )
+
     # 1) Initialize the post
     upload_url: str | None = None
+    planned_chunk_size: int | None = None
     if is_video and local_video_path:
         # FILE_UPLOAD path — read the video bytes and upload directly
         video_size = os.path.getsize(local_video_path)
+        if video_size <= 0:
+            return PublishResult(success=False, error="TikTok video file is empty")
+        planned_chunk_size, _ = _video_chunk_plan(video_size)
         if publish_mode == "MEDIA_UPLOAD":
             init = await client.init_video_upload(
                 source="FILE_UPLOAD",
                 video_size=video_size,
+                chunk_size=planned_chunk_size,
             )
         else:
             init = await client.init_video_post(
@@ -1536,14 +1561,25 @@ async def _publish_tiktok(
                 title=text[:2200],
                 privacy_level=privacy_level,
                 video_size=video_size,
+                chunk_size=planned_chunk_size,
             )
         upload_url = init.get("data", {}).get("upload_url")
     elif is_video and publish_mode == "MEDIA_UPLOAD":
+        if not public_urls:
+            return PublishResult(
+                success=False,
+                error="No public video URL for TikTok PULL_FROM_URL (verify domain or use local FILE_UPLOAD)",
+            )
         init = await client.init_video_upload(
             source="PULL_FROM_URL",
             video_url=public_urls[0],
         )
     elif is_video:
+        if not public_urls:
+            return PublishResult(
+                success=False,
+                error="No public video URL for TikTok PULL_FROM_URL (verify domain or use local FILE_UPLOAD)",
+            )
         init = await client.init_video_post(
             source="PULL_FROM_URL",
             video_url=public_urls[0],
@@ -1579,29 +1615,88 @@ async def _publish_tiktok(
             upload_url=upload_url,
             video_bytes=video_bytes,
             content_type=content_type,
+            chunk_size=planned_chunk_size,
+        )
+        logger.info(
+            "[publishing] TikTok FILE_UPLOAD complete publish_id=%s bytes=%s",
+            publish_id,
+            len(video_bytes),
         )
 
-    # 2) Poll for publish status (up to 90s)
-    for _ in range(18):
-        await _asyncio.sleep(5)
+    # 2) Poll for publish status (official statuses: PROCESSING_*,
+    # SEND_TO_USER_INBOX, PUBLISH_COMPLETE, FAILED). Allow up to ~5 minutes —
+    # TikTok can take a while after a successful 201 upload.
+    return await _poll_tiktok_publish_status(
+        client, publish_id, publish_mode, account.username
+    )
+
+
+async def _poll_tiktok_publish_status(
+    client: TikTokAPIClient,
+    publish_id: str,
+    publish_mode: str,
+    username: str | None,
+    *,
+    attempts: int = 60,
+    interval_sec: float = 5.0,
+) -> PublishResult:
+    """Poll TikTok Get Post Status until a terminal state or timeout."""
+    import asyncio as _asyncio
+
+    last_status = ""
+    last_uploaded_bytes: int | None = None
+    for attempt in range(attempts):
+        await _asyncio.sleep(interval_sec)
         status = await client.check_publish_status(publish_id)
-        status_data = status.get("data", {})
-        status_value = status_data.get("status", "")
+        status_data = status.get("data", {}) or {}
+        status_value = str(status_data.get("status") or "")
+        last_status = status_value
+        uploaded = status_data.get("uploaded_bytes")
+        if uploaded is not None:
+            last_uploaded_bytes = uploaded
+        if status_value and status_value != "PROCESSING_UPLOAD":
+            logger.info(
+                "[publishing] TikTok status publish_id=%s attempt=%s status=%s",
+                publish_id,
+                attempt + 1,
+                status_value,
+            )
         if publish_mode == "MEDIA_UPLOAD" and status_value == "SEND_TO_USER_INBOX":
             return PublishResult(success=True, platform_post_id=publish_id)
         if status_value == "PUBLISH_COMPLETE":
-            tt_post_id = status_data.get("publicaly_available_post_id", [None])[0]
+            ids = status_data.get("publicaly_available_post_id") or []
+            tt_post_id = ids[0] if ids else None
             return PublishResult(
                 success=True,
                 platform_post_id=publish_id,
-                platform_url=f"https://www.tiktok.com/@{account.username}/video/{tt_post_id}" if tt_post_id else None,
+                platform_url=(
+                    f"https://www.tiktok.com/@{username}/video/{tt_post_id}"
+                    if tt_post_id and username
+                    else None
+                ),
             )
         if status_value in ("FAILED", "CANCELLED"):
-            fail_reason = status_data.get("fail_reason", "unknown")
-            return PublishResult(success=False, error=f"TikTok publish failed: {fail_reason}")
+            fail_reason = status_data.get("fail_reason") or "unknown"
+            return PublishResult(
+                success=False,
+                platform_post_id=publish_id,
+                error=f"TikTok publish failed: {fail_reason}",
+            )
 
     action = "upload" if publish_mode == "MEDIA_UPLOAD" else "publish"
-    return PublishResult(success=False, error=f"TikTok {action} timeout (publish_id={publish_id})")
+    detail = f"last_status={last_status or 'unknown'}"
+    if last_uploaded_bytes is not None:
+        detail += f", uploaded_bytes={last_uploaded_bytes}"
+    return PublishResult(
+        success=False,
+        platform_post_id=publish_id,
+        error=(
+            f"TikTok {action} timeout (publish_id={publish_id}, {detail}). "
+            "For MEDIA_UPLOAD, check the TikTok inbox or cancel via "
+            "/api/v1/tiktok/accounts/{id}/publish/cancel. "
+            "Videos must be ≥23 FPS, ≥360px, H.264/MP4 per TikTok media rules."
+        ),
+    )
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────

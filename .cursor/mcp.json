@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "--network",
+        "host",
+        "--shm-size=2g",
+        "-v",
+        "/home/tbaltzakis/cu130-slim:/workspace",
+        "-v",
+        "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
+        "-w",
+        "/workspace",
+        "mcr.microsoft.com/playwright/mcp:latest",
+        "--config",
+        "/workspace/.playwright-data/pw-mcp-config.json",
+        "--user-data-dir",
+        "/home/pwuser/.playwright-data/profile",
+        "--browser",
+        "chromium",
+        "--ignore-https-errors",
+        "--timeout-action",
+        "15000",
+        "--timeout-navigation",
+        "120000",
+        "--timeout-settle",
+        "1500"
+      ]
+    }
+  }
+}

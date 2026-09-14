@@ -30,21 +30,32 @@ TOKEN=$(curl -sf -X POST "$API/api/v1/auth/login" \
 
 PARAMS="page_size=$LIMIT"
 [[ -n "$TYPE" ]] && PARAMS="$PARAMS&type=$TYPE"
-[[ -n "$SEARCH" ]] && PARAMS="$PARAMS&search=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$SEARCH'))")"
+if [[ -n "$SEARCH" ]]; then
+  ENC=$(SEARCH="$SEARCH" python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["SEARCH"]))')
+  PARAMS="$PARAMS&search=$ENC"
+fi
 
+# Write to a temp file so Python never fights curl over stdin (pipe + heredoc clash).
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
 curl -sf "$API/api/v1/media/assets?$PARAMS" \
   -H "Authorization: Bearer $TOKEN" \
-  | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-items = d if isinstance(d, list) else d.get('assets', d.get('items', []))
+  -o "$TMP"
+
+python3 - "$TMP" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    d = json.load(fh)
+items = d if isinstance(d, list) else d.get("assets", d.get("items", []))
 if not items:
-    print('No media found.')
+    print("No media found.")
+    raise SystemExit(0)
 for m in items:
-    mime = m.get('mime_type', '?')
-    name = m.get('filename', '?')
-    size = m.get('size_bytes', 0)
-    sz = f'{size/1024:.1f}KB' if size < 1048576 else f'{size/1048576:.1f}MB'
-    caption = (m.get('ai_caption') or '')[:30]
-    print(f'{m[\"id\"]}  {mime:20s}  {sz:>10s}  {name}  {caption}')
-"
+    mime = m.get("mime_type", "?")
+    name = m.get("filename", "?")
+    size = m.get("size_bytes", 0) or 0
+    sz = f"{size/1024:.1f}KB" if size < 1048576 else f"{size/1048576:.1f}MB"
+    caption = (m.get("ai_caption") or "")[:30]
+    print(f"{m['id']}  {mime:20s}  {sz:>10s}  {name}  {caption}")
+PY

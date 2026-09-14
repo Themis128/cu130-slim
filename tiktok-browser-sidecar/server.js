@@ -645,6 +645,47 @@ async function handleReadAllSettings(req, res) {
 
 // ── Server setup ───────────────────────────────────────────────────────────
 
+/** Navigate the logged-in Playwright page and return a text snapshot. */
+async function handleBrowse(req, res) {
+  const url = String(req.body?.url || '').trim();
+  if (!url || !url.startsWith('https://www.tiktok.com/')) {
+    return res.status(400).json({ error: 'url must be an https://www.tiktok.com/ URL' });
+  }
+  try {
+    await ensureBrowser();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(3000);
+    await page
+      .getByRole('button', { name: /accept all|allow all|agree/i })
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
+    const title = await page.title();
+    const finalUrl = page.url();
+    const text = (await page.locator('body').innerText().catch(() => '')).slice(0, 6000);
+    const logged_in = !title.includes('Log in') && !finalUrl.includes('login');
+    res.json({ status: 'ok', logged_in, url: finalUrl, title, text_preview: text.slice(0, 1500) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/** PNG screenshot of the current page (base64). */
+async function handleScreenshot(req, res) {
+  try {
+    await ensureBrowser();
+    const buf = await page.screenshot({ type: 'png', fullPage: false });
+    res.json({
+      status: 'ok',
+      url: page.url(),
+      title: await page.title(),
+      png_base64: buf.toString('base64'),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
@@ -656,6 +697,10 @@ app.get('/health', (req, res) => {
 // Session
 app.post('/session', handleSetSession);
 app.get('/session', handleCheckSession);
+
+// Browse (Docker Playwright page already logged in)
+app.post('/browse', handleBrowse);
+app.get('/screenshot', handleScreenshot);
 
 // Profile read (from browser — includes avatar URL)
 app.get('/profile', handleReadProfile);

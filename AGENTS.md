@@ -271,8 +271,9 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 
 - **Publish modes**: `MEDIA_UPLOAD` (sends to TikTok inbox for manual posting) and `DIRECT_POST` (posts directly — requires app audit). Use `MEDIA_UPLOAD` until the app passes TikTok's audit review.
 - **Media transfer**: `FILE_UPLOAD` (upload video bytes directly — no domain verification needed) and `PULL_FROM_URL` (TikTok downloads from URL — requires domain verification in dev console). SocialAuto's `_publish_tiktok` in `app/services/publishing.py` automatically uses `FILE_UPLOAD` when a local video file is available.
-- **Photo posts**: Only support `PULL_FROM_URL` — domain verification is mandatory for photo carousels.
-- **Spam protection**: TikTok limits API uploads to **5 pending shares per 24-hour period**. Error: `spam_risk_too_many_pending_share`. Clear pending uploads from the TikTok mobile app or via the cancel API (`/v2/post/publish/cancel/`).
+- **Video encoding**: TikTok rejects/hangs on videos below **23 FPS** (official media transfer guide). Slideshow builder uses `fps=30` + silent AAC. Prefer H.264 / yuv420p / ≥360px.
+- **Photo posts**: `photo_cover_index` is **0-based**. Photos only support `PULL_FROM_URL` (domain verify required).
+- **Spam protection**: TikTok limits API uploads to **5 pending shares per 24-hour period**. Error: `spam_risk_too_many_pending_share`. Clear pending uploads from the TikTok mobile app or via the cancel API (`/v2/post/publish/cancel/`). Resume stuck posts with `platform_specific.tiktok.publish_id` instead of re-init.
 - **Publish ID format**: FILE_UPLOAD IDs use `v_inbox_file~v2.<numeric_id>` (includes `~` and `.`). The `_ID_RE` regex in `app/services/tiktok_api.py` accepts these.
 - **Upload URL hosts**: TikTok returns regional hosts (e.g. `open-upload-i18n.tiktokapis.com`). The `upload_video_file` method accepts any `*.tiktokapis.com` host.
 - **App details**: App name "Cloudless", App ID `7630494700880906241`, currently under Individual ownership (needs transfer to organization `cloudless.gr` / `7630331010873377809`).

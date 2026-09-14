@@ -91,10 +91,15 @@ done
 # Repeat last frame (concat demuxer requirement)
 echo \"file '/home/user/ComfyUI/input/tiktok-slides/slide-${NUM_SLIDES}.png'\" >> \$LIST
 
+# TikTok requires ≥23 FPS (media transfer guide). Force fps=30 in the
+# filter graph — concat still-image demuxer alone often yields ~1 FPS.
+# Add a silent AAC track so the file is a normal MP4 TikTok can process.
 ffmpeg -y -f concat -safe 0 -i \$LIST \\
-  -vf 'scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p' \\
-  -r 30 -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \\
-  /home/user/ComfyUI/output/tiktok-slideshow.mp4 2>&1 | tail -5
+  -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \\
+  -vf 'scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p,fps=30' \\
+  -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \\
+  -c:a aac -b:a 128k -shortest \\
+  /home/user/ComfyUI/output/tiktok-slideshow.mp4 2>&1 | tail -8
 "
 
 # Copy to host
@@ -111,6 +116,6 @@ echo "  Size: $((SIZE / 1024))KB"
 echo ""
 echo "Upload to media library:"
 echo "  curl -sf -X POST '$API/api/v1/media/upload' \\"
-echo "    -H 'Authorization: Bearer $TOKEN' \\"
+echo "    -H 'Authorization: Bearer \$TOKEN' \\"
 echo "    -F 'file=@$OUTPUT' \\"
 echo "    -F 'tags=tiktok,slideshow'"

@@ -33,7 +33,9 @@ Manage media assets for social posts through the SocialAuto API.
 ## API base
 
 ```
-http://127.0.0.1:8083/api/v1/media          # core media endpoints
+http://127.0.0.1:8083/api/v1/media/assets   # list / get / patch / delete assets
+http://127.0.0.1:8083/api/v1/media/upload   # multipart upload
+http://127.0.0.1:8083/api/v1/media/view     # serve by storage_path
 http://127.0.0.1:8083/api/v1/media/enhance  # AI enhancement endpoints
 ```
 
@@ -46,11 +48,13 @@ by reading `.env` for `SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWORD`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/media` | List media (filter by type, sort, search, paginate) |
-| GET | `/media/{id}` | Get a single media asset |
+| GET | `/media/assets` | List media (filter by type, sort, search, paginate) |
+| GET | `/media/assets/{id}` | Get a single media asset |
+| PATCH | `/media/assets/{id}` | Update asset metadata (tags, caption, etc.) |
+| DELETE | `/media/assets/{id}` | Delete a media asset |
 | GET | `/media/view?path=<storage_path>` | Serve media for display (unauthenticated) |
 | POST | `/media/upload` | Upload a file (multipart/form-data) |
-| DELETE | `/media/{id}` | Delete a media asset |
+| GET | `/media/search` | Search media assets |
 
 ## AI image generation
 

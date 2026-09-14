@@ -172,9 +172,12 @@ cd /home/user/ComfyUI/input/tiktok-slides
 printf "file '\''%s'\''\nduration 3\n" slide-{1..5}.png > /tmp/slideshow.txt
 # Repeat last frame (concat demuxer requirement)
 echo "file '\''slide-5.png'\''" >> /tmp/slideshow.txt
+# TikTok requires ≥23 FPS — force fps=30 (+ silent AAC) or processing hangs.
 ffmpeg -y -f concat -safe 0 -i /tmp/slideshow.txt \
-  -vf "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p" \
-  -r 30 -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+  -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
+  -vf "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p,fps=30" \
+  -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+  -c:a aac -b:a 128k -shortest \
   /home/user/ComfyUI/output/cloudless-tiktok-slideshow.mp4
 '
 
@@ -207,6 +210,7 @@ Run from repo root `cu130-slim/`:
 |-------|-------|-----|
 | `url_ownership_unverified` | Domain not verified for PULL_FROM_URL | Verify domain in TikTok dev console, or use FILE_UPLOAD for videos |
 | `spam_risk_too_many_pending_share` | 5+ pending uploads in 24h | Clear pending from TikTok app, cancel via API, or wait 24h |
+| Stuck `PROCESSING_UPLOAD` | Video <23 FPS, bad codec, or tiny slideshow at 1 FPS | Rebuild with `fps=30` + H.264 yuv420p (see build-slideshow.sh) |
 | `unaudited_client_can_only_post_to_private_accounts` | DIRECT_POST without app audit | Use MEDIA_UPLOAD mode instead |
 | `Invalid publish_id format` | Regex rejected `~` or `.` in publish_id | Fixed — regex now accepts `~` and `.` |
 | `upload_url must use the TikTok upload host` | Host validation too strict | Fixed — accepts any `*.tiktokapis.com` host |
