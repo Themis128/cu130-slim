@@ -27,6 +27,7 @@ celery_app = Celery(
         "app.worker.tasks.instagram_token_refresh",
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
+        "app.worker.tasks.telegram_digest",
     ],
 )
 
@@ -117,6 +118,10 @@ celery_app.conf.update(
             "soft_time_limit": 600,
             "time_limit": 900,
         },
+        "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
+            "soft_time_limit": 300,
+            "time_limit": 600,
+        },
     },
     # Queue routing: time-sensitive publishing tasks are isolated from
     # CPU-heavy media/AI tasks so a long-running batch enhance never blocks
@@ -137,6 +142,7 @@ celery_app.conf.update(
         "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
         "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "default"},
+        "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
@@ -268,6 +274,13 @@ celery_app.conf.update(
         "check-whatsapp-verification": {
             "task": "app.worker.tasks.whatsapp_verify.check_whatsapp_verification",
             "schedule": crontab(minute="*/30"),  # every 30 minutes
+            "options": {"queue": "default"},
+        },
+        # Telegram group digests → owner DM via Bot API sendMessage.
+        # Runs hourly; each account only sends when local hour == digest_hour.
+        "telegram-group-digests": {
+            "task": "app.worker.tasks.telegram_digest.send_telegram_group_digests",
+            "schedule": crontab(minute=5),  # :05 every hour
             "options": {"queue": "default"},
         },
     },

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import {
-  Send, Bot, Loader2, CheckCircle2, XCircle, RefreshCw, Settings, MessageSquare,
+  Send, Bot, Loader2, CheckCircle2, XCircle, RefreshCw, Settings, MessageSquare, Bell,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -123,12 +123,235 @@ export default function TelegramPage() {
         <>
           <SetupStatusCard accountId={selectedAccountId} />
           <CredentialsCard accountId={selectedAccountId} />
+          <GroupWatchCard accountId={selectedAccountId} />
           <SendMessageCard accountId={selectedAccountId} />
           <AutoReplyCard accountId={selectedAccountId} />
           <BotCard accountId={selectedAccountId} />
         </>
       ) : telegramAccounts.length > 0 ? null : null}
     </div>
+  )
+}
+
+function GroupWatchCard({ accountId }: { accountId: string }) {
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['telegram-group-watch', accountId],
+    queryFn: () => telegramApi.getGroupWatch(accountId),
+  })
+  const { data: activity } = useQuery({
+    queryKey: ['telegram-group-watch-activity', accountId],
+    queryFn: () => telegramApi.getGroupWatchActivity(accountId),
+    refetchInterval: 60_000,
+  })
+
+  const [enabled, setEnabled] = useState(false)
+  const [keywords, setKeywords] = useState('')
+  const [digestEnabled, setDigestEnabled] = useState(true)
+  const [digestHour, setDigestHour] = useState(9)
+  const [alertMention, setAlertMention] = useState(true)
+  const [alertKeywords, setAlertKeywords] = useState(true)
+  const [watchAll, setWatchAll] = useState(true)
+
+  useEffect(() => {
+    const cfg = data?.data
+    if (!cfg) return
+    setEnabled(!!cfg.enabled)
+    setKeywords((cfg.keywords || []).join(', '))
+    setDigestEnabled(cfg.digest_enabled !== false)
+    setDigestHour(typeof cfg.digest_hour === 'number' ? cfg.digest_hour : 9)
+    setAlertMention(cfg.alert_on_bot_mention !== false)
+    setAlertKeywords(cfg.alert_on_keywords !== false)
+    setWatchAll(cfg.watch_all_groups !== false)
+  }, [data])
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      telegramApi.updateGroupWatch(accountId, {
+        enabled,
+        keywords: keywords.split(',').map((k) => k.trim()).filter(Boolean),
+        digest_enabled: digestEnabled,
+        digest_hour: digestHour,
+        alert_on_bot_mention: alertMention,
+        alert_on_keywords: alertKeywords,
+        watch_all_groups: watchAll,
+        owner_chat_id: data?.data?.owner_chat_id ?? null,
+        owner_username: data?.data?.owner_username ?? null,
+        watched_chats: data?.data?.watched_chats || [],
+        forward_alert_messages: !!data?.data?.forward_alert_messages,
+        digest_max_messages: data?.data?.digest_max_messages || 40,
+        auto_reply_groups_only_when_mentioned:
+          data?.data?.auto_reply_groups_only_when_mentioned !== false,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['telegram-group-watch', accountId] })
+    },
+  })
+
+  const digestMutation = useMutation({
+    mutationFn: () => telegramApi.digestNow(accountId),
+  })
+
+  const linksMutation = useMutation({
+    mutationFn: () => telegramApi.setupGroupWatchLinks(accountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['telegram-group-watch', accountId] })
+      queryClient.invalidateQueries({ queryKey: ['telegram-group-watch-activity', accountId] })
+    },
+  })
+
+  const cfg = data?.data
+  const act = activity?.data
+  const setupLinks = linksMutation.data?.data?.links
+  const checklist = linksMutation.data?.data?.checklist || []
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Bell className="h-4 w-4" />
+          Group watch (stay updated)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              One-tap Telegram setup (Bot API cannot join groups or change BotFather privacy by itself).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={linksMutation.isPending}
+                onClick={() => linksMutation.mutate()}
+              >
+                Prepare Telegram links
+              </Button>
+              {setupLinks?.link_owner && (
+                <a href={setupLinks.link_owner} target="_blank" rel="noreferrer">
+                  <Button type="button" size="sm">1. Link my DM</Button>
+                </a>
+              )}
+              {setupLinks?.add_to_group && (
+                <a href={setupLinks.add_to_group} target="_blank" rel="noreferrer">
+                  <Button type="button" size="sm" variant="secondary">2. Add to group</Button>
+                </a>
+              )}
+              {setupLinks?.botfather_privacy && (
+                <a href={setupLinks.botfather_privacy} target="_blank" rel="noreferrer">
+                  <Button type="button" size="sm" variant="outline">3. BotFather privacy</Button>
+                </a>
+              )}
+            </div>
+            {checklist.length > 0 && (
+              <ul className="text-xs text-muted-foreground space-y-1">
+                {checklist.map((item: { id: string; done: boolean; action: string; url?: string }) => (
+                  <li key={item.id}>
+                    {item.done ? '✓' : '○'} {item.action}
+                    {item.url ? (
+                      <>
+                        {' '}
+                        <a className="text-primary underline" href={item.url} target="_blank" rel="noreferrer">
+                          open
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="text-sm space-y-1">
+              <p>
+                Owner linked:{' '}
+                {cfg?.owner_chat_id ? (
+                  <span className="text-green-600">yes ({cfg.owner_chat_id})</span>
+                ) : (
+                  <span className="text-amber-600">no — tap “Link my DM”</span>
+                )}
+              </p>
+              <p>
+                Watched chats: {(cfg?.watched_chats || []).length}
+                {act?.chats?.length
+                  ? ` · buffered in ${act.chats.filter((c: { buffered_count: number }) => c.buffered_count > 0).length}`
+                  : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={enabled} onCheckedChange={setEnabled} />
+              <span className="text-sm font-medium">Enable group watch</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={watchAll} onCheckedChange={setWatchAll} />
+              <span className="text-sm">Watch all groups the bot joins</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={alertMention} onCheckedChange={setAlertMention} />
+              <span className="text-sm">Alert on @bot mention</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={alertKeywords} onCheckedChange={setAlertKeywords} />
+              <span className="text-sm">Alert on keywords</span>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Keywords (comma-separated)</label>
+              <Input
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                className="mt-1"
+                placeholder="price, τιμή, help, cloudless"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={digestEnabled} onCheckedChange={setDigestEnabled} />
+              <span className="text-sm">Daily digest</span>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Digest hour (Europe/Athens)</label>
+              <Input
+                type="number"
+                min={0}
+                max={23}
+                value={digestHour}
+                onChange={(e) => setDigestHour(Number(e.target.value))}
+                className="mt-1 w-24"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+              >
+                Save group watch
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => digestMutation.mutate()}
+                disabled={digestMutation.isPending || !cfg?.owner_chat_id}
+              >
+                Send digest now
+              </Button>
+            </div>
+            {saveMutation.isSuccess && (
+              <span className="text-sm text-green-600">Saved</span>
+            )}
+            {digestMutation.isSuccess && (
+              <span className="text-sm text-green-600 ml-2">
+                Digest sent: {digestMutation.data?.data?.sent ?? 0} chat(s)
+              </span>
+            )}
+            {digestMutation.isError && (
+              <p className="text-sm text-destructive">
+                {getErrorMessage(digestMutation.error)}
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

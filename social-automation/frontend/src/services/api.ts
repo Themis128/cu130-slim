@@ -791,6 +791,18 @@ export const telegramApi = {
     api.post(`/telegram/${accountId}/threads/pause`, data),
   resumeThread: (accountId: string, data: { chat_id: string }) =>
     api.post(`/telegram/${accountId}/threads/resume`, data),
+  getGroupWatch: (accountId: string) =>
+    api.get(`/telegram/${accountId}/group-watch`),
+  updateGroupWatch: (accountId: string, data: Record<string, unknown>) =>
+    api.put(`/telegram/${accountId}/group-watch`, data),
+  addWatchedChat: (accountId: string, data: { chat_id: string; title?: string; type?: string }) =>
+    api.post(`/telegram/${accountId}/group-watch/add-chat`, data),
+  digestNow: (accountId: string) =>
+    api.post(`/telegram/${accountId}/group-watch/digest-now`),
+  getGroupWatchActivity: (accountId: string, params?: { chat_id?: string; limit?: number }) =>
+    api.get(`/telegram/${accountId}/group-watch/activity`, { params }),
+  setupGroupWatchLinks: (accountId: string) =>
+    api.post(`/telegram/${accountId}/group-watch/setup-links`),
 }
 
 // Publishing endpoints

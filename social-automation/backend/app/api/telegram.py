@@ -28,9 +28,25 @@ from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.telegram_api import (
+    TELEGRAM_ALLOWED_UPDATES,
     TelegramAPIClient,
     TelegramAPIError,
     extract_inbound_text_update,
+    extract_my_chat_member_update,
+)
+from app.services.telegram_group_watch import (
+    META_KEY as GROUP_WATCH_META_KEY,
+    default_group_watch_config,
+    get_group_watch_from_meta,
+    handle_bot_membership_change,
+    handle_mistaken_botfather_command,
+    handle_owner_link_command,
+    list_buffered_messages,
+    normalize_group_watch_config,
+    process_group_message_watch,
+    send_digest_for_account,
+    should_auto_reply_in_group,
+    upsert_watched_chat,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +191,32 @@ class BotCreateRequest(BaseModel):
     personality: str = "professional_friendly"
     language: str = "auto"
     custom_prompt: str | None = None
+
+
+class WatchedChat(BaseModel):
+    chat_id: str
+    title: str = ""
+    type: str = "supergroup"
+
+
+class GroupWatchConfig(BaseModel):
+    """Keep the owner updated from Telegram groups via Bot API webhooks."""
+
+    enabled: bool = False
+    owner_chat_id: str | None = None
+    owner_username: str | None = None
+    watched_chats: list[WatchedChat] = Field(default_factory=list)
+    watch_all_groups: bool = True
+    keywords: list[str] = Field(
+        default_factory=lambda: list(default_group_watch_config()["keywords"])
+    )
+    alert_on_bot_mention: bool = True
+    alert_on_keywords: bool = True
+    forward_alert_messages: bool = False
+    digest_enabled: bool = True
+    digest_hour: int = Field(9, ge=0, le=23)
+    digest_max_messages: int = Field(40, ge=5, le=100)
+    auto_reply_groups_only_when_mentioned: bool = True
 
 
 PERSONALITY_PRESETS = {
@@ -349,7 +391,7 @@ async def _register_webhook(account: SocialAccount, client: TelegramAPIClient) -
         ok = await client.set_webhook(
             url,
             secret_token=secret,
-            allowed_updates=["message", "edited_message"],
+            allowed_updates=list(TELEGRAM_ALLOWED_UPDATES),
             drop_pending_updates=False,
         )
         meta["webhook_url"] = url
@@ -675,6 +717,204 @@ async def list_personalities(
     return {"personalities": list(PERSONALITY_PRESETS.keys())}
 
 
+# ── Group watch (digests + keyword alerts) ───────────────────────────
+
+
+@router.get("/{account_id}/group-watch", response_model=GroupWatchConfig)
+async def get_group_watch(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    cfg = get_group_watch_from_meta(account.meta_data)
+    return GroupWatchConfig(**{
+        **cfg,
+        "watched_chats": [
+            WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c))
+            for c in (cfg.get("watched_chats") or [])
+        ],
+    })
+
+
+@router.put("/{account_id}/group-watch", response_model=GroupWatchConfig)
+async def update_group_watch(
+    account_id: uuid.UUID,
+    body: GroupWatchConfig,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    meta = dict(account.meta_data or {})
+    normalized = normalize_group_watch_config(body.model_dump())
+    meta[GROUP_WATCH_META_KEY] = normalized
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    # Refresh webhook so my_chat_member is subscribed
+    try:
+        client = _client_for(account)
+        await _register_webhook(account, client)
+    except Exception as exc:
+        logger.warning("group-watch webhook refresh failed: %s", _sanitize(str(exc)))
+    await db.commit()
+    return GroupWatchConfig(**{
+        **normalized,
+        "watched_chats": [
+            WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c))
+            for c in (normalized.get("watched_chats") or [])
+        ],
+    })
+
+
+@router.post("/{account_id}/group-watch/add-chat")
+async def add_watched_chat(
+    account_id: uuid.UUID,
+    body: WatchedChat,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    cfg = get_group_watch_from_meta(account.meta_data)
+    title = body.title
+    chat_type = body.type
+    try:
+        client = _client_for(account)
+        info = await client.get_chat(body.chat_id)
+        title = title or info.get("title") or info.get("username") or title
+        chat_type = info.get("type") or chat_type
+    except (TelegramAPIError, ValueError) as exc:
+        logger.info("getChat optional failed for watch add: %s", _sanitize(str(exc)))
+    cfg = upsert_watched_chat(
+        cfg, chat_id=body.chat_id, title=title or "", chat_type=chat_type or "supergroup"
+    )
+    cfg["enabled"] = True
+    meta = dict(account.meta_data or {})
+    meta[GROUP_WATCH_META_KEY] = cfg
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {"status": "ok", "config": cfg}
+
+
+@router.post("/{account_id}/group-watch/digest-now")
+async def trigger_group_digest_now(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    cfg = get_group_watch_from_meta(account.meta_data)
+    client = _client_for(account)
+    result = await send_digest_for_account(
+        client=client,
+        account_id=str(account.id),
+        cfg=cfg,
+        force=True,
+    )
+    return {"status": "ok", **result}
+
+
+@router.get("/{account_id}/group-watch/activity")
+async def get_group_watch_activity(
+    account_id: uuid.UUID,
+    chat_id: str | None = None,
+    limit: int = 40,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    cfg = get_group_watch_from_meta(account.meta_data)
+    chats = cfg.get("watched_chats") or []
+    if chat_id:
+        messages = await list_buffered_messages(str(account.id), chat_id, limit=limit)
+        return {"chat_id": chat_id, "messages": messages}
+    out = []
+    for c in chats:
+        cid = str(c.get("chat_id") if isinstance(c, dict) else c)
+        msgs = await list_buffered_messages(str(account.id), cid, limit=min(limit, 20))
+        out.append(
+            {
+                "chat_id": cid,
+                "title": c.get("title") if isinstance(c, dict) else "",
+                "buffered_count": len(msgs),
+                "recent": msgs[:5],
+            }
+        )
+    return {
+        "owner_chat_id": cfg.get("owner_chat_id"),
+        "enabled": cfg.get("enabled"),
+        "chats": out,
+        "link_hint": "Open a private chat with the bot and send /linkowner",
+    }
+
+
+@router.post("/{account_id}/group-watch/setup-links")
+async def setup_group_watch_links(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Register bot commands and return official deep links for one-tap setup.
+
+    Telegram does not allow bots to disable Group Privacy or join groups by
+    themselves — those require the account owner. Deep links minimize clicks:
+    - ``?start=linkowner`` opens a private chat and links the owner
+    - ``?startgroup=watch`` opens the “add bot to group” picker
+    Docs: https://core.telegram.org/bots/features#deep-linking
+    """
+    from app.services.telegram_group_watch import bot_deep_links, ensure_bot_commands
+
+    account = await _get_telegram_account(db, account_id, user)
+    meta = dict(account.meta_data or {})
+    username = meta.get("bot_username") or account.username or ""
+    client = _client_for(account)
+    if not username:
+        try:
+            me = await client.get_me()
+            username = me.get("username") or ""
+            if username:
+                meta["bot_username"] = username
+                account.meta_data = meta
+                flag_modified(account, "meta_data")
+        except TelegramAPIError:
+            pass
+    commands_ok = await ensure_bot_commands(client)
+    # Keep webhook subscribed to my_chat_member
+    webhook = await _register_webhook(account, client)
+    await db.commit()
+    links = bot_deep_links(username)
+    cfg = get_group_watch_from_meta(account.meta_data)
+    return {
+        "status": "ok",
+        "bot_username": username,
+        "commands_registered": commands_ok,
+        "webhook": {"ok": webhook.get("ok"), "allowed_updates": (webhook.get("info") or {}).get("allowed_updates")},
+        "links": links,
+        "owner_linked": bool(cfg.get("owner_chat_id")),
+        "owner_chat_id": cfg.get("owner_chat_id"),
+        "checklist": [
+            {
+                "id": "link_owner",
+                "done": bool(cfg.get("owner_chat_id")),
+                "action": "Open link — taps Start in Telegram",
+                "url": links.get("link_owner"),
+            },
+            {
+                "id": "add_to_group",
+                "done": bool(cfg.get("watched_chats")),
+                "action": "Open link — pick Visibility Era 2.0",
+                "url": links.get("add_to_group"),
+            },
+            {
+                "id": "group_privacy",
+                "done": False,
+                "action": "BotFather → Bot Settings → Group Privacy → Turn off (API cannot do this)",
+                "url": links.get("botfather_privacy"),
+            },
+        ],
+    }
+
+
 # ── Thread pause / resume ────────────────────────────────────────────
 
 
@@ -747,17 +987,119 @@ async def receive_webhook(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
-    inbound = extract_inbound_text_update(update if isinstance(update, dict) else {})
+    if not isinstance(update, dict):
+        return {"status": "ok", "ignored": True}
+
+    meta = dict(account.meta_data or {})
+    watch_cfg = get_group_watch_from_meta(meta)
+    bot_username = meta.get("bot_username") or account.username
+    response: dict[str, Any] = {"status": "ok"}
+
+    # ── my_chat_member: bot added/removed/promoted in a group ──
+    membership = extract_my_chat_member_update(update)
+    if membership:
+        try:
+            client = _client_for(account)
+            watch_cfg, info = await handle_bot_membership_change(
+                client=client, cfg=watch_cfg, event=membership
+            )
+            meta[GROUP_WATCH_META_KEY] = watch_cfg
+            account.meta_data = meta
+            flag_modified(account, "meta_data")
+            await db.commit()
+            response["membership"] = info
+        except Exception as exc:
+            logger.warning(
+                "Telegram membership handler failed account=%s: %s",
+                account_id,
+                _sanitize(str(exc)),
+            )
+            response["membership_error"] = True
+        return response
+
+    inbound = extract_inbound_text_update(update)
     if not inbound:
         return {"status": "ok", "ignored": True}
 
     if inbound.get("is_bot"):
         return {"status": "ok", "ignored": True, "reason": "bot_sender"}
 
-    meta = account.meta_data or {}
+    # ── BotFather cmds typed here by mistake (/mybots etc.) ──
+    try:
+        client = _client_for(account)
+        if await handle_mistaken_botfather_command(client=client, inbound=inbound):
+            return {"status": "ok", "redirected_botfather": True}
+    except Exception as exc:
+        logger.warning(
+            "Telegram botfather redirect failed account=%s: %s",
+            account_id,
+            _sanitize(str(exc)),
+        )
+
+    # ── Owner link (/start /linkowner) in private chat ──
+    try:
+        client = _client_for(account)
+        watch_cfg, linked = await handle_owner_link_command(
+            client=client,
+            inbound=inbound,
+            cfg=watch_cfg,
+            bot_username=bot_username,
+        )
+        if linked:
+            meta[GROUP_WATCH_META_KEY] = watch_cfg
+            account.meta_data = meta
+            flag_modified(account, "meta_data")
+            await db.commit()
+            return {"status": "ok", "owner_linked": True, "owner_chat_id": watch_cfg.get("owner_chat_id")}
+    except Exception as exc:
+        logger.warning(
+            "Telegram owner link failed account=%s: %s",
+            account_id,
+            _sanitize(str(exc)),
+        )
+
+    # ── Group watch: buffer + keyword/mention alerts ──
+    chat_type = inbound.get("chat_type")
+    if chat_type in {"group", "supergroup"}:
+        try:
+            client = _client_for(account)
+            # Auto-register chat title when watching all groups
+            if watch_cfg.get("enabled") and watch_cfg.get("watch_all_groups", True):
+                watch_cfg = upsert_watched_chat(
+                    watch_cfg,
+                    chat_id=inbound["chat_id"],
+                    title=inbound.get("chat_title") or "",
+                    chat_type=chat_type,
+                )
+                meta[GROUP_WATCH_META_KEY] = watch_cfg
+                account.meta_data = meta
+                flag_modified(account, "meta_data")
+                await db.commit()
+            watch_result = await process_group_message_watch(
+                client=client,
+                account_id=str(account.id),
+                cfg=watch_cfg,
+                inbound=inbound,
+                bot_username=bot_username,
+            )
+            response["group_watch"] = watch_result
+        except Exception as exc:
+            logger.warning(
+                "Telegram group watch failed account=%s: %s",
+                account_id,
+                _sanitize(str(exc)),
+            )
+            response["group_watch_error"] = True
+
+        if not should_auto_reply_in_group(watch_cfg, inbound, bot_username):
+            response["auto_reply"] = False
+            response["reason"] = "group_requires_mention"
+            return response
+
     auto_reply = meta.get("telegram_auto_reply", {})
     if not auto_reply.get("enabled", False):
-        return {"status": "ok", "auto_reply": False}
+        response["auto_reply"] = False
+        return response
 
     try:
         from app.services.telegram_chatbot import process_inbound_message
@@ -773,12 +1115,14 @@ async def receive_webhook(
             account_name=account.display_name or account.username or "Cloudless",
         )
         if bot_result.get("skipped") or not bot_result.get("reply"):
-            return {
-                "status": "ok",
-                "auto_reply": True,
-                "skipped": bot_result.get("skipped", False),
-                "reason": bot_result.get("reason", ""),
-            }
+            response.update(
+                {
+                    "auto_reply": True,
+                    "skipped": bot_result.get("skipped", False),
+                    "reason": bot_result.get("reason", ""),
+                }
+            )
+            return response
 
         client = _client_for(account)
         await client.send_message(
@@ -786,11 +1130,13 @@ async def receive_webhook(
             bot_result["reply"],
             reply_to_message_id=inbound.get("message_id"),
         )
-        return {"status": "ok", "auto_reply": True, "replied": True}
+        response.update({"auto_reply": True, "replied": True})
+        return response
     except Exception as exc:
         logger.error(
             "Telegram webhook auto-reply failed account=%s: %s",
             account_id,
             _sanitize(str(exc)),
         )
-        return {"status": "ok", "auto_reply": True, "error": True}
+        response.update({"auto_reply": True, "error": True})
+        return response

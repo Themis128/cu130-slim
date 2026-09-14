@@ -153,6 +153,88 @@ class TelegramAPIClient:
         result = await self._call("sendMessage", payload)
         return result if isinstance(result, dict) else {}
 
+    async def forward_message(
+        self,
+        chat_id: int | str,
+        from_chat_id: int | str,
+        message_id: int,
+        *,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Forward a message (official ``forwardMessage``)."""
+        result = await self._call(
+            "forwardMessage",
+            {
+                "chat_id": chat_id,
+                "from_chat_id": from_chat_id,
+                "message_id": message_id,
+                "disable_notification": disable_notification,
+            },
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def copy_message(
+        self,
+        chat_id: int | str,
+        from_chat_id: int | str,
+        message_id: int,
+        *,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Copy a message without forward header (official ``copyMessage``)."""
+        result = await self._call(
+            "copyMessage",
+            {
+                "chat_id": chat_id,
+                "from_chat_id": from_chat_id,
+                "message_id": message_id,
+                "disable_notification": disable_notification,
+            },
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def get_chat(self, chat_id: int | str) -> dict[str, Any]:
+        """Official ``getChat`` — ChatFullInfo."""
+        result = await self._call("getChat", {"chat_id": chat_id})
+        return result if isinstance(result, dict) else {}
+
+    async def get_chat_member(self, chat_id: int | str, user_id: int) -> dict[str, Any]:
+        """Official ``getChatMember``."""
+        result = await self._call(
+            "getChatMember",
+            {"chat_id": chat_id, "user_id": user_id},
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def set_my_commands(
+        self,
+        commands: list[dict[str, str]],
+        *,
+        scope: dict[str, Any] | None = None,
+    ) -> bool:
+        """Official ``setMyCommands`` — shows /commands in Telegram clients."""
+        payload: dict[str, Any] = {"commands": commands}
+        if scope is not None:
+            payload["scope"] = scope
+        result = await self._call("setMyCommands", payload)
+        return bool(result)
+
+    async def set_chat_description(self, chat_id: int | str, description: str) -> bool:
+        result = await self._call(
+            "setChatDescription",
+            {"chat_id": chat_id, "description": description[:255]},
+        )
+        return bool(result)
+
+
+# Update types we subscribe to for group watch + auto-reply.
+# Docs: https://core.telegram.org/bots/api#update
+TELEGRAM_ALLOWED_UPDATES = [
+    "message",
+    "edited_message",
+    "my_chat_member",
+]
+
 
 def extract_inbound_text_update(update: dict[str, Any]) -> dict[str, Any] | None:
     """Pull chat_id / text / sender from a Bot API Update for auto-reply.
@@ -171,12 +253,15 @@ def extract_inbound_text_update(update: dict[str, Any]) -> dict[str, Any] | None
     if not str(text).strip():
         return None
     from_user = msg.get("from") or {}
+    entities = msg.get("entities") or msg.get("caption_entities") or []
     return {
         "update_id": update.get("update_id"),
         "message_id": msg.get("message_id"),
         "chat_id": chat_id,
         "chat_type": chat.get("type"),
+        "chat_title": chat.get("title") or chat.get("username") or "",
         "text": str(text).strip(),
+        "entities": entities if isinstance(entities, list) else [],
         "sender_id": from_user.get("id"),
         "sender_username": from_user.get("username"),
         "sender_name": " ".join(
@@ -185,4 +270,26 @@ def extract_inbound_text_update(update: dict[str, Any]) -> dict[str, Any] | None
         or from_user.get("username")
         or "",
         "is_bot": bool(from_user.get("is_bot")),
+    }
+
+
+def extract_my_chat_member_update(update: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse ``my_chat_member`` (bot added/removed/promoted in a chat)."""
+    event = update.get("my_chat_member")
+    if not isinstance(event, dict):
+        return None
+    chat = event.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return None
+    new_member = event.get("new_chat_member") or {}
+    old_member = event.get("old_chat_member") or {}
+    return {
+        "update_id": update.get("update_id"),
+        "chat_id": chat_id,
+        "chat_type": chat.get("type"),
+        "chat_title": chat.get("title") or chat.get("username") or "",
+        "old_status": old_member.get("status"),
+        "new_status": new_member.get("status"),
+        "from_user_id": (event.get("from") or {}).get("id"),
     }

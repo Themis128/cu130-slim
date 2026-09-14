@@ -56,6 +56,42 @@ Bots **cannot start chats**. The user must open the bot first (`t.me/your_bot`).
 - Webhook ports: 443, 80, 88, 8443; URL must be HTTPS.
 - Feed-style publishing is not supported — Telegram is messaging-only (soft-skipped like WhatsApp).
 
+## Group watch (stay updated)
+
+Keep yourself updated from a Telegram group (e.g. **Visibility Era 2.0**) using official Bot API webhooks + `sendMessage` / optional `forwardMessage`.
+
+### What it does
+
+| Feature | Behavior |
+|---------|----------|
+| Buffer | Stores recent group text messages in Redis (~48h) |
+| Keyword alerts | DMs you immediately when keywords match |
+| Mention alerts | DMs you when someone `@` the bot |
+| Daily digest | Summarizes buffered messages to your private chat |
+| Membership | Auto-registers groups when the bot is added (`my_chat_member`) |
+
+### Setup
+
+Telegram’s Bot API **cannot** disable Group Privacy or add the bot to a group by itself. SocialAuto prepares official deep links so you only tap:
+
+1. In SocialAuto **Telegram → Group watch → Prepare Telegram links**, or call `POST /api/v1/telegram/{id}/group-watch/setup-links`.
+2. Tap **Link my DM** → `https://t.me/<bot>?start=linkowner` (Start in Telegram).
+3. Tap **Add to group** → `https://t.me/<bot>?startgroup=watch` → pick **Visibility Era 2.0**.
+4. Tap **BotFather privacy** → `/mybots` → bot → **Bot Settings** → **Group Privacy** → **Turn off**.
+
+`setMyCommands` registers `/linkowner` in the Telegram command menu. Webhook `allowed_updates` includes `my_chat_member` so joining the group auto-registers it for watch.
+
+### API
+
+| Action | Endpoint |
+|--------|----------|
+| Get/set config | `GET/PUT /api/v1/telegram/{id}/group-watch` |
+| Add chat | `POST /api/v1/telegram/{id}/group-watch/add-chat` |
+| Digest now | `POST /api/v1/telegram/{id}/group-watch/digest-now` |
+| Activity | `GET /api/v1/telegram/{id}/group-watch/activity` |
+
+Celery beat task `telegram-group-digests` runs hourly and sends when the local hour matches `digest_hour`.
+
 ## API cheat sheet
 
 | Action | Endpoint |
@@ -65,8 +101,9 @@ Bots **cannot start chats**. The user must open the bot first (`t.me/your_bot`).
 | Setup status | `GET /api/v1/telegram/{id}/setup-status` |
 | Set webhook | `POST /api/v1/telegram/{id}/setup-webhook` |
 | Send | `POST /api/v1/telegram/{id}/send` |
+| Group watch | `GET/PUT /api/v1/telegram/{id}/group-watch` |
 | Webhook | `POST /api/v1/telegram/webhook/{id}` |
 
 ## Out of scope (v1)
 
-Personal Telegram Web / MTProto login, Telegram Business Mode, Mini Apps, payments, and group admin APIs.
+Personal Telegram Web / MTProto login, Telegram Business Mode, Mini Apps, payments, and full group admin actions (ban/kick/mute). Group **watch** (alerts + digest) is supported.
