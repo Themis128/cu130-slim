@@ -26,6 +26,7 @@ celery_app = Celery(
         "app.worker.tasks.instagram_messenger",
         "app.worker.tasks.instagram_token_refresh",
         "app.worker.tasks.linkedin_session_refresh",
+        "app.worker.tasks.whatsapp_verify",
     ],
 )
 
@@ -257,6 +258,16 @@ celery_app.conf.update(
         "refresh-linkedin-sessions": {
             "task": "app.worker.tasks.linkedin_session_refresh.refresh_linkedin_sessions",
             "schedule": 604800.0,  # every 7 days
+            "options": {"queue": "default"},
+        },
+        # Check WhatsApp phone numbers with NOT_VERIFIED status and attempt
+        # to request a verification code via the Meta Cloud API. The 72h
+        # rate limit window (10 requests) is enforced by Meta, so this task
+        # is a no-op when rate-limited. When a code is sent successfully,
+        # the user must complete verify + register steps manually.
+        "check-whatsapp-verification": {
+            "task": "app.worker.tasks.whatsapp_verify.check_whatsapp_verification",
+            "schedule": crontab(minute="*/30"),  # every 30 minutes
             "options": {"queue": "default"},
         },
     },
