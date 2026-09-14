@@ -24,7 +24,6 @@ COPY server.py .
 
 # Model cache volume
 ENV HF_HOME=/models/huggingface
-ENV TRANSFORMERS_CACHE=/models/huggingface
 ENV DIFFUSERS_CACHE=/models/huggingface
 
 EXPOSE 7860
