@@ -118,3 +118,6 @@ cloudless-screencast.mp4
 cloudless-app-icon.png
 actionlint
 .cursor/tmp-tiktok-pw/
+
+# User-generated media (runtime artifacts, not source)
+storage-user/
