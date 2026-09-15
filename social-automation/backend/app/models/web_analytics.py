@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.user import Team
 
 
 class WebAnalyticsConfig(Base):
@@ -67,7 +71,7 @@ class WebAnalyticsConfig(Base):
         nullable=False,
     )
 
-    team: Mapped["Team"] = relationship("Team")
+    team: Mapped[Team] = relationship("Team")
 
 
 class WebAnalyticsEvent(Base):
@@ -117,5 +121,5 @@ class WebAnalyticsEvent(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
-    team: Mapped["Team"] = relationship("Team")
-    config: Mapped["WebAnalyticsConfig | None"] = relationship("WebAnalyticsConfig")
+    team: Mapped[Team] = relationship("Team")
+    config: Mapped[WebAnalyticsConfig | None] = relationship("WebAnalyticsConfig")
