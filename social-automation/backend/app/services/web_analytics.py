@@ -190,7 +190,7 @@ async def forward_event(event: WebAnalyticsEvent, config: WebAnalyticsConfig) ->
 
 def _derive_event_time(payload: dict[str, Any]) -> datetime:
     ts = payload.get("timestamp") or payload.get("event_time")
-    if isinstance(ts, (int, float)):
+    if isinstance(ts, int | float):
         try:
             return datetime.fromtimestamp(ts / 1000 if ts > 1e10 else ts, tz=UTC)
         except (OSError, OverflowError, ValueError):
