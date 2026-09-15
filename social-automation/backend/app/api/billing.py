@@ -72,6 +72,8 @@ async def billing_config(
     return {
         "configured": paddle_api.paddle_configured(),
         "environment": s.PADDLE_ENVIRONMENT,
+        "team_id": str(team_id),
+        "customer_email": current_user.email,
         "client_token": s.PADDLE_CLIENT_TOKEN if paddle_api.paddle_configured() else None,
         "prices": {
             "pro": s.PADDLE_PRICE_PRO or None,

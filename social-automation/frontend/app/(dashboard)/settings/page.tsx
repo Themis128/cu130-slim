@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Bell, Shield, Palette, Trash2, Download, Cpu, Sun, Moon, Monitor, Laptop, Loader2, QrCode } from 'lucide-react'
+import { User, Bell, Shield, Palette, Trash2, Download, Cpu, Sun, Moon, Monitor, Laptop, Loader2, QrCode, CreditCard } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -235,6 +235,10 @@ export default function SettingsPage() {
           <TabsTrigger value="ai-providers" onClick={() => router.push('/settings/ai-providers')}>
             <Cpu className="mr-2 h-4 w-4" />
             AI Providers
+          </TabsTrigger>
+          <TabsTrigger value="billing" onClick={() => router.push('/settings/billing')}>
+            <CreditCard className="mr-2 h-4 w-4" />
+            Billing
           </TabsTrigger>
           <TabsTrigger value="danger">
             <Trash2 className="mr-2 h-4 w-4" />

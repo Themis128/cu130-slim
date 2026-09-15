@@ -218,6 +218,17 @@ export const teamsApi = {
     api.delete(`/teams/${teamId}/members/${userId}`),
 }
 
+// Billing endpoints (Paddle)
+export const billingApi = {
+  config: () => api.get('/billing/config'),
+  plans: () => api.get('/billing/plans'),
+  subscription: () => api.get('/billing/subscription'),
+  checkout: (tier: string) => api.post('/billing/checkout', { tier }),
+  portal: () => api.post('/billing/portal'),
+  cancel: () => api.post('/billing/cancel'),
+  sync: () => api.post('/billing/sync'),
+}
+
 // Content endpoints
 export const contentApi = {
   listPosts: (params?: { status?: string; platform?: string; page?: number; page_size?: number }) => {
