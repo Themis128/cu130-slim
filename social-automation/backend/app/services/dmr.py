@@ -54,31 +54,62 @@ _state = _Mutable()
 
 # ── Connection pool (improvement #3) ─────────────────────────────────────────
 # Shared httpx.AsyncClient with keep-alive.  Created lazily on first use.
+# The client AND its pooled connections are bound to the event loop that
+# created them.  Celery prefork tasks run each invocation in a fresh
+# ``asyncio.run()`` loop, so the client must be recreated when the running
+# loop changes — otherwise a pooled socket from a dead loop fails instantly
+# and the next call succeeds on a fresh socket (alternating health results).
 _shared_client: httpx.AsyncClient | None = None
 _client_lock = asyncio.Lock()
+_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 async def _get_client() -> httpx.AsyncClient:
     """Return the shared httpx.AsyncClient, creating it if needed."""
-    global _shared_client
-    if _shared_client is not None and not _shared_client.is_closed:
+    global _shared_client, _client_lock, _client_loop
+    loop = asyncio.get_running_loop()
+    if (
+        _shared_client is not None
+        and not _shared_client.is_closed
+        and _client_loop is loop
+    ):
         return _shared_client
+    # The lock binds to the first loop that contends for it — recreate it
+    # alongside the client so cross-loop use can't deadlock/raise.
+    if _client_loop is not loop:
+        _client_lock = asyncio.Lock()
     async with _client_lock:
-        if _shared_client is None or _shared_client.is_closed:
+        loop = asyncio.get_running_loop()
+        if (
+            _shared_client is None
+            or _shared_client.is_closed
+            or _client_loop is not loop
+        ):
+            old = _shared_client
             _shared_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(300.0, connect=5.0),
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
                 headers={"Content-Type": "application/json"},
             )
+            _client_loop = loop
+            if old is not None and not old.is_closed:
+                try:
+                    await old.aclose()
+                except Exception:
+                    pass  # bound to a dead loop — abandon it
     return _shared_client
 
 
 async def close_client() -> None:
     """Close the shared HTTP client (call on app shutdown)."""
-    global _shared_client
+    global _shared_client, _client_loop
     if _shared_client is not None:
-        await _shared_client.aclose()
+        try:
+            await _shared_client.aclose()
+        except Exception:
+            pass
         _shared_client = None
+        _client_loop = None
 
 
 # ── Health check with caching (improvement #2) ───────────────────────────────
@@ -126,15 +157,23 @@ def _dmr_base_url() -> str:
 
 # ── Concurrency guard (VRAM protection on the 8GB card) ──────────────────────
 _concurrency_sem: asyncio.Semaphore | None = None
+_sem_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _get_semaphore() -> asyncio.Semaphore:
-    """Lazy semaphore — created inside the running loop on first use."""
-    global _concurrency_sem
-    if _concurrency_sem is None:
+    """Lazy semaphore — recreated when the running loop changes (celery tasks
+    each run in a fresh asyncio.run loop; a semaphore bound to a dead loop
+    raises "bound to a different event loop" on contention)."""
+    global _concurrency_sem, _sem_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _concurrency_sem is None or _sem_loop is not loop:
         _concurrency_sem = asyncio.Semaphore(
             max(1, getattr(settings, "DMR_MAX_CONCURRENCY", 4))
         )
+        _sem_loop = loop
     return _concurrency_sem
 
 
