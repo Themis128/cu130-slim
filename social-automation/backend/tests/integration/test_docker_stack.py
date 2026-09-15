@@ -144,7 +144,7 @@ class TestSocialWorker:
     def test_celery_ping(self):
         result = subprocess.run(
             [
-                "docker", "compose", "exec", "-T", "social-worker",
+                "docker", "compose", "exec", "-T", "social-worker-publishing",
                 "celery", "-A", "app.worker.celery_app", "inspect", "ping",
             ],
             capture_output=True,
@@ -271,7 +271,7 @@ class TestChroma:
     async def test_chroma_heartbeat(self):
         chroma_url = os.environ.get("CHROMA_URL", "http://localhost:8001")
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{chroma_url}/api/v1/heartbeat", timeout=10)
+            resp = await client.get(f"{chroma_url}/api/v2/heartbeat", timeout=10)
         assert resp.status_code == 200
         data = resp.json()
         assert "nanosecond heartbeat" in data
