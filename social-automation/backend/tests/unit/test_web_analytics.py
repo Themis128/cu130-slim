@@ -98,7 +98,7 @@ async def test_forward_event_sends_to_all_sinks(config: WebAnalyticsConfig, even
     assert result["meta"]["ok"] is True
     assert len(fake.requests) == 3
 
-    ga4_url, ga4_params = fake.requests[0][1], fake.requests[0][4]
+    ga4_params = fake.requests[0][4]
     assert ga4_params["api_secret"] == "api-secret"
     assert ga4_params["measurement_id"] == "G-TEST"
 
