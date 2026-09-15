@@ -34,8 +34,8 @@ from app.services.telegram_api import (
     extract_inbound_text_update,
     extract_my_chat_member_update,
 )
+from app.services.telegram_group_watch import META_KEY as GROUP_WATCH_META_KEY
 from app.services.telegram_group_watch import (
-    META_KEY as GROUP_WATCH_META_KEY,
     default_group_watch_config,
     get_group_watch_from_meta,
     handle_bot_membership_change,
