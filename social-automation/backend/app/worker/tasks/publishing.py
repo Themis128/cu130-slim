@@ -310,6 +310,7 @@ async def _process_publish_queue_async() -> None:
                     item.attempts += 1
                     if item.attempts >= item.max_attempts:
                         item.status = QueueStatus.FAILED
+                        prev_error = (target.error_message or "").strip() if target else ""
                         if target:
                             target.status = "failed"
                             target.error_message = pub.error
@@ -324,12 +325,16 @@ async def _process_publish_queue_async() -> None:
                                     ps[key] = value
                             post.platform_specific = ps
                             flag_modified(post, "platform_specific")
-                        await _notify_publish_failure(
-                            post=post,
-                            account=account,
-                            queue_item=item,
-                            reason=pub.error or "unknown publish error",
-                        )
+                        # Dedup: don't re-alert when a manual retry fails with
+                        # the identical error (same root cause, same fix needed).
+                        new_error = (pub.error or "unknown publish error").strip()
+                        if new_error != prev_error:
+                            await _notify_publish_failure(
+                                post=post,
+                                account=account,
+                                queue_item=item,
+                                reason=pub.error or "unknown publish error",
+                            )
                     else:
                         item.status = QueueStatus.PENDING
                         item.locked_at = None
@@ -369,6 +374,7 @@ async def _process_publish_queue_async() -> None:
                             )
                             err_target = tgt_result.scalar_one_or_none()
                             if err_target:
+                                err_prev_error = (err_target.error_message or "").strip()
                                 err_target.status = "failed"
                                 err_target.error_message = "Unhandled exception while publishing (see worker logs)"
                     except Exception:  # noqa: BLE001
