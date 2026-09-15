@@ -270,6 +270,7 @@ class OverviewMetrics(BaseModel):
     connected_accounts: int
     total_followers: int
     total_engagement: int
+    total_impressions: int = 0
     last_sync_at: datetime | None = None
 
 
