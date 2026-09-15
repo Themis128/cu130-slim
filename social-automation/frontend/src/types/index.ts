@@ -177,6 +177,7 @@ export interface OverviewMetrics {
   connected_accounts: number
   total_followers: number
   total_engagement: number
+  total_impressions: number
 }
 
 export interface PlatformMetrics {

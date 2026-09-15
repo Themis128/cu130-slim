@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
   Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
-  Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive,
+  Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive, Eye,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -150,6 +150,14 @@ export default function AnalyticsPage() {
       icon: Heart,
       color: 'text-green-500',
       bg: 'bg-green-500/10',
+    },
+    {
+      name: 'Impressions',
+      value: (overview?.total_impressions ?? 0).toLocaleString(),
+      change: null as number | null,
+      icon: Eye,
+      color: 'text-violet-500',
+      bg: 'bg-violet-500/10',
     },
     {
       name: 'Posts Published',
