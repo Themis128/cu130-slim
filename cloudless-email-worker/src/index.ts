@@ -19,10 +19,12 @@ export default {
     );
 
     // ── Phishing detection ──────────────────────────────────────────────
-    const raw = await new Response(message.raw).text();
+    const rawBytes = await new Response(message.raw).arrayBuffer();
+    const raw = new TextDecoder().decode(rawBytes);
     const phishingResult = detectPhishing(raw, subject, from);
+    const rejectThreshold = parseRejectThreshold(env.PHISHING_REJECT_THRESHOLD);
 
-    if (phishingResult.score >= env.PHISHING_REJECT_THRESHOLD ?? 8) {
+    if (phishingResult.score >= rejectThreshold) {
       console.warn(
         JSON.stringify({
           event: "phishing-rejected",
@@ -62,7 +64,6 @@ export default {
     }
 
     try {
-      const rawBytes = await new Response(message.raw).arrayBuffer();
       const res = await fetch(env.MAIL_INGEST_URL, {
         method: "POST",
         headers: {
@@ -103,7 +104,7 @@ interface PhishingResult {
   reasons: string[];
 }
 
-function detectPhishing(rawEmail: string, subject: string, from: string): PhishingResult {
+export function detectPhishing(rawEmail: string, subject: string, from: string): PhishingResult {
   let score = 0;
   const reasons: string[] = [];
 
@@ -212,6 +213,11 @@ function detectPhishing(rawEmail: string, subject: string, from: string): Phishi
   return { score, reasons };
 }
 
+export function parseRejectThreshold(value: string | number | undefined): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
+}
+
 function extractDomain(url: string): string | null {
   try {
     const match = url.match(/https?:\/\/([^/]+)/);
@@ -225,7 +231,7 @@ interface Env {
   MAIL_INGEST_URL?: string;
   MAIL_INGEST_SECRET?: string;
   FALLBACK_FORWARD?: string;
-  PHISHING_REJECT_THRESHOLD?: number;
+  PHISHING_REJECT_THRESHOLD?: string | number;
 }
 
 interface ForwardableEmailMessage {

@@ -2,8 +2,14 @@ name = "mail-ingest"
 main = "src/index.ts"
 compatibility_date = "2024-09-01"
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # Phishing detection: reject emails with score >= 8 (high confidence phishing)
 # Emails with score 3-7 are forwarded with warning headers
 # Emails with score 0-2 are forwarded normally
 [vars]
+MAIL_INGEST_URL = "https://webmail.cloudless.gr/ingest"
+FALLBACK_FORWARD = "themis.baltzakis@gmail.com"
 PHISHING_REJECT_THRESHOLD = "8"

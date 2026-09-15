@@ -1,0 +1,41 @@
+---
+name: Mail Worker CI
+
+"on":
+  push:
+    branches: [master]
+    paths:
+      - "cloudless-email-worker/**"
+      - ".github/workflows/mail-worker.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "cloudless-email-worker/**"
+      - ".github/workflows/mail-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: cloudless-email-worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cloudless-email-worker/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm audit --audit-level=high
+      - run: npx wrangler deploy --dry-run

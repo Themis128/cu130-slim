@@ -45,6 +45,11 @@ Inbound:
   (not in any repo env file).
 - **No port 25**: omv-ha is behind Starlink CGNAT; port 25 is blocked.
   All outbound goes through Resend.
+- **Inbound phishing protection**: the Cloudflare `mail-ingest` Worker scores and
+  rejects high-confidence phishing before forwarding; Dovecot LMTP runs a
+  default Sieve rule that moves HTTP redirect/login lures into `Junk`.
+- **Rspamd is disabled** on OMV-HA because its startup saturates the 1 GB Pi.
+  Keep the lightweight Worker + Sieve path unless the mailbox host is upgraded.
 
 ## Connection details
 
