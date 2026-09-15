@@ -63,12 +63,12 @@ async def _team_for_user(db: AsyncSession, user: User) -> Team | None:
     return result.scalars().first()
 
 
-def _athens_day_expr():
+def _athens_day_expr(column=None):
     """Calendar day of an event in APP_TIMEZONE (Europe/Athens)."""
-    # timestamptz → local timestamp in Athens → truncate to day
+    col = column or AnalyticsEvent.occurred_at
     return func.date_trunc(
         "day",
-        func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at),
+        func.timezone(settings.APP_TIMEZONE, col),
     )
 
 
@@ -270,6 +270,7 @@ class OverviewMetrics(BaseModel):
     connected_accounts: int
     total_followers: int
     total_engagement: int
+    total_impressions: int = 0
     last_sync_at: datetime | None = None
 
 
@@ -307,6 +308,7 @@ class TopPost(BaseModel):
 
 class EngagementPoint(BaseModel):
     date: str
+    impressions: int = 0
     likes: int
     comments: int
     shares: int
@@ -415,6 +417,16 @@ async def get_overview(
     else:
         total_engagement = total_from_snaps
 
+    # Total impressions from latest snapshots
+    snap_imp = await db.execute(
+        select(func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0)).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        )
+    )
+    total_impressions = int(snap_imp.scalar() or 0)
+
     # Data freshness: most recent snapshot capture time
     last_sync_row = await db.execute(
         select(func.max(PostAnalyticsSnapshot.captured_at)).where(
@@ -432,6 +444,7 @@ async def get_overview(
         connected_accounts=accounts_count.scalar() or 0,
         total_followers=total_followers,
         total_engagement=total_engagement,
+        total_impressions=total_impressions,
         last_sync_at=last_sync_at,
     )
 
@@ -681,8 +694,9 @@ async def get_engagement_trends(
     for day, event_type, cnt in rows.all():
         key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
         if key not in by_day:
-            by_day[key] = {"likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+            by_day[key] = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
         mapped = {
+            "impression": "impressions",
             "like": "likes",
             "comment": "comments",
             "share": "shares",
@@ -691,14 +705,36 @@ async def get_engagement_trends(
         if mapped:
             by_day[key][mapped] = int(cnt or 0)
 
+    # Also pull per-day impressions from snapshots (covers platforms that
+    # have views but zero engagement events, e.g. Threads, TikTok)
+    snap_day_expr = _athens_day_expr(PostAnalyticsSnapshot.captured_at)
+    snap_q = select(
+        snap_day_expr.label("day"),
+        func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
+    ).where(
+        PostAnalyticsSnapshot.team_id == team.id,
+        PostAnalyticsSnapshot.captured_at >= since,
+        PostAnalyticsSnapshot.post_id.isnot(None),
+    )
+    if platform:
+        snap_q = snap_q.where(PostAnalyticsSnapshot.platform == platform)
+    snap_q = snap_q.group_by("day").order_by("day")
+    snap_rows = await db.execute(snap_q)
+    for day, imp in snap_rows.all():
+        key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
+        if key not in by_day:
+            by_day[key] = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+        by_day[key]["impressions"] = int(imp or 0)
+
     return [
         EngagementPoint(
             date=d,
+            impressions=v["impressions"],
             likes=v["likes"],
             comments=v["comments"],
             shares=v["shares"],
             clicks=v["clicks"],
-            total=sum(v.values()),
+            total=v["likes"] + v["comments"] + v["shares"] + v["clicks"],
         )
         for d, v in sorted(by_day.items())
     ]
@@ -828,12 +864,30 @@ async def get_platform_metrics(
     for plat, event_type, cnt in event_rows.all():
         events_by_platform.setdefault(plat, {})[event_type] = int(cnt or 0)
 
+    # Also pull impressions + engagement from latest snapshots per platform
+    snap_rows = await db.execute(
+        select(
+            PostAnalyticsSnapshot.platform,
+            func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
+            func.sum(PostAnalyticsSnapshot.engagement).label("eng"),
+        ).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        ).group_by(PostAnalyticsSnapshot.platform)
+    )
+    snap_by_platform: dict[str, dict[str, int]] = {}
+    for plat, imp, eng in snap_rows.all():
+        snap_by_platform[plat] = {"impressions": int(imp or 0), "engagement": int(eng or 0)}
+
     metrics: list[PlatformMetrics] = []
     for platform in platforms_seen:
         counts = status_by_platform.get(platform, {"posts": 0, "published": 0, "scheduled": 0})
         event_counts = events_by_platform.get(platform, {})
-        impressions = event_counts.get("impression", 0)
-        engagement = _engagement_sum(event_counts)
+        snaps = snap_by_platform.get(platform, {})
+        # Prefer snapshot data (more complete); fall back to events
+        impressions = snaps.get("impressions") or event_counts.get("impression", 0)
+        engagement = snaps.get("engagement") or _engagement_sum(event_counts)
         metrics.append(
             PlatformMetrics(
                 platform=platform,

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
   Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
-  Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive,
+  Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive, Eye,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
   const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
   const { currentTrend, deltaEngagement } = useMemo(() => {
-    const trend = (rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
+    const trend = (rawTrend || []) as Array<{ date: string; value: number; impressions?: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
     if (!compareMode || trend.length < 2) {
       return { currentTrend: trend, previousTrend: [], currentSum: 0, previousSum: 0, deltaEngagement: 0 }
     }
@@ -98,9 +98,9 @@ export default function AnalyticsPage() {
 
   const engagementTrend = compareMode
     ? currentTrend
-    : ((rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number }>)
+    : ((rawTrend || []) as Array<{ date: string; value: number; impressions?: number; likes?: number; comments?: number; shares?: number }>)
 
-  const hasTrendData = engagementTrend.some((d) => (d.value ?? 0) > 0)
+  const hasTrendData = engagementTrend.some((d) => (d.value ?? 0) > 0 || (d.impressions ?? 0) > 0)
 
   const avgEngagement = useMemo(() => {
     const published = overview?.published_posts ?? 0
@@ -150,6 +150,14 @@ export default function AnalyticsPage() {
       icon: Heart,
       color: 'text-green-500',
       bg: 'bg-green-500/10',
+    },
+    {
+      name: 'Impressions',
+      value: (overview?.total_impressions ?? 0).toLocaleString(),
+      change: null as number | null,
+      icon: Eye,
+      color: 'text-violet-500',
+      bg: 'bg-violet-500/10',
     },
     {
       name: 'Posts Published',
@@ -338,7 +346,7 @@ export default function AnalyticsPage() {
               <div>
                 <CardTitle>Engagement Over Time</CardTitle>
                 <CardDescription>
-                  Daily total engagements
+                  Daily impressions and engagements
                   {compareMode && ` — current vs prev ${days}d`}
                 </CardDescription>
               </div>
@@ -370,6 +378,10 @@ export default function AnalyticsPage() {
                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                       </linearGradient>
+                      <linearGradient id="impGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                     <XAxis
@@ -382,11 +394,12 @@ export default function AnalyticsPage() {
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
                       formatter={(value: number, name: string) => [
                         value.toLocaleString(),
-                        name === 'prev' ? 'Prev period' : 'Total',
+                        name === 'prev' ? 'Prev period' : name === 'impressions' ? 'Impressions' : name === 'value' ? 'Engagement' : name,
                       ]}
                       labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
                     />
-                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="Total" />
+                    <Area type="monotone" dataKey="impressions" stroke="#8b5cf6" strokeWidth={1.5} fillOpacity={1} fill="url(#impGrad)" name="impressions" />
+                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="value" />
                     {compareMode && (
                       <Line type="monotone" dataKey="prev" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="prev" />
                     )}
@@ -401,7 +414,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Platform Performance</CardTitle>
-            <CardDescription>Total engagement per platform</CardDescription>
+            <CardDescription>Impressions and engagement per platform</CardDescription>
           </CardHeader>
           <CardContent>
             {platformMetrics.length === 0 ? (
@@ -419,9 +432,13 @@ export default function AnalyticsPage() {
                     <YAxis dataKey="platform" type="category" width={80} className="text-xs capitalize" />
                     <Tooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
-                      formatter={(value: number) => [value.toLocaleString(), 'Engagements']}
+                      formatter={(value: number, name: string) => [
+                        value.toLocaleString(),
+                        name === 'total_impressions' ? 'Impressions' : 'Engagements',
+                      ]}
                     />
-                    <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="total_impressions" radius={[0, 4, 4, 0]} fill="#8b5cf6" fillOpacity={0.4} name="total_impressions" />
+                    <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]} name="total_engagement">
                       {platformMetrics.map((p, i) => (
                         <Cell key={`eng-${p.platform}-${i}`} fill={p.color} />
                       ))}

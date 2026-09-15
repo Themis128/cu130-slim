@@ -18,7 +18,7 @@ from app.services.plain_english import (
     rewrite_plain_english,
 )
 
-_DEFAULT_PROVIDER = "cloudflare"
+_DEFAULT_PROVIDER = "dmr"
 _LINKEDIN_GUIDE = (
     "LinkedIn professional audience. Write in plain everyday English. "
     "SEO: place the primary keyword in the first 140 characters (the mobile preview cutoff) — "

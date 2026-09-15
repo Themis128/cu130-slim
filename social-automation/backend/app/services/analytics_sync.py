@@ -590,15 +590,26 @@ async def sync_twitter_account(
 async def _fetch_facebook_post_metrics(
     client: httpx.AsyncClient, page_token: str, post_id: str,
 ) -> MetricBundle:
-    """Fetch insights for a Facebook page post via Graph API."""
+    """Fetch insights for a Facebook page post via Graph API.
+
+    Uses post_impressions (deprecated June 2026, still functional) plus
+    post_media_view as the modern replacement for impressions.
+    """
     url = facebook_graph_url(f"{post_id}/insights")
     params = {
-        "metric": "post_impressions,post_clicks,post_reactions_like_total,post_comments,post_shares",
+        "metric": (
+            "post_impressions,post_media_view,post_clicks,"
+            "post_reactions_like_total,post_comments,post_shares"
+        ),
         "access_token": page_token,
     }
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
-        return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
+        # Fallback: try with only non-deprecated metrics
+        params["metric"] = "post_media_view,post_clicks,post_reactions_like_total,post_comments,post_shares"
+        resp = await client.get(url, params=params)
+        if resp.status_code != 200:
+            return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -611,13 +622,14 @@ async def _fetch_facebook_post_metrics(
             return int(values[idx].get("value", 0) or 0)
         return 0
 
+    impressions = _val("post_impressions") or _val("post_media_view")
     return MetricBundle(
-        impressions=_val("post_impressions"),
+        impressions=impressions,
         clicks=_val("post_clicks"),
         likes=_val("post_reactions_like_total"),
         comments=_val("post_comments"),
         shares=_val("post_shares"),
-        reach=_val("post_impressions"),
+        reach=impressions,
         raw=data,
     )
 
@@ -634,18 +646,20 @@ async def sync_facebook_account(
     since = datetime.now(UTC) - timedelta(days=days)
     captured_at = datetime.now(UTC)
 
-    # Get page token
-    page_token = token
+    # Prefer stored page_token from meta_data (avoids extra API call)
+    meta = account.meta_data or {}
+    page_token = meta.get("page_token") or token
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            facebook_graph_url("me/accounts"),
-            params={"access_token": token},
-        )
-        if resp.status_code == 200:
-            for acct in (resp.json() or {}).get("data", []):
-                if acct.get("id") == page_id:
-                    page_token = acct.get("access_token", token)
-                    break
+        if not meta.get("page_token"):
+            resp = await client.get(
+                facebook_graph_url("me/accounts"),
+                params={"access_token": token},
+            )
+            if resp.status_code == 200:
+                for acct in (resp.json() or {}).get("data", []):
+                    if acct.get("id") == page_id:
+                        page_token = acct.get("access_token", token)
+                        break
 
         targets_q = (
             select(PostTarget)
@@ -684,20 +698,36 @@ async def sync_facebook_account(
 async def _fetch_instagram_media_metrics(
     client: httpx.AsyncClient, token: str, ig_user_id: str, media_id: str,
 ) -> MetricBundle:
-    """Fetch insights for an Instagram media post via Graph API."""
-    url = facebook_graph_url(f"{media_id}/insights")
+    """Fetch insights for an Instagram media post via Graph API.
+
+    Meta deprecated `impressions` for media insights in v22.0 (April 2025).
+    `views` is the replacement metric. `likes`, `comments`, `saves` remain.
+    Uses graph.instagram.com for Instagram Login tokens (IGAAU* prefix),
+    graph.facebook.com for Facebook Login tokens.
+    """
+    # Instagram Login tokens (IGAAU*) need graph.instagram.com host;
+    # Facebook Login tokens use graph.facebook.com.
+    if token.startswith("IGAAU"):
+        url = f"https://graph.instagram.com/v26.0/{media_id}/insights"
+    else:
+        url = facebook_graph_url(f"{media_id}/insights")
+    # Try modern metrics first (views replaces impressions)
     params = {
-        "metric": "impressions,reach,likes,comments,saves",
+        "metric": "views,likes,comments,saves,shares",
         "access_token": token,
     }
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
-        try:
-            err_data = resp.json()
-            err_msg = err_data.get("error", {}).get("message", resp.text[:200])
-        except Exception:
-            err_msg = resp.text[:200]
-        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
+        # Fallback to legacy metrics for older API versions
+        params["metric"] = "impressions,reach,likes,comments,saves"
+        resp = await client.get(url, params=params)
+        if resp.status_code != 200:
+            try:
+                err_data = resp.json()
+                err_msg = err_data.get("error", {}).get("message", resp.text[:200])
+            except Exception:
+                err_msg = resp.text[:200]
+            return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -708,11 +738,12 @@ async def _fetch_instagram_media_metrics(
         values = item.get("values", [])
         return int(values[0].get("value", 0) or 0) if values else 0
 
+    impressions = _val("views") or _val("impressions")
     return MetricBundle(
-        impressions=_val("impressions"),
+        impressions=impressions,
         likes=_val("likes"),
         comments=_val("comments"),
-        reach=_val("reach"),
+        reach=impressions,
         raw=data,
     )
 
@@ -812,7 +843,7 @@ async def _fetch_threads_account_insights(
     Returns a dict with aggregated views, likes, replies, reposts, quotes
     across all posts in the default 30-day window the API returns.
     """
-    url = f"https://graph.threads.net/v1.0/{user_id}/insights"
+    url = f"https://graph.threads.net/v1.0/{user_id}/threads_insights"
     params = {"metric": "views,likes,replies,reposts,quotes", "access_token": token}
     resp = await client.get(url, params=params)
     if resp.status_code != 200:

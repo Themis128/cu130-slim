@@ -167,7 +167,7 @@ Return JSON with exactly:
 
     result = await call_inference(
         llm_prompt,
-        provider_name="cloudflare",
+        provider_name="dmr",
         schema=schema,
         max_tokens=800,
     )

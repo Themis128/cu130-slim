@@ -79,7 +79,7 @@ async def apply_media_quality(
     platform: str = "linkedin",
     db: AsyncSession | None = None,
     team_id: Any | None = None,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     run_nlp: bool = True,
     run_spellcheck: bool = True,

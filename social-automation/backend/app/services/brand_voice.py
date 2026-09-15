@@ -66,7 +66,7 @@ Return ONLY the JSON object, no other text."""
     try:
         result = await call_inference(
             prompt=prompt,
-            provider_name="cloudflare",
+            provider_name="dmr",
             schema={
                 "type": "object",
                 "properties": {

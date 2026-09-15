@@ -58,7 +58,7 @@ async def apply_quality_pipeline(
     *,
     db: AsyncSession | None = None,
     team_id: Any | None = None,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     target_score: int = 90,
     max_iterations: int = 2,

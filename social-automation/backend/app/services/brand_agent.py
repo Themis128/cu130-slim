@@ -91,7 +91,7 @@ Return only the post content, no preamble."""
 
     result = await call_inference(
         prompt=prompt,
-        provider_name="cloudflare",
+        provider_name="dmr",
         db=db,
         brand_context=brand_context,
         max_tokens=500,
