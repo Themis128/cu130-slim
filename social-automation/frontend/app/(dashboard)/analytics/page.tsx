@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
   const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
   const { currentTrend, deltaEngagement } = useMemo(() => {
-    const trend = (rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
+    const trend = (rawTrend || []) as Array<{ date: string; value: number; impressions?: number; likes?: number; comments?: number; shares?: number; clicks?: number }>
     if (!compareMode || trend.length < 2) {
       return { currentTrend: trend, previousTrend: [], currentSum: 0, previousSum: 0, deltaEngagement: 0 }
     }
@@ -98,9 +98,9 @@ export default function AnalyticsPage() {
 
   const engagementTrend = compareMode
     ? currentTrend
-    : ((rawTrend || []) as Array<{ date: string; value: number; likes?: number; comments?: number; shares?: number }>)
+    : ((rawTrend || []) as Array<{ date: string; value: number; impressions?: number; likes?: number; comments?: number; shares?: number }>)
 
-  const hasTrendData = engagementTrend.some((d) => (d.value ?? 0) > 0)
+  const hasTrendData = engagementTrend.some((d) => (d.value ?? 0) > 0 || (d.impressions ?? 0) > 0)
 
   const avgEngagement = useMemo(() => {
     const published = overview?.published_posts ?? 0
