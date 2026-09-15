@@ -1889,12 +1889,24 @@ async def instagram2_callback(
         account.display_name = display_name
         account.account_type = ig_account_type.lower()
         account.is_business = is_biz
-        account.meta_data = {
-            **(account.meta_data or {}),
-            "account_type": ig_account_type,
-            "ig_business_id": account_id,
-            "login_type": "business_login",
-        }
+        merged_meta = dict(account.meta_data or {})
+        for stale_key in (
+            "instagram_token_status",
+            "instagram_token_error",
+            "instagram_token_checked_at",
+            "reconnect_required",
+        ):
+            merged_meta.pop(stale_key, None)
+        if token_expires_at:
+            merged_meta["instagram_token_expires_at"] = token_expires_at.isoformat()
+        merged_meta.update(
+            {
+                "account_type": ig_account_type,
+                "ig_business_id": account_id,
+                "login_type": "business_login",
+            }
+        )
+        account.meta_data = merged_meta
     else:
         account = SocialAccount(
             team_id=team_id,

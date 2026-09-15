@@ -30,6 +30,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token
 from app.models.social_account import SocialAccount
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
+from app.services.slack_notifications import post_alert_to_slack
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -46,6 +47,45 @@ REFRESH_THRESHOLD_DAYS = 5  # Refresh if token expires within 5 days
 def _is_facebook_token(token: str) -> bool:
     """Facebook User Access Tokens start with 'EAA'; Instagram tokens start with 'IGQ'."""
     return token.startswith("EAA")
+
+
+def _is_oauth_expired_error(resp: httpx.Response) -> bool:
+    """Detect Meta OAuthException code 190 (session expired/invalid).
+
+    Expired sessions return 401 on some endpoints but 400 on others
+    (e.g. /media). Parse the error body instead of trusting the status.
+    """
+    try:
+        err = resp.json().get("error") or {}
+    except Exception:
+        return False
+    return err.get("code") == 190 or err.get("type") == "OAuthException"
+
+
+async def _mark_reconnect_required(db: AsyncSession, account: SocialAccount, meta: dict, error: str) -> None:
+    """Mark an account expired so the UI surfaces a reconnect prompt, and alert Slack once."""
+    meta["instagram_token_status"] = "expired"
+    meta["instagram_token_error"] = error[:500]
+    meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
+    meta["reconnect_required"] = True
+    account.meta_data = meta
+    account.status = "expired"
+    flag_modified(account, "meta_data")
+    await db.commit()
+    try:
+        await post_alert_to_slack(
+            "\n".join(
+                [
+                    "*Instagram account needs reconnection*",
+                    f"• Account: @{account.username or account.account_id}",
+                    "• What to do: open SocialAuto → Accounts → Instagram → Reconnect.",
+                    f"• Reason: {error[:200]}",
+                    "_Cloudless · Clear skies. Zero friction._",
+                ]
+            )[:2000]
+        )
+    except Exception:
+        logger.debug("Slack reconnect alert failed (non-fatal)", exc_info=True)
 
 
 @asynccontextmanager
@@ -156,18 +196,13 @@ async def _refresh_instagram_tokens_async() -> dict:
                             "Instagram token valid for account %s (user: @%s)",
                             account.id, user_data.get("username", "?"),
                         )
-                    elif resp.status_code == 401 or resp.status_code == 403:
+                    elif resp.status_code in (401, 403) or _is_oauth_expired_error(resp):
                         stats["tokens_invalid"] += 1
                         logger.warning(
                             "Instagram token invalid for account %s: %d %s",
                             account.id, resp.status_code, resp.text[:200],
                         )
-                        meta["instagram_token_status"] = "expired"
-                        meta["instagram_token_error"] = resp.text[:500]
-                        meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
-                        account.meta_data = meta
-                        flag_modified(account, "meta_data")
-                        await db.commit()
+                        await _mark_reconnect_required(db, account, meta, resp.text)
                         continue
                     else:
                         logger.warning(
@@ -182,27 +217,37 @@ async def _refresh_instagram_tokens_async() -> dict:
                 )
                 continue
 
-            # 2. Check token expiry from metadata
-            expires_at_str = meta.get("instagram_token_expires_at")
-            needs_refresh = True
+            # 2. Check token expiry — prefer the token_expires_at column,
+            #    fall back to legacy meta key.
+            expires_at: datetime | None = account.token_expires_at
+            if expires_at is not None and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at is None:
+                expires_at_str = meta.get("instagram_token_expires_at")
+                if expires_at_str:
+                    try:
+                        expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                    except Exception:
+                        expires_at = None
+            # Backfill the column so future checks don't depend on meta.
+            if expires_at is not None and account.token_expires_at is None:
+                account.token_expires_at = expires_at
 
-            if expires_at_str:
-                try:
-                    expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
-                    days_until_expiry = (expires_at - datetime.now(UTC)).days
-                    if days_until_expiry > REFRESH_THRESHOLD_DAYS:
-                        needs_refresh = False
-                        stats["tokens_valid"] += 1
-                        logger.info(
-                            "Instagram token for account %s expires in %d days — no refresh needed",
-                            account.id, days_until_expiry,
-                        )
-                except Exception:
-                    needs_refresh = True  # If we can't parse, refresh to be safe
+            needs_refresh = True
+            if expires_at is not None:
+                days_until_expiry = (expires_at - datetime.now(UTC)).days
+                if days_until_expiry > REFRESH_THRESHOLD_DAYS:
+                    needs_refresh = False
+                    stats["tokens_valid"] += 1
+                    logger.info(
+                        "Instagram token for account %s expires in %d days — no refresh needed",
+                        account.id, days_until_expiry,
+                    )
 
             if not needs_refresh:
                 meta["instagram_token_status"] = "valid"
                 meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
+                meta.pop("reconnect_required", None)
                 account.meta_data = meta
                 flag_modified(account, "meta_data")
                 await db.commit()
@@ -239,12 +284,16 @@ async def _refresh_instagram_tokens_async() -> dict:
                             "Instagram token refresh failed for account %s: %d %s",
                             account.id, resp.status_code, resp.text[:200],
                         )
-                        meta["instagram_token_status"] = "refresh_failed"
-                        meta["instagram_token_error"] = resp.text[:500]
-                        meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
-                        account.meta_data = meta
-                        flag_modified(account, "meta_data")
-                        await db.commit()
+                        if _is_oauth_expired_error(resp):
+                            # Session already dead — ig_refresh_token can't revive it.
+                            await _mark_reconnect_required(db, account, meta, resp.text)
+                        else:
+                            meta["instagram_token_status"] = "refresh_failed"
+                            meta["instagram_token_error"] = resp.text[:500]
+                            meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
+                            account.meta_data = meta
+                            flag_modified(account, "meta_data")
+                            await db.commit()
                         continue
 
                     data = resp.json()
@@ -264,10 +313,13 @@ async def _refresh_instagram_tokens_async() -> dict:
                     account.access_token_enc = new_token_enc
 
                     new_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+                    account.token_expires_at = new_expires_at
                     meta["instagram_token_status"] = "refreshed"
                     meta["instagram_token_expires_at"] = new_expires_at.isoformat()
                     meta["instagram_token_refreshed_at"] = datetime.now(UTC).isoformat()
                     meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
+                    meta.pop("reconnect_required", None)
+                    meta.pop("instagram_token_error", None)
                     account.meta_data = meta
                     flag_modified(account, "meta_data")
                     flag_modified(account, "access_token_enc")
