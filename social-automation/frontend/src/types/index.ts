@@ -204,6 +204,7 @@ export interface TopPost {
 /** Daily engagement from GET /analytics/engagement */
 export interface EngagementPoint {
   date: string
+  impressions: number
   likes: number
   comments: number
   shares: number
