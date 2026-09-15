@@ -307,6 +307,7 @@ class TopPost(BaseModel):
 
 class EngagementPoint(BaseModel):
     date: str
+    impressions: int = 0
     likes: int
     comments: int
     shares: int
