@@ -149,7 +149,7 @@ helper scripts handle login automatically by reading `.env` for
 | `FACEBOOK_CLIENT_SECRET` | Meta app secret | (from .env) |
 | `CLOUDFLARE_API_TOKEN` | For AI auto-reply (Workers AI) | (optional) |
 | `CLOUDFLARE_ACCOUNT_ID` | For AI auto-reply (Workers AI) | (optional) |
-| `DMR_BASE_URL` | Local Docker Model Runner fallback | `http://localhost:12434` |
+| `DMR_BASE_URL` | Local Docker Model Runner fallback | `http://localhost:12435` |
 
 ## AI auto-reply
 
@@ -323,7 +323,7 @@ messenger-sidecar:
   environment:
     - SOCIAL_API_URL=http://social-api:8000
     - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
-    - DMR_BASE_URL=http://host.docker.internal:12434
+    - DMR_BASE_URL=http://host.docker.internal:12435
 ```
 
 ### GitHub repos evaluated for integration

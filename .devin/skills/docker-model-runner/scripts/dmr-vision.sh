@@ -47,7 +47,7 @@ body = json.dumps({
 }).encode('utf-8')
 
 req = urllib.request.Request(
-    'http://localhost:12434/engines/llama.cpp/v1/chat/completions',
+    'http://localhost:12435/engines/llama.cpp/v1/chat/completions',
     data=body,
     method='POST',
     headers={'Content-Type': 'application/json'},

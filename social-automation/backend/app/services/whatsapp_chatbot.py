@@ -500,11 +500,11 @@ async def generate_contextual_reply(
 ) -> str:
     """Generate a context-aware AI reply with conversation memory and brand knowledge.
 
-    Inference fallback chain (language-aware per AGENTS.md):
-    1. Greek text → Cloudflare Workers AI (Llama 3.1 8B) — handles Greek correctly
-       Fallback: DMR (local) → static text
-    2. English/other text → DMR (Qwen3 8B, local, free) — primary
-       Fallback: Cloudflare Workers AI → static text
+    Inference fallback chain (unified, DMR-first):
+    1. DMR (Qwen3 8B via DMR_CHATBOT_MODEL, local GPU, free, private) — primary
+       for all languages. Fallback: Cloudflare Workers AI → static text
+    2. Cloudflare Workers AI (Llama 3.1 8B) — cloud fallback when DMR is
+       unavailable
     3. Final fallback: static text (with disclosure if first contact)
 
     Builds a rich system prompt that includes:

@@ -1252,9 +1252,9 @@ services:
         if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
           fails=0
         else
-          fails=$((fails+1))
-          echo "[dmr-watchdog] DMR health check failed ($fails/3)"
-          if [ "$fails" -ge 3 ]; then
+          fails=$$((fails+1))
+          echo "[dmr-watchdog] DMR health check failed ($$fails/3)"
+          if [ "$$fails" -ge 3 ]; then
             echo "[dmr-watchdog] restarting docker-model-runner"
             docker restart docker-model-runner || docker start docker-model-runner || true
             fails=0

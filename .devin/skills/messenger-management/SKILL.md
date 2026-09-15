@@ -254,7 +254,7 @@ API endpoints:
 | `BROWSER_BRIDGE_URL` | Browser bridge URL | `http://browser-novnc:9223` |
 | `MESSENGER_SIDECAR_URL` | Sidecar URL | `http://messenger-sidecar:9230` |
 | `CLOUDFLARE_API_TOKEN` | AI auto-reply (Workers AI) | (optional) |
-| `DMR_BASE_URL` | Local DMR fallback | `http://localhost:12434` |
+| `DMR_BASE_URL` | Local DMR fallback | `http://localhost:12435` |
 
 ## Common errors
 

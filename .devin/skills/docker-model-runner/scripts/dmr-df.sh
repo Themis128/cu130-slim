@@ -6,8 +6,8 @@ set -euo pipefail
 echo "=== Docker Model Runner Disk Usage ==="
 
 # Try API first
-if curl -sf http://localhost:12434/inference/df >/dev/null 2>&1; then
-    curl -sf http://localhost:12434/inference/df | python3 -m json.tool
+if curl -sf http://localhost:12435/inference/df >/dev/null 2>&1; then
+    curl -sf http://localhost:12435/inference/df | python3 -m json.tool
 else
     # CLI fallback
     docker model df 2>/dev/null || echo "  (DMR offline or df failed)"

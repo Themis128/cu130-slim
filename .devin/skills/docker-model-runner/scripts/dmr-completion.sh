@@ -11,7 +11,7 @@ echo "Model: $MODEL"
 echo "Prompt: $PROMPT"
 echo "Response:"
 
-curl -s http://localhost:12434/engines/llama.cpp/v1/completions \
+curl -s http://localhost:12435/engines/llama.cpp/v1/completions \
   -H "Content-Type: application/json" \
   -d "$(python3 -c "
 import json

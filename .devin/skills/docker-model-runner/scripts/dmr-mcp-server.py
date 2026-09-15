@@ -64,7 +64,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DMR_BASE = os.environ.get("DMR_BASE", "http://localhost:12434")
+DMR_BASE = os.environ.get("DMR_BASE", "http://localhost:12435")
 DMR_TIMEOUT = int(os.environ.get("DMR_TIMEOUT", "120"))
 
 

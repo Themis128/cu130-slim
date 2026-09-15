@@ -30,7 +30,7 @@ graph TB
     end
 
     subgraph "AI Inference"
-        DMR[Docker Model Runner<br/>qwen3:8b-q4_K_M<br/>localhost:12434]
+        DMR[Docker Model Runner<br/>qwen3:8b-q4_K_M<br/>localhost:12435]
         CF[Cloudflare Workers AI<br/>llama-3.1-8b-instruct<br/>FREE tier]
     end
 
@@ -249,7 +249,7 @@ flowchart TD
     CHECK3 -->|Yes| CHECK4{Thread<br/>paused?}
     CHECK4 -->|Yes| SKIP
     CHECK4 -->|No| READ[Mark message read]
-    READ --> DMR{DMR available?<br/>localhost:12434}
+    READ --> DMR{DMR available?<br/>localhost:12435}
     DMR -->|Yes| GEN1[Generate via<br/>qwen3:8b local]
     DMR -->|No| CF{Cloudflare<br/>token set?}
     CF -->|Yes| GEN2[Generate via<br/>llama-3.1-8b cloud]
@@ -356,7 +356,7 @@ graph TB
             NV[noVNC browser<br/>:6080]
             BB[Browser Bridge<br/>:9223]
         end
-        DMR[Docker Model Runner<br/>:12434<br/>host-level]
+        DMR[Docker Model Runner<br/>:12435<br/>host-level]
     end
 
     subgraph "Cloudflare"

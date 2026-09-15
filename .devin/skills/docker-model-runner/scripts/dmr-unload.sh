@@ -6,8 +6,8 @@ set -euo pipefail
 if [[ "${1:-}" == "--all" ]]; then
     echo "Unloading ALL running models..."
     # Try API first
-    if curl -sf http://localhost:12434/inference/unload >/dev/null 2>&1; then
-        curl -sf -X POST http://localhost:12434/inference/unload \
+    if curl -sf http://localhost:12435/inference/unload >/dev/null 2>&1; then
+        curl -sf -X POST http://localhost:12435/inference/unload \
           -H "Content-Type: application/json" \
           -d '{"all": true}' | python3 -m json.tool 2>/dev/null || true
     else
@@ -16,8 +16,8 @@ if [[ "${1:-}" == "--all" ]]; then
 elif [[ "${1:-}" == "--backend" ]]; then
     BACKEND="${2:?Usage: dmr-unload.sh --backend <backend>}"
     echo "Unloading all models for backend: $BACKEND..."
-    if curl -sf http://localhost:12434/inference/unload >/dev/null 2>&1; then
-        curl -sf -X POST http://localhost:12434/inference/unload \
+    if curl -sf http://localhost:12435/inference/unload >/dev/null 2>&1; then
+        curl -sf -X POST http://localhost:12435/inference/unload \
           -H "Content-Type: application/json" \
           -d "{\"backend\": \"$BACKEND\"}" | python3 -m json.tool 2>/dev/null || true
     else
@@ -25,9 +25,9 @@ elif [[ "${1:-}" == "--backend" ]]; then
     fi
 elif [[ $# -gt 0 ]]; then
     echo "Unloading models: $*"
-    if curl -sf http://localhost:12434/inference/unload >/dev/null 2>&1; then
+    if curl -sf http://localhost:12435/inference/unload >/dev/null 2>&1; then
         MODELS=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1:]))" "$@")
-        curl -sf -X POST http://localhost:12434/inference/unload \
+        curl -sf -X POST http://localhost:12435/inference/unload \
           -H "Content-Type: application/json" \
           -d "{\"models\": $MODELS}" | python3 -m json.tool 2>/dev/null || true
     else

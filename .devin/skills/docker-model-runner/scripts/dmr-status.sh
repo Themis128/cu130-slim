@@ -6,8 +6,8 @@ echo "=== Docker Model Runner Status ==="
 echo ""
 
 # Check if DMR is reachable
-if curl -sf http://localhost:12434/engines/v1/models >/dev/null 2>&1; then
-    echo "  DMR API:      ONLINE (http://localhost:12434)"
+if curl -sf http://localhost:12435/engines/v1/models >/dev/null 2>&1; then
+    echo "  DMR API:      ONLINE (http://localhost:12435)"
 else
     # CLI fallback — check if docker model is running
     if docker model status >/dev/null 2>&1; then
@@ -20,8 +20,8 @@ fi
 
 echo ""
 echo "=== Loaded Models ==="
-if curl -sf http://localhost:12434/engines/v1/models >/dev/null 2>&1; then
-    curl -sf http://localhost:12434/engines/v1/models 2>/dev/null | python3 -c '
+if curl -sf http://localhost:12435/engines/v1/models >/dev/null 2>&1; then
+    curl -sf http://localhost:12435/engines/v1/models 2>/dev/null | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 models = d.get("data", [])

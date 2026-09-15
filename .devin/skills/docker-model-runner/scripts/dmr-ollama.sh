@@ -11,7 +11,7 @@ echo "Model: $MODEL (Ollama API)"
 echo "Prompt: $PROMPT"
 echo "Response:"
 
-curl -s http://localhost:12434/api/chat \
+curl -s http://localhost:12435/api/chat \
   -H "Content-Type: application/json" \
   -d "$(python3 -c "
 import json

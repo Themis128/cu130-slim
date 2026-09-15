@@ -30,7 +30,7 @@ if system:
 
 data = json.dumps(body).encode('utf-8')
 req = urllib.request.Request(
-    'http://localhost:12434/anthropic/v1/messages',
+    'http://localhost:12435/anthropic/v1/messages',
     data=data,
     method='POST',
     headers={'Content-Type': 'application/json'},

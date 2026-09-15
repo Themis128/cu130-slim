@@ -6,8 +6,8 @@ set -euo pipefail
 echo "=== Running Models (loaded in memory) ==="
 
 # Try API first
-if curl -sf http://localhost:12434/inference/ps >/dev/null 2>&1; then
-    curl -sf http://localhost:12434/inference/ps | python3 -c '
+if curl -sf http://localhost:12435/inference/ps >/dev/null 2>&1; then
+    curl -sf http://localhost:12435/inference/ps | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 if not d:

@@ -10,7 +10,7 @@ docker model list 2>/dev/null
 
 echo ""
 echo "=== Loaded in Memory ==="
-curl -sf http://localhost:12434/engines/v1/models 2>/dev/null | python3 -c '
+curl -sf http://localhost:12435/engines/v1/models 2>/dev/null | python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)

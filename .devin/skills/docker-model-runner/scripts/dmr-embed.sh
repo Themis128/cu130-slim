@@ -11,7 +11,7 @@ echo "Model: $MODEL"
 echo "Input: $TEXT"
 echo ""
 
-curl -s http://localhost:12434/engines/llama.cpp/v1/embeddings \
+curl -s http://localhost:12435/engines/llama.cpp/v1/embeddings \
   -H "Content-Type: application/json" \
   -d "$(python3 -c "
 import json
