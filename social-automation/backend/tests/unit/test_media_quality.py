@@ -8,8 +8,8 @@ Covers:
   - Tags are spellchecked + deduplicated.
   - Failures in any step are non-fatal (advisory pipeline).
   - ``persist_media_quality_metadata`` stores diagnostics in meta_data.
-  - DMR ``ai/llama3.2`` is the default fast text model.
-  - Cloudflare is the default content-generation provider.
+  - DMR ``ai/qwen3:8b-q4_K_M`` is the default text model.
+  - DMR is the default content-generation provider (Cloudflare fallback).
   - Local Diffusers is attempted before Cloudflare for images.
 """
 
@@ -312,15 +312,17 @@ class TestPersistMediaQuality:
 
 class TestArchitectureDefaults:
 
-    def test_dmr_default_model_is_llama32(self):
-        """DMR_TEXT_MODEL code default must be ai/llama3.2 (fast 3.2B), not qwen2.5.
+    def test_dmr_default_model_is_qwen3(self):
+        """DMR_TEXT_MODEL code default must be ai/qwen3:8b-q4_K_M — the same
+        model used by the schema/JSON path, so text and schema requests share
+        one loaded model on the 8GB card.
 
         Note: the runtime value may be overridden by the DMR_TEXT_MODEL env var
         in .env; this test checks the Pydantic field default in the code.
         """
         from app.core.config import Settings
         fields = Settings.model_fields
-        assert fields["DMR_TEXT_MODEL"].default == "ai/llama3.2"
+        assert fields["DMR_TEXT_MODEL"].default == "ai/qwen3:8b-q4_K_M"
 
     def test_generate_content_default_provider_is_dmr(self):
         """GenerateContentRequest.provider must default to 'dmr'."""
