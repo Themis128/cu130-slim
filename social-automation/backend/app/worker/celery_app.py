@@ -28,6 +28,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
+        "app.worker.tasks.dmr_health",
     ],
 )
 
@@ -281,6 +282,15 @@ celery_app.conf.update(
         "telegram-group-digests": {
             "task": "app.worker.tasks.telegram_digest.send_telegram_group_digests",
             "schedule": crontab(minute=5),  # :05 every hour
+            "options": {"queue": "default"},
+        },
+        # DMR GPU runner health — probes the models endpoint + validates the
+        # model store every 5 min, publishes `dmr:status` to Redis. On failure
+        # the inference circuit breaker already fails over to Cloudflare; this
+        # exists for visibility. Runner restarts are handled by dmr-watchdog.
+        "dmr-health-check": {
+            "task": "app.worker.tasks.dmr_health.check_dmr_health",
+            "schedule": 300.0,  # every 5 minutes
             "options": {"queue": "default"},
         },
     },

@@ -1203,7 +1203,7 @@ services:
   # Async webhook event processor for Facebook Messenger.  Receives events
   # from social-api's /messenger/webhook POST endpoint and processes them
   # (AI auto-reply, conversation persistence) without blocking the main API.
-  # Free, self-hosted — uses Cloudflare Workers AI (free) with DMR fallback.
+  # Free, self-hosted — uses DMR (local GPU) primary with Cloudflare Workers AI fallback.
   messenger-sidecar:
     build:
       context: ./messenger-sidecar
@@ -1221,6 +1221,7 @@ services:
     - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
     - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
+    - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-ai/qwen3:8b-q4_K_M}
     - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
     - TZ=Europe/Athens
     healthcheck:
@@ -1229,6 +1230,40 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+    <<: *public-dns
+
+  # ── DMR GPU runner watchdog ─────────────────────────────────────────────
+  # The docker-model-runner container (host port 12435, GPU llama.cpp + vLLM)
+  # is a Docker Desktop-managed system container with RestartPolicy=always.
+  # That covers crashes, but not "container up, engine wedged". This watchdog
+  # polls the models endpoint and restarts the runner after 3 consecutive
+  # failures. Needs the docker socket to reach the Desktop-managed container.
+  dmr-watchdog:
+    image: docker:27-cli
+    container_name: dmr-watchdog
+    command:
+    - sh
+    - -c
+    - |
+      fails=0
+      echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
+      while true; do
+        if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
+          fails=0
+        else
+          fails=$((fails+1))
+          echo "[dmr-watchdog] DMR health check failed ($fails/3)"
+          if [ "$fails" -ge 3 ]; then
+            echo "[dmr-watchdog] restarting docker-model-runner"
+            docker restart docker-model-runner || docker start docker-model-runner || true
+            fails=0
+          fi
+        fi
+        sleep 60
+      done
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     <<: *public-dns
 

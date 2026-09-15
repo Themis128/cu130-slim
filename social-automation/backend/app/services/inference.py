@@ -113,6 +113,16 @@ PROVIDER_CATALOG = [
         "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm2"],
     },
     {
+        "name": "dmr-vllm",
+        "display_name": "Docker Model Runner (vLLM, experimental)",
+        "base_url": "",  # filled from DMR_VLLM_URL at runtime
+        "default_model": "ai/smollm2-vllm",
+        "requires_key": False,
+        "in_fallback_chain": False,
+        "description": "EXPERIMENTAL: vLLM backend on the GPU runner — safetensors models only, manual selection. Never in the auto fallback chain.",
+        "model_examples": ["ai/smollm2-vllm", "ai/functiongemma-vllm"],
+    },
+    {
         "name": "nvidia",
         "display_name": "NVIDIA Build",
         "base_url": "https://integrate.api.nvidia.com/v1",
@@ -294,6 +304,9 @@ async def _get_provider_config(
     """Return (base_url, model, api_key) for the requested provider."""
     if provider_name == "dmr":
         return settings.DMR_URL, settings.DMR_TEXT_MODEL, None
+
+    if provider_name == "dmr-vllm":
+        return getattr(settings, "DMR_VLLM_URL", ""), "ai/smollm2-vllm", None
 
     if provider_name == "local-diffusers":
         return settings.LOCAL_DIFFUSERS_URL, settings.LOCAL_DIFFUSERS_MODEL, None
@@ -1488,6 +1501,13 @@ async def _do_call_inference(
     """Call the requested inference provider and return parsed JSON or text dict."""
     if provider_name == "dmr":
         return await _call_dmr_chat(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
+
+    if provider_name == "dmr-vllm":
+        # Experimental vLLM backend — manual selection only, safetensors models.
+        from app.services.dmr import call_dmr_vllm_chat
+        return await call_dmr_vllm_chat(
+            prompt, model_override=model_override, max_tokens=max_tokens,
+        )
 
     base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
     if model_override:

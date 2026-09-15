@@ -775,6 +775,46 @@ async def call_dmr_chat(
     )
 
 
+async def call_dmr_vllm_chat(
+    prompt: str,
+    *,
+    system: str | None = None,
+    model_override: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.7,
+    timeout: float = 120.0,
+) -> dict[str, Any]:
+    """EXPERIMENTAL: chat via the vLLM backend on the GPU runner.
+
+    vLLM serves safetensors models only (GGUF models belong to llama.cpp via
+    call_dmr_chat). This path is manual-selection only — it is NOT in the
+    automatic fallback chain. On an 8GB card vLLM runs at
+    gpu-memory-utilization 0.7, which competes with llama.cpp-loaded GGUF
+    models; keep one loaded at a time.
+    """
+    url = getattr(settings, "DMR_VLLM_URL", "") or ""
+    if not url:
+        raise ConnectionError("DMR vLLM backend is not configured (DMR_VLLM_URL)")
+    model = model_override or "ai/smollm2-vllm"
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens or 4096,
+    }
+    client = await _get_client()
+    async with _get_semaphore():
+        resp = await client.post(f"{url}/chat/completions", json=payload, timeout=timeout)
+    if resp.status_code != 200:
+        raise ConnectionError(f"DMR vLLM error {resp.status_code}: {resp.text[:400]}")
+    content = resp.json()["choices"][0]["message"].get("content") or ""
+    return {"text": _strip_think_tags(content), "model": model, "backend": "vllm"}
+
+
 # ── Embeddings ───────────────────────────────────────────────────────────────
 
 

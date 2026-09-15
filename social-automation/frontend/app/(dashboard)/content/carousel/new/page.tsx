@@ -428,8 +428,19 @@ export default function CarouselNewPage() {
   const [exportedMediaIds, setExportedMediaIds] = useState<string[]>([])
   const [publishing, setPublishing] = useState(false)
   const [selectedPublishPlatforms, setSelectedPublishPlatforms] = useState<string[]>([])
+  const [dmrTextModel, setDmrTextModel] = useState<string | null>(null)
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // Show the effective text model (from backend DMR config) in the footer
+  useEffect(() => {
+    aiApi.getDmrStatus()
+      .then(res => {
+        const m = res.data?.text_model
+        if (m) setDmrTextModel(String(m).replace(/^ai\//, '').replace(/:latest$/, ''))
+      })
+      .catch(() => { /* keep static label */ })
+  }, [])
 
   const connectedAccounts: Array<{ id: string; platform: string; account_type?: string; display_name: string | null; username: string | null }> = accounts || []
   const PUBLISHABLE_PLATFORMS = new Set(['linkedin', 'twitter', 'instagram', 'facebook', 'threads', 'tiktok'])
@@ -748,7 +759,7 @@ export default function CarouselNewPage() {
                 <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
                 <div>
                   <p className="text-sm font-medium">Powered by Docker Model Runner</p>
-                  <p className="text-xs text-muted-foreground">Text: qwen3-8b (local) · Images: FLUX Schnell · Fallback: Cloudflare Workers AI</p>
+                  <p className="text-xs text-muted-foreground">Text: {dmrTextModel ?? 'qwen3-8b'} (local) · Images: FLUX Schnell · Fallback: Cloudflare Workers AI</p>
                 </div>
               </div>
             </div>

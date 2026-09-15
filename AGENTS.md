@@ -397,7 +397,7 @@ All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel
 - Carousel **image** generation (`_call_cf_image_pipeline`, `_cf_generate_background`) — images must use Cloudflare Workers AI (FLUX schnell / SD img2img) per the product default. Image generation has no DMR fallback.
 - `generate-carousel-pipeline` image pipeline calls (`allow_fallback=False` for image requests).
 
-**DMR model**: `ai/qwen3:8b-q4_K_M` (Q4_K_M quantization, ~5GB VRAM when loaded). DMR auto-loads the model on first request and auto-unloads after idle — no manual VRAM preload needed. Verify with `docker model status` and `curl -sf http://localhost:12434/engines/v1/models`.
+**DMR model**: `ai/qwen3:8b-q4_K_M` (Q4_K_M quantization, ~5GB VRAM when loaded). DMR auto-loads the model on first request and auto-unloads after idle — no manual VRAM preload needed. Verify with `docker model status` and `curl -sf http://localhost:12435/engines/v1/models`.
 
 **Container tuning notes:**
 - DMR and the `local-diffusers` container share the 8GB RTX 3070 Laptop GPU. DMR uses ~5GB VRAM (model weights + KV cache) when a model is loaded; local-diffusers uses ~2GB when generating. DMR auto-unloads when idle so they rarely conflict.
@@ -556,7 +556,7 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. DMR (Do
 - **Context size**: configurable via `docker model configure --context-size N` (default 4096). Social copy rarely exceeds 500 tokens.
 - **Auto-load/unload**: DMR loads the model on first request and unloads after idle — no manual VRAM preload or `KEEP_ALIVE` needed (unlike the old Ollama setup).
 - **Default model** in `app/core/config.py` is `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL`).
-- Verify with `docker model status` and `curl -sf http://localhost:12434/engines/v1/models`.
+- Verify with `docker model status` and `curl -sf http://localhost:12435/engines/v1/models`.
 - After context/flag changes: `docker model configure --context-size N ai/qwen3:8b-q4_K_M` — the model reloads on the next request.
 - Other DMR models available: `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny/fast, 360M).
 - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
