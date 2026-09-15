@@ -78,7 +78,7 @@ async def test_generate_linkedin_post(mock_inference, mock_plain_english):
 
     call = mock_inference[0]
     assert "LinkedIn post" in call["prompt"]
-    assert call["provider_name"] == "cloudflare"
+    assert call["provider_name"] == "dmr"
 
 
 @pytest.mark.asyncio
