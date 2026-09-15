@@ -702,8 +702,15 @@ async def _fetch_instagram_media_metrics(
 
     Meta deprecated `impressions` for media insights in v22.0 (April 2025).
     `views` is the replacement metric. `likes`, `comments`, `saves` remain.
+    Uses graph.instagram.com for Instagram Login tokens (IGAAU* prefix),
+    graph.facebook.com for Facebook Login tokens.
     """
-    url = facebook_graph_url(f"{media_id}/insights")
+    # Instagram Login tokens (IGAAU*) need graph.instagram.com host;
+    # Facebook Login tokens use graph.facebook.com.
+    if token.startswith("IGAAU"):
+        url = f"https://graph.instagram.com/v26.0/{media_id}/insights"
+    else:
+        url = facebook_graph_url(f"{media_id}/insights")
     # Try modern metrics first (views replaces impressions)
     params = {
         "metric": "views,likes,comments,saves,shares",
