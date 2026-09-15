@@ -104,7 +104,7 @@ async def _poll_linkedin_messenger_async() -> dict:
 
     cf_token = getattr(settings, "CLOUDFLARE_API_TOKEN", "")
     cf_account = getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "")
-    dmr_url = getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12434")
+    dmr_url = getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12435")
     sidecar_url = "http://linkedin-browser-sidecar:9225"
 
     async with _worker_db() as db:

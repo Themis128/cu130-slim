@@ -903,7 +903,7 @@ async def _generate_ai_response(
             logger.warning("Cloudflare AI failed, trying DMR: %s", e)
 
     # Try DMR (local Docker Model Runner) as fallback
-    dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12434")
+    dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12435")
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(

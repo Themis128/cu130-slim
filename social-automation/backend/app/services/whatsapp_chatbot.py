@@ -775,7 +775,7 @@ async def process_inbound_message(
     # 6. Detect message intent
     cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
     cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
-    dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12434")
+    dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12435")
 
     intent = await detect_intent(message_text, cf_token, cf_account, dmr_url)
     result["intent"] = intent

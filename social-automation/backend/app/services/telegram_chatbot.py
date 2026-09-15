@@ -138,7 +138,7 @@ async def process_inbound_message(
 
     cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "") or getattr(settings, "CLOUDFLARE_API_TOKEN", "") or ""
     cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "") or getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "") or ""
-    dmr_url = os.getenv("DMR_BASE_URL", "") or getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12434")
+    dmr_url = os.getenv("DMR_BASE_URL", "") or getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12435")
 
     intent = await detect_intent(message_text, cf_token, cf_account, dmr_url)
     result["intent"] = intent

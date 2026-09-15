@@ -60,14 +60,24 @@ class Settings(BaseSettings):
     # ChromaDB
     CHROMA_URL: str = "http://chromadb:8000"
 
-    # Docker Model Runner — local llama.cpp backend on the host (OpenAI-compatible API)
-    # Reachable from containers via host.docker.internal:12434
+    # Docker Model Runner — GPU runner on the host (OpenAI-compatible API)
+    # Reachable from containers via host.docker.internal:12435 (llama.cpp CUDA,
+    # -ngl 999 full offload). The legacy Docker Desktop CPU runner stays on
+    # 12434 as a spare but is not used by the app.
     # Models are pulled via `docker model pull ai/<name>` and loaded on demand.
-    DMR_URL: str = "http://host.docker.internal:12434/engines/llama.cpp/v1"
-    DMR_TEXT_MODEL: str = "ai/llama3.2"  # 3.2B, fast (6+ TPS), good Greek, ~1.9GB VRAM
+    DMR_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1"
+    # Base URL (no /engines/... suffix) for sidecars and worker tasks.
+    DMR_BASE_URL: str = "http://host.docker.internal:12435"
+    DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # shares loaded model with schema path (VRAM-friendly on 8GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
     DMR_TINY_MODEL: str = "ai/smollm2"
+    # Chatbot model — needs strong instruction-following (pricing/recruiting/disclosure rules)
+    DMR_CHATBOT_MODEL: str = "ai/qwen3:8b-q4_K_M"
+    # Experimental vLLM backend on the same GPU runner (safetensors models only).
+    DMR_VLLM_URL: str = "http://host.docker.internal:12435/engines/vllm/v1"
+    # Max concurrent DMR requests — protects the 8GB card from KV-cache contention.
+    DMR_MAX_CONCURRENCY: int = 4
 
     # LanguageTool self-hosted spell/grammar checker
     LANGUAGETOOL_URL: str = "http://languagetool:8010"
