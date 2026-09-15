@@ -40,7 +40,10 @@ async def _assert_asset_in_media_library(client, headers, gen_data, prompt):
     asset = assets[0]
     assert asset["source"] == "ai-generated"
     assert asset["generation_prompt"].lower() == prompt.lower()
-    assert asset["alt_text"].lower() == prompt.lower()
+    # alt_text runs through the quality pipeline (LanguageTool + plain-English
+    # rewrite) before storage, so it may differ from the raw prompt — it only
+    # needs to be populated.
+    assert asset["alt_text"]
     assert asset["mime_type"] == "image/png"
     assert asset["width"] == 64 and asset["height"] == 32
 

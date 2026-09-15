@@ -41,7 +41,21 @@ pytestmark = [
     ),
 ]
 
-COMPOSE_DIR = os.environ.get("COMPOSE_DIR", str(Path(__file__).resolve().parents[4]))
+def _default_compose_dir() -> str:
+    """Find the repo root containing docker-compose.yml.
+
+    Host layout: .../cu130-slim/social-automation/backend/tests/integration/
+    Container layout: /app/tests/integration/ — falls back to the last
+    existing ancestor; docker-stack tests skip in-container anyway.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "docker-compose.yml").exists():
+            return str(parent)
+    return str(here.parents[-1]) if here.parents else "/"
+
+
+COMPOSE_DIR = os.environ.get("COMPOSE_DIR") or _default_compose_dir()
 API_URL = os.environ.get("API_URL", "http://localhost:8083")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
 N8N_URL = os.environ.get("N8N_URL", "http://localhost:5678")

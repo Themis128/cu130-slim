@@ -1,12 +1,32 @@
+import hashlib
+import hmac
+import json
 import os
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.models.lead import Lead, LeadInterest, LeadSource
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
+
+
+def _post_webhook(client, body: dict):
+    """POST to the messenger webhook with a valid X-Hub-Signature-256.
+
+    Meta signs webhook bodies with HMAC-SHA256 keyed by FACEBOOK_APP_SECRET;
+    the endpoint enforces it when the secret is configured, so tests must sign
+    the exact raw bytes they send.
+    """
+    raw = json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    secret = get_settings().FACEBOOK_APP_SECRET or os.getenv("FACEBOOK_APP_SECRET", "")
+    if secret:
+        sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        headers["X-Hub-Signature-256"] = f"sha256={sig}"
+    return client.post("/api/v1/messenger/webhook", content=raw, headers=headers)
 
 
 @pytest.mark.asyncio
@@ -60,7 +80,7 @@ async def test_messenger_icebreaker_postback_creates_lead(client, db):
         ],
     }
 
-    resp = await client.post("/api/v1/messenger/webhook", json=body)
+    resp = await _post_webhook(client, body)
     assert resp.status_code == 200
 
     lead = (
@@ -128,9 +148,9 @@ async def test_messenger_icebreaker_postback_updates_existing_lead_interest(clie
             ],
         }
 
-    resp1 = await client.post("/api/v1/messenger/webhook", json=_body("LEAD_GROWTH"))
+    resp1 = await _post_webhook(client, _body("LEAD_GROWTH"))
     assert resp1.status_code == 200
-    resp2 = await client.post("/api/v1/messenger/webhook", json=_body("LEAD_AUDIT"))
+    resp2 = await _post_webhook(client, _body("LEAD_AUDIT"))
     assert resp2.status_code == 200
 
     leads = (
@@ -221,7 +241,7 @@ async def test_sidecar_dispatch_includes_postback_payload(client, db):
 
     with patch.dict(os.environ, {"MESSENGER_SIDECAR_URL": "http://messenger-sidecar:9230"}):
         with patch("httpx.AsyncClient", _FakeAsyncClient):
-            resp = await client.post("/api/v1/messenger/webhook", json=body)
+            resp = await _post_webhook(client, body)
             assert resp.status_code == 200
 
     assert calls, "Expected webhook to dispatch to sidecar"
