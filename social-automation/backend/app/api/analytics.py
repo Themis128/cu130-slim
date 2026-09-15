@@ -682,8 +682,9 @@ async def get_engagement_trends(
     for day, event_type, cnt in rows.all():
         key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
         if key not in by_day:
-            by_day[key] = {"likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+            by_day[key] = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
         mapped = {
+            "impression": "impressions",
             "like": "likes",
             "comment": "comments",
             "share": "shares",
@@ -695,11 +696,12 @@ async def get_engagement_trends(
     return [
         EngagementPoint(
             date=d,
+            impressions=v["impressions"],
             likes=v["likes"],
             comments=v["comments"],
             shares=v["shares"],
             clicks=v["clicks"],
-            total=sum(v.values()),
+            total=v["likes"] + v["comments"] + v["shares"] + v["clicks"],
         )
         for d, v in sorted(by_day.items())
     ]
