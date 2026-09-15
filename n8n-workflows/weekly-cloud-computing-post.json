@@ -1,154 +1,235 @@
 {
   "name": "Weekly Cloud Computing Post",
   "active": false,
+  "id": "weekly-cloud-computing-post",
   "nodes": [
     {
-      "name": "Start",
-      "type": "n8n-nodes-base.start",
-      "position": [
-        0,
-        0
-      ],
-      "parameters": {},
-      "typeVersion": 1,
-      "id": "9f59d2c2-f648-4d87-9f14-e1a4b1ff963c"
-    },
-    {
-      "name": "Set",
-      "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        1
-      ],
-      "parameters": {
-        "no": "title",
-        "value": "Weekly Cloud Computing Trends"
-      },
-      "typeVersion": 1,
-      "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
-    },
-    {
-      "name": "Set",
-      "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        2
-      ],
-      "parameters": {
-        "no": "description",
-        "value": "Stay up-to-date on the latest cloud computing trends and technologies."
-      },
-      "typeVersion": 1,
-      "id": "ea377717-7c6b-4b6d-97a6-8b47e4ac422a"
-    },
-    {
-      "name": "Set",
-      "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        3
-      ],
-      "parameters": {
-        "no": "link",
-        "value": "https://example.com/cloud-computing"
-      },
-      "typeVersion": 1,
-      "id": "9870e3e4-fd73-414e-93c4-66e9318ac786"
-    },
-    {
-      "name": "ScheduleTrigger",
+      "name": "Weekly Monday 09:00 Athens",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "position": [
-        0,
-        4
-      ],
+      "position": [0, 0],
       "parameters": {
-        "at": "00:00",
-        "type": "everyWeek"
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
       },
-      "typeVersion": 1,
+      "typeVersion": 1.2,
       "id": "5e822793-f148-4120-8ec8-fdcfcbda1be9"
     },
     {
-      "name": "Set",
-      "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        5
-      ],
+      "name": "Resolve Weekly Post Config",
+      "type": "n8n-nodes-base.code",
+      "position": [280, 0],
       "parameters": {
-        "no": "type",
-        "value": "post"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    target_account_id: body.target_account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n  }\n}];"
       },
-      "typeVersion": 1,
-      "id": "9d4f3d5e-ec30-4a74-97bc-7ba4ebdf8820"
+      "typeVersion": 2,
+      "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
     },
     {
-      "name": "Set",
-      "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        6
-      ],
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [520, 0],
       "parameters": {
-        "no": "link",
-        "value": "https://example.com/post"
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
       },
-      "typeVersion": 1,
+      "typeVersion": 4.2,
+      "id": "ea377717-7c6b-4b6d-97a6-8b47e4ac422a",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "position": [740, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "9870e3e4-fd73-414e-93c4-66e9318ac786"
+    },
+    {
+      "name": "Run Weekly Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [980, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.title) }},\n  \"content\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.description) }},\n  \"link\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.link) }},\n  \"type\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.type) }},\n  \"target_account_id\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.target_account_id) }}\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "typeVersion": 4.2,
+      "id": "9d4f3d5e-ec30-4a74-97bc-7ba4ebdf8820",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "position": [1220, -140],
+      "parameters": {
+        "jsCode": "const cfg = $('Resolve Weekly Post Config').item.json;\nconst raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: ok ? 'created' : 'failed',\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
+      },
+      "typeVersion": 2,
       "id": "0d298c35-5103-41b2-91eb-7aba9940a842"
     },
     {
-      "name": "Set",
+      "name": "Login Failed",
       "type": "n8n-nodes-base.set",
-      "position": [
-        0,
-        7
-      ],
+      "position": [980, 140],
       "parameters": {
-        "no": "link",
-        "value": "https://example.com/LinkedIn"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "hint",
+              "name": "hint",
+              "value": "Check SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD on the n8n container",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
       },
-      "typeVersion": 1,
+      "typeVersion": 3.4,
       "id": "fdbd62f8-2a25-4026-a4c9-6cf21760e6d8"
     }
   ],
   "connections": {
-    "Start": {
+    "Weekly Monday 09:00 Athens": {
       "main": [
-        {
-          "node": "Set#title",
-          "type": "main",
-          "index": 0
-        },
-        {
-          "node": "Set#description",
-          "type": "main",
-          "index": 1
-        },
-        {
-          "node": "Set#link",
-          "type": "main",
-          "index": 2
-        }
+        [
+          {
+            "node": "Resolve Weekly Post Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "ScheduleTrigger": {
+    "Resolve Weekly Post Config": {
       "main": [
-        {
-          "node": "Set#type",
-          "type": "main",
-          "index": 3
-        },
-        {
-          "node": "Set#link",
-          "type": "main",
-          "index": 4
-        }
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Run Weekly Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Weekly Post": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 300,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
   },
-  "tags": []
+  "tags": ["cloudless", "linkedin", "weekly"]
 }
