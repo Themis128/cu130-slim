@@ -167,11 +167,11 @@ async def _instagram_follower_count(account: SocialAccount) -> int:
 
 
 async def _threads_follower_count(account: SocialAccount) -> int:
-    """Fetch follower count for a Threads profile via the /insights endpoint.
+    """Fetch follower count for a Threads profile via /threads_insights.
 
     The Threads user node does not support fields=followers_count directly
-    (returns 500). Use the /insights endpoint with metric=followers_count
-    instead, which is the documented way to get follower metrics.
+    (returns 500). The documented edge is /threads_insights with
+    metric=followers_count, which returns ``total_value.value``.
     """
     if account.platform != "threads":
         return 0
@@ -181,7 +181,7 @@ async def _threads_follower_count(account: SocialAccount) -> int:
         threads_user_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://graph.threads.net/v1.0/{threads_user_id}/insights",
+                f"https://graph.threads.net/v1.0/{threads_user_id}/threads_insights",
                 headers={"Authorization": f"Bearer {token}"},
                 params={"metric": "followers_count"},
             )
@@ -189,6 +189,9 @@ async def _threads_follower_count(account: SocialAccount) -> int:
                 data = resp.json() or {}
                 for item in data.get("data", []):
                     if item.get("name") == "followers_count":
+                        total = item.get("total_value") or {}
+                        if "value" in total:
+                            return int(total.get("value") or 0)
                         for val in item.get("values", []):
                             return int(val.get("value", 0) or 0)
     except Exception:
