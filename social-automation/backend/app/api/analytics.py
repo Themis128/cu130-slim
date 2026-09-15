@@ -417,6 +417,16 @@ async def get_overview(
     else:
         total_engagement = total_from_snaps
 
+    # Total impressions from latest snapshots
+    snap_imp = await db.execute(
+        select(func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0)).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        )
+    )
+    total_impressions = int(snap_imp.scalar() or 0)
+
     # Data freshness: most recent snapshot capture time
     last_sync_row = await db.execute(
         select(func.max(PostAnalyticsSnapshot.captured_at)).where(
