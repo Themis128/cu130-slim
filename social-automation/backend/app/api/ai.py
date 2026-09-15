@@ -2987,6 +2987,8 @@ class DmrStatusResponse(BaseModel):
     vision_model: str
     embedding_model: str
     tiny_model: str
+    chatbot_model: str = ""
+    missing_models: list[str] = []
     vram: dict | None = None
     warmup_done: bool = False
 
@@ -3002,6 +3004,13 @@ async def dmr_status(
 
     online = await dmr._check_dmr_health()
     vram = dmr._get_vram_info()
+    missing: list[str] = []
+    if online:
+        try:
+            validation = await dmr.validate_dmr_models()
+            missing = validation.get("missing", [])
+        except Exception:
+            pass
     return DmrStatusResponse(
         online=online,
         url=settings.DMR_URL,
@@ -3009,6 +3018,8 @@ async def dmr_status(
         vision_model=settings.DMR_VISION_MODEL,
         embedding_model=settings.DMR_EMBEDDING_MODEL,
         tiny_model=settings.DMR_TINY_MODEL,
+        chatbot_model=getattr(settings, "DMR_CHATBOT_MODEL", "") or settings.DMR_TEXT_MODEL,
+        missing_models=missing,
         vram=vram,
         warmup_done=dmr.is_warmup_done(),
     )

@@ -928,6 +928,7 @@ export const aiApi = {
   }) => api.post('/ai/generate-carousel-pipeline', data),
   enhanceImagePrompt: (description: string, style?: string) =>
     api.post('/ai/generate-image-prompt', { description, style: style ?? 'photorealistic' }),
+  getDmrStatus: () => api.get('/ai/dmr/status'),
   autoConfigurePrompt: (prompt: string, context?: 'image' | 'carousel' | 'auto') =>
     api.post('/ai/auto-configure', { prompt, context: context ?? 'auto' }),
   saveGenerationTemplate: (data: {
