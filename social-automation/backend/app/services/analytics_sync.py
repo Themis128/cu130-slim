@@ -590,15 +590,26 @@ async def sync_twitter_account(
 async def _fetch_facebook_post_metrics(
     client: httpx.AsyncClient, page_token: str, post_id: str,
 ) -> MetricBundle:
-    """Fetch insights for a Facebook page post via Graph API."""
+    """Fetch insights for a Facebook page post via Graph API.
+
+    Uses post_impressions (deprecated June 2026, still functional) plus
+    post_media_view as the modern replacement for impressions.
+    """
     url = facebook_graph_url(f"{post_id}/insights")
     params = {
-        "metric": "post_impressions,post_clicks,post_reactions_like_total,post_comments,post_shares",
+        "metric": (
+            "post_impressions,post_media_view,post_clicks,"
+            "post_reactions_like_total,post_comments,post_shares"
+        ),
         "access_token": page_token,
     }
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
-        return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
+        # Fallback: try with only non-deprecated metrics
+        params["metric"] = "post_media_view,post_clicks,post_reactions_like_total,post_comments,post_shares"
+        resp = await client.get(url, params=params)
+        if resp.status_code != 200:
+            return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -611,13 +622,14 @@ async def _fetch_facebook_post_metrics(
             return int(values[idx].get("value", 0) or 0)
         return 0
 
+    impressions = _val("post_impressions") or _val("post_media_view")
     return MetricBundle(
-        impressions=_val("post_impressions"),
+        impressions=impressions,
         clicks=_val("post_clicks"),
         likes=_val("post_reactions_like_total"),
         comments=_val("post_comments"),
         shares=_val("post_shares"),
-        reach=_val("post_impressions"),
+        reach=impressions,
         raw=data,
     )
 
