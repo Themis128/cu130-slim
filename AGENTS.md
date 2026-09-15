@@ -149,7 +149,7 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 - **Public API documentation**: `EXPOSE_API_DOCS` setting (default `true`) decoupled from `DEBUG`. Swagger UI (`/docs`), ReDoc (`/redoc`), OpenAPI JSON (`/openapi.json`) all accessible with `DEBUG=false`. Frontend `/api-docs` page with CDN-loaded Swagger UI.
 - **DEBUG=false in production**: `.env` has `DEBUG=false` (was `true`). Stack traces are no longer exposed. API docs remain accessible via `EXPOSE_API_DOCS=true`.
 - Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password, `GITHUB_TOKEN`).
-- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `comfyui:8000`, `metabase:3000`). DMR runs on host port `12434` (not a Compose service). New internal services may use unmapped ports only after confirming no conflicts.
+- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `comfyui:8000`, `metabase:3000`). DMR runs on host port `12435` (the `docker-model-runner` GPU container; Desktop runner 12434 is unused). New internal services may use unmapped ports only after confirming no conflicts.
 
 ## Platform coverage
 
