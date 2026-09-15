@@ -444,6 +444,7 @@ async def get_overview(
         connected_accounts=accounts_count.scalar() or 0,
         total_followers=total_followers,
         total_engagement=total_engagement,
+        total_impressions=total_impressions,
         last_sync_at=last_sync_at,
     )
 
