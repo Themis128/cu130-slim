@@ -389,7 +389,7 @@ export default function LinkedInPage() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Posts target your connected LinkedIn Company Page by default (e.g. <code>4a8d9440-47d2-4bda-bd11-3776fd9022ba</code>). For carousels, use <Link href="/content/carousel/new" className="text-primary hover:underline">Carousels</Link>.
+                Posts target your connected LinkedIn Company Page by default (e.g. <code>9c4451bb-e820-489f-8676-76ddbc788ffe</code>). For carousels, use <Link href="/content/carousel/new" className="text-primary hover:underline">Carousels</Link>.
               </p>
             </CardContent>
           </Card>

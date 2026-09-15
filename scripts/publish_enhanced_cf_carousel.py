@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.services.inference import _call_cf_image_pipeline
 from app.services.plain_english import run_nlp_check_and_fix
 
-ORG_ACCOUNT_ID = "4a8d9440-47d2-4bda-bd11-3776fd9022ba"
+ORG_ACCOUNT_ID = "9c4451bb-e820-489f-8676-76ddbc788ffe"
 TEXT_MODEL = "@cf/meta/llama-3.2-3b-instruct"
 TXT2IMG = "@cf/black-forest-labs/flux-1-schnell"
 IMG2IMG = "@cf/runwayml/stable-diffusion-v1-5-img2img"

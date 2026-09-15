@@ -6,7 +6,7 @@
 |---------|--------|
 | Timezone | `Europe/Athens` |
 | Schedule | every **2 days at 19:00** local |
-| Author | Company Page `4a8d9440-47d2-4bda-bd11-3776fd9022ba` |
+| Author | Company Page `9c4451bb-e820-489f-8676-76ddbc788ffe` |
 | Slides | 7 (override via env/body) |
 | Models | CF Llama + FLUX schnell + FLUX.2 klein-4b |
 | `wait_for_publish` | `false` by default (webhook returns after queue) |
@@ -24,7 +24,7 @@ If webhook body has no `topic` and `CLOUDLESS_CAROUSEL_TOPIC` is empty, n8n rota
   "publish": true,
   "wait_for_publish": false,
   "tone": "clear and friendly",
-  "target_account_id": "4a8d9440-47d2-4bda-bd11-3776fd9022ba"
+  "target_account_id": "9c4451bb-e820-489f-8676-76ddbc788ffe"
 }
 ```
 

@@ -9,7 +9,7 @@ cd "$ROOT"
 PUBLISH=false
 SLIDES=7
 TOPIC="${CLOUDLESS_CAROUSEL_TOPIC:-How cloudless.gr helps teams ship serverless apps without managing servers}"
-ACCOUNT="${CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID:-4a8d9440-47d2-4bda-bd11-3776fd9022ba}"
+ACCOUNT="${CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID:-9c4451bb-e820-489f-8676-76ddbc788ffe}"
 API="${SOCIAL_API_URL:-http://127.0.0.1:8083}"
 
 while [[ $# -gt 0 ]]; do

@@ -1,0 +1,154 @@
+{
+  "name": "Weekly Cloud Computing Post",
+  "active": false,
+  "nodes": [
+    {
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {},
+      "typeVersion": 1,
+      "id": "9f59d2c2-f648-4d87-9f14-e1a4b1ff963c"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        1
+      ],
+      "parameters": {
+        "no": "title",
+        "value": "Weekly Cloud Computing Trends"
+      },
+      "typeVersion": 1,
+      "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        2
+      ],
+      "parameters": {
+        "no": "description",
+        "value": "Stay up-to-date on the latest cloud computing trends and technologies."
+      },
+      "typeVersion": 1,
+      "id": "ea377717-7c6b-4b6d-97a6-8b47e4ac422a"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        3
+      ],
+      "parameters": {
+        "no": "link",
+        "value": "https://example.com/cloud-computing"
+      },
+      "typeVersion": 1,
+      "id": "9870e3e4-fd73-414e-93c4-66e9318ac786"
+    },
+    {
+      "name": "ScheduleTrigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        0,
+        4
+      ],
+      "parameters": {
+        "at": "00:00",
+        "type": "everyWeek"
+      },
+      "typeVersion": 1,
+      "id": "5e822793-f148-4120-8ec8-fdcfcbda1be9"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        5
+      ],
+      "parameters": {
+        "no": "type",
+        "value": "post"
+      },
+      "typeVersion": 1,
+      "id": "9d4f3d5e-ec30-4a74-97bc-7ba4ebdf8820"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        6
+      ],
+      "parameters": {
+        "no": "link",
+        "value": "https://example.com/post"
+      },
+      "typeVersion": 1,
+      "id": "0d298c35-5103-41b2-91eb-7aba9940a842"
+    },
+    {
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        0,
+        7
+      ],
+      "parameters": {
+        "no": "link",
+        "value": "https://example.com/LinkedIn"
+      },
+      "typeVersion": 1,
+      "id": "fdbd62f8-2a25-4026-a4c9-6cf21760e6d8"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        {
+          "node": "Set#title",
+          "type": "main",
+          "index": 0
+        },
+        {
+          "node": "Set#description",
+          "type": "main",
+          "index": 1
+        },
+        {
+          "node": "Set#link",
+          "type": "main",
+          "index": 2
+        }
+      ]
+    },
+    "ScheduleTrigger": {
+      "main": [
+        {
+          "node": "Set#type",
+          "type": "main",
+          "index": 3
+        },
+        {
+          "node": "Set#link",
+          "type": "main",
+          "index": 4
+        }
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

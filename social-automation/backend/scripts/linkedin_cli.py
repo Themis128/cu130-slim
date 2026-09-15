@@ -7,7 +7,7 @@ uses the same modules the API endpoints do. It never prints decrypted tokens.
 
 Examples (inside the social-api container):
     python scripts/linkedin_cli.py --list
-    python scripts/linkedin_cli.py --validate --account-id 4a8d9440-47d2-4bda-bd11-3776fd9022ba
+    python scripts/linkedin_cli.py --validate --account-id 9c4451bb-e820-489f-8676-76ddbc788ffe
     python scripts/linkedin_cli.py --generate-post "Why serverless matters" --tone professional
     python scripts/linkedin_cli.py --publish --account-id <id> --commentary "Hello world"
     python scripts/linkedin_cli.py --followers --account-id <id>

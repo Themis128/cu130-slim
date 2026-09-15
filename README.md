@@ -74,7 +74,7 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 
 - The Cloudless carousel uses **Cloudflare Workers AI only** (`@cf/meta/llama-3.2-3b-instruct` for text, `@cf/black-forest-labs/flux-1-schnell` for images). No Ollama/ComfyUI fallback.
 - `CLOUDFLARE_API_TOKEN` needs **Workers AI → Read + Run**; `Edit` alone is not enough for `/ai/run`.
-- LinkedIn posts target the Cloudless Company Page account `4a8d9440-47d2-4bda-bd11-3776fd9022ba` by default.
+- LinkedIn posts target the Cloudless Company Page account `9c4451bb-e820-489f-8676-76ddbc788ffe` by default.
 - n8n workflow `cloudless-cf-carousel-linkedin` runs every 2 days at 19:00 Europe/Athens.
 - `N8N_API_KEY` must be minted in the n8n UI; there is no automatic `.env` value.
 

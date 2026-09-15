@@ -86,7 +86,7 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
 
 DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
-    "4a8d9440-47d2-4bda-bd11-3776fd9022ba",
+    "9c4451bb-e820-489f-8676-76ddbc788ffe",
 )
 
 # ── Brand tokens ──────────────────────────────────────────────────────────────

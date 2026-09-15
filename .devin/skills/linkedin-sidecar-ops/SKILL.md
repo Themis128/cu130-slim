@@ -146,7 +146,7 @@ POST /api/v1/profile/{account_id}/cover     — Upload cover photo
 
 ### LinkedIn company page account ID
 ```
-4a8d9440-47d2-4bda-bd11-3776fd9022ba
+9c4451bb-e820-489f-8676-76ddbc788ffe
 ```
 
 ## Profile update fields

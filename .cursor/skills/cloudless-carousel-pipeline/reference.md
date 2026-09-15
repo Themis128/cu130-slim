@@ -16,7 +16,7 @@ Auth: Bearer from `POST /api/v1/auth/login` (form: `username`, `password`).
   "txt2img_model": "@cf/black-forest-labs/flux-1-schnell",
   "img2img_model": "@cf/runwayml/stable-diffusion-v1-5-img2img",
   "strength": 0.42,
-  "target_account_id": "4a8d9440-47d2-4bda-bd11-3776fd9022ba",
+  "target_account_id": "9c4451bb-e820-489f-8676-76ddbc788ffe",
   "publish": true
 }
 ```

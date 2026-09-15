@@ -31,7 +31,7 @@ triggers:
 
 | Item | Value |
 |------|--------|
-| Org LinkedIn account UUID | `4a8d9440-47d2-4bda-bd11-3776fd9022ba` |
+| Org LinkedIn account UUID | `9c4451bb-e820-489f-8676-76ddbc788ffe` |
 | Author | Company Page (`meta_data.account_type == organization`) → `urn:li:organization:{id}` |
 | Text | `@cf/meta/llama-3.2-3b-instruct` (free-tier low cost) |
 | txt2img | `@cf/black-forest-labs/flux-1-schnell` (payload: `prompt` + `steps` only; 4 steps) |

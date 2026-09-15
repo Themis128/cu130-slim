@@ -118,7 +118,7 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 
 - **Never change profile pictures or banners/cover photos on any social media account unless the user explicitly asks for it.** This applies to all platforms (Facebook, Instagram, LinkedIn, Threads, Twitter/X, TikTok). If a profile picture or banner is missing or outdated, mention it to the user but do not change it yourself.
 - **Admin user has unrestricted access.** The user logs in with admin credentials (`SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWORD`). As admin, the user must have full unrestricted access to all SocialAuto features — connecting/adding accounts, all platforms, all endpoints, quotas bypassed. If the app blocks the admin from an action, treat it as a bug to fix, not a limitation.
-- LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not a personal profile.
+- LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `9c4451bb-e820-489f-8676-76ddbc788ffe`, not a personal profile.
 - Threads account for **cloudless.gr** uses the Threads/Instagram username **`cloudless.gr`** (with a dot, not underscore). This is the brand account, not the personal `t_baltzakis` account.
 - Carousel generation uses **Cloudflare Workers AI only**.
 - **Cloudflare-first, free-first** for all inference, storage, and databases; prefer Cloudflare Workers AI, R2, D1, KV, and Vectorize. Use local services (Postgres, Redis, Chroma, MinIO, Docker Model Runner) as failover.
@@ -340,7 +340,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - The `/api/v1/ai/run-carousel-and-publish` endpoint supports `custom_slides`, `custom_caption`, and `custom_hashtags` in the request body to override AI-generated copy with curated content. When custom slides are provided, AI copy generation and NLP dedup are skipped.
 - The `/api/v1/media/view` endpoint serves PDFs and audio files directly (browsers render them natively). The frontend `ImageViewerDialog` renders PDFs in an `<iframe>` and audio in an `<audio>` player.
 - Media library cards show a file icon for PDFs (with AI title and platform tags) and a music icon for audio files.
-- Post as the **cloudless.gr Company Page** account (`4a8d9440-47d2-4bda-bd11-3776fd9022ba`), not a personal profile.
+- Post as the **cloudless.gr Company Page** account (`9c4451bb-e820-489f-8676-76ddbc788ffe`), not a personal profile.
 - Automate via n8n workflow `cloudless-cf-carousel-linkedin` (schedule or webhook).
 
 ## Quality pipeline (NLP + spellcheck + SEO)

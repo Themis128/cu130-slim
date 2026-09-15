@@ -10,7 +10,7 @@ This repo runs Docker Compose (`cu130-slim`) with social-api, social-worker, n8n
 
 ## Product defaults
 
-- LinkedIn carousels for **cloudless.gr** post as **Company Page** account `4a8d9440-47d2-4bda-bd11-3776fd9022ba`, not personal.
+- LinkedIn carousels for **cloudless.gr** post as **Company Page** account `9c4451bb-e820-489f-8676-76ddbc788ffe`, not personal.
 - Carousel generation uses **Cloudflare Workers AI only** (not Ollama/ComfyUI for this path).
 - Automate via **n8n** workflow `cloudless-cf-carousel-linkedin` when the user wants scheduling/webhooks.
 

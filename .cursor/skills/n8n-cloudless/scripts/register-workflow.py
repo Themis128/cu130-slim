@@ -131,7 +131,7 @@ async def main() -> None:
             "schedule": "next: Fri 28 Aug 03:15 Europe/Athens (CF reset); then every 2 days 19:00 Athens",
             "target_account_id": os.environ.get(
                 "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
-                "4a8d9440-47d2-4bda-bd11-3776fd9022ba",
+                "9c4451bb-e820-489f-8676-76ddbc788ffe",
             ),
             "endpoint": "/api/v1/ai/run-carousel-and-publish",
         }
