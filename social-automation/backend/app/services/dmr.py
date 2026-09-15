@@ -791,11 +791,12 @@ async def call_dmr_embedding(
     url = f"{settings.DMR_URL}/embeddings"
     try:
         client = await _get_client()
-        resp = await client.post(
-            url,
-            json={"model": model, "input": text},
-            timeout=120.0,
-        )
+        async with _get_semaphore():
+            resp = await client.post(
+                url,
+                json={"model": model, "input": text},
+                timeout=120.0,
+            )
         if resp.status_code == 200:
             return resp.json()["data"][0]["embedding"]
         _invalidate_health_cache()

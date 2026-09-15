@@ -857,22 +857,65 @@ async def generate_contextual_reply(
         )
 
     # Model routing for bot replies:
-    # Cloudflare Workers AI (Llama 3.1 8B) is the primary for bot replies because
-    # it follows system prompts much better than DMR Qwen3 8B (recruiting mode,
-    # pricing rules, bot disclosure). CF Workers AI has a generous free tier.
-    # DMR (local, free, private) is the fallback when CF is unavailable.
-    # Strategy: try CF first (both Greek and English), fall back to DMR, then static.
+    # DMR (local, free, private, GPU-accelerated) is the primary for bot replies.
+    # Uses DMR_CHATBOT_MODEL (qwen3:8b — strong instruction-following for
+    # recruiting mode, pricing rules, bot disclosure). Cloudflare Workers AI is
+    # the cloud fallback; static text is the last resort.
+    # Strategy: try DMR first (both Greek and English), fall back to CF, then static.
 
+    lang_instruction = f"[Reply in {detected_lang} only] {user_message}"
+    dmr_model = getattr(settings, "DMR_CHATBOT_MODEL", "") or settings.DMR_TEXT_MODEL
+
+    # 1. Try DMR first (local, free, private, GPU)
+    dmr_start = time.perf_counter()
+    try:
+        from app.services.dmr import call_dmr_chat
+        result = await call_dmr_chat(
+            lang_instruction,
+            system=enhanced_prompt,
+            model_override=dmr_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = result.get("text", "").strip()
+        if text:
+            # Ensure Greek replies end with a steering question
+            text = _ensure_steering_question(text, is_greek)
+            if not disclosed:
+                await mark_disclosed(account_id, thread_id)
+            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+            await track_bot_reply(
+                account_id, thread_id,
+                provider="dmr", model=dmr_model,
+                user_message=user_message, reply_text=reply,
+                latency_ms=int(
+                    (time.perf_counter() - dmr_start) * 1000
+                ),
+                intent=intent,
+                language="greek" if _is_greek_message(user_message) else "english",
+                team_id=team_id,
+            )
+            return reply
+    except Exception as exc:
+        logger.warning("DMR chatbot reply failed: %s", exc)
+        await track_bot_reply(
+            account_id, thread_id,
+            provider="dmr", model=dmr_model,
+            user_message=user_message, reply_text="",
+            latency_ms=int(
+                (time.perf_counter() - dmr_start) * 1000
+            ),
+            success=False, error=str(exc), intent=intent,
+            team_id=team_id,
+        )
+
+    # 2. Fallback: Cloudflare Workers AI (cloud failover)
     cf_start = time.perf_counter()
-    # 1. Try Cloudflare Workers AI first (best prompt adherence, handles Greek + English)
     model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
     if cf_token and cf_account:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
             async with httpx.AsyncClient(timeout=30) as client:
-                # Prepend language instruction to the user message so the LLM
-                # sees it in context, not just the system prompt
-                lang_instruction = f"[Reply in {detected_lang} only] {user_message}"
                 resp = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {cf_token}"},
@@ -920,48 +963,6 @@ async def generate_contextual_reply(
                 success=False, error=str(exc), intent=intent,
                 team_id=team_id,
             )
-
-    # 2. Fallback: DMR (local, free, private)
-    dmr_start = time.perf_counter()
-    try:
-        from app.services.dmr import call_dmr_chat
-        result = await call_dmr_chat(
-            lang_instruction,
-            system=enhanced_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        text = result.get("text", "").strip()
-        if text:
-            # Ensure Greek replies end with a steering question
-            text = _ensure_steering_question(text, is_greek)
-            if not disclosed:
-                await mark_disclosed(account_id, thread_id)
-            reply = f"{disclosure_prefix}{text}" if not disclosed else text
-            await track_bot_reply(
-                account_id, thread_id,
-                provider="dmr", model=settings.DMR_TEXT_MODEL,
-                user_message=user_message, reply_text=reply,
-                latency_ms=int(
-                    (time.perf_counter() - dmr_start) * 1000
-                ),
-                intent=intent,
-                language="greek" if _is_greek_message(user_message) else "english",
-                team_id=team_id,
-            )
-            return reply
-    except Exception as exc:
-        logger.warning("DMR chatbot reply failed: %s", exc)
-        await track_bot_reply(
-            account_id, thread_id,
-            provider="dmr", model=settings.DMR_TEXT_MODEL,
-            user_message=user_message, reply_text="",
-            latency_ms=int(
-                (time.perf_counter() - dmr_start) * 1000
-            ),
-            success=False, error=str(exc), intent=intent,
-            team_id=team_id,
-        )
 
     # 3. Final fallback: static text (with disclosure if first contact)
     if not disclosed:

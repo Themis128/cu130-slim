@@ -593,13 +593,59 @@ async def generate_contextual_reply(
         )
 
     # Model routing for bot replies:
-    # Cloudflare Workers AI (Llama 3.1 8B) is the primary for bot replies because
-    # it follows system prompts much better than DMR Qwen3 8B (pricing rules,
-    # bot disclosure, language matching). CF Workers AI has a generous free tier.
-    # DMR (local, free, private) is the fallback when CF is unavailable.
+    # DMR (local, free, private, GPU-accelerated) is the primary for bot replies.
+    # Uses DMR_CHATBOT_MODEL (qwen3:8b — strong instruction-following for
+    # pricing rules, bot disclosure, language matching). Cloudflare Workers AI
+    # is the cloud fallback; static text is the last resort.
 
+    dmr_model = getattr(settings, "DMR_CHATBOT_MODEL", "") or settings.DMR_TEXT_MODEL
+
+    # 1. Try DMR first (local, free, private, GPU)
+    dmr_start = time.perf_counter()
+    try:
+        from app.services.dmr import call_dmr_chat
+        result = await call_dmr_chat(
+            user_message,
+            system=enhanced_prompt,
+            model_override=dmr_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = result.get("text", "").strip()
+        if text:
+            if not disclosed:
+                await mark_disclosed(account_id, phone)
+            reply = f"{disclosure_prefix}{text}" if not disclosed else text
+            await track_bot_reply(
+                account_id, phone,
+                provider="dmr", model=dmr_model,
+                user_message=user_message, reply_text=reply,
+                latency_ms=int(
+                    (time.perf_counter() - dmr_start) * 1000
+                ),
+                intent=intent,
+                language="greek" if any(
+                    0x0370 <= ord(c) <= 0x03FF
+                    for c in user_message
+                ) else "english",
+                team_id=team_id,
+            )
+            return reply
+    except Exception as exc:
+        logger.warning("DMR chatbot reply failed: %s", exc)
+        await track_bot_reply(
+            account_id, phone,
+            provider="dmr", model=dmr_model,
+            user_message=user_message, reply_text="",
+            latency_ms=int(
+                (time.perf_counter() - dmr_start) * 1000
+            ),
+            success=False, error=str(exc), intent=intent,
+            team_id=team_id,
+        )
+
+    # 2. Fallback: Cloudflare Workers AI (cloud failover)
     cf_start = time.perf_counter()
-    # 1. Try Cloudflare Workers AI first (best prompt adherence, handles Greek + English)
     model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
     if cf_token and cf_account:
         try:
@@ -653,49 +699,6 @@ async def generate_contextual_reply(
                 success=False, error=str(exc), intent=intent,
                 team_id=team_id,
             )
-
-    # 2. Fallback: DMR (local, free, private)
-    dmr_start = time.perf_counter()
-    try:
-        from app.services.dmr import call_dmr_chat
-        result = await call_dmr_chat(
-            user_message,
-            system=enhanced_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        text = result.get("text", "").strip()
-        if text:
-            if not disclosed:
-                await mark_disclosed(account_id, phone)
-            reply = f"{disclosure_prefix}{text}" if not disclosed else text
-            await track_bot_reply(
-                account_id, phone,
-                provider="dmr", model=settings.DMR_TEXT_MODEL,
-                user_message=user_message, reply_text=reply,
-                latency_ms=int(
-                    (time.perf_counter() - dmr_start) * 1000
-                ),
-                intent=intent,
-                language="greek" if any(
-                    0x0370 <= ord(c) <= 0x03FF
-                    for c in user_message
-                ) else "english",
-                team_id=team_id,
-            )
-            return reply
-    except Exception as exc:
-        logger.warning("DMR chatbot reply failed: %s", exc)
-        await track_bot_reply(
-            account_id, phone,
-            provider="dmr", model=settings.DMR_TEXT_MODEL,
-            user_message=user_message, reply_text="",
-            latency_ms=int(
-                (time.perf_counter() - dmr_start) * 1000
-            ),
-            success=False, error=str(exc), intent=intent,
-            team_id=team_id,
-        )
 
     # 3. Final fallback: static text (with disclosure if first contact)
     if not disclosed:
