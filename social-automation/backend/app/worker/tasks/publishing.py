@@ -357,6 +357,7 @@ async def _process_publish_queue_async() -> None:
                 err_post: Post | None = None
                 err_account: SocialAccount | None = None
                 err_target: PostTarget | None = None
+                err_prev_error = ""
                 if is_final:
                     try:
                         post_result = await db.execute(select(Post).where(Post.id == item.post_id))
@@ -387,7 +388,9 @@ async def _process_publish_queue_async() -> None:
                     await _rollup_post_status(err_post, db)
                 await db.commit()
 
-                if item.status == QueueStatus.FAILED:
+                if item.status == QueueStatus.FAILED and (
+                    "Unhandled exception while publishing (see worker logs)" != err_prev_error
+                ):
                     await _notify_publish_failure(
                         post=err_post,
                         account=err_account,
