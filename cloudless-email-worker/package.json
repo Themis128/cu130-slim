@@ -1,0 +1,14 @@
+{
+  "name": "cloudless-mail-ingest",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240901.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^3.78.0"
+  }
+}

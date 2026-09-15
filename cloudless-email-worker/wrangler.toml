@@ -1,0 +1,9 @@
+name = "mail-ingest"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+
+# Phishing detection: reject emails with score >= 8 (high confidence phishing)
+# Emails with score 3-7 are forwarded with warning headers
+# Emails with score 0-2 are forwarded normally
+[vars]
+PHISHING_REJECT_THRESHOLD = "8"
