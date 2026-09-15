@@ -2,7 +2,7 @@
 
 Mirrors WhatsApp auto-reply without Meta's 24-hour window. Threads are keyed
 by Telegram ``chat_id``. Reply generation reuses ``messenger_chatbot`` so
-pricing guardrails, brand voice, and CF→DMR fallback stay consistent.
+pricing guardrails, brand voice, and DMR→CF fallback stay consistent.
 """
 
 from __future__ import annotations

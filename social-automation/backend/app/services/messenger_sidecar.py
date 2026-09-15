@@ -281,15 +281,42 @@ async def _send_text_message(page_token: str, page_id: str, psid: str, text: str
 
 
 async def _generate_ai_response(config: dict, user_message: str, page_name: str) -> str:
-    """Generate an AI response using Cloudflare Workers AI (free) with DMR fallback."""
+    """Generate an AI response using DMR (local GPU) with Cloudflare Workers AI fallback."""
     system_prompt = config.get(
         "system_prompt", "You are a helpful assistant. Reply concisely and professionally."
     ).replace("{page_name}", page_name or "us")
     model = config.get("model", DEFAULT_MODEL)
     max_tokens = config.get("max_tokens", 200)
     fallback = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
+    dmr_model = os.getenv("DMR_CHATBOT_MODEL", "ai/qwen3:8b-q4_K_M")
 
-    # Try Cloudflare Workers AI first (free tier)
+    # Try DMR first (local Docker Model Runner, GPU, free, private)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{DMR_BASE_URL}/engines/v1/chat/completions",
+                json={
+                    "model": dmr_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"{user_message} /no_think"},
+                    ],
+                    "max_tokens": max_tokens,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    content = choices[0].get("message", {}).get("content", "")
+                    # Strip Qwen3 think blocks
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                    if content:
+                        return content
+    except Exception as exc:
+        logger.warning("DMR AI failed: %s", exc)
+
+    # Fallback: Cloudflare Workers AI (cloud failover)
     if CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model}"
@@ -311,28 +338,6 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
                         return data["result"]["response"].strip()
         except Exception as exc:
             logger.warning("Cloudflare AI failed: %s", exc)
-
-    # Try DMR (local Docker Model Runner) as fallback
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{DMR_BASE_URL}/engines/v1/chat/completions",
-                json={
-                    "model": "ai/qwen3:8b-q4_K_M",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message},
-                    ],
-                    "max_tokens": max_tokens,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                choices = data.get("choices", [])
-                if choices:
-                    return choices[0].get("message", {}).get("content", fallback).strip()
-    except Exception as exc:
-        logger.warning("DMR AI failed: %s", exc)
 
     return fallback
 
