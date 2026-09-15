@@ -7,6 +7,7 @@ from app.api import (
     analytics,
     audit,
     auth,
+    billing,
     brand,
     cf_db,
     content,
@@ -38,6 +39,7 @@ from app.api import (
 api_router = APIRouter()
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(content.router, prefix="/content", tags=["content"])
 api_router.include_router(media.router, prefix="/media", tags=["media"])
 api_router.include_router(media_enhance.router, prefix="/media/enhance", tags=["media-enhance"])
