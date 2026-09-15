@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || 'cb5e6e8b-b153-44e5-a6cf-e525723f2213';\nconst tone = body.tone || 'conversational';\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst tone = body.tone || 'conversational';\nconst imagePrompt = body.image_prompt || topic;\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -255,6 +255,47 @@
         960,
         100
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-publish-gate",
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        -40
+      ]
     }
   ],
   "connections": {
@@ -335,7 +376,7 @@
       "main": [
         [
           {
-            "node": "Publish Now",
+            "node": "Publish?",
             "type": "main",
             "index": 0
           }
@@ -344,6 +385,24 @@
     },
     "Publish Now": {
       "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Normalize Result",

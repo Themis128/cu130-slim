@@ -6,7 +6,10 @@
     {
       "name": "Weekly Monday 09:00 Athens",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -23,9 +26,12 @@
     {
       "name": "Resolve Weekly Post Config",
       "type": "n8n-nodes-base.code",
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    target_account_id: body.target_account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n  }\n}];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    target_account_id: body.target_account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n    publish: body.publish === false ? false : true,\n  }\n}];"
       },
       "typeVersion": 2,
       "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
@@ -33,7 +39,10 @@
     {
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [520, 0],
+      "position": [
+        520,
+        0
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
@@ -62,7 +71,10 @@
     {
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
-      "position": [740, 0],
+      "position": [
+        740,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -91,7 +103,10 @@
     {
       "name": "Run Weekly Post",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [980, -140],
+      "position": [
+        980,
+        -140
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
@@ -106,7 +121,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"title\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.title) }},\n  \"content\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.description) }},\n  \"link\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.link) }},\n  \"type\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.type) }},\n  \"target_account_id\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.target_account_id) }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.title + '\\n\\n' + $('Resolve Weekly Post Config').item.json.description) }},\n  \"link_url\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
         "options": {
           "timeout": 120000
         }
@@ -116,11 +131,82 @@
       "onError": "continueRegularOutput"
     },
     {
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1220,
+        -140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Weekly Post Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "publish-if-9c2e"
+    },
+    {
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1460,
+        -200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "typeVersion": 4.2,
+      "id": "publish-now-7f1a",
+      "onError": "continueRegularOutput"
+    },
+    {
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
-      "position": [1220, -140],
+      "position": [
+        1700,
+        -140
+      ],
       "parameters": {
-        "jsCode": "const cfg = $('Resolve Weekly Post Config').item.json;\nconst raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: ok ? 'created' : 'failed',\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: raw.status || (ok ? 'created' : 'failed'),\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
       },
       "typeVersion": 2,
       "id": "0d298c35-5103-41b2-91eb-7aba9940a842"
@@ -128,7 +214,10 @@
     {
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
-      "position": [980, 140],
+      "position": [
+        980,
+        140
+      ],
       "parameters": {
         "assignments": {
           "assignments": [
@@ -214,6 +303,35 @@
       "main": [
         [
           {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
             "node": "Normalize Result",
             "type": "main",
             "index": 0
@@ -231,5 +349,15 @@
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"
   },
-  "tags": ["cloudless", "linkedin", "weekly"]
+  "tags": [
+    {
+      "name": "cloudless"
+    },
+    {
+      "name": "linkedin"
+    },
+    {
+      "name": "weekly"
+    }
+  ]
 }

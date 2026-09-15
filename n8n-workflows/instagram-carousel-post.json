@@ -1,6 +1,6 @@
 {
   "id": "instagram-carousel-post",
-  "name": "Instagram Carousel Post (DMR\u2192CF)",
+  "name": "Instagram Carousel Post (DMR→CF)",
   "active": true,
   "nodes": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || null;\nconst numSlides = Math.max(2, Math.min(10, Number(body.num_slides || 5)));\nconst tone = body.tone || 'conversational';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, num_slides: numSlides, tone, platform: 'instagram', publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst numSlides = Math.max(2, Math.min(10, Number(body.num_slides || 5)));\nconst tone = body.tone || 'conversational';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, num_slides: numSlides, tone, platform: 'instagram', publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -100,7 +100,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/run-pipeline' }}",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-carousel-pipeline' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -112,13 +112,13 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Config').item.json.num_slides }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"text_provider\": \"dmr\",\n  \"account_id\": {{ JSON.stringify($('Resolve Config').item.json.account_id) }},\n  \"publish_now\": {{ $('Resolve Config').item.json.publish }}\n}",
+        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Config').item.json.num_slides }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }}\n}",
         "options": {
           "timeout": 300000
         }
       },
-      "id": "run-pipeline",
-      "name": "Run Carousel Pipeline (DMR\u2192CF)",
+      "id": "gen-carousel",
+      "name": "Generate Carousel (DMR→CF)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -129,14 +129,103 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $json;\nconst ok = !!(raw && (raw.id || raw.post_id || raw.carousel_id));\nreturn [{ json: { ok, platform: 'instagram', post_type: 'carousel', post_id: raw.id || raw.post_id || raw.carousel_id || null, status: raw.status || (ok ? 'queued' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'pipeline_failed') } }];"
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.media_ids || []) }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "create-post",
+      "name": "Create Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-publish",
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "publish-now",
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'instagram', post_type: 'carousel', post_id: raw.id || null, status: raw.status || (ok ? 'draft' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'carousel_failed') } }];"
       },
       "id": "normalize",
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1200,
+        1920,
         -80
       ]
     },
@@ -214,7 +303,7 @@
       "main": [
         [
           {
-            "node": "Run Carousel Pipeline (DMR\u2192CF)",
+            "node": "Generate Carousel (DMR→CF)",
             "type": "main",
             "index": 0
           }
@@ -228,7 +317,47 @@
         ]
       ]
     },
-    "Run Carousel Pipeline (DMR\u2192CF)": {
+    "Generate Carousel (DMR→CF)": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post": {
+      "main": [
+        [
+          {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
       "main": [
         [
           {

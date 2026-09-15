@@ -1,5 +1,5 @@
 {
-  "name": "Marketing Image Generation Hybrid",
+  "name": "Marketing Image Post (DMR caption + CF image)",
   "nodes": [
     {
       "parameters": {
@@ -7,230 +7,322 @@
           "item": [
             {
               "mode": "everyX",
-              "value": 6,
+              "value": 24,
               "unit": "hours"
             }
           ]
         }
       },
-      "name": "Cron Trigger",
+      "name": "Daily Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [180, 300]
+      "position": [
+        180,
+        300
+      ],
+      "id": "cron-marketing"
     },
     {
       "parameters": {
         "path": "marketing-trigger",
         "httpMethod": "POST",
-        "responseMode": "onReceived",
+        "responseMode": "lastNode",
         "responseData": {}
       },
       "name": "Webhook (Manual)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [180, 500],
-      "webhookId": "marketing-trigger"
+      "position": [
+        180,
+        500
+      ],
+      "webhookId": "marketing-trigger",
+      "id": "wh-marketing"
     },
     {
       "parameters": {
-        "values": {
-          "string": [
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless cloud hosting';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst tone = body.tone || 'professional';\nconst imagePrompt = body.image_prompt || ('Marketing image for: ' + topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.');\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'twitter' } }];"
+      },
+      "name": "Resolve Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        400
+      ],
+      "id": "resolve-config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
             {
-              "name": "raw_prompt",
-              "value": "A modern eco-friendly product shot on a white background, vibrant colors, studio lighting"
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
             },
             {
-              "name": "caption",
-              "value": "Check out our latest product shot! #marketing"
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
             }
           ]
         },
-        "options": {}
-      },
-      "name": "Default Prompt (Cron)",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 1,
-      "position": [420, 300]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/generate",
-        "jsonParameters": true,
         "options": {
-          "bodyContent": {
-            "model": "llama3.1:8b",
-            "prompt": "=Enhance this marketing image prompt for better AI image generation. Return ONLY the enhanced prompt, no preamble:\n\n{{$json[\"raw_prompt\"]}}",
-            "stream": false,
-            "temperature": 0.7
-          }
+          "timeout": 30000
         }
       },
-      "name": "Ollama Prompt Enhance",
+      "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [640, 300],
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "command": "=node /scripts/inject_prompt.js /workflows/marketing-pipeline.json \"{{ $node[\"Ollama Prompt Enhance\"].json[\"response\"] || $json[\"raw_prompt\"] }}\" /tmp/marketing_workflow_injected.json"
-      },
-      "name": "Inject Prompt",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [860, 300]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://comfyui:8000/prompt",
-        "jsonParameters": true,
-        "options": {
-          "bodyContent": {
-            "prompt": "={{ $json[\"prompt\"] }}"
-          }
-        }
-      },
-      "name": "Call ComfyUI API",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [1300, 300]
-    },
-    {
-      "parameters": {
-        "functionCode": "const fs = require('fs');\nconst raw = fs.readFileSync('/tmp/marketing_workflow_injected.json', 'utf8');\nconst workflow = JSON.parse(raw);\nreturn [{json: {prompt: workflow, raw_prompt: $('Default Prompt (Cron)').item.json.raw_prompt || $('Webhook (Manual)').item.json.raw_prompt || ''}}];"
-      },
-      "name": "Read Injected Workflow",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1080, 300]
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ \"http://comfyui:8000/history/\" + $node[\"Call ComfyUI API\"].json[\"prompt_id\"] }}",
-        "responseFormat": "json",
-        "retryOnFail": true,
-        "retryInterval": 5000,
-        "maxRetries": 24
-      },
-      "name": "Poll ComfyUI History",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [1520, 300]
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ \"http://comfyui:8000/view?filename=\" + $node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"filename\"] + \"&subfolder=\" + ($node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"subfolder\"] || \"\") + \"&type=\" + ($node[\"Poll ComfyUI History\"].json[\"outputs\"][\"10\"][\"images\"][0][\"type\"] || \"output\") }}",
-        "responseFormat": "file"
-      },
-      "name": "Fetch Image",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [1740, 300]
-    },
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "seconds",
-              "secondsInterval": 0
-            }
-          ]
-        }
-      },
-      "name": "Wait for Approval",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1,
-      "position": [1960, 300],
-      "webhookId": "marketing-approval"
-    },
-    {
-      "parameters": {
-        "values": {
-          "string": [
-            {
-              "name": "approved",
-              "value": "={{ $json[\"approved\"] || \"false\" }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "name": "Check Approval",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 1,
-      "position": [2180, 300]
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        400
+      ],
+      "id": "login",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "boolean": [
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
             {
-              "value1": "={{ $json[\"approved\"] }}",
-              "value2": true
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
             }
-          ]
-        }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "name": "Is Approved?",
+      "name": "Login OK?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [2400, 300]
+      "typeVersion": 2.2,
+      "position": [
+        860,
+        400
+      ],
+      "id": "if-logged-in"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env[\"TWITTER_API_URL\"] }}",
-        "authentication": "bearerToken",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{ $env[\"TWITTER_BEARER_TOKEN\"] }}"
+              "value": "=Bearer {{ $json.access_token }}"
             }
           ]
         },
-        "jsonParameters": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"twitter\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false,\n  \"provider\": \"dmr\"\n}",
         "options": {
-          "bodyContent": {
-            "text": "={{ $node[\"Default Prompt (Cron)\"].json[\"caption\"] || \"New marketing image\" }}"
-          }
+          "timeout": 120000
         }
       },
-      "name": "Post to Twitter",
+      "name": "Generate Caption (DMR)",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [2620, 200],
-      "continueOnFail": true
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        320
+      ],
+      "id": "gen-caption",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "operation": "append",
-        "filePath": "=/home/node/.n8n/storage/metadata/run_log.csv",
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "csv": {
-            "headers": true,
-            "delimiter": ","
-          }
+          "timeout": 180000
         }
       },
-      "name": "Log Run",
-      "type": "n8n-nodes-base.writeBinaryFile",
-      "typeVersion": 1,
-      "position": [2620, 400]
+      "name": "Generate Image (CF FLUX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        320
+      ],
+      "id": "gen-image",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ $json.asset_id ? JSON.stringify([$json.asset_id]) : '[]' }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Create Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        320
+      ],
+      "id": "create-post",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1740,
+        320
+      ],
+      "id": "if-publish"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1960,
+        260
+      ],
+      "id": "publish-now",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'twitter', post_type: 'image', post_id: raw.id || null, status: raw.status || (ok ? 'draft' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
+      },
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        320
+      ],
+      "id": "normalize"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1080,
+        540
+      ],
+      "id": "login-failed"
     }
   ],
   "connections": {
-    "Cron Trigger": {
+    "Daily Trigger": {
       "main": [
         [
           {
-            "node": "Default Prompt (Cron)",
+            "node": "Resolve Config",
             "type": "main",
             "index": 0
           }
@@ -241,135 +333,109 @@
       "main": [
         [
           {
-            "node": "Ollama Prompt Enhance",
+            "node": "Resolve Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Default Prompt (Cron)": {
+    "Resolve Config": {
       "main": [
         [
           {
-            "node": "Ollama Prompt Enhance",
+            "node": "Login Social API",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama Prompt Enhance": {
+    "Login Social API": {
       "main": [
         [
           {
-            "node": "Inject Prompt",
+            "node": "Login OK?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Inject Prompt": {
+    "Login OK?": {
       "main": [
         [
           {
-            "node": "Read Injected Workflow",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Read Injected Workflow": {
-      "main": [
-        [
-          {
-            "node": "Call ComfyUI API",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Call ComfyUI API": {
-      "main": [
-        [
-          {
-            "node": "Poll ComfyUI History",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Poll ComfyUI History": {
-      "main": [
-        [
-          {
-            "node": "Fetch Image",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Image": {
-      "main": [
-        [
-          {
-            "node": "Wait for Approval",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wait for Approval": {
-      "main": [
-        [
-          {
-            "node": "Check Approval",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Approval": {
-      "main": [
-        [
-          {
-            "node": "Is Approved?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is Approved?": {
-      "main": [
-        [
-          {
-            "node": "Post to Twitter",
+            "node": "Generate Caption (DMR)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Log Run",
+            "node": "Login Failed",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Post to Twitter": {
+    "Generate Caption (DMR)": {
       "main": [
         [
           {
-            "node": "Log Run",
+            "node": "Generate Image (CF FLUX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post": {
+      "main": [
+        [
+          {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
             "type": "main",
             "index": 0
           }
@@ -379,7 +445,9 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "executionTimeout": 600
   },
   "id": "marketing-image-generation",
   "tags": [
@@ -387,10 +455,10 @@
       "name": "marketing"
     },
     {
-      "name": "comfyui"
+      "name": "image-generation"
     },
     {
-      "name": "image-generation"
+      "name": "dmr"
     }
   ]
 }

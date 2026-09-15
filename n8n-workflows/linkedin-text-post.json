@@ -1,6 +1,6 @@
 {
   "id": "linkedin-text-post",
-  "name": "LinkedIn Text Post (DMR\u2192CF)",
+  "name": "LinkedIn Text Post (DMR→CF)",
   "active": true,
   "nodes": [
     {
@@ -231,6 +231,47 @@
         960,
         120
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-publish-gate",
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        -20
+      ]
     }
   ],
   "connections": {
@@ -300,7 +341,7 @@
       "main": [
         [
           {
-            "node": "Publish Now",
+            "node": "Publish?",
             "type": "main",
             "index": 0
           }
@@ -309,6 +350,24 @@
     },
     "Publish Now": {
       "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Normalize Result",
