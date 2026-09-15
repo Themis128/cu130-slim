@@ -338,7 +338,7 @@ export default function AnalyticsPage() {
               <div>
                 <CardTitle>Engagement Over Time</CardTitle>
                 <CardDescription>
-                  Daily total engagements
+                  Daily impressions and engagements
                   {compareMode && ` — current vs prev ${days}d`}
                 </CardDescription>
               </div>
@@ -406,7 +406,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Platform Performance</CardTitle>
-            <CardDescription>Total engagement per platform</CardDescription>
+            <CardDescription>Impressions and engagement per platform</CardDescription>
           </CardHeader>
           <CardContent>
             {platformMetrics.length === 0 ? (
