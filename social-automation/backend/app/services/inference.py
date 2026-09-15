@@ -1714,13 +1714,23 @@ async def call_inference(
         last_error: HTTPException | None = None
         for candidate in attempt_providers:
             try:
+                # A @cf/... model name is meaningless to non-Cloudflare
+                # providers — drop it so DMR uses its own default instead of
+                # failing and wasting a fallback round-trip.
+                effective_override = model_override if candidate == provider_name else None
+                if (
+                    effective_override
+                    and candidate != "cloudflare"
+                    and _WORKERS_AI_MODEL_RE.fullmatch(effective_override.strip())
+                ):
+                    effective_override = None
                 result = await _do_call_inference(
                     prompt,
                     provider_name=candidate,
                     db=db,
                     team_id=team_id,
                     schema=schema,
-                    model_override=model_override if candidate == provider_name else None,
+                    model_override=effective_override,
                     max_tokens=max_tokens,
                     allow_fallback=False,
                 )
