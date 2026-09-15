@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.services.paddle_digest import send_paddle_digest_to_slack
 from app.services.slack_digest import run_daily_digest_for_all_teams
 from app.worker.tasks.digest import send_daily_slack_digest
 
@@ -121,6 +122,41 @@ async def trigger_daily_digest(
     if errors:
         msg += f"; issues: {errors[0]}"
     return DailyDigestResponse(reports=reports, message=msg)
+
+
+class PaddleDigestResponse(BaseModel):
+    text: str = ""
+    posted: bool = False
+    error: str | None = None
+
+
+@router.post("/paddle-digest", response_model=PaddleDigestResponse)
+async def trigger_paddle_digest(
+    post_to_slack: bool = Query(True),
+    current_user: User = Depends(get_current_user),
+) -> PaddleDigestResponse:
+    """Build Paddle usage/revenue digest; post to the configured #paddle channel."""
+    _ = current_user
+    result = await send_paddle_digest_to_slack(post_to_slack=post_to_slack)
+    return PaddleDigestResponse(
+        text=result.get("text", ""),
+        posted=result.get("posted", False),
+        error=result.get("error"),
+    )
+
+
+@router.get("/paddle-digest/preview", response_model=PaddleDigestResponse)
+async def preview_paddle_digest(
+    current_user: User = Depends(get_current_user),
+) -> PaddleDigestResponse:
+    """Preview the Paddle digest without posting to Slack."""
+    _ = current_user
+    result = await send_paddle_digest_to_slack(post_to_slack=False)
+    return PaddleDigestResponse(
+        text=result.get("text", ""),
+        posted=False,
+        error=None,
+    )
 
 
 @router.get("/daily-digest/preview", response_model=DailyDigestResponse)

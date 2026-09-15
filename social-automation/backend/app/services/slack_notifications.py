@@ -131,6 +131,24 @@ async def post_publishing_to_slack(text: str) -> None:
         logger.warning("Slack publishing webhook failed: %s", err)
 
 
+async def post_paddle_digest_to_slack(text: str) -> tuple[bool, str | None]:
+    """Post the Paddle usage/revenue digest to the configured billing channel."""
+    settings = get_settings()
+    channel_id = (settings.SLACK_PADDLE_CHANNEL_ID or "").strip()
+    if not settings.SLACK_PADDLE_WEBHOOK_URL and not channel_id:
+        return False, "Paddle digest Slack channel not configured"
+    ok, err, _ = await _post_slack_text(
+        text=text,
+        webhook_url=settings.SLACK_PADDLE_WEBHOOK_URL,
+        token=_get_slack_token(),
+        channel_id=channel_id,
+        purpose="paddle-digest",
+    )
+    if not ok:
+        logger.warning("Slack paddle digest failed: %s", err)
+    return ok, err
+
+
 async def post_thread_reply(*, channel_id: str, thread_ts: str, text: str) -> None:
     """Reply in-thread using Slack Web API token (best-effort)."""
     token = _get_slack_token()

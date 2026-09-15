@@ -300,6 +300,13 @@ class Settings(BaseSettings):
     SLACK_ALERTS_WEBHOOK_URL: str = ""
     SLACK_ALERTS_CHANNEL_ID: str = ""
 
+    # Paddle usage / revenue digest → #paddle (or a dedicated billing channel)
+    # Preferred: Incoming Webhook added to the billing/usage channel.
+    # Alternative: reuse SLACK_BOT_TOKEN / SLACK_ACCESS_TOKEN + SLACK_PADDLE_CHANNEL_ID.
+    SLACK_PADDLE_WEBHOOK_URL: str = ""
+    SLACK_PADDLE_CHANNEL_ID: str = ""
+    SLACK_PADDLE_DIGEST_HOUR: int = 10  # Europe/Athens via Celery timezone
+
     # Lead capture notifications (Meta organic messaging → SocialAuto Leads)
     # Optional. When empty, lead notifications fall back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID.
     SLACK_LEADS_WEBHOOK_URL: str = ""
