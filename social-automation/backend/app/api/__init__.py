@@ -29,6 +29,7 @@ from app.api import (
     tiktok,
     twitter_tiktok,
     usage,
+    web_analytics,
     whatsapp,
     whatsapp_flows,
     workflows,
@@ -67,3 +68,4 @@ api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
 api_router.include_router(twitter_tiktok.router, tags=["twitter-tiktok-dm"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
 api_router.include_router(digital_cards.router, prefix="/digital-cards", tags=["digital-cards"])
+api_router.include_router(web_analytics.router, prefix="/analytics/web", tags=["web-analytics"])

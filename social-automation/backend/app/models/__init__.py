@@ -9,6 +9,7 @@ from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
 from app.models.user import AuditLog, Team, TeamMember, User
+from app.models.web_analytics import WebAnalyticsConfig, WebAnalyticsEvent
 from app.models.workflow import ContentPromptTemplate, GeneratedWorkflow, PromptTemplate
 
 __all__ = [
@@ -46,4 +47,6 @@ __all__ = [
     "BrandAssetType",
     "SocialSecret",
     "DigitalCard",
+    "WebAnalyticsConfig",
+    "WebAnalyticsEvent",
 ]

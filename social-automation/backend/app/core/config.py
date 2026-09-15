@@ -311,6 +311,13 @@ class Settings(BaseSettings):
     CLOUDLESS_LEADS_WEBHOOK_URL: str = ""
     CLOUDLESS_LEADS_WEBHOOK_SECRET: str = ""
 
+    # Website analytics ingestion from cloudless.gr.
+    # Each tenant manages its own sink credentials; these defaults apply only to the
+    # shared cloudless.gr domain when no per-tenant config exists.
+    CLOUDLESS_WEB_ANALYTICS_DOMAIN: str = "cloudless.gr"
+    CLOUDLESS_WEB_ANALYTICS_SECRET: str = ""
+    CLOUDLESS_WEB_ANALYTICS_TEAM_ID: str = ""
+
     # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
     # EMAIL_PROVIDER=smtp|local|cloudflare
     # smtp = Resend (same free relay as omv-ha mail); cloudflare = paid, unused
