@@ -646,18 +646,20 @@ async def sync_facebook_account(
     since = datetime.now(UTC) - timedelta(days=days)
     captured_at = datetime.now(UTC)
 
-    # Get page token
-    page_token = token
+    # Prefer stored page_token from meta_data (avoids extra API call)
+    meta = account.meta_data or {}
+    page_token = meta.get("page_token") or token
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            facebook_graph_url("me/accounts"),
-            params={"access_token": token},
-        )
-        if resp.status_code == 200:
-            for acct in (resp.json() or {}).get("data", []):
-                if acct.get("id") == page_id:
-                    page_token = acct.get("access_token", token)
-                    break
+        if not meta.get("page_token"):
+            resp = await client.get(
+                facebook_graph_url("me/accounts"),
+                params={"access_token": token},
+            )
+            if resp.status_code == 200:
+                for acct in (resp.json() or {}).get("data", []):
+                    if acct.get("id") == page_id:
+                        page_token = acct.get("access_token", token)
+                        break
 
         targets_q = (
             select(PostTarget)
