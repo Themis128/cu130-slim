@@ -113,6 +113,9 @@ export default function BillingPage() {
         items: [{ priceId, quantity: 1 }],
         customData: { team_id: config.team_id },
         customer: { email: config.customer_email },
+        settings: {
+          successUrl: `${window.location.origin}/settings/billing?checkout=success`,
+        },
       })
       return
     }
@@ -163,15 +166,21 @@ export default function BillingPage() {
         <Script
           src="https://cdn.paddle.com/paddle/v2/paddle.js"
           onLoad={() => {
-            try {
-              window.Paddle?.Initialize({
-                token: config.client_token,
-                environment: config.environment === 'production' ? 'production' : 'sandbox',
-              })
-              setPaddleReady(true)
-            } catch {
-              // Paddle.js init failed — checkout falls back to hosted URL
-            }
+            setTimeout(() => {
+              try {
+                if (window.Paddle) {
+                  if (config.environment !== 'production') {
+                    window.Paddle.Environment.set('sandbox')
+                  }
+                  window.Paddle.Initialize({
+                    token: config.client_token,
+                  })
+                  setPaddleReady(true)
+                }
+              } catch (err) {
+                console.error('Paddle.js init failed:', err)
+              }
+            }, 100)
           }}
         />
       )}
