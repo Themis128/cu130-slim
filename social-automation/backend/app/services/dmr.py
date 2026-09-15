@@ -91,7 +91,7 @@ async def _check_dmr_health() -> bool:
     if _state.online is not None and (now - _state.last_check) < _HEALTH_CACHE_TTL:
         return _state.online
 
-    url = settings.DMR_URL.replace("/engines/llama.cpp/v1", "").rstrip("/")
+    url = _dmr_base_url()
     # If DMR_URL is empty, DMR is disabled
     if not settings.DMR_URL:
         _state.online = False
@@ -114,6 +114,81 @@ async def _check_dmr_health() -> bool:
 def _invalidate_health_cache() -> None:
     """Force the next health check to re-probe (call after a failure)."""
     _state.last_check = 0.0
+
+
+def _dmr_base_url() -> str:
+    """Base URL of the DMR runner (no /engines/... suffix)."""
+    base = getattr(settings, "DMR_BASE_URL", "") or ""
+    if base:
+        return base.rstrip("/")
+    return settings.DMR_URL.replace("/engines/llama.cpp/v1", "").rstrip("/")
+
+
+# ── Concurrency guard (VRAM protection on the 8GB card) ──────────────────────
+_concurrency_sem: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    """Lazy semaphore — created inside the running loop on first use."""
+    global _concurrency_sem
+    if _concurrency_sem is None:
+        _concurrency_sem = asyncio.Semaphore(
+            max(1, getattr(settings, "DMR_MAX_CONCURRENCY", 4))
+        )
+    return _concurrency_sem
+
+
+# ── Thinking-model output cleanup ────────────────────────────────────────────
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks (Qwen3 et al.) from output."""
+    if "<think>" not in text:
+        return text.strip()
+    return _THINK_RE.sub("", text).strip()
+
+
+async def validate_dmr_models() -> dict[str, Any]:
+    """Check which configured/expected models are present in the runner store.
+
+    Non-blocking diagnostic — used by health monitoring and admin status.
+    Returns {"online": bool, "expected": [...], "present": [...], "missing": [...]}.
+    """
+    expected = {
+        settings.DMR_TEXT_MODEL,
+        settings.DMR_TINY_MODEL,
+        getattr(settings, "DMR_CHATBOT_MODEL", ""),
+        settings.DMR_EMBEDDING_MODEL,
+        settings.DMR_VISION_MODEL,
+        "ai/qwen3:8b-q4_K_M",  # schema/JSON model
+    }
+    expected.discard("")
+    if not settings.DMR_URL:
+        return {"online": False, "expected": sorted(expected), "present": [], "missing": sorted(expected)}
+    try:
+        client = await _get_client()
+        resp = await client.get(
+            f"{_dmr_base_url()}/engines/v1/models",
+            timeout=httpx.Timeout(5.0, connect=2.0),
+        )
+        if resp.status_code != 200:
+            return {"online": False, "expected": sorted(expected), "present": [], "missing": sorted(expected)}
+        data = resp.json()
+        present_ids = {m.get("id", "") for m in data.get("data", [])}
+        # Runner reports full refs like "docker.io/ai/llama3.2:latest" — match on suffix
+        present = {e for e in expected if any(p.endswith(e.split("ai/")[-1]) or e in p for p in present_ids)}
+        missing = expected - present
+        return {
+            "online": True,
+            "expected": sorted(expected),
+            "present": sorted(present),
+            "missing": sorted(missing),
+            "available_models": sorted(present_ids),
+        }
+    except Exception as exc:
+        logger.warning("DMR model validation failed: %s", exc)
+        return {"online": False, "expected": sorted(expected), "present": [], "missing": sorted(expected), "error": str(exc)}
 
 
 # ── CLI fallback (improvement #1) ─────────────────────────────────────────────
