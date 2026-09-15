@@ -322,12 +322,12 @@ class TestArchitectureDefaults:
         fields = Settings.model_fields
         assert fields["DMR_TEXT_MODEL"].default == "ai/llama3.2"
 
-    def test_generate_content_default_provider_is_cloudflare(self):
-        """GenerateContentRequest.provider must default to 'cloudflare'."""
+    def test_generate_content_default_provider_is_dmr(self):
+        """GenerateContentRequest.provider must default to 'dmr'."""
         from app.api.ai import GenerateContentRequest
         req = GenerateContentRequest(prompt="test", platform="linkedin")
-        # The default provider field should be cloudflare (not dmr)
-        assert req.provider == "cloudflare"
+        # The default provider field should be dmr (local, free) with CF fallback
+        assert req.provider == "dmr"
 
     def test_generate_image_default_provider_is_local_diffusers(self):
         """GenerateImageRequest.provider must default to 'local-diffusers'."""

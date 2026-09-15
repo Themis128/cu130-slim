@@ -747,8 +747,8 @@ export default function CarouselNewPage() {
               <div className="col-span-2 flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3">
                 <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-medium">Powered by Cloudflare Workers AI</p>
-                  <p className="text-xs text-muted-foreground">Text: llama-3.3-70b · Images: FLUX Schnell · Fallback: HF → Ollama</p>
+                  <p className="text-sm font-medium">Powered by Docker Model Runner</p>
+                  <p className="text-xs text-muted-foreground">Text: qwen3-8b (local) · Images: FLUX Schnell · Fallback: Cloudflare Workers AI</p>
                 </div>
               </div>
             </div>
