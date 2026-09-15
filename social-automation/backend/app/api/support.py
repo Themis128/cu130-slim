@@ -1,7 +1,7 @@
 """User support endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,7 @@ class SupportReportOut(BaseModel):
 async def report_issue(
     data: SupportReportIn,
     request: Request,
+    post_to_slack: bool = Query(True, description="Build and post the report to the support Slack channel. Set to false for a dry-run."),
     current_user: User = Depends(get_current_user),
     team: Team = Depends(get_current_team),
     db: AsyncSession = Depends(get_db),
@@ -48,6 +49,7 @@ async def report_issue(
         reply_email=reply_email,
         ip=ip,
         user_agent=user_agent,
+        post_to_slack=post_to_slack,
     )
     return SupportReportOut(
         ok=report.get("ok", True),  # type: ignore[assignment]

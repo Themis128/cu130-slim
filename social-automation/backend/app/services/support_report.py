@@ -108,8 +108,9 @@ async def send_support_report(
     reply_email: str,
     ip: str | None = None,
     user_agent: str | None = None,
+    post_to_slack: bool = True,
 ) -> dict[str, bool | str | None]:
-    """Build and deliver the support report to the configured Slack channel."""
+    """Build and optionally deliver the support report to the configured Slack channel."""
     text = await build_support_report_text(
         user=user,
         team=team,
@@ -120,6 +121,8 @@ async def send_support_report(
         ip=ip,
         user_agent=user_agent,
     )
+    if not post_to_slack:
+        return {"ok": True, "posted": False, "error": None, "text": text}
     ok, err = await post_support_report_to_slack(text)
     if not ok:
         logger.warning("Support report to Slack failed: %s", err)
