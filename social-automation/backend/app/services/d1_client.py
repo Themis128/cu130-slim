@@ -54,6 +54,8 @@ class D1Client:
 
     @property
     def enabled(self) -> bool:
+        if not getattr(settings, "D1_ENABLED", True):
+            return False
         if self._enabled is None:
             self._enabled = all([self.account_id, self.api_token, self.db_id])
         return self._enabled

@@ -116,6 +116,8 @@ class Settings(BaseSettings):
     D1_SOCIAL_AUTOMATION_ID: str = ""
     D1_N8N_ID: str = ""
     D1_METABASE_ID: str = ""
+    # Master switch. Set to false to run Postgres-only and avoid all D1 writes/charges.
+    D1_ENABLED: bool = True
 
     # Cloudflare KV (cache + queue)
     KV_CACHE_NAMESPACE: str = ""
