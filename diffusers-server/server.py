@@ -33,6 +33,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("diffusers-server")
 
 MODEL_ID = os.environ.get("MODEL_ID", "stable-diffusion-v1-5/stable-diffusion-v1-5")
+ALLOWED_MODEL_IDS = {
+    model.strip()
+    for model in os.environ.get("ALLOWED_MODEL_IDS", "stable-diffusion-v1-5/stable-diffusion-v1-5").split(",")
+    if model.strip()
+}
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 TORCH_DTYPE = os.environ.get("TORCH_DTYPE", "float16")
 DEVICE = os.environ.get("DEVICE", "cuda")
@@ -57,6 +62,8 @@ _load_lock = threading.Lock()
 def _load_pipeline():
     """Load the Diffusers pipeline into VRAM with all optimisations enabled."""
     global _pipeline
+    if MODEL_ID not in ALLOWED_MODEL_IDS:
+        raise RuntimeError(f"MODEL_ID is not allowlisted: {MODEL_ID}")
     if _pipeline is not None:
         return _pipeline
 
