@@ -49,12 +49,15 @@ async def build_support_report_text(
     ]
 
     # Connected accounts
-    result = await db.execute(
-        select(SocialAccount)
-        .where(SocialAccount.team_id == team.id)
-        .order_by(SocialAccount.platform, SocialAccount.username)
-    )
-    accounts = result.scalars().all()
+    if team is not None:
+        result = await db.execute(
+            select(SocialAccount)
+            .where(SocialAccount.team_id == team.id)
+            .order_by(SocialAccount.platform, SocialAccount.username)
+        )
+        accounts = result.scalars().all()
+    else:
+        accounts = []
     lines.append(f"*Connected accounts ({len(accounts)})*")
     for a in accounts:
         expiry = (
@@ -70,15 +73,18 @@ async def build_support_report_text(
 
     # Recent posts (last 7 days)
     since = now - timedelta(days=7)
-    result = await db.execute(
-        select(Post)
-        .where(
-            Post.team_id == team.id,
-            Post.created_at >= since,
+    if team is not None:
+        result = await db.execute(
+            select(Post)
+            .where(
+                Post.team_id == team.id,
+                Post.created_at >= since,
+            )
+            .order_by(Post.created_at.desc())
         )
-        .order_by(Post.created_at.desc())
-    )
-    posts = result.scalars().all()
+        posts = result.scalars().all()
+    else:
+        posts = []
     failed = [p for p in posts if p.status == PostStatus.FAILED]
     lines += [
         "",
