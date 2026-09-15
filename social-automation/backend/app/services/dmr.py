@@ -278,7 +278,7 @@ def _has_vram_for_model(model: str) -> bool:
 
 async def _unload_idle_models() -> None:
     """Unload all running models to free VRAM (best effort)."""
-    url = settings.DMR_URL.replace("/engines/llama.cpp/v1", "").rstrip("/")
+    url = _dmr_base_url()
     try:
         client = await _get_client()
         await client.post(f"{url}/inference/unload", json={"all": True}, timeout=5.0)
@@ -366,7 +366,7 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
     if model in _keep_alive_configured:
         return  # already configured
 
-    url = settings.DMR_URL.replace("/engines/llama.cpp/v1", "").rstrip("/")
+    url = _dmr_base_url()
     try:
         client = await _get_client()
         resp = await client.post(
@@ -620,6 +620,10 @@ async def _call_dmr_chat_internal(
     if schema:
         user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
         user_msg += " /no_think"
+    elif "qwen3" in model.lower():
+        # Qwen3 thinks by default even for chat — suppress so replies don't
+        # contain reasoning blocks (think tags are also stripped below).
+        user_msg += " /no_think"
 
     messages = [
         {"role": "system", "content": sys_prompt},
@@ -661,10 +665,12 @@ async def _call_dmr_chat_internal(
 
     # Improvement #4: retry on cold-start timeout
     last_exc: Exception | None = None
+    sem = _get_semaphore()
     for attempt in range(2):  # 1 retry
         try:
             client = await _get_client()
-            resp = await client.post(url, json=payload, timeout=timeout)
+            async with sem:
+                resp = await client.post(url, json=payload, timeout=timeout)
             if resp.status_code != 200:
                 _invalidate_health_cache()
                 raise ConnectionError(f"DMR error {resp.status_code}: {resp.text[:400]}")
@@ -675,11 +681,11 @@ async def _call_dmr_chat_internal(
 
             # Tool calling response
             if msg.get("tool_calls"):
-                return {"tool_calls": msg["tool_calls"], "text": content}
+                return {"tool_calls": msg["tool_calls"], "text": _strip_think_tags(content)}
 
             if schema:
                 return _parse_json_response(content)
-            return {"text": content}
+            return {"text": _strip_think_tags(content)}
 
         except (httpx.TimeoutException, httpx.ConnectError, ConnectionError) as exc:
             last_exc = exc
@@ -854,10 +860,11 @@ async def call_dmr_vision(
     url = f"{settings.DMR_URL}/chat/completions"
     try:
         client = await _get_client()
-        resp = await client.post(url, json=payload, timeout=300.0)
+        async with _get_semaphore():
+            resp = await client.post(url, json=payload, timeout=300.0)
         if resp.status_code == 200:
             msg = resp.json()["choices"][0]["message"]
-            return msg.get("content") or msg.get("reasoning_content") or ""
+            return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
         logger.warning("DMR vision returned %s", resp.status_code)
     except Exception as exc:
         logger.warning("DMR vision failed (%s)", type(exc).__name__)
