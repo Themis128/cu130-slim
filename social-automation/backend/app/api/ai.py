@@ -59,7 +59,7 @@ class GenerateCarouselRequest(BaseModel):
     platform: str = "linkedin"
     tone: str = "professional"
     include_cta: bool = True
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 
@@ -78,7 +78,7 @@ class GenerateContentRequest(BaseModel):
     length: str = "medium"
     include_hashtags: bool = True
     include_emojis: bool = True
-    provider: str = "cloudflare"  # CF primary (0.5s 70B); DMR ai/llama3.2 fallback
+    provider: str = "dmr"  # DMR primary (local, free); CF Workers AI fallback
     model: str | None = None
     template_id: uuid.UUID | None = None
 
@@ -377,7 +377,7 @@ Return JSON with exactly:
         "required": ["prompt", "negative_prompt"],
     }
 
-    result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", schema=schema)
     raw_prompt = result.get("prompt", request.description)
     raw_neg = result.get("negative_prompt", "blurry, low quality, watermark, text overlay, logo, nsfw")
 
@@ -472,7 +472,7 @@ async def auto_configure(
             return ", ".join(str(x) for x in v)
         return str(v)
 
-    result = await call_inference(llm_prompt, provider_name="cloudflare", schema=schema)
+    result = await call_inference(llm_prompt, provider_name="dmr", schema=schema)
     raw_enhanced = _str_or_join(result.get("enhanced_prompt"))
     raw_neg = _str_or_join(result.get("negative_prompt"))
 
@@ -550,7 +550,7 @@ Return JSON with:
     }
 
     try:
-        result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
+        result = await call_inference(prompt, provider_name="dmr", schema=schema)
     except Exception:
         result = {
             "sentiment": "neutral",
@@ -1716,8 +1716,8 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
     content = result.get("content", "")
     content = await rewrite_plain_english(
         content,
-        provider_name=request.provider or "cloudflare",
-        model=request.model or (CF_TEXT_FREE if (request.provider or "cloudflare") == "cloudflare" else None),
+        provider_name=request.provider or "dmr",
+        model=request.model or (None if (request.provider or "dmr") != "cloudflare" else CF_TEXT_FREE),
         db=db,
         team_id=team_id_for_gen,
         context=f"{request.platform} post",
@@ -1755,7 +1755,7 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         hashtags=raw_hashtags,
         db=db,
         team_id=team.id if team else None,
-        provider_name=request.provider or "cloudflare",
+        provider_name=request.provider or "dmr",
         model=request.model,
         target_score=90,
         max_iterations=2,
@@ -1832,9 +1832,10 @@ Return JSON with: hashtags (array of strings without #)"""
         "required": ["hashtags"],
     }
 
-    # Use the full inference chain (Cloudflare-first) instead of Ollama-only,
-    # so hashtag suggestions benefit from the same provider fallback as content generation.
-    result = await call_inference(prompt, provider_name="cloudflare", db=db, schema=schema)
+    # Use the full inference chain (DMR-first with CF fallback) instead of
+    # a single provider, so hashtag suggestions benefit from the same
+    # provider fallback as content generation.
+    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema)
 
     hashtags = [str(h).lstrip("#").strip() for h in result.get("hashtags") or [] if str(h).strip()]
     return SuggestHashtagsResponse(hashtags=hashtags[:count])
@@ -1929,7 +1930,7 @@ Return JSON with:
         "required": ["safe", "rising", "niche"],
     }
 
-    result = await call_inference(prompt, provider_name="cloudflare", db=db, schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema)
 
     tiers: dict[str, list[HashtagTier]] = {"safe": [], "rising": [], "niche": []}
     flat: list[str] = []
@@ -2088,7 +2089,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
         "required": ["improved_content", "changes"],
     }
 
-    result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", schema=schema)
     improved = result.get("improved_content", request.content)
 
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
@@ -2105,7 +2106,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
         hashtags=[],
         db=db,
         team_id=team.id if team else None,
-        provider_name="cloudflare",
+        provider_name="dmr",
         target_score=90,
         max_iterations=2,
     )
@@ -2153,7 +2154,7 @@ Return JSON with:
         "required": ["intent", "platforms", "needs_image", "needs_scheduling", "schedule_hint", "data_sources", "complexity"],
     }
 
-    intent = await call_inference(intent_prompt, provider_name="cloudflare", schema=schema)
+    intent = await call_inference(intent_prompt, provider_name="dmr", schema=schema)
 
     # Find matching template
     template = None
@@ -2410,8 +2411,8 @@ Return JSON with:
     cleaned_slides, cleaned_caption, _nlp_report = await run_nlp_check_and_fix(
         slides=list(result.get("slides") or []),
         caption=result.get("suggested_caption", ""),
-        provider_name=request.provider or "cloudflare",
-        model=request.model or (CF_TEXT_FREE if (request.provider or "cloudflare") == "cloudflare" else None),
+        provider_name=request.provider or "dmr",
+        model=request.model or (CF_TEXT_FREE if (request.provider or "dmr") == "cloudflare" else None),
         db=db,
         team_id=team_id,
         force_fix=True,
@@ -2535,7 +2536,7 @@ async def generate_carousel_pipeline(
             platform=request.platform,
             tone=request.tone,
             include_cta=request.include_cta,
-            provider="cloudflare",
+            provider="dmr",
             model=request.text_model,
         ),
         current_user=current_user,
@@ -2555,7 +2556,7 @@ async def generate_carousel_pipeline(
     cleaned_slides, cleaned_caption, nlp_report = await run_nlp_check_and_fix(
         slides=slide_dicts,
         caption=copy.suggested_caption,
-        provider_name="cloudflare",
+        provider_name="dmr",
         model=request.text_model,
         db=db,
         team_id=team.id,
@@ -2685,7 +2686,7 @@ class RunCarouselAndPublishRequest(BaseModel):
     tone: str = "clear and friendly"
     include_cta: bool = True
     text_model: str = CF_TEXT_FREE
-    text_provider: str = "cloudflare"  # CF primary for copy; pipeline hardcodes DMR for NLP/title
+    text_provider: str = "dmr"  # DMR primary for copy; CF Workers AI fallback
     txt2img_model: str = CF_TXT2IMG_FREE
     target_account_id: str | None = None
     publish: bool = True

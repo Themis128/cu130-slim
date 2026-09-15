@@ -38,7 +38,7 @@ class GeneratePostRequest(BaseModel):
     include_hashtags: bool = True
     include_site_link: bool = True
     site: str = "www.cloudless.gr"
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 
@@ -57,7 +57,7 @@ class GenerateArticleRequest(BaseModel):
     sections: int = 5
     include_takeaways: bool = True
     include_cta: bool = True
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 
@@ -80,7 +80,7 @@ class GenerateArticleResponse(BaseModel):
 class GenerateHashtagsRequest(BaseModel):
     content: str
     count: int = 5
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 
@@ -96,7 +96,7 @@ class ImprovePostRequest(BaseModel):
     content: str
     goal: str = "engagement"
     tone: str = "professional"
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 
@@ -111,7 +111,7 @@ class GenerateCommentRequest(BaseModel):
     reply_context: str = ""
     tone: str = "professional"
     length: str = "short"
-    provider: str = "cloudflare"
+    provider: str = "dmr"
     model: str | None = None
 
 

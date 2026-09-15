@@ -133,7 +133,7 @@ async def analyze_sentiment(text: str, db: AsyncSession | None = None) -> dict[s
 
         result = await call_inference(
             prompt=f'Analyze the sentiment of this text. Return JSON with "sentiment" (positive/negative/neutral) and "score" (-1.0 to 1.0):\n\n"{text[:500]}"',
-            provider_name="cloudflare",
+            provider_name="dmr",
             db=db,
             schema={"type": "object", "properties": {
                 "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},

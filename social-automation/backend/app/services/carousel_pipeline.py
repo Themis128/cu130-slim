@@ -611,7 +611,7 @@ async def generate_carousel_copy(
     tone: str,
     include_cta: bool,
     text_model: str,
-    text_provider: str = "cloudflare",
+    text_provider: str = "dmr",
     db: AsyncSession,
     team_id,
 ) -> dict:
@@ -709,7 +709,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "cloudflare",   # CF primary for copy; DMR hardcoded for NLP/title below
+    text_provider: str = "dmr",   # DMR primary for copy; CF Workers AI fallback
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
@@ -756,7 +756,7 @@ async def run_cloudless_carousel_pipeline(
             tone=tone,
             include_cta=include_cta,
             text_model=CF_TEXT_FREE,
-            text_provider="cloudflare",
+            text_provider="dmr",
             db=db,
             team_id=team.id,
         )

@@ -264,7 +264,7 @@ Return JSON with:
     }
 
     try:
-        result = await call_inference(prompt, provider_name="cloudflare", schema=schema)
+        result = await call_inference(prompt, provider_name="dmr", schema=schema)
         return {
             "title": str(result.get("title", "")).strip(),
             "description": str(result.get("description", "")).strip(),

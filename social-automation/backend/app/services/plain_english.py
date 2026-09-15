@@ -228,7 +228,7 @@ def check_carousel_copy(slides: list[dict], caption: str) -> NlpCheckReport:
 async def rewrite_plain_english(
     text: str,
     *,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     db=None,
     team_id=None,
@@ -243,7 +243,7 @@ async def rewrite_plain_english(
     from app.services.cf_models import CF_TEXT_FREE
     from app.services.inference import call_inference
 
-    if model is None and (provider_name or "cloudflare") == "cloudflare":
+    if model is None and (provider_name or "dmr") == "cloudflare":
         model = CF_TEXT_FREE
 
     prompt = f"""Rewrite this {context} in plain English so everyday people understand it immediately.
@@ -284,7 +284,7 @@ async def fix_carousel_copy(
     *,
     slides: list[dict],
     caption: str,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     db=None,
     team_id=None,
@@ -294,7 +294,7 @@ async def fix_carousel_copy(
     """Rewrite flagged (or all, if force) carousel fields into plain English."""
     from app.services.cf_models import CF_TEXT_FREE
 
-    if model is None and (provider_name or "cloudflare") == "cloudflare":
+    if model is None and (provider_name or "dmr") == "cloudflare":
         model = CF_TEXT_FREE
     rewritten_fields: list[str] = []
     cleaned_slides: list[dict] = []
@@ -348,7 +348,7 @@ async def run_nlp_check_and_fix(
     *,
     slides: list[dict],
     caption: str,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     db=None,
     team_id=None,
@@ -361,7 +361,7 @@ async def run_nlp_check_and_fix(
     """
     from app.services.cf_models import CF_TEXT_FREE
 
-    if model is None and (provider_name or "cloudflare") == "cloudflare":
+    if model is None and (provider_name or "dmr") == "cloudflare":
         model = CF_TEXT_FREE
     report = check_carousel_copy(slides, caption)
     should_fix = force_fix or report.needs_fix
@@ -427,7 +427,7 @@ async def ensure_plain_english_carousel(
     *,
     slides: list[dict],
     caption: str,
-    provider_name: str = "cloudflare",
+    provider_name: str = "dmr",
     model: str | None = None,
     db=None,
     team_id=None,
