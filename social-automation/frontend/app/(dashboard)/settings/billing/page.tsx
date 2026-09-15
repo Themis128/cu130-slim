@@ -85,7 +85,7 @@ export default function BillingPage() {
       setPlans(pl.data.plans)
       setSub(s.data)
     } catch (e) {
-      toast.error(formatErrorToast(e, 'Failed to load billing'))
+      toast.error(formatErrorToast('Failed to load billing', e))
     } finally {
       setLoading(false)
     }
@@ -123,7 +123,7 @@ export default function BillingPage() {
         if (res.data.checkout_url) window.location.href = res.data.checkout_url
         else toast.error('Checkout URL unavailable — use Paddle.js overlay')
       })
-      .catch((e) => toast.error(formatErrorToast(e, 'Checkout failed')))
+      .catch((e) => toast.error(formatErrorToast('Checkout failed', e)))
       .finally(() => setBusyTier(null))
   }
 
@@ -133,7 +133,7 @@ export default function BillingPage() {
       const res = await billingApi.portal()
       if (res.data.portal_url) window.open(res.data.portal_url, '_blank')
     } catch (e) {
-      toast.error(formatErrorToast(e, 'Could not open billing portal'))
+      toast.error(formatErrorToast('Could not open billing portal', e))
     } finally {
       setPortalLoading(false)
     }
@@ -146,7 +146,7 @@ export default function BillingPage() {
       toast.success('Subscription will cancel at period end')
       load()
     } catch (e) {
-      toast.error(formatErrorToast(e, 'Cancel failed'))
+      toast.error(formatErrorToast('Cancel failed', e))
     }
   }
 
