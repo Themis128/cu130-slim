@@ -370,6 +370,10 @@ export default function AnalyticsPage() {
                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                       </linearGradient>
+                      <linearGradient id="impGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                     <XAxis
@@ -382,11 +386,12 @@ export default function AnalyticsPage() {
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
                       formatter={(value: number, name: string) => [
                         value.toLocaleString(),
-                        name === 'prev' ? 'Prev period' : 'Total',
+                        name === 'prev' ? 'Prev period' : name === 'impressions' ? 'Impressions' : name === 'value' ? 'Engagement' : name,
                       ]}
                       labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
                     />
-                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="Total" />
+                    <Area type="monotone" dataKey="impressions" stroke="#8b5cf6" strokeWidth={1.5} fillOpacity={1} fill="url(#impGrad)" name="impressions" />
+                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="value" />
                     {compareMode && (
                       <Line type="monotone" dataKey="prev" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="prev" />
                     )}
@@ -419,9 +424,13 @@ export default function AnalyticsPage() {
                     <YAxis dataKey="platform" type="category" width={80} className="text-xs capitalize" />
                     <Tooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
-                      formatter={(value: number) => [value.toLocaleString(), 'Engagements']}
+                      formatter={(value: number, name: string) => [
+                        value.toLocaleString(),
+                        name === 'total_impressions' ? 'Impressions' : 'Engagements',
+                      ]}
                     />
-                    <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="total_impressions" radius={[0, 4, 4, 0]} fill="#8b5cf6" fillOpacity={0.4} name="total_impressions" />
+                    <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]} name="total_engagement">
                       {platformMetrics.map((p, i) => (
                         <Cell key={`eng-${p.platform}-${i}`} fill={p.color} />
                       ))}
