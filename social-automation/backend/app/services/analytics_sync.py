@@ -843,7 +843,7 @@ async def _fetch_threads_account_insights(
     Returns a dict with aggregated views, likes, replies, reposts, quotes
     across all posts in the default 30-day window the API returns.
     """
-    url = f"https://graph.threads.net/v1.0/{user_id}/insights"
+    url = f"https://graph.threads.net/v1.0/{user_id}/threads_insights"
     params = {"metric": "views,likes,replies,reposts,quotes", "access_token": token}
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
