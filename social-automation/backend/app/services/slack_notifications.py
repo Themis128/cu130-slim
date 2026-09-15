@@ -149,6 +149,25 @@ async def post_paddle_digest_to_slack(text: str) -> tuple[bool, str | None]:
     return ok, err
 
 
+async def post_support_report_to_slack(text: str) -> tuple[bool, str | None]:
+    """Post a user support/troubleshooting report to the configured support channel."""
+    settings = get_settings()
+    webhook = (settings.SLACK_SUPPORT_WEBHOOK_URL or "").strip()
+    channel_id = (settings.SLACK_SUPPORT_CHANNEL_ID or "").strip()
+    if not webhook and not channel_id:
+        return False, "Support Slack channel not configured"
+    ok, err, _ = await _post_slack_text(
+        text=text,
+        webhook_url=webhook,
+        token=_get_slack_token(),
+        channel_id=channel_id,
+        purpose="support",
+    )
+    if not ok:
+        logger.warning("Slack support report failed: %s", err)
+    return ok, err
+
+
 async def post_thread_reply(*, channel_id: str, thread_ts: str, text: str) -> None:
     """Reply in-thread using Slack Web API token (best-effort)."""
     token = _get_slack_token()

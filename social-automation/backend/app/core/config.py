@@ -307,6 +307,12 @@ class Settings(BaseSettings):
     SLACK_PADDLE_CHANNEL_ID: str = ""
     SLACK_PADDLE_DIGEST_HOUR: int = 10  # Europe/Athens via Celery timezone
 
+    # User support / troubleshooting reports → #support (or #socialauto-support)
+    # Preferred: Incoming Webhook added to the support channel.
+    # Fallback: reuse SLACK_BOT_TOKEN / SLACK_ACCESS_TOKEN + SLACK_SUPPORT_CHANNEL_ID.
+    SLACK_SUPPORT_WEBHOOK_URL: str = ""
+    SLACK_SUPPORT_CHANNEL_ID: str = ""
+
     # Lead capture notifications (Meta organic messaging → SocialAuto Leads)
     # Optional. When empty, lead notifications fall back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID.
     SLACK_LEADS_WEBHOOK_URL: str = ""

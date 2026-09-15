@@ -10,10 +10,10 @@ from app.services.paddle_api import PaddleError, _request
 logger = logging.getLogger(__name__)
 
 
-def _money(cents: int | None) -> str:
+def _money(cents: int | None, currency: str = "USD") -> str:
     if cents is None:
         return "N/A"
-    return f"${cents / 100:,.2f}"
+    return f"{currency} {cents / 100:,.2f}"
 
 
 async def _list_paddle(path: str, params: dict | None = None, per_page: int = 100) -> list[dict]:
@@ -49,6 +49,7 @@ async def build_paddle_digest() -> str:
         "/transactions",
         {"status": "ready,billed,paid,refunded,canceled"},
     )
+    payouts = await _list_paddle("/payouts")
 
     active_subs = [s for s in subscriptions if s.get("status") == "active"]
     trialing = [s for s in subscriptions if s.get("status") == "trialing"]
@@ -107,6 +108,30 @@ async def build_paddle_digest() -> str:
         f"• Today: *{len(paid_today)}* transactions · *{_money(revenue_today)}*",
         f"• Recurring MRR (approx): *{_money(recurring_cents)}*",
     ]
+
+    paid_payouts = [p for p in payouts if p.get("status") == "paid"]
+    scheduled_payouts = [p for p in payouts if p.get("status") == "scheduled"]
+    paid_out = 0
+    for p in paid_payouts:
+        amounts = p.get("amounts", [])
+        for a in amounts:
+            paid_out += a.get("amount") or 0
+    scheduled_out = 0
+    for p in scheduled_payouts:
+        amounts = p.get("amounts", [])
+        for a in amounts:
+            scheduled_out += a.get("amount") or 0
+
+    payout_currencies = sorted({a.get("currency_code", "USD") for p in payouts for a in p.get("amounts", [])})
+
+    lines += [
+        "",
+        "*Payouts (money you earn)*",
+        f"• Paid to you: *{len(paid_payouts)}* payouts · *{_money(paid_out)}*",
+        f"• Scheduled / upcoming: *{len(scheduled_payouts)}* payouts · *{_money(scheduled_out)}*",
+    ]
+    if payout_currencies:
+        lines.append(f"• Currencies: *{', '.join(payout_currencies)}*")
 
     return "\n".join(lines)
 
