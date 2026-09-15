@@ -81,7 +81,8 @@ def _find_flow_file() -> Path:
     candidates: list[Path] = []
 
     # Host layout: .../cu130-slim/social-automation/backend/tests/unit/...
-    # parents[4] = .../cu130-slim
+    # parents[4] = .../cu130-slim — canonical flow file lives outside the
+    # backend build context at social-automation/flows/.
     try:
         candidates.append(
             test_path.parents[4] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json"
@@ -97,6 +98,13 @@ def _find_flow_file() -> Path:
     # Alternative container layout: /app/social-automation/flows/...
     candidates.append(
         test_path.parents[2] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json"
+    )
+
+    # In-image fallback: mirror committed under backend/tests/fixtures so the
+    # test runs on fresh images where social-automation/flows is out of the
+    # Docker build context. Keep it in sync when the flow JSON changes.
+    candidates.append(
+        test_path.parents[1] / "fixtures" / "whatsapp" / "cloudless-lead-capture.json"
     )
 
     for candidate in candidates:

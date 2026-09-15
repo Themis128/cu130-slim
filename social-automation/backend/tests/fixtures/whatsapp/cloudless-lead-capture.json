@@ -1,0 +1,170 @@
+{
+  "version": "5.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "WELCOME": ["CONTACT_DETAILS"],
+    "CONTACT_DETAILS": ["INTEREST"],
+    "INTEREST": ["THANK_YOU"],
+    "THANK_YOU": []
+  },
+  "screens": [
+    {
+      "id": "WELCOME",
+      "title": "Cloudless",
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Clear skies. Zero friction."
+          },
+          {
+            "type": "TextBody",
+            "text": "Quick 30 seconds so we can help properly."
+          },
+          {
+            "type": "TextBody",
+            "text": "cloudless.gr"
+          },
+          {
+            "type": "Footer",
+            "label": "Get started",
+            "on-click-action": {
+              "name": "navigate",
+              "next": { "type": "screen", "name": "CONTACT_DETAILS" },
+              "payload": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CONTACT_DETAILS",
+      "title": "Contact details",
+      "data": {
+        "name": { "type": "string", "__example__": "Jane Doe" },
+        "email": { "type": "string", "__example__": "jane@company.com" },
+        "company_size": { "type": "string", "__example__": "6-20" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "contact_form",
+            "children": [
+              { "type": "TextInput", "name": "name", "label": "Full name", "required": true },
+              { "type": "TextInput", "name": "email", "label": "Email", "input-type": "email", "required": true },
+              {
+                "type": "Dropdown",
+                "name": "company_size",
+                "label": "Company size",
+                "required": true,
+                "data-source": [
+                  { "id": "solo", "title": "Solo" },
+                  { "id": "2-5", "title": "2–5" },
+                  { "id": "6-20", "title": "6–20" },
+                  { "id": "21-50", "title": "21–50" },
+                  { "id": "51-200", "title": "51–200" },
+                  { "id": "200+", "title": "200+" }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": { "type": "screen", "name": "INTEREST" },
+                  "payload": {
+                    "name": "${form.name}",
+                    "email": "${form.email}",
+                    "company_size": "${form.company_size}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "INTEREST",
+      "title": "Your interest",
+      "data": {
+        "name": { "type": "string", "__example__": "Jane Doe" },
+        "email": { "type": "string", "__example__": "jane@company.com" },
+        "company_size": { "type": "string", "__example__": "6-20" },
+        "interest": { "type": "string", "__example__": "audit" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Thanks, ${data.name}." },
+          {
+            "type": "Form",
+            "name": "interest_form",
+            "children": [
+              {
+                "type": "RadioButtonsGroup",
+                "name": "interest",
+                "label": "What are you interested in?",
+                "required": true,
+                "data-source": [
+                  { "id": "cloud", "title": "Cloud" },
+                  { "id": "growth", "title": "Growth" },
+                  { "id": "audit", "title": "Free audit" }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Continue",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": { "type": "screen", "name": "THANK_YOU" },
+                  "payload": {
+                    "name": "${data.name}",
+                    "email": "${data.email}",
+                    "company_size": "${data.company_size}",
+                    "interest": "${form.interest}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "THANK_YOU",
+      "title": "Thank you",
+      "terminal": true,
+      "data": {
+        "name": { "type": "string", "__example__": "Jane Doe" },
+        "email": { "type": "string", "__example__": "jane@company.com" },
+        "company_size": { "type": "string", "__example__": "6-20" },
+        "interest": { "type": "string", "__example__": "audit" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "All set." },
+          { "type": "TextBody", "text": "We’ll get back to you shortly." },
+          {
+            "type": "Footer",
+            "label": "Finish",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "name": "${data.name}",
+                "email": "${data.email}",
+                "company_size": "${data.company_size}",
+                "interest": "${data.interest}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+
