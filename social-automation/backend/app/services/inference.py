@@ -648,7 +648,9 @@ async def _call_local_diffusers_txt2img(
         payload["seed"] = seed
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # 120s timeout: SD 1.5 cold-start model load can take ~55s on first request;
+        # warm requests finish in 2-5s.
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code != 200:
                 raise HTTPException(
