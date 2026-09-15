@@ -69,6 +69,11 @@ class Team(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     plan_tier: Mapped[str] = mapped_column(String(20), default="free", server_default="free", nullable=False)
+    # Paddle Billing linkage
+    paddle_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    paddle_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    subscription_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none", nullable=False)
+    subscription_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     owner: Mapped["User"] = relationship("User", back_populates="owned_teams", foreign_keys=[owner_id])

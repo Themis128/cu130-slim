@@ -352,6 +352,37 @@ class Settings(BaseSettings):
     DIGEST_EMAIL_ISSUES_ONLY: bool = False
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
 
+    # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
+    PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production
+    PADDLE_API_KEY: str = ""
+    PADDLE_CLIENT_TOKEN: str = ""  # client-side token for Paddle.js overlay
+    PADDLE_WEBHOOK_SECRET: str = ""
+    # Price IDs created in the Paddle catalog; map price_id -> plan_tier.
+    PADDLE_PRICE_PRO: str = ""
+    PADDLE_PRICE_BUSINESS: str = ""
+    PADDLE_PRICE_ENTERPRISE: str = ""
+    # Public URL of the frontend — used for Paddle checkout success redirect.
+    FRONTEND_URL: str = "https://social.cloudless.gr"
+
+    @property
+    def paddle_api_base(self) -> str:
+        if self.PADDLE_ENVIRONMENT.strip().lower() == "production":
+            return "https://api.paddle.com"
+        return "https://sandbox-api.paddle.com"
+
+    @property
+    def paddle_price_tiers(self) -> dict[str, str]:
+        """price_id -> plan_tier for catalog prices configured in env."""
+        return {
+            k: v
+            for k, v in {
+                self.PADDLE_PRICE_PRO: "pro",
+                self.PADDLE_PRICE_BUSINESS: "business",
+                self.PADDLE_PRICE_ENTERPRISE: "enterprise",
+            }.items()
+            if k
+        }
+
 
 @lru_cache
 def get_settings() -> Settings:

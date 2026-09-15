@@ -1,4 +1,5 @@
 from app.models.ai_usage import AIUsageLog
+from app.models.billing import BillingEvent
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines, BrandVisual, BrandVoice
 from app.models.brand_monitoring import BrandMention, CompetitorSnapshot  # noqa: F401
@@ -35,6 +36,7 @@ __all__ = [
     "PostAnalyticsSnapshot",
     "FollowerSnapshot",
     "AIUsageLog",
+    "BillingEvent",
     "Lead",
     "LeadSource",
     "LeadInterest",
