@@ -318,6 +318,15 @@ class Settings(BaseSettings):
     CLOUDLESS_WEB_ANALYTICS_SECRET: str = ""
     CLOUDLESS_WEB_ANALYTICS_TEAM_ID: str = ""
 
+    # Default GA4 / Plausible / Meta CAPI credentials for the env-fallback config.
+    GA4_MEASUREMENT_ID: str = ""
+    GA4_API_SECRET: str = ""
+    PLAUSIBLE_DOMAIN: str = ""
+    PLAUSIBLE_API_URL: str = "https://plausible.io/api/event"
+    PLAUSIBLE_API_KEY: str = ""
+    META_PIXEL_ID: str = ""
+    META_CAPI_ACCESS_TOKEN: str = ""
+
     # Free email digests → tbaltzakis@cloudless.gr mailbox (dedicated client / dovecot)
     # EMAIL_PROVIDER=smtp|local|cloudflare
     # smtp = Resend (same free relay as omv-ha mail); cloudflare = paid, unused

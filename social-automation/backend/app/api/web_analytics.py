@@ -94,6 +94,37 @@ def _verify_webhook_signature(payload: bytes, secret: str, signature: str | None
     return hmac.compare_digest(expected.lower(), signature.lower().lstrip("sha256=").strip())
 
 
+def _env_fallback_config(domain: str) -> WebAnalyticsConfig | None:
+    """Build a transient config from env vars for the default cloudless.gr domain.
+
+    This lets the webhook work before an admin creates a WebAnalyticsConfig row.
+    """
+    if not settings.CLOUDLESS_WEB_ANALYTICS_SECRET or not settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID:
+        return None
+    if settings.CLOUDLESS_WEB_ANALYTICS_DOMAIN.lower() != domain.lower():
+        return None
+    try:
+        team_id = __import__("uuid").UUID(settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID)
+    except ValueError:
+        return None
+    return WebAnalyticsConfig(
+        id=__import__("uuid").uuid4(),
+        team_id=team_id,
+        domain=domain,
+        webhook_secret=settings.CLOUDLESS_WEB_ANALYTICS_SECRET,
+        ga4_enabled=bool(settings.GA4_MEASUREMENT_ID and settings.GA4_API_SECRET),
+        ga4_measurement_id=settings.GA4_MEASUREMENT_ID or None,
+        ga4_api_secret=settings.GA4_API_SECRET or None,
+        plausible_enabled=bool(settings.PLAUSIBLE_DOMAIN),
+        plausible_domain=settings.PLAUSIBLE_DOMAIN or None,
+        plausible_api_url=settings.PLAUSIBLE_API_URL or None,
+        plausible_api_key=settings.PLAUSIBLE_API_KEY or None,
+        meta_capi_enabled=bool(settings.META_PIXEL_ID and settings.META_CAPI_ACCESS_TOKEN),
+        meta_pixel_id=settings.META_PIXEL_ID or None,
+        meta_capi_access_token=settings.META_CAPI_ACCESS_TOKEN or None,
+    )
+
+
 @router.post(
     "/webhooks/cloudless-analytics",
     response_model=WebEventOut,
@@ -113,14 +144,17 @@ async def receive_cloudless_event(
     if not signature:
         raise HTTPException(status_code=401, detail="Missing signature")
 
+    body = await request.body()
+
     config_result = await db.execute(
         select(WebAnalyticsConfig).where(WebAnalyticsConfig.domain == data.domain)
     )
     config = config_result.scalar_one_or_none()
-    if not config:
+    if config is None:
+        config = _env_fallback_config(data.domain)
+    if config is None:
         raise HTTPException(status_code=404, detail="Domain not configured")
 
-    body = await request.body()
     if not _verify_webhook_signature(body, config.webhook_secret, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
