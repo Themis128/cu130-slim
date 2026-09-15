@@ -72,11 +72,11 @@ async def test_dmr_primary_reply_used_when_dmr_succeeds():
 @pytest.mark.asyncio
 async def test_cloudflare_used_when_dmr_fails():
     *ctx, dmr_mock, cf_client = _base_patches(
-        dmr_exc=ConnectionError("DMR offline"), cf_text="CF reply"
+        dmr_exc=ConnectionError("DMR offline"), cf_text="CF reply?"
     )
     with ctx[0], ctx[1], ctx[2], ctx[3], ctx[4], ctx[5], ctx[6], ctx[7]:
         reply = await _call()
-    assert reply == "CF reply"
+    assert reply == "CF reply?"
     dmr_mock.assert_awaited_once()
     cf_client.post.assert_awaited_once()
 

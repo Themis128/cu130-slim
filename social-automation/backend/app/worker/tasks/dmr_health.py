@@ -27,7 +27,7 @@ _STATUS_TTL = 900  # 15 min — 3x the check interval
 
 def _run_async(coro):
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
     # Already inside a loop (unlikely for celery) — run in a new thread
@@ -55,6 +55,7 @@ async def _check() -> dict:
     }
     try:
         import redis.asyncio as aioredis
+
         from app.core.config import get_settings
         r = aioredis.from_url(get_settings().REDIS_URL)
         await r.setex(_STATUS_KEY, _STATUS_TTL, json.dumps(status))
