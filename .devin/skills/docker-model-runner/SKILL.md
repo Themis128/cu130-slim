@@ -12,7 +12,7 @@ fallback.
 ┌─────────────────────────────────────────────────────────────┐
 │  Host (RTX 3070 8GB VRAM)                                  │
 │                                                             │
-│  Docker Model Runner (port 12434)                          │
+│  Docker Model Runner (port 12435)                          │
 │  ├── llama.cpp engine (default, GGUF quantized)            │
 │  │   ├── ai/qwen3:8b-q4_K_M   (text, ~5GB VRAM)           │
 │  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
@@ -30,7 +30,7 @@ fallback.
          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Containers (social-api, workers)                           │
-│  DMR_URL = http://host.docker.internal:12434/engines/llama.cpp/v1 │
+│  DMR_URL = http://host.docker.internal:12435/engines/llama.cpp/v1 │
 │  LOCAL_DIFFUSERS_URL = http://local-diffusers:7860         │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -41,11 +41,11 @@ fallback.
 
 | Access from | URL |
 |-------------|-----|
-| Host | `http://localhost:12434` |
+| Host | `http://localhost:12435` |
 | Containers (Docker Desktop) | `http://model-runner.docker.internal` |
-| Containers (Docker Engine) | `http://host.docker.internal:12434` or `http://172.17.0.1:12434` |
+| Containers (Docker Engine) | `http://host.docker.internal:12435` or `http://172.17.0.1:12435` |
 
-> **WSL2 note**: On Docker Desktop/WSL2, the TCP port 12434 may not be
+> **WSL2 note**: On Docker Desktop/WSL2, the TCP port 12435 may not be
 > reachable from the host. Use `docker model` CLI commands as fallback.
 > All MCP tools and scripts automatically fall back to CLI when the API
 > is unreachable.
@@ -344,7 +344,7 @@ CLI commands when the HTTP API is unreachable (common on WSL2).
 ```
 
 Environment variables:
-- `DMR_BASE` — Base URL (default: `http://localhost:12434`)
+- `DMR_BASE` — Base URL (default: `http://localhost:12435`)
 - `DMR_TIMEOUT` — Request timeout in seconds (default: 120)
 
 ## Scripts
@@ -375,7 +375,7 @@ Environment variables:
 ### Check DMR health
 
 ```bash
-curl -sf http://localhost:12434/engines/v1/models | python3 -m json.tool
+curl -sf http://localhost:12435/engines/v1/models | python3 -m json.tool
 # OR
 docker model status
 ```
@@ -383,7 +383,7 @@ docker model status
 ### Quick chat test
 
 ```bash
-curl -s http://localhost:12434/engines/llama.cpp/v1/chat/completions \
+curl -s http://localhost:12435/engines/llama.cpp/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"ai/smollm2","messages":[{"role":"user","content":"Hello!"}]}' | jq -r '.choices[0].message.content'
 ```
@@ -391,7 +391,7 @@ curl -s http://localhost:12434/engines/llama.cpp/v1/chat/completions \
 ### Vision (multimodal)
 
 ```bash
-curl -s http://localhost:12434/engines/llama.cpp/v1/chat/completions \
+curl -s http://localhost:12435/engines/llama.cpp/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "ai/qwen3-vl",
@@ -405,7 +405,7 @@ curl -s http://localhost:12434/engines/llama.cpp/v1/chat/completions \
 ### Generate embeddings
 
 ```bash
-curl -s http://localhost:12434/engines/llama.cpp/v1/embeddings \
+curl -s http://localhost:12435/engines/llama.cpp/v1/embeddings \
   -H "Content-Type: application/json" \
   -d '{"model":"ai/qwen3-embedding","input":"test text"}' | jq '.data[0].embedding[:5]'
 ```
