@@ -1224,6 +1224,8 @@ services:
     - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-ai/qwen3:8b-q4_K_M}
     - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
     - TZ=Europe/Athens
+    extra_hosts:
+    - host.docker.internal:host-gateway
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9230/health || exit 1"]
       interval: 30s
