@@ -696,20 +696,29 @@ async def sync_facebook_account(
 async def _fetch_instagram_media_metrics(
     client: httpx.AsyncClient, token: str, ig_user_id: str, media_id: str,
 ) -> MetricBundle:
-    """Fetch insights for an Instagram media post via Graph API."""
+    """Fetch insights for an Instagram media post via Graph API.
+
+    Meta deprecated `impressions` for media insights in v22.0 (April 2025).
+    `views` is the replacement metric. `likes`, `comments`, `saves` remain.
+    """
     url = facebook_graph_url(f"{media_id}/insights")
+    # Try modern metrics first (views replaces impressions)
     params = {
-        "metric": "impressions,reach,likes,comments,saves",
+        "metric": "views,likes,comments,saves,shares",
         "access_token": token,
     }
     resp = await client.get(url, params=params)
     if resp.status_code != 200:
-        try:
-            err_data = resp.json()
-            err_msg = err_data.get("error", {}).get("message", resp.text[:200])
-        except Exception:
-            err_msg = resp.text[:200]
-        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
+        # Fallback to legacy metrics for older API versions
+        params["metric"] = "impressions,reach,likes,comments,saves"
+        resp = await client.get(url, params=params)
+        if resp.status_code != 200:
+            try:
+                err_data = resp.json()
+                err_msg = err_data.get("error", {}).get("message", resp.text[:200])
+            except Exception:
+                err_msg = resp.text[:200]
+            return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -720,11 +729,12 @@ async def _fetch_instagram_media_metrics(
         values = item.get("values", [])
         return int(values[0].get("value", 0) or 0) if values else 0
 
+    impressions = _val("views") or _val("impressions")
     return MetricBundle(
-        impressions=_val("impressions"),
+        impressions=impressions,
         likes=_val("likes"),
         comments=_val("comments"),
-        reach=_val("reach"),
+        reach=impressions,
         raw=data,
     )
 
