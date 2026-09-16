@@ -232,14 +232,55 @@ async def test_publish_twitter_thread(account, post):
 
 
 @pytest.mark.asyncio
-async def test_publish_twitter_quota_exceeded(account, post):
+async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
+    """402 credits-depleted falls back to the browser bridge (free path)."""
     fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "Quota"}))
+    fallback = AsyncMock(
+        return_value=pub.PublishResult(success=False, error="browser down")
+    )
+    monkeypatch.setattr(pub, "_publish_twitter_via_browser", fallback)
 
     with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
         result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
 
     assert result.success is False
-    assert "monthly write quota exhausted" in result.error
+    assert result.error == "browser down"
+    fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_publish_twitter_quota_browser_fallback_succeeds(account, post, monkeypatch):
+    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "Quota"}))
+    fallback = AsyncMock(
+        return_value=pub.PublishResult(
+            success=True,
+            platform_post_id="999",
+            platform_url="https://x.com/u/status/999",
+        )
+    )
+    monkeypatch.setattr(pub, "_publish_twitter_via_browser", fallback)
+
+    with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
+
+    assert result.success is True
+    assert result.platform_post_id == "999"
+
+
+def test_fit_x_limit_counts_weighted_chars():
+    """URLs count 23 (t.co); ellipsis/emoji count double."""
+    text = "a" * 278 + "…"  # 278*1 + 2 = 280 weighted, 279 raw
+    assert pub._x_weighted_len(text) == 280
+    assert pub._fit_x_limit(text) == text
+
+    over = "word " * 100  # 500 raw
+    trimmed = pub._fit_x_limit(over)
+    assert pub._x_weighted_len(trimmed) <= 280
+    assert trimmed.endswith("word")
+
+    linked = "check this https://cloudless.gr " + "x" * 300
+    trimmed = pub._fit_x_limit(linked)
+    assert pub._x_weighted_len(trimmed) <= 280
 
 
 @pytest.mark.asyncio
