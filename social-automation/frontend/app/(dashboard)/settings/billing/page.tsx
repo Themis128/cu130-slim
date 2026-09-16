@@ -174,6 +174,7 @@ export default function BillingPage() {
                   }
                   window.Paddle.Initialize({
                     token: config.client_token,
+                    pwCustomer: sub?.paddle_customer_id ? { id: sub.paddle_customer_id } : {},
                   })
                   setPaddleReady(true)
                 }
