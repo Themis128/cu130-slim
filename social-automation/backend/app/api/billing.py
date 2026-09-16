@@ -1,13 +1,17 @@
-"""Paddle Billing endpoints — plans, checkout, portal, subscription, webhooks.
+"""Billing endpoints — plans, checkout, portal, subscription, webhooks.
 
-Public/env-driven; all mutating endpoints except ``/webhook`` require team
-OWNER role. The webhook verifies ``Paddle-Signature`` (HMAC-SHA256) and is
-idempotent via the ``billing_events`` table.
+Provider is selected via ``BILLING_PROVIDER`` (``paddle`` | ``polar``).
+Paddle uses ``Paddle-Signature`` HMAC verification on ``/webhook``; Polar uses
+Standard Webhooks (``webhook-id``/``webhook-timestamp``/``webhook-signature``)
+on ``/polar-webhook``. Both are idempotent via the ``billing_events`` table.
+
+All mutating endpoints except the webhooks require team OWNER role.
 """
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -19,13 +23,21 @@ from app.core.config import get_settings
 from app.core.quotas import PLAN_LIMITS
 from app.models.billing import BillingEvent
 from app.models.user import Team, User
-from app.services import paddle_api
+from app.services import paddle_api, polar_api
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Tiers that may be purchased through Paddle checkout.
+# Tiers that may be purchased through checkout.
 PURCHASABLE_TIERS = ("pro", "business", "enterprise")
+
+_ACTIVE_SUB_STATUSES = ("active", "trialing", "past_due")
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class CheckoutRequest(BaseModel):
@@ -37,8 +49,19 @@ class CheckoutResponse(BaseModel):
     checkout_url: str | None
 
 
+def _provider() -> str:
+    return get_settings().billing_provider
+
+
 def _tier_price_id(tier: str) -> str | None:
+    """Paddle price_id (or Polar product_id) for a purchasable tier."""
     s = get_settings()
+    if _provider() == "polar":
+        return {
+            "pro": s.POLAR_PRODUCT_PRO,
+            "business": s.POLAR_PRODUCT_BUSINESS,
+            "enterprise": s.POLAR_PRODUCT_ENTERPRISE,
+        }.get(tier) or None
     return {
         "pro": s.PADDLE_PRICE_PRO,
         "business": s.PADDLE_PRICE_BUSINESS,
@@ -46,11 +69,18 @@ def _tier_price_id(tier: str) -> str | None:
     }.get(tier) or None
 
 
-def _require_paddle() -> None:
-    if not paddle_api.paddle_configured():
+def _billing_configured() -> bool:
+    if _provider() == "polar":
+        return polar_api.polar_configured()
+    return paddle_api.paddle_configured()
+
+
+def _require_billing() -> None:
+    if not _billing_configured():
+        provider = _provider()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Billing is not configured (PADDLE_API_KEY / PADDLE_CLIENT_TOKEN missing)",
+            detail=f"Billing is not configured ({provider} credentials missing)",
         )
 
 
@@ -67,18 +97,22 @@ async def billing_config(
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
-    """Frontend bootstrap: Paddle.js token, environment, tier→price map."""
+    """Frontend bootstrap: provider, client token (Paddle only), tier→price map."""
     s = get_settings()
+    provider = _provider()
+    configured = _billing_configured()
+    is_paddle = provider == "paddle"
     return {
-        "configured": paddle_api.paddle_configured(),
-        "environment": s.PADDLE_ENVIRONMENT,
+        "provider": provider,
+        "configured": configured,
+        "environment": s.PADDLE_ENVIRONMENT if is_paddle else s.POLAR_ENVIRONMENT,
         "team_id": str(team_id),
         "customer_email": current_user.email,
-        "client_token": s.PADDLE_CLIENT_TOKEN if paddle_api.paddle_configured() else None,
+        "client_token": s.PADDLE_CLIENT_TOKEN if (is_paddle and configured) else None,
         "prices": {
-            "pro": s.PADDLE_PRICE_PRO or None,
-            "business": s.PADDLE_PRICE_BUSINESS or None,
-            "enterprise": s.PADDLE_PRICE_ENTERPRISE or None,
+            "pro": _tier_price_id("pro"),
+            "business": _tier_price_id("business"),
+            "enterprise": _tier_price_id("enterprise"),
         },
     }
 
@@ -86,8 +120,7 @@ async def billing_config(
 @router.get("/plans")
 async def list_plans(team_id: TeamId, db: DbSession):
     """Public plan catalog — tiers, quota limits, configured price ids."""
-    s = get_settings()
-    price_for = {"pro": s.PADDLE_PRICE_PRO, "business": s.PADDLE_PRICE_BUSINESS, "enterprise": s.PADDLE_PRICE_ENTERPRISE}
+    price_for = {t: _tier_price_id(t) for t in PURCHASABLE_TIERS}
     return {
         "plans": [
             {
@@ -114,6 +147,9 @@ async def get_subscription(
         "subscription_period_end": team.subscription_period_end,
         "paddle_customer_id": team.paddle_customer_id,
         "paddle_subscription_id": team.paddle_subscription_id,
+        "polar_customer_id": team.polar_customer_id,
+        "polar_subscription_id": team.polar_subscription_id,
+        "provider": _provider(),
     }
 
 
@@ -124,20 +160,34 @@ async def create_checkout(
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
-    """Create a Paddle transaction and return its hosted checkout URL.
+    """Create a checkout and return its hosted checkout URL.
 
-    The frontend may also use Paddle.js overlay with the ``price_id`` from
-    ``/billing/config``; both paths set ``custom_data.team_id`` so the webhook
-    resolves the team without extra lookups.
+    Paddle: transaction + hosted checkout URL (frontend may also use the
+    Paddle.js overlay with the ``price_id`` from ``/billing/config``).
+    Polar: hosted checkout session URL — the frontend redirects to it.
+    Both paths embed the team id so webhooks resolve the team without lookups.
     """
-    _require_paddle()
+    _require_billing()
     if body.tier not in PURCHASABLE_TIERS:
         raise HTTPException(status_code=400, detail=f"Invalid tier '{body.tier}'")
     price_id = _tier_price_id(body.tier)
     if not price_id:
-        raise HTTPException(status_code=400, detail=f"No Paddle price configured for tier '{body.tier}'")
+        raise HTTPException(status_code=400, detail=f"No price configured for tier '{body.tier}'")
 
     team = await _get_team(team_id, db)
+    if _provider() == "polar":
+        try:
+            txn = await polar_api.create_checkout(
+                product_id=price_id,
+                team_id=str(team.id),
+                customer_id=team.polar_customer_id,
+                customer_email=current_user.email,
+                customer_name=current_user.name,
+            )
+        except polar_api.PolarError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return CheckoutResponse(transaction_id=txn["id"], checkout_url=txn["checkout_url"])
+
     try:
         customer_id = team.paddle_customer_id or await paddle_api.get_or_create_customer(
             str(team.id), current_user.email, current_user.name
@@ -162,9 +212,22 @@ async def customer_portal(
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
-    """Return a Paddle hosted customer-portal session URL."""
-    _require_paddle()
+    """Return a hosted customer-portal session URL (Paddle or Polar)."""
+    _require_billing()
     team = await _get_team(team_id, db)
+    if _provider() == "polar":
+        # Polar portals resolve the customer via its external_id (team UUID).
+        # Ensure the customer exists so the portal works pre-checkout too.
+        try:
+            if not team.polar_customer_id:
+                team.polar_customer_id = await polar_api.get_or_create_customer(
+                    str(team.id), current_user.email, current_user.name
+                )
+                await db.commit()
+            url = await polar_api.create_portal_session(str(team.id))
+        except polar_api.PolarError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"portal_url": url}
     if not team.paddle_customer_id:
         raise HTTPException(status_code=400, detail="No Paddle customer for this team")
     try:
@@ -181,8 +244,22 @@ async def cancel_subscription(
     current_user: User = Depends(require_team_owner),
 ):
     """Cancel at period end. Tier stays until the period lapses."""
-    _require_paddle()
+    _require_billing()
     team = await _get_team(team_id, db)
+    if _provider() == "polar":
+        if not team.polar_subscription_id:
+            raise HTTPException(status_code=400, detail="No active subscription")
+        try:
+            sub = await polar_api.cancel_subscription(team.polar_subscription_id)
+        except polar_api.PolarError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        team.subscription_status = "canceled_pending"
+        end = _parse_dt(sub.get("current_period_end"))
+        if end:
+            team.subscription_period_end = end
+        await db.commit()
+        return {"status": "canceled_pending", "period_end": team.subscription_period_end}
+
     if not team.paddle_subscription_id:
         raise HTTPException(status_code=400, detail="No active subscription")
     try:
@@ -190,11 +267,9 @@ async def cancel_subscription(
     except paddle_api.PaddleError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     team.subscription_status = "canceled_pending"
-    period = (sub.get("current_billing_period") or {}).get("ends_at")
-    if period:
-        from datetime import datetime
-
-        team.subscription_period_end = datetime.fromisoformat(period.replace("Z", "+00:00"))
+    end = _parse_dt((sub.get("current_billing_period") or {}).get("ends_at"))
+    if end:
+        team.subscription_period_end = end
     await db.commit()
     return {"status": "canceled_pending", "period_end": team.subscription_period_end}
 
@@ -205,9 +280,24 @@ async def sync_subscription(
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
-    """Pull latest subscription state from Paddle and reconcile the team row."""
-    _require_paddle()
+    """Pull latest subscription state from the provider and reconcile."""
+    _require_billing()
     team = await _get_team(team_id, db)
+    if _provider() == "polar":
+        if not team.polar_subscription_id:
+            raise HTTPException(status_code=400, detail="No Polar subscription linked")
+        try:
+            sub = await polar_api.get_subscription(team.polar_subscription_id)
+        except polar_api.PolarError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _apply_polar_subscription(team, sub)
+        await db.commit()
+        return {
+            "plan_tier": team.plan_tier,
+            "subscription_status": team.subscription_status,
+            "subscription_period_end": team.subscription_period_end,
+        }
+
     if not team.paddle_subscription_id:
         raise HTTPException(status_code=400, detail="No Paddle subscription linked")
     try:
@@ -227,18 +317,38 @@ def _apply_subscription(team: Team, sub: dict) -> None:
     """Map a Paddle subscription object onto the team row."""
     team.paddle_subscription_id = sub.get("id", team.paddle_subscription_id)
     team.subscription_status = sub.get("status", team.subscription_status)
-    period = (sub.get("current_billing_period") or {}).get("ends_at")
-    if period:
-        from datetime import datetime
-
-        team.subscription_period_end = datetime.fromisoformat(period.replace("Z", "+00:00"))
+    end = _parse_dt((sub.get("current_billing_period") or {}).get("ends_at"))
+    if end:
+        team.subscription_period_end = end
     items = sub.get("items") or []
     price_id = ((items[0].get("price") or {}).get("id")) if items else None
     if price_id:
         tier = paddle_api.tier_for_price(price_id)
-        if tier and sub.get("status") in ("active", "trialing", "past_due"):
+        if tier and sub.get("status") in _ACTIVE_SUB_STATUSES:
             team.plan_tier = tier
     if sub.get("status") in ("canceled", "expired"):
+        team.plan_tier = "free"
+
+
+def _apply_polar_subscription(team: Team, sub: dict) -> None:
+    """Map a Polar subscription object onto the team row."""
+    team.polar_subscription_id = sub.get("id", team.polar_subscription_id)
+    customer_id = sub.get("customer_id") or (sub.get("customer") or {}).get("id")
+    if customer_id:
+        team.polar_customer_id = customer_id
+    status_ = sub.get("status", team.subscription_status)
+    if sub.get("cancel_at_period_end") and status_ in _ACTIVE_SUB_STATUSES:
+        status_ = "canceled_pending"
+    team.subscription_status = status_
+    end = _parse_dt(sub.get("current_period_end") or sub.get("ends_at"))
+    if end:
+        team.subscription_period_end = end
+    product_id = sub.get("product_id") or (sub.get("product") or {}).get("id")
+    if product_id:
+        tier = polar_api.tier_for_product(product_id)
+        if tier and sub.get("status") in _ACTIVE_SUB_STATUSES:
+            team.plan_tier = tier
+    if sub.get("status") in ("canceled", "unpaid") or sub.get("ended_at"):
         team.plan_tier = "free"
 
 
@@ -357,6 +467,140 @@ async def _handle_subscription_event(
             "billing_past_due",
         )
     elif event_type in ("subscription.canceled", "subscription.expired"):
+        team.subscription_status = data.get("status", "canceled")
+        team.plan_tier = "free"
+        await _notify_team_owner(
+            db, team,
+            "SocialAuto subscription ended",
+            "Your subscription has ended and the team is now on the free plan.",
+            "billing_canceled",
+        )
+    elif event_type == "subscription.paused":
+        team.subscription_status = "paused"
+
+
+# ---------------------------------------------------------------------------
+# Polar.sh (Standard Webhooks)
+# ---------------------------------------------------------------------------
+
+
+async def _find_team_for_polar_event(db: AsyncSession, data: dict) -> Team | None:
+    """Resolve the team for a Polar event via external_id → metadata → customer_id."""
+    candidates = [
+        (data.get("customer") or {}).get("external_id"),
+        (data.get("metadata") or {}).get("team_id"),
+        data.get("external_customer_id"),
+    ]
+    for cand in candidates:
+        if not cand:
+            continue
+        try:
+            team = (
+                await db.execute(select(Team).where(Team.id == uuid.UUID(str(cand))))
+            ).scalar_one_or_none()
+            if team:
+                return team
+        except (ValueError, TypeError):
+            continue
+    customer_id = data.get("customer_id") or (data.get("customer") or {}).get("id")
+    if customer_id:
+        return (
+            await db.execute(select(Team).where(Team.polar_customer_id == customer_id))
+        ).scalar_one_or_none()
+    return None
+
+
+@router.post("/polar-webhook")
+async def polar_webhook(request: Request, db: DbSession):
+    """Polar notification webhook — Standard Webhooks verified, idempotent.
+
+    Configure the endpoint (via Polar dashboard or ``POST /v1/webhooks/endpoints``)
+    to ``POST /api/v1/billing/polar-webhook`` and set ``POLAR_WEBHOOK_SECRET``.
+    The ``webhook-id`` header is the delivery id — stable across retries — and
+    serves as the idempotency key in ``billing_events``.
+    """
+    raw = await request.body()
+    event_id = request.headers.get("webhook-id", "")
+    if not polar_api.verify_webhook_signature(
+        raw,
+        event_id,
+        request.headers.get("webhook-timestamp", ""),
+        request.headers.get("webhook-signature", ""),
+    ):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from None
+
+    event_type = event.get("type", "unknown")
+    data = event.get("data") or {}
+
+    existing = (
+        await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))
+    ).scalar_one_or_none()
+    if existing:
+        return {"status": "duplicate", "event_id": event_id}
+
+    row = BillingEvent(event_id=event_id, event_type=event_type, payload=event)
+    db.add(row)
+    team = await _find_team_for_polar_event(db, data)
+    if team:
+        row.team_id = team.id
+
+    try:
+        if event_type.startswith("subscription."):
+            await _handle_polar_subscription_event(db, team, event_type, data)
+        elif event_type == "order.paid":
+            # A paid order carrying a subscription links it to the team.
+            if team and data.get("subscription_id"):
+                team.polar_subscription_id = data["subscription_id"]
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        row.error = str(exc)[:2000]
+        await db.commit()
+        logger.exception("polar webhook %s (%s) failed", event_type, event_id)
+        raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
+
+    return {"status": "processed", "event_type": event_type}
+
+
+async def _handle_polar_subscription_event(
+    db: AsyncSession, team: Team | None, event_type: str, data: dict
+) -> None:
+    if not team:
+        logger.warning("polar webhook %s: no team resolved", event_type)
+        return
+
+    customer_id = data.get("customer_id") or (data.get("customer") or {}).get("id")
+    if customer_id:
+        team.polar_customer_id = customer_id
+
+    if event_type in (
+        "subscription.created",
+        "subscription.active",
+        "subscription.updated",
+        "subscription.resumed",
+        "subscription.uncanceled",
+    ):
+        _apply_polar_subscription(team, data)
+        if event_type == "subscription.active":
+            await _notify_team_owner(
+                db, team,
+                f"SocialAuto {team.plan_tier} subscription active",
+                f"Your {team.plan_tier} plan is now active.",
+                "billing_activated",
+            )
+    elif event_type == "subscription.past_due":
+        team.subscription_status = "past_due"
+        await _notify_team_owner(
+            db, team,
+            "SocialAuto payment failed",
+            "Your subscription payment failed. Update your payment method to keep your plan.",
+            "billing_past_due",
+        )
+    elif event_type in ("subscription.canceled", "subscription.revoked"):
         team.subscription_status = data.get("status", "canceled")
         team.plan_tier = "free"
         await _notify_team_owner(

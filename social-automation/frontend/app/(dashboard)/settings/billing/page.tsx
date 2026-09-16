@@ -19,6 +19,7 @@ declare global {
 }
 
 interface BillingConfig {
+  provider: 'paddle' | 'polar'
   configured: boolean
   environment: string
   team_id: string
@@ -40,6 +41,8 @@ interface Subscription {
   subscription_period_end: string | null
   paddle_customer_id: string | null
   paddle_subscription_id: string | null
+  polar_customer_id: string | null
+  polar_subscription_id: string | null
 }
 
 const TIER_LABELS: Record<string, string> = {
@@ -108,7 +111,7 @@ export default function BillingPage() {
   const openCheckout = (tier: string) => {
     if (!config) return
     const priceId = config.prices[tier]
-    if (paddleReady && window.Paddle && priceId) {
+    if (config.provider === 'paddle' && paddleReady && window.Paddle && priceId) {
       window.Paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
         customData: { team_id: config.team_id },
@@ -119,12 +122,12 @@ export default function BillingPage() {
       })
       return
     }
-    // Fallback: server-created hosted checkout
+    // Polar + Paddle fallback: server-created hosted checkout → redirect
     setBusyTier(tier)
     billingApi.checkout(tier)
       .then((res) => {
         if (res.data.checkout_url) window.location.href = res.data.checkout_url
-        else toast.error('Checkout URL unavailable — use Paddle.js overlay')
+        else toast.error('Checkout URL unavailable')
       })
       .catch((e) => toast.error(formatErrorToast('Checkout failed', e)))
       .finally(() => setBusyTier(null))
@@ -162,7 +165,7 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6 p-6 max-w-5xl">
-      {config?.configured && config.client_token && (
+      {config?.provider === 'paddle' && config.configured && config.client_token && (
         <Script
           src="https://cdn.paddle.com/paddle/v2/paddle.js"
           onLoad={() => {
@@ -208,18 +211,18 @@ export default function BillingPage() {
           )}
           {!config?.configured && (
             <p className="text-sm text-amber-600">
-              Billing is not configured yet — set PADDLE_API_KEY and PADDLE_CLIENT_TOKEN to enable checkout.
+              Billing is not configured yet — set the {config?.provider === 'polar' ? 'POLAR_ACCESS_TOKEN / POLAR_PRODUCT_*' : 'PADDLE_API_KEY / PADDLE_CLIENT_TOKEN'} variables to enable checkout.
             </p>
           )}
           <div className="flex gap-3">
-            {sub?.paddle_customer_id && (
+            {(sub?.paddle_customer_id || sub?.polar_customer_id || config?.provider === 'polar') && config?.configured && (
               <Button variant="outline" onClick={openPortal} disabled={portalLoading}>
                 {portalLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CreditCard className="h-4 w-4 mr-2" />}
                 Manage billing
                 <ExternalLink className="h-3 w-3 ml-1" />
               </Button>
             )}
-            {sub?.paddle_subscription_id && sub?.subscription_status === 'active' && (
+            {(sub?.paddle_subscription_id || sub?.polar_subscription_id) && sub?.subscription_status === 'active' && (
               <Button variant="outline" onClick={cancel}>
                 <XCircle className="h-4 w-4 mr-2" />
                 Cancel subscription

@@ -72,6 +72,9 @@ class Team(Base):
     # Paddle Billing linkage
     paddle_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     paddle_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Polar.sh Billing linkage (MoR replacement for Paddle)
+    polar_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    polar_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     subscription_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none", nullable=False)
     subscription_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

@@ -379,6 +379,45 @@ class Settings(BaseSettings):
     # Public URL of the frontend — used for Paddle checkout success redirect.
     FRONTEND_URL: str = "https://social.cloudless.gr"
 
+    # Billing provider switch: "paddle" | "polar". Polar is the Merchant of
+    # Record replacement after Paddle's policy rejection of AI products.
+    BILLING_PROVIDER: str = "paddle"
+
+    # Polar.sh Billing (Merchant of Record). sandbox until POLAR_ENVIRONMENT=production.
+    POLAR_ENVIRONMENT: str = "sandbox"  # sandbox | production
+    POLAR_ACCESS_TOKEN: str = ""  # Organization Access Token — server-side only
+    POLAR_WEBHOOK_SECRET: str = ""  # whsec_/polar_whs_ endpoint secret
+    # Polar product IDs; map product_id -> plan_tier. Polar prices are
+    # attached to products (one recurring price per product).
+    POLAR_PRODUCT_PRO: str = ""
+    POLAR_PRODUCT_BUSINESS: str = ""
+    POLAR_PRODUCT_ENTERPRISE: str = ""
+
+    @property
+    def polar_api_base(self) -> str:
+        if self.POLAR_ENVIRONMENT.strip().lower() == "production":
+            return "https://api.polar.sh/v1"
+        return "https://sandbox-api.polar.sh/v1"
+
+    @property
+    def polar_product_tiers(self) -> dict[str, str]:
+        """product_id -> plan_tier for Polar products configured in env."""
+        return {
+            k: v
+            for k, v in {
+                self.POLAR_PRODUCT_PRO: "pro",
+                self.POLAR_PRODUCT_BUSINESS: "business",
+                self.POLAR_PRODUCT_ENTERPRISE: "enterprise",
+            }.items()
+            if k
+        }
+
+    @property
+    def billing_provider(self) -> str:
+        """Normalized active billing provider."""
+        provider = self.BILLING_PROVIDER.strip().lower()
+        return provider if provider in {"paddle", "polar"} else "paddle"
+
     @property
     def paddle_api_base(self) -> str:
         if self.PADDLE_ENVIRONMENT.strip().lower() == "production":
