@@ -171,6 +171,28 @@ async def create_portal_session(customer_id: str) -> str:
     return data["link"]
 
 
+async def live_payments_enabled() -> bool:
+    """Probe whether the merchant is approved for live payments.
+
+    Dodo checks the ``MERCHANT_NOT_LIVE`` gate before validating the request
+    body, so a deliberately invalid product id is enough — no real checkout
+    is ever created. Returns True once the gate lifts (any response other
+    than the not-live error, including validation 422s).
+    """
+    try:
+        await _request(
+            "POST",
+            "/checkouts",
+            json={"product_cart": [{"product_id": "live-check-probe", "quantity": 1}]},
+        )
+        return True
+    except DodoError as exc:
+        if "live payments not enabled" in str(exc).lower():
+            return False
+        # Any other error (validation, bad product, ...) means the gate lifted.
+        return True
+
+
 def tier_for_product(product_id: str) -> str | None:
     """Map a Dodo product_id to a SocialAuto plan tier via env mapping."""
     return _settings().dodo_product_tiers.get(product_id)

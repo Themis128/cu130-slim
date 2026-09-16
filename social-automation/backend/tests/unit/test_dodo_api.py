@@ -224,6 +224,45 @@ def test_dm_auto_reply_is_paid_feature():
 
 
 @pytest.mark.asyncio
+async def test_live_payments_enabled_false_on_merchant_not_live(monkeypatch, dodo_settings):
+    """MERCHANT_NOT_LIVE 403 -> False (review still pending)."""
+
+    async def fake_request(method, path, **kwargs):
+        raise dodo_api.DodoError(
+            "Dodo POST /checkouts -> 403: Live payments not enabled for merchant"
+        )
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.live_payments_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_live_payments_enabled_true_on_success(monkeypatch, dodo_settings):
+    """A successful response means the gate is gone (impossible with a fake
+    product id, but covered for completeness)."""
+
+    async def fake_request(method, path, **kwargs):
+        return {"checkout_url": "https://example.com"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.live_payments_enabled() is True
+
+
+@pytest.mark.asyncio
+async def test_live_payments_enabled_true_on_validation_error(monkeypatch, dodo_settings):
+    """Once the gate lifts, the invalid probe product yields a 422-style
+    DodoError — any non-MERCHANT_NOT_LIVE error means live is enabled."""
+
+    async def fake_request(method, path, **kwargs):
+        raise dodo_api.DodoError(
+            "Dodo POST /checkouts -> 422: product_id invalid"
+        )
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.live_payments_enabled() is True
+
+
+@pytest.mark.asyncio
 async def test_billing_digest_dispatches_to_dodo(monkeypatch, dodo_settings):
     from app.services import paddle_digest
 

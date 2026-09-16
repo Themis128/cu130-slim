@@ -29,6 +29,7 @@ celery_app = Celery(
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.dmr_health",
+        "app.worker.tasks.dodo_live_check",
     ],
 )
 
@@ -147,6 +148,7 @@ celery_app.conf.update(
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
+        "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -302,6 +304,14 @@ celery_app.conf.update(
         "dmr-health-check": {
             "task": "app.worker.tasks.dmr_health.check_dmr_health",
             "schedule": 300.0,  # every 5 minutes
+            "options": {"queue": "default"},
+        },
+        # Watch for Dodo approving live payments (merchant review). Once the
+        # MERCHANT_NOT_LIVE gate lifts this alerts Slack and self-disables via
+        # the billing:dodo_live_confirmed Redis flag.
+        "dodo-live-check": {
+            "task": "app.worker.tasks.dodo_live_check.check_dodo_live",
+            "schedule": 1800.0,  # every 30 minutes
             "options": {"queue": "default"},
         },
     },
