@@ -549,34 +549,25 @@ async def _publish_twitter_via_browser(
 ) -> PublishResult:
     """Post a tweet through the browser bridge (x.com web composer).
 
-    Free fallback used when the X API returns 402 credits-depleted. Media is
-    base64-injected into the composer file input, so no shared filesystem is
-    required between the worker and browser-novnc containers.
+    Free fallback used when the X API returns 402 credits-depleted. Media
+    paths under /app/uploads are shared with the browser-novnc container
+    (same host dir mounted read-only), so the bridge can attach them via
+    Playwright's native set_input_files.
     """
     from app.services.browser_bridge import BrowserBridgeClient
     from app.services.browser_orchestrator import browser_session
 
-    image_b64: list[tuple[str, str]] = []
-    for p in media_paths[:4]:
-        if not p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-            continue
-        try:
-            with open(p, "rb") as fh:
-                mime = "image/png" if p.lower().endswith(".png") else "image/jpeg"
-                if p.lower().endswith(".gif"):
-                    mime = "image/gif"
-                elif p.lower().endswith(".webp"):
-                    mime = "image/webp"
-                image_b64.append((base64.b64encode(fh.read()).decode(), mime))
-        except OSError:
-            continue
+    image_paths = [
+        p for p in media_paths[:4]
+        if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+    ]
 
     client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     try:
         # Hold the shared-browser lock so messenger pollers can't hijack
         # the session mid-compose.
         async with browser_session("twitter", client):
-            res = await client.post_tweet(text, image_b64 or None)
+            res = await client.post_tweet(text, image_paths or None)
     except Exception as exc:
         return PublishResult(
             success=False,

@@ -210,6 +210,23 @@ class BrowserBridgeClient:
                 raise BrowserBridgeError(resp.status_code, resp.text)
             return resp.json()
 
+    async def upload_file(
+        self, selector: str, file_path: str, click_selector: str | None = None
+    ) -> dict[str, Any]:
+        """Upload a file via the bridge's native Playwright set_input_files."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/session/upload",
+                json={
+                    "selector": selector,
+                    "file_path": file_path,
+                    "click_selector": click_selector,
+                },
+            )
+            if resp.status_code >= 400:
+                raise BrowserBridgeError(resp.status_code, resp.text)
+            return resp.json()
+
     # ── Threads profile via browser ─────────────────────────────────────
 
     async def get_threads_profile(self, username: str) -> dict[str, Any]:
@@ -1398,14 +1415,15 @@ class BrowserBridgeClient:
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
 
     async def post_tweet(
-        self, text: str, image_b64_list: list[tuple[str, str]] | None = None
+        self, text: str, image_paths: list[str] | None = None
     ) -> dict[str, Any]:
         """Post a tweet via the x.com web composer (free fallback for the
         paid X API — used when POST /2/tweets returns 402 credits-depleted).
 
-        ``image_b64_list`` items are ``(base64_data, mime)`` tuples; files are
-        injected into the composer file input via a DataTransfer so the media
-        never needs to exist on the bridge container's filesystem.
+        ``image_paths`` are host-visible media paths under ``/app/uploads``
+        (browser-novnc mounts the same uploads dir) and are attached via the
+        bridge's native ``set_input_files`` — synthetic DataTransfer
+        injection leaves X's upload spinner stuck forever.
         """
         session = await self.ensure_session("twitter")
         if session.get("status") != "active":
@@ -1462,26 +1480,15 @@ class BrowserBridgeClient:
         }""")
         await asyncio.sleep(1)
 
-        # Attach images through the composer's hidden file input
-        for b64, mime in (image_b64_list or [])[:4]:
-            resp = await self.evaluate(f"""() => {{
-                const input = document.querySelector('input[data-testid="fileInput"]');
-                if (!input) return {{ error: 'file input not found' }};
-                const byteChars = atob({_json.dumps(b64)});
-                const bytes = new Uint8Array(byteChars.length);
-                for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-                const file = new File([bytes], 'image.png', {{ type: {_json.dumps(mime)} }});
-                const dt = new DataTransfer();
-                dt.items.add(file);
-                input.files = dt.files;
-                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                return {{ status: 'attached', size: bytes.length }};
-            }}""")
-            r = resp.get("result", resp) if isinstance(resp, dict) else resp
-            if isinstance(r, dict) and r.get("error"):
-                return {"status": "error", "error": f"media attach failed: {r['error']}"}
-            # Wait for the media thumbnail/upload to finish (up to ~15s)
-            for _ in range(15):
+        # Attach images through the composer's hidden file input using the
+        # bridge's native set_input_files (trusted upload that completes).
+        for path in (image_paths or [])[:4]:
+            try:
+                await self.upload_file('input[data-testid="fileInput"]', path)
+            except BrowserBridgeError as exc:
+                return {"status": "error", "error": f"media attach failed: {exc}"}
+            # Wait for the media thumbnail/upload to finish (up to ~30s)
+            for _ in range(30):
                 await asyncio.sleep(1)
                 up = await self.evaluate("""() => ({
                     uploading: !!document.querySelector('[role="progressbar"]'),
