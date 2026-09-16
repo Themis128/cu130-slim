@@ -28,6 +28,7 @@ import os
 import secrets
 import time
 import urllib.parse
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -131,7 +132,7 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"Unsupported platform: {account.platform}")
 
     try:
-        if account.platform == "instagram":
+        if account.platform in ("instagram", "twitter"):
             return await fn(access_token, text, account, post, media_paths, storage_paths, db)
         return await fn(access_token, text, account, post, media_paths, storage_paths)
     except httpx.HTTPStatusError as exc:
@@ -436,6 +437,40 @@ def _split_thread(text: str, limit: int = 275) -> list[str]:
     return tweets
 
 
+async def _refresh_oauth2_token(account: SocialAccount, db: AsyncSession | None) -> str | None:
+    """Refresh an expired OAuth2 access token using the account's refresh token.
+
+    Used at publish time when the platform returns 401 — the scheduled hourly
+    refresh may lag (X tokens live 2h) or a past transient failure may have
+    marked the account expired. Persisting the rotated refresh token is
+    critical on X: refresh tokens are single-use.
+    """
+    if db is None or not getattr(account, "refresh_token_enc", None):
+        return None
+    try:
+        from app.api.auth import twitter_client
+        from app.core.security import encrypt_token as _enc
+
+        refresh_token = decrypt_token(account.refresh_token_enc)
+        token = await twitter_client.refresh_token(refresh_token)
+        new_access = token.get("access_token")
+        if not new_access:
+            return None
+        account.access_token_enc = _enc(new_access)
+        if token.get("refresh_token"):
+            account.refresh_token_enc = _enc(token["refresh_token"])
+        expires_in = token.get("expires_in")
+        if expires_in:
+            account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+        account.status = "active"
+        await db.commit()
+        logger.info("[twitter] refreshed OAuth2 token at publish time")
+        return new_access
+    except Exception as exc:
+        logger.warning("[twitter] publish-time token refresh failed: %s", exc)
+        return None
+
+
 async def _publish_twitter(
     access_token: str,
     text: str,
@@ -443,11 +478,14 @@ async def _publish_twitter(
     post: Post,
     media_paths: list[str],
     storage_paths: list[str] | None = None,
+    db: AsyncSession | None = None,
 ) -> PublishResult:
     """Publish to X/Twitter using TwitterAPIClient.
 
     Text + thread splitting via v2.  Image upload via v1.1 (OAuth 1.0a)
     when app-level credentials are configured; up to 4 images per tweet.
+    On 401 the OAuth2 token is refreshed once and the request retried —
+    X access tokens live only 2h, so self-heal instead of failing the post.
     """
     client = TwitterAPIClient(access_token=access_token)
 
@@ -463,6 +501,7 @@ async def _publish_twitter(
     tweets = _split_thread(text)
     first_id: str | None = None
     last_id: str | None = None
+    refreshed = False
 
     for i, chunk in enumerate(tweets):
         try:
@@ -471,15 +510,25 @@ async def _publish_twitter(
             result = await client.create_tweet(text=chunk, reply_tweet_id=last_id, media_ids=tweet_media_ids)
         except TwitterAPIError as exc:
             if exc.status_code == 402:
-                return PublishResult(
-                    success=False,
-                    error=(
-                        "X free tier monthly write quota exhausted (1,500 tweets/month). "
-                        "Quota resets on your billing date. Upgrade to X Basic ($100/month) "
-                        "for 3,000 tweets + media upload."
-                    ),
-                )
-            raise
+                # X API write credits exhausted — fall back to posting through
+                # the browser bridge (free path, same as the DM endpoints).
+                return await _publish_twitter_via_browser(account, text, post, media_paths)
+            if exc.status_code in (401, 403) and not refreshed:
+                refreshed = True
+                new_token = await _refresh_oauth2_token(account, db)
+                if new_token:
+                    client = TwitterAPIClient(access_token=new_token)
+                    try:
+                        result = await client.create_tweet(
+                            text=chunk, reply_tweet_id=last_id,
+                            media_ids=media_ids if i == 0 else None,
+                        )
+                    except TwitterAPIError:
+                        raise exc
+                else:
+                    raise
+            else:
+                raise
         tid = (result.get("data") or {}).get("id", "")
         if first_id is None:
             first_id = tid
@@ -490,6 +539,53 @@ async def _publish_twitter(
         platform_post_id=first_id,
         platform_url=f"https://twitter.com/{account.username}/status/{first_id}" if first_id else None,
     )
+
+
+async def _publish_twitter_via_browser(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Post a tweet through the browser bridge (x.com web composer).
+
+    Free fallback used when the X API returns 402 credits-depleted. Media is
+    base64-injected into the composer file input, so no shared filesystem is
+    required between the worker and browser-novnc containers.
+    """
+    from app.services.browser_bridge import BrowserBridgeClient
+
+    image_b64: list[tuple[str, str]] = []
+    for p in media_paths[:4]:
+        if not p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            continue
+        try:
+            with open(p, "rb") as fh:
+                mime = "image/png" if p.lower().endswith(".png") else "image/jpeg"
+                if p.lower().endswith(".gif"):
+                    mime = "image/gif"
+                elif p.lower().endswith(".webp"):
+                    mime = "image/webp"
+                image_b64.append((base64.b64encode(fh.read()).decode(), mime))
+        except OSError:
+            continue
+
+    client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+    try:
+        res = await client.post_tweet(text, image_b64 or None)
+    except Exception as exc:
+        return PublishResult(
+            success=False,
+            error=f"X API quota exhausted and browser fallback failed: {exc}",
+        )
+    if res.get("status") != "ok":
+        return PublishResult(
+            success=False,
+            error=f"X API quota exhausted and browser fallback failed: {res.get('error') or res.get('message')}",
+        )
+    url = res.get("url") or (f"https://x.com/{account.username}" if account.username else None)
+    post_id = url.rstrip("/").rsplit("/status/", 1)[-1] if url and "/status/" in url else None
+    return PublishResult(success=True, platform_post_id=post_id, platform_url=url)
 
 
 # ── LinkedIn ──────────────────────────────────────────────────────────────────

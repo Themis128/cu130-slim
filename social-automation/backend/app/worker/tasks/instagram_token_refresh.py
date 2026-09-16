@@ -146,7 +146,10 @@ async def _refresh_instagram_tokens_async() -> dict:
     async with _worker_db() as db:
         result = await db.execute(
             select(SocialAccount).where(
-                SocialAccount.platform == "instagram",
+                # Facebook user tokens power Instagram Graph API publishing
+                # (_resolve_ig_user_token) — they must be refreshed too, or IG
+                # publishing dies even when the IG account looks healthy.
+                SocialAccount.platform.in_(["instagram", "facebook"]),
                 SocialAccount.status == "active",
             )
         )
@@ -218,7 +221,8 @@ async def _refresh_instagram_tokens_async() -> dict:
                 continue
 
             # 2. Check token expiry — prefer the token_expires_at column,
-            #    fall back to legacy meta key.
+            #    fall back to legacy meta key, then debug_token for Meta
+            #    (EAA) tokens with no recorded expiry.
             expires_at: datetime | None = account.token_expires_at
             if expires_at is not None and expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=UTC)
@@ -229,6 +233,35 @@ async def _refresh_instagram_tokens_async() -> dict:
                         expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
                     except Exception:
                         expires_at = None
+            if expires_at is None and is_fb_token:
+                # debug_token returns the real expiry; expires_at=0 means a
+                # never-expiring token (e.g. long-lived Page token).
+                try:
+                    settings = get_settings()
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        dbg = await client.get(
+                            f"{GRAPH_FB_URL}/debug_token",
+                            params={
+                                "input_token": token,
+                                "access_token": f"{settings.FACEBOOK_CLIENT_ID}|{settings.FACEBOOK_CLIENT_SECRET}",
+                            },
+                        )
+                    d = (dbg.json() or {}).get("data", {}) if dbg.status_code == 200 else {}
+                    exp = d.get("expires_at") or d.get("data_access_expires_at")
+                    if exp:
+                        expires_at = datetime.fromtimestamp(int(exp), UTC)
+                    elif d.get("expires_at") == 0:
+                        meta["instagram_token_status"] = "valid"
+                        meta["token_never_expires"] = True
+                        meta["instagram_token_checked_at"] = datetime.now(UTC).isoformat()
+                        account.meta_data = meta
+                        flag_modified(account, "meta_data")
+                        await db.commit()
+                        stats["tokens_valid"] += 1
+                        logger.info("Meta token for account %s never expires — skipping", account.id)
+                        continue
+                except Exception as exc:
+                    logger.warning("debug_token lookup failed for account %s: %s", account.id, exc)
             # Backfill the column so future checks don't depend on meta.
             if expires_at is not None and account.token_expires_at is None:
                 account.token_expires_at = expires_at
@@ -236,6 +269,25 @@ async def _refresh_instagram_tokens_async() -> dict:
             needs_refresh = True
             if expires_at is not None:
                 days_until_expiry = (expires_at - datetime.now(UTC)).days
+                # Proactive reconnect alert — Meta user tokens cannot always
+                # be revived after expiry, so warn ahead of the deadline.
+                if 0 <= days_until_expiry <= 7 and not meta.get("expiry_alert_sent"):
+                    try:
+                        await post_alert_to_slack(
+                            "\n".join(
+                                [
+                                    f"*{account.platform.title()} token expires in {days_until_expiry}d*",
+                                    f"• Account: @{account.username or account.account_id}",
+                                    "• What to do: open SocialAuto → Accounts → Reconnect to keep auto-refresh working.",
+                                    "_Cloudless · Clear skies. Zero friction._",
+                                ]
+                            )[:2000]
+                        )
+                        meta["expiry_alert_sent"] = True
+                    except Exception:
+                        logger.debug("Slack expiry alert failed (non-fatal)", exc_info=True)
+                elif days_until_expiry > 7:
+                    meta.pop("expiry_alert_sent", None)
                 if days_until_expiry > REFRESH_THRESHOLD_DAYS:
                     needs_refresh = False
                     stats["tokens_valid"] += 1

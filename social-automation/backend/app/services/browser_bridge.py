@@ -1397,6 +1397,97 @@ class BrowserBridgeClient:
 
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
 
+    async def post_tweet(
+        self, text: str, image_b64_list: list[tuple[str, str]] | None = None
+    ) -> dict[str, Any]:
+        """Post a tweet via the x.com web composer (free fallback for the
+        paid X API — used when POST /2/tweets returns 402 credits-depleted).
+
+        ``image_b64_list`` items are ``(base64_data, mime)`` tuples; files are
+        injected into the composer file input via a DataTransfer so the media
+        never needs to exist on the bridge container's filesystem.
+        """
+        session = await self.ensure_session("twitter")
+        if session.get("status") != "active":
+            return {"status": "error", "error": session.get("message", "Twitter browser session not active"), **session}
+
+        await self.navigate("https://x.com/compose/post")
+        await asyncio.sleep(4)
+
+        import json as _json
+
+        escaped_text = _json.dumps(text)
+        type_response = await self.evaluate(f"""() => {{
+            const editor = document.querySelector(
+                'div[contenteditable="true"][data-testid="tweetTextarea_0"], ' +
+                'div[contenteditable="true"][role="textbox"]'
+            );
+            if (!editor) return {{ error: 'Could not find the tweet composer' }};
+            editor.focus();
+            document.execCommand('insertText', false, {escaped_text});
+            return {{ status: 'typed' }};
+        }}""")
+        result = type_response.get("result", type_response) if isinstance(type_response, dict) else type_response
+        if isinstance(result, dict) and result.get("error"):
+            return {"status": "error", "error": result["error"]}
+
+        # Attach images through the composer's hidden file input
+        for b64, mime in (image_b64_list or [])[:4]:
+            resp = await self.evaluate(f"""() => {{
+                const input = document.querySelector('input[data-testid="fileInput"]');
+                if (!input) return {{ error: 'file input not found' }};
+                const byteChars = atob({_json.dumps(b64)});
+                const bytes = new Uint8Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                const file = new File([bytes], 'image.png', {{ type: {_json.dumps(mime)} }});
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return {{ status: 'attached', size: bytes.length }};
+            }}""")
+            r = resp.get("result", resp) if isinstance(resp, dict) else resp
+            if isinstance(r, dict) and r.get("error"):
+                return {"status": "error", "error": f"media attach failed: {r['error']}"}
+            await asyncio.sleep(3)  # let the media thumbnail render
+
+        await asyncio.sleep(1)
+        post_response = await self.evaluate("""() => {
+            const btn = document.querySelector(
+                'button[data-testid="tweetButton"], ' +
+                'button[data-testid="tweetButtonInline"]'
+            );
+            if (!btn) return { error: 'Post button not found' };
+            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true')
+                return { error: 'Post button disabled' };
+            btn.click();
+            return { status: 'clicked' };
+        }""")
+        pr = post_response.get("result", post_response) if isinstance(post_response, dict) else post_response
+        if isinstance(pr, dict) and pr.get("error"):
+            return {"status": "error", "error": pr["error"]}
+
+        await asyncio.sleep(4)
+
+        # Composer closes on success — confirm it's gone
+        verify = await self.evaluate("""() => ({
+            composerOpen: !!document.querySelector('div[data-testid="tweetTextarea_0"]')
+        })""")
+        vr = verify.get("result", verify) if isinstance(verify, dict) else verify
+        if isinstance(vr, dict) and vr.get("composerOpen"):
+            return {"status": "error", "error": "Composer still open after Post click — tweet likely not sent"}
+
+        # Grab the newest tweet URL from the profile for the post record
+        await self.navigate("https://x.com/home")
+        await asyncio.sleep(4)
+        link_resp = await self.evaluate("""() => {
+            const a = document.querySelector('article a[href*="/status/"] time')?.closest('a');
+            return { url: a ? a.href : null };
+        }""")
+        lr = link_resp.get("result", link_resp) if isinstance(link_resp, dict) else link_resp
+        tweet_url = lr.get("url") if isinstance(lr, dict) else None
+        return {"status": "ok", "posted": True, "url": tweet_url}
+
     # ── TikTok DM (direct messages) ─────────────────────────────────────
     # TikTok's Business Messaging API is in Open Beta (APAC, LATAM, METAP,
     # NA) but not available in EU. These methods automate the TikTok web UI

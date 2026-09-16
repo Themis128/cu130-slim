@@ -81,10 +81,13 @@ async def _refresh_expiring_tokens_async() -> dict:
     cutoff = now + REFRESH_WINDOW
 
     async with _worker_db() as db:
-        # Find all active accounts with a refresh token that will expire soon
+        # Find all accounts with a refresh token that will expire soon.
+        # Include "expired" accounts: a past refresh failure marks the account
+        # expired, but the OAuth refresh token itself is often still valid —
+        # retrying lets transient failures self-heal instead of staying dead.
         result = await db.execute(
             select(SocialAccount).where(
-                SocialAccount.status == "active",
+                SocialAccount.status.in_(["active", "expired"]),
                 SocialAccount.refresh_token_enc.isnot(None),
                 SocialAccount.token_expires_at.isnot(None),
                 SocialAccount.token_expires_at <= cutoff,
