@@ -43,6 +43,8 @@ interface Subscription {
   paddle_subscription_id: string | null
   polar_customer_id: string | null
   polar_subscription_id: string | null
+  dodo_customer_id: string | null
+  dodo_subscription_id: string | null
 }
 
 const TIER_LABELS: Record<string, string> = {
@@ -58,6 +60,10 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secon
   trialing: { label: 'Trial', variant: 'secondary' },
   past_due: { label: 'Past due', variant: 'destructive' },
   paused: { label: 'Paused', variant: 'outline' },
+  on_hold: { label: 'Payment failed', variant: 'destructive' },
+  failed: { label: 'Failed', variant: 'destructive' },
+  pending: { label: 'Pending', variant: 'secondary' },
+  cancelled: { label: 'Canceled', variant: 'outline' },
   canceled: { label: 'Canceled', variant: 'outline' },
   canceled_pending: { label: 'Cancels at period end', variant: 'outline' },
   expired: { label: 'Expired', variant: 'destructive' },
@@ -215,14 +221,14 @@ export default function BillingPage() {
             </p>
           )}
           <div className="flex gap-3">
-            {(sub?.paddle_customer_id || sub?.polar_customer_id || config?.provider === 'polar') && config?.configured && (
+            {(sub?.paddle_customer_id || sub?.polar_customer_id || sub?.dodo_customer_id || (config?.provider && config.provider !== 'paddle')) && config?.configured && (
               <Button variant="outline" onClick={openPortal} disabled={portalLoading}>
                 {portalLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CreditCard className="h-4 w-4 mr-2" />}
                 Manage billing
                 <ExternalLink className="h-3 w-3 ml-1" />
               </Button>
             )}
-            {(sub?.paddle_subscription_id || sub?.polar_subscription_id) && sub?.subscription_status === 'active' && (
+            {(sub?.paddle_subscription_id || sub?.polar_subscription_id || sub?.dodo_subscription_id) && sub?.subscription_status === 'active' && (
               <Button variant="outline" onClick={cancel}>
                 <XCircle className="h-4 w-4 mr-2" />
                 Cancel subscription
