@@ -1492,19 +1492,20 @@ class BrowserBridgeClient:
                     break
 
         # The Post button stays disabled until React registers input state —
-        # poll for it to become enabled (up to ~10s).
+        # poll for it to become enabled (up to ~10s). If it never does, fall
+        # back to X's native Ctrl/Cmd+Enter composer shortcut.
         clicked = False
         last_err = "Post button not found"
         for _ in range(10):
             await asyncio.sleep(1)
             post_response = await self.evaluate("""() => {
-                const btn = document.querySelector(
+                const btns = [...document.querySelectorAll(
                     'button[data-testid="tweetButton"], ' +
                     'button[data-testid="tweetButtonInline"]'
-                );
-                if (!btn) return { error: 'Post button not found' };
-                if (btn.disabled || btn.getAttribute('aria-disabled') === 'true')
-                    return { error: 'Post button disabled' };
+                )];
+                if (!btns.length) return { error: 'Post button not found' };
+                const btn = btns.find(b => !b.disabled && b.getAttribute('aria-disabled') !== 'true');
+                if (!btn) return { error: 'Post button disabled' };
                 btn.click();
                 return { status: 'clicked' };
             }""")
@@ -1515,7 +1516,20 @@ class BrowserBridgeClient:
                     break
                 last_err = pr.get("error") or last_err
         if not clicked:
-            return {"status": "error", "error": last_err}
+            # Ctrl+Enter is X's native "post" shortcut — works even when the
+            # button's disabled flag didn't update from synthetic typing.
+            await self.evaluate("""() => {
+                const editor = document.querySelector(
+                    'div[contenteditable="true"][data-testid="tweetTextarea_0"], ' +
+                    'div[contenteditable="true"][role="textbox"]'
+                );
+                if (editor) {
+                    editor.focus();
+                    editor.dispatchEvent(new KeyboardEvent('keydown',
+                        { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true }));
+                }
+            }""")
+            await asyncio.sleep(3)
 
         await asyncio.sleep(3)
 
