@@ -115,6 +115,18 @@ class TwitterAPIClient:
         text = _sanitize_log_text(resp.text)
         safe_url = _sanitize_log_text(url)
         logger.error("Twitter API error %s for %s: %s", status_code, safe_url, text)
+        if resp.status_code == 402 and "credits-depleted" in text:
+            raise TwitterAPIError(
+                status_code,
+                text,
+                url,
+                message=(
+                    "X API credits depleted — the developer account balance is $0. "
+                    "Add credits or enable auto-recharge at console.x.com "
+                    "(Billing → Credits). Tweet posting still works; only "
+                    "metered endpoints like DM events are blocked."
+                ),
+            )
         raise TwitterAPIError(status_code, text, url)
 
     def _log_api_error(self, url: str, resp: httpx.Response) -> None:
