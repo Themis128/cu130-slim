@@ -812,6 +812,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    stop_grace_period: 90s
     restart: unless-stopped
 
   social-worker-media:
@@ -840,6 +841,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    stop_grace_period: 90s
     restart: unless-stopped
 
   social-worker-default:
@@ -868,6 +870,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    stop_grace_period: 90s
     restart: unless-stopped
 
   social-worker-messenger:
@@ -898,6 +901,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    stop_grace_period: 90s
     restart: unless-stopped
   celery-beat:
     image: baltzakist/cu130-slim-social-worker:v2.419
@@ -916,6 +920,7 @@ services:
     extra_hosts:
     - host.docker.internal:host-gateway
     command: celery -A app.worker.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
+    stop_grace_period: 90s
     depends_on:
       social-postgres:
         condition: service_healthy
