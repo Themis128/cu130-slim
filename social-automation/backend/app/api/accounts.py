@@ -229,7 +229,7 @@ async def connect_account_body(
     scopes = {
         # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
         "linkedin": LINKEDIN_SCOPES,
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         # Messenger uses the same Facebook scopes (pages_messaging is the key one)
         "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
@@ -300,7 +300,7 @@ async def connect_account(
 
     scopes = {
         "linkedin": LINKEDIN_SCOPES,
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
         "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
         "whatsapp": [
