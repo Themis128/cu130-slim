@@ -799,6 +799,32 @@ async def _handle_dodo_subscription_event(
         logger.warning("dodo webhook %s: no team resolved", event_type)
         return
 
+    # Ignore lifecycle events for a different subscription than the one the
+    # team is currently tracked on (e.g. a second checkout that failed must
+    # not downgrade an active plan). Activation-type events for a new
+    # subscription still apply — that's the upgrade path.
+    sub_id = data.get("subscription_id") or data.get("id")
+    activating = event_type in (
+        "subscription.active",
+        "subscription.renewed",
+        "subscription.unpaused",
+        "subscription.plan_changed",
+    ) or (
+        event_type == "subscription.updated"
+        and data.get("status") in _ACTIVE_SUB_STATUSES
+    )
+    if (
+        team.dodo_subscription_id
+        and sub_id
+        and sub_id != team.dodo_subscription_id
+        and not activating
+    ):
+        logger.info(
+            "dodo webhook %s: ignoring event for non-current subscription %s",
+            event_type, sub_id,
+        )
+        return
+
     customer_id = (data.get("customer") or {}).get("customer_id") or data.get("customer_id")
     if customer_id:
         team.dodo_customer_id = customer_id
