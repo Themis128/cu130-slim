@@ -417,6 +417,43 @@ async def _twitter_upload_media(path: str) -> str | None:
         return None
 
 
+def _x_weighted_len(text: str) -> int:
+    """Approximate X's weighted character count.
+
+    Per the twitter-text spec: characters in ranges U+0000–U+10FF,
+    U+2000–U+200D, U+2010–U+201F and U+2032–U+2037 weigh 1; everything
+    else (emoji, ellipsis U+2026, CJK, …) weighs 2. Every http(s) URL is
+    t.co-wrapped and counts as 23 regardless of length.
+    """
+    import re as _re
+
+    def _w(ch: str) -> int:
+        o = ord(ch)
+        light = o <= 0x10FF or 0x2000 <= o <= 0x200D or 0x2010 <= o <= 0x201F or 0x2032 <= o <= 0x2037
+        return 1 if light else 2
+
+    urls = _re.findall(r"https?://\S+", text)
+    body = _re.sub(r"https?://\S+", "", text)
+    return sum(_w(c) for c in body) + 23 * len(urls)
+
+
+def _fit_x_limit(text: str, limit: int = 280) -> str:
+    """Trim ``text`` to X's weighted character limit (word-boundary)."""
+    if _x_weighted_len(text) <= limit:
+        return text
+    words = text.split()
+    out: list[str] = []
+    cur = ""
+    for word in words:
+        test = f"{cur} {word}".strip()
+        if _x_weighted_len(test) > limit:
+            break
+        cur = test
+        out.append(word)
+    trimmed = cur or text[: limit // 2]
+    return trimmed.rstrip(" ,;:-") or trimmed
+
+
 def _split_thread(text: str, limit: int = 275) -> list[str]:
     """Split long text into tweet-sized chunks that form a thread."""
     if len(text) <= limit:
@@ -565,9 +602,11 @@ async def _publish_twitter_via_browser(
     client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     try:
         # Hold the shared-browser lock so messenger pollers can't hijack
-        # the session mid-compose.
+        # the session mid-compose. X's web composer posts a single tweet —
+        # trim to the weighted 280-char limit (URLs count 23 via t.co,
+        # emoji/ellipsis count double) or Post stays disabled.
         async with browser_session("twitter", client):
-            res = await client.post_tweet(text, image_paths or None)
+            res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:
         return PublishResult(
             success=False,

@@ -1553,10 +1553,14 @@ class BrowserBridgeClient:
 
         await asyncio.sleep(4)
 
-        # Composer closes on success — confirm it's gone
-        verify = await self.evaluate("""() => ({
-            composerOpen: !!document.querySelector('div[data-testid="tweetTextarea_0"]')
-        })""")
+        # Composer closes on success — confirm the compose *modal* is gone.
+        # (x.com/home always has an inline tweetTextarea_0, so only count
+        # editors inside a dialog, or when still on the /compose URL.)
+        verify = await self.evaluate("""() => {
+            const inDialog = !!document.querySelector('[role="dialog"] div[data-testid="tweetTextarea_0"]');
+            const onCompose = location.pathname.startsWith('/compose');
+            return { composerOpen: inDialog || onCompose, url: location.href };
+        }""")
         vr = verify.get("result", verify) if isinstance(verify, dict) else verify
         if isinstance(vr, dict) and vr.get("composerOpen"):
             return {"status": "error", "error": "Composer still open after Post click — tweet likely not sent"}
