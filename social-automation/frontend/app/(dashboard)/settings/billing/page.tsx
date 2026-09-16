@@ -19,7 +19,7 @@ declare global {
 }
 
 interface BillingConfig {
-  provider: 'paddle' | 'polar'
+  provider: 'paddle' | 'polar' | 'dodo'
   configured: boolean
   environment: string
   team_id: string

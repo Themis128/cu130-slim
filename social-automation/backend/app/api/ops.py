@@ -159,6 +159,23 @@ async def preview_paddle_digest(
     )
 
 
+@router.post("/billing-digest", response_model=PaddleDigestResponse)
+async def trigger_billing_digest(
+    post_to_slack: bool = Query(True),
+    current_user: User = Depends(get_current_user),
+) -> PaddleDigestResponse:
+    """Provider-agnostic alias — posts the active provider's digest to Slack."""
+    return await trigger_paddle_digest(post_to_slack=post_to_slack, current_user=current_user)
+
+
+@router.get("/billing-digest/preview", response_model=PaddleDigestResponse)
+async def preview_billing_digest(
+    current_user: User = Depends(get_current_user),
+) -> PaddleDigestResponse:
+    """Provider-agnostic alias — previews the active provider's digest."""
+    return await preview_paddle_digest(current_user=current_user)
+
+
 @router.get("/daily-digest/preview", response_model=DailyDigestResponse)
 async def preview_daily_digest(
     days: int = Query(1, ge=1, le=30),

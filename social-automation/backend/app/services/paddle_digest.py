@@ -137,11 +137,16 @@ async def build_paddle_digest() -> str:
 
 
 async def build_billing_digest() -> str:
-    """Dispatch to the active provider's digest (Paddle or Polar)."""
-    if get_settings().billing_provider == "polar":
+    """Dispatch to the active provider's digest (Paddle, Polar, or Dodo)."""
+    provider = get_settings().billing_provider
+    if provider == "polar":
         from app.services.polar_digest import build_polar_digest
 
         return await build_polar_digest()
+    if provider == "dodo":
+        from app.services.dodo_digest import build_dodo_digest
+
+        return await build_dodo_digest()
     return await build_paddle_digest()
 
 
@@ -154,9 +159,9 @@ async def send_paddle_digest_to_slack(*, post_to_slack: bool = True) -> dict:
     text = await build_billing_digest()
     result = {"text": text, "posted": False, "error": None}
     if post_to_slack:
-        from app.services.slack_notifications import post_paddle_digest_to_slack
+        from app.services.slack_notifications import post_billing_digest_to_slack
 
-        ok, err = await post_paddle_digest_to_slack(text)
+        ok, err = await post_billing_digest_to_slack(text)
         result["posted"] = ok
         result["error"] = err
     return result

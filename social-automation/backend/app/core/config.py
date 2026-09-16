@@ -300,9 +300,12 @@ class Settings(BaseSettings):
     SLACK_ALERTS_WEBHOOK_URL: str = ""
     SLACK_ALERTS_CHANNEL_ID: str = ""
 
-    # Paddle usage / revenue digest → #paddle (or a dedicated billing channel)
-    # Preferred: Incoming Webhook added to the billing/usage channel.
-    # Alternative: reuse SLACK_BOT_TOKEN / SLACK_ACCESS_TOKEN + SLACK_PADDLE_CHANNEL_ID.
+    # Billing usage / revenue digest → billing channel (provider-agnostic).
+    # Preferred: SLACK_BILLING_* Incoming Webhook or channel id.
+    # Legacy SLACK_PADDLE_* names are honored as fallbacks.
+    SLACK_BILLING_WEBHOOK_URL: str = ""
+    SLACK_BILLING_CHANNEL_ID: str = ""
+    SLACK_BILLING_DIGEST_HOUR: int | None = None  # falls back to SLACK_PADDLE_DIGEST_HOUR
     SLACK_PADDLE_WEBHOOK_URL: str = ""
     SLACK_PADDLE_CHANNEL_ID: str = ""
     SLACK_PADDLE_DIGEST_HOUR: int = 10  # Europe/Athens via Celery timezone

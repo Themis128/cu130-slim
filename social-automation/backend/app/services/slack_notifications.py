@@ -131,22 +131,31 @@ async def post_publishing_to_slack(text: str) -> None:
         logger.warning("Slack publishing webhook failed: %s", err)
 
 
-async def post_paddle_digest_to_slack(text: str) -> tuple[bool, str | None]:
-    """Post the Paddle usage/revenue digest to the configured billing channel."""
+async def post_billing_digest_to_slack(text: str) -> tuple[bool, str | None]:
+    """Post the usage/revenue digest to the configured billing channel.
+
+    Uses ``SLACK_BILLING_*`` settings, falling back to legacy ``SLACK_PADDLE_*``.
+    """
     settings = get_settings()
-    channel_id = (settings.SLACK_PADDLE_CHANNEL_ID or "").strip()
-    if not settings.SLACK_PADDLE_WEBHOOK_URL and not channel_id:
-        return False, "Paddle digest Slack channel not configured"
+    webhook_url = settings.SLACK_BILLING_WEBHOOK_URL or settings.SLACK_PADDLE_WEBHOOK_URL
+    channel_id = (settings.SLACK_BILLING_CHANNEL_ID or settings.SLACK_PADDLE_CHANNEL_ID or "").strip()
+    if not webhook_url and not channel_id:
+        return False, "Billing digest Slack channel not configured"
     ok, err, _ = await _post_slack_text(
         text=text,
-        webhook_url=settings.SLACK_PADDLE_WEBHOOK_URL,
+        webhook_url=webhook_url,
         token=_get_slack_token(),
         channel_id=channel_id,
-        purpose="paddle-digest",
+        purpose="billing-digest",
     )
     if not ok:
-        logger.warning("Slack paddle digest failed: %s", err)
+        logger.warning("Slack billing digest failed: %s", err)
     return ok, err
+
+
+async def post_paddle_digest_to_slack(text: str) -> tuple[bool, str | None]:
+    """Backward-compatible alias for ``post_billing_digest_to_slack``."""
+    return await post_billing_digest_to_slack(text)
 
 
 async def post_support_report_to_slack(text: str) -> tuple[bool, str | None]:

@@ -179,10 +179,15 @@ celery_app.conf.update(
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_week=1),
             "kwargs": {"days": 7, "post_to_slack": True, "post_to_email": False},
         },
-        # Daily Paddle usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
+        # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {
             "task": "app.worker.tasks.paddle_digest.send_paddle_slack_digest",
-            "schedule": crontab(hour=settings.SLACK_PADDLE_DIGEST_HOUR, minute=0),
+            "schedule": crontab(
+                hour=settings.SLACK_BILLING_DIGEST_HOUR
+                if settings.SLACK_BILLING_DIGEST_HOUR is not None
+                else settings.SLACK_PADDLE_DIGEST_HOUR,
+                minute=0,
+            ),
             "kwargs": {"post_to_slack": True},
         },
         # Auto-refresh expiring OAuth tokens every hour (TikTok expires in 24h,
