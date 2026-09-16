@@ -91,6 +91,56 @@ def test_webhook_signature_rejects_missing(dodo_settings):
 
 
 @pytest.mark.asyncio
+async def test_dodo_event_for_other_subscription_does_not_downgrade():
+    """A failed/cancelled event for a *different* subscription must not clobber
+    the team's active plan — e.g. a second checkout attempt that fails."""
+    from types import SimpleNamespace
+
+    from app.api.billing import _handle_dodo_subscription_event
+
+    team = SimpleNamespace(
+        dodo_subscription_id="sub_current",
+        dodo_customer_id="cus_1",
+        subscription_status="active",
+        plan_tier="pro",
+    )
+
+    await _handle_dodo_subscription_event(
+        None, team, "subscription.failed",
+        {"subscription_id": "sub_other", "status": "failed"},
+    )
+    assert team.subscription_status == "active"
+    assert team.plan_tier == "pro"
+    assert team.dodo_subscription_id == "sub_current"
+
+    await _handle_dodo_subscription_event(
+        None, team, "subscription.cancelled",
+        {"subscription_id": "sub_other", "status": "cancelled"},
+    )
+    assert team.subscription_status == "active"
+    assert team.plan_tier == "pro"
+
+
+@pytest.mark.asyncio
+async def test_dodo_event_for_current_subscription_applies():
+    from types import SimpleNamespace
+
+    from app.api.billing import _handle_dodo_subscription_event
+
+    team = SimpleNamespace(
+        dodo_subscription_id="sub_current",
+        dodo_customer_id="cus_1",
+        subscription_status="active",
+        plan_tier="pro",
+    )
+    await _handle_dodo_subscription_event(
+        None, team, "subscription.failed",
+        {"subscription_id": "sub_current", "status": "failed"},
+    )
+    assert team.subscription_status == "failed"
+
+
+@pytest.mark.asyncio
 async def test_billing_digest_dispatches_to_dodo(monkeypatch, dodo_settings):
     from app.services import paddle_digest
 
