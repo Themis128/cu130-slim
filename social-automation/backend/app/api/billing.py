@@ -660,6 +660,31 @@ async def _handle_polar_subscription_event(
         logger.warning("polar webhook %s: no team resolved", event_type)
         return
 
+    # Ignore lifecycle events for a different subscription than the one the
+    # team is currently tracked on — activation-type events for a new
+    # subscription still apply (upgrade path).
+    sub_id = data.get("id") or data.get("subscription_id")
+    activating = event_type in (
+        "subscription.created",
+        "subscription.active",
+        "subscription.resumed",
+        "subscription.uncanceled",
+    ) or (
+        event_type == "subscription.updated"
+        and data.get("status") in _ACTIVE_SUB_STATUSES
+    )
+    if (
+        team.polar_subscription_id
+        and sub_id
+        and sub_id != team.polar_subscription_id
+        and not activating
+    ):
+        logger.info(
+            "polar webhook %s: ignoring event for non-current subscription %s",
+            event_type, sub_id,
+        )
+        return
+
     customer_id = data.get("customer_id") or (data.get("customer") or {}).get("id")
     if customer_id:
         team.polar_customer_id = customer_id
