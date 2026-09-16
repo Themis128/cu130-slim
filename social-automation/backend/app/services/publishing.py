@@ -554,6 +554,7 @@ async def _publish_twitter_via_browser(
     required between the worker and browser-novnc containers.
     """
     from app.services.browser_bridge import BrowserBridgeClient
+    from app.services.browser_orchestrator import browser_session
 
     image_b64: list[tuple[str, str]] = []
     for p in media_paths[:4]:
@@ -572,7 +573,10 @@ async def _publish_twitter_via_browser(
 
     client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     try:
-        res = await client.post_tweet(text, image_b64 or None)
+        # Hold the shared-browser lock so messenger pollers can't hijack
+        # the session mid-compose.
+        async with browser_session("twitter", client):
+            res = await client.post_tweet(text, image_b64 or None)
     except Exception as exc:
         return PublishResult(
             success=False,

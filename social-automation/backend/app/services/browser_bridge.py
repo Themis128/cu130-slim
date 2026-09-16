@@ -1412,9 +1412,26 @@ class BrowserBridgeClient:
             return {"status": "error", "error": session.get("message", "Twitter browser session not active"), **session}
 
         await self.navigate("https://x.com/compose/post")
-        await asyncio.sleep(4)
 
         import json as _json
+
+        # The SPA renders the composer asynchronously — wait for it (up to ~15s).
+        editor_found = False
+        for _ in range(15):
+            await asyncio.sleep(1)
+            probe = await self.evaluate("""() => ({
+                editor: !!document.querySelector(
+                    'div[contenteditable="true"][data-testid="tweetTextarea_0"], ' +
+                    'div[contenteditable="true"][role="textbox"]'
+                ),
+                url: location.href
+            })""")
+            pr = probe.get("result", probe) if isinstance(probe, dict) else probe
+            if isinstance(pr, dict) and pr.get("editor"):
+                editor_found = True
+                break
+        if not editor_found:
+            return {"status": "error", "error": "Could not find the tweet composer"}
 
         escaped_text = _json.dumps(text)
         type_response = await self.evaluate(f"""() => {{
@@ -1425,7 +1442,7 @@ class BrowserBridgeClient:
             if (!editor) return {{ error: 'Could not find the tweet composer' }};
             editor.focus();
             document.execCommand('insertText', false, {escaped_text});
-            return {{ status: 'typed' }};
+            return {{ status: 'typed', length: (editor.innerText || '').length }};
         }}""")
         result = type_response.get("result", type_response) if isinstance(type_response, dict) else type_response
         if isinstance(result, dict) and result.get("error"):
@@ -1449,23 +1466,55 @@ class BrowserBridgeClient:
             r = resp.get("result", resp) if isinstance(resp, dict) else resp
             if isinstance(r, dict) and r.get("error"):
                 return {"status": "error", "error": f"media attach failed: {r['error']}"}
-            await asyncio.sleep(3)  # let the media thumbnail render
+            # Wait for the media thumbnail/upload to finish (up to ~15s)
+            for _ in range(15):
+                await asyncio.sleep(1)
+                up = await self.evaluate("""() => ({
+                    uploading: !!document.querySelector('[role="progressbar"]'),
+                    preview: !!document.querySelector('[data-testid="attachments"] img, [data-testid="attachments"] video')
+                })""")
+                ur = up.get("result", up) if isinstance(up, dict) else up
+                if isinstance(ur, dict) and not ur.get("uploading") and ur.get("preview"):
+                    break
 
-        await asyncio.sleep(1)
-        post_response = await self.evaluate("""() => {
+        # The Post button stays disabled until React registers input state —
+        # poll for it to become enabled (up to ~10s).
+        clicked = False
+        last_err = "Post button not found"
+        for _ in range(10):
+            await asyncio.sleep(1)
+            post_response = await self.evaluate("""() => {
+                const btn = document.querySelector(
+                    'button[data-testid="tweetButton"], ' +
+                    'button[data-testid="tweetButtonInline"]'
+                );
+                if (!btn) return { error: 'Post button not found' };
+                if (btn.disabled || btn.getAttribute('aria-disabled') === 'true')
+                    return { error: 'Post button disabled' };
+                btn.click();
+                return { status: 'clicked' };
+            }""")
+            pr = post_response.get("result", post_response) if isinstance(post_response, dict) else post_response
+            if isinstance(pr, dict):
+                if pr.get("status") == "clicked":
+                    clicked = True
+                    break
+                last_err = pr.get("error") or last_err
+        if not clicked:
+            return {"status": "error", "error": last_err}
+
+        await asyncio.sleep(3)
+
+        # X sometimes shows a confirmation nudge (e.g. "Want to review this
+        # before posting?") — click through it if present.
+        await self.evaluate("""() => {
             const btn = document.querySelector(
                 'button[data-testid="tweetButton"], ' +
-                'button[data-testid="tweetButtonInline"]'
+                'button[data-testid="tweetButtonInline"], ' +
+                'button[data-testid="confirmationSheetConfirm"]'
             );
-            if (!btn) return { error: 'Post button not found' };
-            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true')
-                return { error: 'Post button disabled' };
-            btn.click();
-            return { status: 'clicked' };
+            if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') btn.click();
         }""")
-        pr = post_response.get("result", post_response) if isinstance(post_response, dict) else post_response
-        if isinstance(pr, dict) and pr.get("error"):
-            return {"status": "error", "error": pr["error"]}
 
         await asyncio.sleep(4)
 
