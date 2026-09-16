@@ -773,7 +773,7 @@ services:
   social-api-green:
     extends: social-api
     container_name: social-api-green
-    ports:
+    ports: !override
     - 18083:8000
     profiles:
     - bluegreen
