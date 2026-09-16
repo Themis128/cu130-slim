@@ -1120,6 +1120,7 @@ services:
     - TZ=Europe/Athens
     volumes:
     - browser_cookies:/app/cookies
+    - ./social-automation/uploads:/app/uploads:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9223/health || exit 1"]
       interval: 30s
