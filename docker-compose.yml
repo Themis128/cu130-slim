@@ -747,6 +747,36 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+  # ── Blue/green deploy ─────────────────────────────────────────────────────
+  # api-gateway is the stable upstream the frontend proxies /api/v1 through.
+  # Deploy scripts start the inactive slot, health-check it, rewrite
+  # deploy/nginx/upstream/active.conf, and `nginx -s reload` — hitless swap.
+  api-gateway:
+    image: nginx:1.27-alpine
+    pull_policy: if_not_present
+    container_name: social-api-gateway
+    networks:
+    - backend
+    volumes:
+    - ./deploy/nginx/api-gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    - ./deploy/nginx/upstream:/etc/nginx/upstream:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  # Second API slot used by scripts/deploy-api.sh. Same env/mounts as
+  # social-api via `extends`; starts under the `bluegreen` profile only so a
+  # plain `docker compose up -d` leaves it off.
+  social-api-green:
+    extends: social-api
+    container_name: social-api-green
+    ports:
+    - 18083:8000
+    profiles:
+    - bluegreen
   # ── Celery workers (queue-dedicated) ──────────────────────────────────────
   # Three worker containers, each consuming a dedicated queue so time-sensitive
   # publishing tasks are never blocked by CPU-heavy media/AI work:
@@ -937,7 +967,7 @@ services:
     environment:
     - TZ=Europe/Athens
     - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
-    - API_INTERNAL_URL=http://social-api:8000
+    - API_INTERNAL_URL=http://api-gateway:8080
     - NEXT_PUBLIC_API_URL=/api/v1
     - PORT=8083
     - HOSTNAME=0.0.0.0
