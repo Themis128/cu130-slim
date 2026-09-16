@@ -23,7 +23,7 @@ from app.core.config import get_settings
 from app.core.quotas import PLAN_LIMITS
 from app.models.billing import BillingEvent
 from app.models.user import Team, User
-from app.services import paddle_api, polar_api
+from app.services import dodo_api, paddle_api, polar_api
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,13 +54,19 @@ def _provider() -> str:
 
 
 def _tier_price_id(tier: str) -> str | None:
-    """Paddle price_id (or Polar product_id) for a purchasable tier."""
+    """Provider product/price id for a purchasable tier."""
     s = get_settings()
     if _provider() == "polar":
         return {
             "pro": s.POLAR_PRODUCT_PRO,
             "business": s.POLAR_PRODUCT_BUSINESS,
             "enterprise": s.POLAR_PRODUCT_ENTERPRISE,
+        }.get(tier) or None
+    if _provider() == "dodo":
+        return {
+            "pro": s.DODO_PRODUCT_PRO,
+            "business": s.DODO_PRODUCT_BUSINESS,
+            "enterprise": s.DODO_PRODUCT_ENTERPRISE,
         }.get(tier) or None
     return {
         "pro": s.PADDLE_PRICE_PRO,
@@ -70,8 +76,11 @@ def _tier_price_id(tier: str) -> str | None:
 
 
 def _billing_configured() -> bool:
-    if _provider() == "polar":
+    provider = _provider()
+    if provider == "polar":
         return polar_api.polar_configured()
+    if provider == "dodo":
+        return dodo_api.dodo_configured()
     return paddle_api.paddle_configured()
 
 
@@ -102,10 +111,11 @@ async def billing_config(
     provider = _provider()
     configured = _billing_configured()
     is_paddle = provider == "paddle"
+    env_map = {"paddle": s.PADDLE_ENVIRONMENT, "polar": s.POLAR_ENVIRONMENT, "dodo": s.DODO_ENVIRONMENT}
     return {
         "provider": provider,
         "configured": configured,
-        "environment": s.PADDLE_ENVIRONMENT if is_paddle else s.POLAR_ENVIRONMENT,
+        "environment": env_map.get(provider, s.PADDLE_ENVIRONMENT),
         "team_id": str(team_id),
         "customer_email": current_user.email,
         "client_token": s.PADDLE_CLIENT_TOKEN if (is_paddle and configured) else None,
@@ -149,6 +159,8 @@ async def get_subscription(
         "paddle_subscription_id": team.paddle_subscription_id,
         "polar_customer_id": team.polar_customer_id,
         "polar_subscription_id": team.polar_subscription_id,
+        "dodo_customer_id": team.dodo_customer_id,
+        "dodo_subscription_id": team.dodo_subscription_id,
         "provider": _provider(),
     }
 
@@ -185,6 +197,19 @@ async def create_checkout(
                 customer_name=current_user.name,
             )
         except polar_api.PolarError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return CheckoutResponse(transaction_id=txn["id"], checkout_url=txn["checkout_url"])
+
+    if _provider() == "dodo":
+        try:
+            txn = await dodo_api.create_checkout(
+                product_id=price_id,
+                team_id=str(team.id),
+                customer_id=team.dodo_customer_id,
+                customer_email=current_user.email,
+                customer_name=current_user.name,
+            )
+        except dodo_api.DodoError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return CheckoutResponse(transaction_id=txn["id"], checkout_url=txn["checkout_url"])
 
@@ -228,6 +253,17 @@ async def customer_portal(
         except polar_api.PolarError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"portal_url": url}
+    if _provider() == "dodo":
+        try:
+            if not team.dodo_customer_id:
+                team.dodo_customer_id = await dodo_api.get_or_create_customer(
+                    str(team.id), current_user.email, current_user.name
+                )
+                await db.commit()
+            url = await dodo_api.create_portal_session(team.dodo_customer_id)
+        except dodo_api.DodoError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"portal_url": url}
     if not team.paddle_customer_id:
         raise HTTPException(status_code=400, detail="No Paddle customer for this team")
     try:
@@ -255,6 +291,20 @@ async def cancel_subscription(
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         team.subscription_status = "canceled_pending"
         end = _parse_dt(sub.get("current_period_end"))
+        if end:
+            team.subscription_period_end = end
+        await db.commit()
+        return {"status": "canceled_pending", "period_end": team.subscription_period_end}
+
+    if _provider() == "dodo":
+        if not team.dodo_subscription_id:
+            raise HTTPException(status_code=400, detail="No active subscription")
+        try:
+            sub = await dodo_api.cancel_subscription(team.dodo_subscription_id)
+        except dodo_api.DodoError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        team.subscription_status = "canceled_pending"
+        end = _parse_dt(sub.get("next_billing_date"))
         if end:
             team.subscription_period_end = end
         await db.commit()
@@ -291,6 +341,21 @@ async def sync_subscription(
         except polar_api.PolarError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         _apply_polar_subscription(team, sub)
+        await db.commit()
+        return {
+            "plan_tier": team.plan_tier,
+            "subscription_status": team.subscription_status,
+            "subscription_period_end": team.subscription_period_end,
+        }
+
+    if _provider() == "dodo":
+        if not team.dodo_subscription_id:
+            raise HTTPException(status_code=400, detail="No Dodo subscription linked")
+        try:
+            sub = await dodo_api.get_subscription(team.dodo_subscription_id)
+        except dodo_api.DodoError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _apply_dodo_subscription(team, sub)
         await db.commit()
         return {
             "plan_tier": team.plan_tier,
@@ -477,6 +542,28 @@ async def _handle_subscription_event(
         )
     elif event_type == "subscription.paused":
         team.subscription_status = "paused"
+
+
+def _apply_dodo_subscription(team: Team, sub: dict) -> None:
+    """Map a Dodo subscription object onto the team row."""
+    team.dodo_subscription_id = sub.get("subscription_id") or sub.get("id") or team.dodo_subscription_id
+    customer_id = (sub.get("customer") or {}).get("customer_id") or sub.get("customer_id")
+    if customer_id:
+        team.dodo_customer_id = customer_id
+    status_ = sub.get("status", team.subscription_status)
+    if sub.get("cancel_at_next_billing_date") and status_ == "active":
+        status_ = "canceled_pending"
+    team.subscription_status = status_
+    end = _parse_dt(sub.get("next_billing_date") or sub.get("expires_at"))
+    if end:
+        team.subscription_period_end = end
+    product_id = sub.get("product_id")
+    if product_id:
+        tier = dodo_api.tier_for_product(product_id)
+        if tier and sub.get("status") in ("active", "on_hold"):
+            team.plan_tier = tier
+    if sub.get("status") in ("cancelled", "expired", "failed"):
+        team.plan_tier = "free"
 
 
 # ---------------------------------------------------------------------------

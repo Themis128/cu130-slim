@@ -393,6 +393,34 @@ class Settings(BaseSettings):
     POLAR_PRODUCT_BUSINESS: str = ""
     POLAR_PRODUCT_ENTERPRISE: str = ""
 
+    # Dodo Payments Billing (Merchant of Record — pays out directly to bank,
+    # no Stripe). test_mode until DODO_ENVIRONMENT=live_mode.
+    DODO_ENVIRONMENT: str = "test_mode"  # test_mode | live_mode
+    DODO_PAYMENTS_API_KEY: str = ""  # server-side only
+    DODO_WEBHOOK_SECRET: str = ""  # whsec_ endpoint secret
+    DODO_PRODUCT_PRO: str = ""
+    DODO_PRODUCT_BUSINESS: str = ""
+    DODO_PRODUCT_ENTERPRISE: str = ""
+
+    @property
+    def dodo_api_base(self) -> str:
+        if self.DODO_ENVIRONMENT.strip().lower() == "live_mode":
+            return "https://live.dodopayments.com"
+        return "https://test.dodopayments.com"
+
+    @property
+    def dodo_product_tiers(self) -> dict[str, str]:
+        """product_id -> plan_tier for Dodo products configured in env."""
+        return {
+            k: v
+            for k, v in {
+                self.DODO_PRODUCT_PRO: "pro",
+                self.DODO_PRODUCT_BUSINESS: "business",
+                self.DODO_PRODUCT_ENTERPRISE: "enterprise",
+            }.items()
+            if k
+        }
+
     @property
     def polar_api_base(self) -> str:
         if self.POLAR_ENVIRONMENT.strip().lower() == "production":
@@ -416,7 +444,7 @@ class Settings(BaseSettings):
     def billing_provider(self) -> str:
         """Normalized active billing provider."""
         provider = self.BILLING_PROVIDER.strip().lower()
-        return provider if provider in {"paddle", "polar"} else "paddle"
+        return provider if provider in {"paddle", "polar", "dodo"} else "paddle"
 
     @property
     def paddle_api_base(self) -> str:
