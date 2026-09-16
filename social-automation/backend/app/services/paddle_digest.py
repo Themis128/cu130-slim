@@ -136,9 +136,22 @@ async def build_paddle_digest() -> str:
     return "\n".join(lines)
 
 
+async def build_billing_digest() -> str:
+    """Dispatch to the active provider's digest (Paddle or Polar)."""
+    if get_settings().billing_provider == "polar":
+        from app.services.polar_digest import build_polar_digest
+
+        return await build_polar_digest()
+    return await build_paddle_digest()
+
+
 async def send_paddle_digest_to_slack(*, post_to_slack: bool = True) -> dict:
-    """Build the Paddle digest and optionally post it to the configured Slack channel."""
-    text = await build_paddle_digest()
+    """Build the active provider's digest and optionally post it to Slack.
+
+    Kept under the paddle name for the celery beat schedule and ops endpoints;
+    posts to the same channel regardless of provider (SLACK_PADDLE_*).
+    """
+    text = await build_billing_digest()
     result = {"text": text, "posted": False, "error": None}
     if post_to_slack:
         from app.services.slack_notifications import post_paddle_digest_to_slack

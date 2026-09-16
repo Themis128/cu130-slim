@@ -129,3 +129,19 @@ def test_webhook_signature_multi_sig_header(polar_settings):
     good = _sign(raw, key, "msg_7", ts)
     header = "v1,invalidsig " + good
     assert polar_api.verify_webhook_signature(raw, "msg_7", str(ts), header) is True
+
+
+@pytest.mark.asyncio
+async def test_billing_digest_dispatches_to_polar(monkeypatch, polar_settings):
+    """build_billing_digest uses the Polar digest when BILLING_PROVIDER=polar."""
+    from app.services import paddle_digest
+
+    monkeypatch.setattr(paddle_digest, "get_settings", lambda: polar_settings)
+
+    async def fake_polar_digest():
+        return "polar-report"
+
+    import app.services.polar_digest as pd
+
+    monkeypatch.setattr(pd, "build_polar_digest", fake_polar_digest)
+    assert await paddle_digest.build_billing_digest() == "polar-report"
