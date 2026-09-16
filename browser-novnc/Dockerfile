@@ -61,4 +61,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 6080 5900 9223 6081
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/app/start.sh"]
