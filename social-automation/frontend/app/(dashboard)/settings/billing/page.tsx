@@ -217,7 +217,7 @@ export default function BillingPage() {
           )}
           {!config?.configured && (
             <p className="text-sm text-amber-600">
-              Billing is not configured yet — set the {config?.provider === 'polar' ? 'POLAR_ACCESS_TOKEN / POLAR_PRODUCT_*' : 'PADDLE_API_KEY / PADDLE_CLIENT_TOKEN'} variables to enable checkout.
+              Billing is not configured yet — set the {config?.provider === 'polar' ? 'POLAR_ACCESS_TOKEN / POLAR_PRODUCT_*' : config?.provider === 'dodo' ? 'DODO_PAYMENTS_API_KEY / DODO_PRODUCT_*' : 'PADDLE_API_KEY / PADDLE_CLIENT_TOKEN'} variables to enable checkout.
             </p>
           )}
           <div className="flex gap-3">

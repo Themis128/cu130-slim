@@ -306,6 +306,13 @@ class Settings(BaseSettings):
     SLACK_BILLING_WEBHOOK_URL: str = ""
     SLACK_BILLING_CHANNEL_ID: str = ""
     SLACK_BILLING_DIGEST_HOUR: int | None = None  # falls back to SLACK_PADDLE_DIGEST_HOUR
+
+    @field_validator("SLACK_BILLING_DIGEST_HOUR", mode="before")
+    @classmethod
+    def _empty_digest_hour_is_none(cls, v):
+        if v in ("", None):
+            return None
+        return v
     SLACK_PADDLE_WEBHOOK_URL: str = ""
     SLACK_PADDLE_CHANNEL_ID: str = ""
     SLACK_PADDLE_DIGEST_HOUR: int = 10  # Europe/Athens via Celery timezone
