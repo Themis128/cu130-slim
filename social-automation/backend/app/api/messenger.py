@@ -617,6 +617,9 @@ async def update_auto_reply_config(
 ):
     """Update the AI auto-reply configuration for a Messenger account."""
     account = await _get_facebook_page_account(db, account_id, user)
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["messenger_auto_reply"] = body.model_dump()
     account.meta_data = meta
@@ -1159,6 +1162,9 @@ async def update_personal_auto_reply(
 ):
     """Update personal Messenger AI auto-reply configuration."""
     account = await _get_facebook_user_account(db, account_id, current_user)
+    if config.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["personal_messenger_auto_reply"] = config.model_dump()
     account.meta_data = meta
@@ -1423,6 +1429,8 @@ async def create_bot(
     if account.platform != "facebook":
         raise HTTPException(status_code=400, detail="Bot creation is only supported for Facebook accounts")
 
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     is_page = account.account_type == "page"
     page_name = account.display_name or "Cloudless"
 
@@ -1631,6 +1639,8 @@ async def activate_bot(
     if not bot_config:
         raise HTTPException(status_code=400, detail="No bot found — create one first")
 
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     bot_config["enabled"] = True
     meta["messenger_bot"] = bot_config
 

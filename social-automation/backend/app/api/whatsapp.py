@@ -793,6 +793,9 @@ async def update_auto_reply_config(
 ):
     """Update the AI auto-reply configuration for a WhatsApp account."""
     account = await _get_whatsapp_account(db, account_id, user)
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["whatsapp_auto_reply"] = body.model_dump()
     account.meta_data = meta
@@ -1171,6 +1174,8 @@ async def create_bot(
     3. Updates the business profile greeting
     """
     account = await _get_whatsapp_account(db, account_id, current_user)
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     business_name = account.display_name or "Cloudless"
 
     # Build system prompt from personality preset
@@ -1303,6 +1308,8 @@ async def activate_bot(
 ):
     """Activate the bot for an account."""
     account = await _get_whatsapp_account(db, account_id, current_user)
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     bot_config = meta.get("whatsapp_bot")
     if not bot_config:

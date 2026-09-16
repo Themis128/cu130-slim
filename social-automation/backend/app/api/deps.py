@@ -163,6 +163,40 @@ require_team_editor = require_team_role(UserRole.EDITOR)
 # ── Quota / plan-limit enforcement ──────────────────────────────────────────
 
 
+async def check_plan_feature(feature: str, team_id: uuid.UUID, db: AsyncSession) -> None:
+    """Raise ``HTTPException(402)`` if the team's plan lacks *feature*.
+
+    The platform admin (``SOCIAL_ADMIN_EMAIL``) is always exempt.
+    """
+    from app.core.config import get_settings
+    from app.core.quotas import plan_has_feature
+
+    settings = get_settings()
+    admin_email = getattr(settings, "SOCIAL_ADMIN_EMAIL", None)
+    if admin_email:
+        owner_id = (
+            await db.execute(select(Team.owner_id).where(Team.id == team_id))
+        ).scalar_one_or_none()
+        if owner_id:
+            owner_email = (
+                await db.execute(select(User.email).where(User.id == owner_id))
+            ).scalar_one_or_none()
+            if owner_email == admin_email:
+                return  # Admin is exempt from feature gating
+
+    tier = (
+        await db.execute(select(Team.plan_tier).where(Team.id == team_id))
+    ).scalar_one_or_none() or "free"
+    if not plan_has_feature(tier, feature):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"'{feature}' requires a paid plan — upgrade to enable it.",
+        )
+
+
+
+
+
 async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> None:
     """Check if the team has exceeded their plan limit for *resource*.
 

@@ -512,6 +512,9 @@ async def update_threads_dm_auto_reply(
 ):
     """Update the Threads DM auto-reply configuration for an account."""
     account = await _get_threads_account(db, team_id, account_id)
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", team_id, db)
     meta = account.meta_data or {}
     meta["threads_auto_reply"] = body.model_dump()
     account.meta_data = meta

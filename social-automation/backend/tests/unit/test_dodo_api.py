@@ -141,6 +141,89 @@ async def test_dodo_event_for_current_subscription_applies():
 
 
 @pytest.mark.asyncio
+async def test_sync_dm_auto_reply_enables_on_paid():
+    """Paying for a plan auto-enables DM auto-reply on the team's accounts."""
+    from types import SimpleNamespace
+
+    from app.api.billing import _sync_dm_auto_reply
+    from app.models.social_account import SocialAccount
+
+    accounts = [
+        SocialAccount(
+            platform="twitter", account_type="person",
+            meta_data={"twitter_auto_reply": {"enabled": False}},
+        ),
+        SocialAccount(
+            platform="facebook", account_type="user",
+            meta_data={"personal_messenger_auto_reply": {"enabled": False}},
+        ),
+        SocialAccount(
+            platform="facebook", account_type="page",
+            meta_data={"messenger_auto_reply": {"enabled": False}},
+        ),
+        SocialAccount(platform="linkedin", account_type="person", meta_data={}),
+    ]
+
+    class _Result:
+        def scalars(self):
+            return accounts
+
+    class _Db:
+        async def execute(self, _stmt):
+            return _Result()
+
+    team = SimpleNamespace(id="team-1")
+    await _sync_dm_auto_reply(_Db(), team, paid=True)
+
+    assert accounts[0].meta_data["twitter_auto_reply"]["enabled"] is True
+    assert accounts[1].meta_data["personal_messenger_auto_reply"]["enabled"] is True
+    assert accounts[2].meta_data["messenger_auto_reply"]["enabled"] is True
+    assert accounts[3].meta_data["linkedin_auto_reply"]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_sync_dm_auto_reply_disables_on_free():
+    """Downgrading to free disables DM auto-reply across the team's accounts."""
+    from types import SimpleNamespace
+
+    from app.api.billing import _sync_dm_auto_reply
+    from app.models.social_account import SocialAccount
+
+    accounts = [
+        SocialAccount(
+            platform="twitter", account_type="person",
+            meta_data={"twitter_auto_reply": {"enabled": True}},
+        ),
+        SocialAccount(
+            platform="telegram", account_type="bot",
+            meta_data={"telegram_auto_reply": {"enabled": True}},
+        ),
+    ]
+
+    class _Result:
+        def scalars(self):
+            return accounts
+
+    class _Db:
+        async def execute(self, _stmt):
+            return _Result()
+
+    team = SimpleNamespace(id="team-1")
+    await _sync_dm_auto_reply(_Db(), team, paid=False)
+
+    assert accounts[0].meta_data["twitter_auto_reply"]["enabled"] is False
+    assert accounts[1].meta_data["telegram_auto_reply"]["enabled"] is False
+
+
+def test_dm_auto_reply_is_paid_feature():
+    from app.core.quotas import plan_has_feature
+
+    assert plan_has_feature("free", "dm_auto_reply") is False
+    for tier in ("pro", "business", "enterprise"):
+        assert plan_has_feature(tier, "dm_auto_reply") is True
+
+
+@pytest.mark.asyncio
 async def test_billing_digest_dispatches_to_dodo(monkeypatch, dodo_settings):
     from app.services import paddle_digest
 

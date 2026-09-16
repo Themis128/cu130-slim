@@ -417,6 +417,53 @@ def _apply_polar_subscription(team: Team, sub: dict) -> None:
         team.plan_tier = "free"
 
 
+_DM_META_KEYS: dict[str, str] = {
+    "twitter": "twitter_auto_reply",
+    "tiktok": "tiktok_auto_reply",
+    "instagram": "instagram_auto_reply",
+    "linkedin": "linkedin_auto_reply",
+    "threads": "threads_auto_reply",
+    "telegram": "telegram_auto_reply",
+    "whatsapp": "whatsapp_auto_reply",
+}
+
+
+async def _sync_dm_auto_reply(db: AsyncSession | None, team: Team, paid: bool) -> None:
+    """Enable/disable DM auto-reply on all the team's accounts per plan tier.
+
+    Called after subscription lifecycle changes: a paid plan activation
+    turns the feature on, a downgrade to free turns it off.
+    """
+    if db is None:
+        return
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.models.social_account import SocialAccount
+
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.team_id == team.id)
+    )
+    for account in result.scalars():
+        meta = dict(account.meta_data or {})
+        if account.platform == "facebook":
+            key = (
+                "personal_messenger_auto_reply"
+                if account.account_type == "user"
+                else "messenger_auto_reply"
+            )
+        else:
+            key = _DM_META_KEYS.get(account.platform)
+        if not key:
+            continue
+        config = meta.get(key) or {}
+        if config.get("enabled") == paid:
+            continue
+        config["enabled"] = paid
+        meta[key] = config
+        account.meta_data = meta
+        flag_modified(account, "meta_data")
+
+
 async def _notify_team_owner(db: AsyncSession, team: Team, subject: str, text: str, template: str) -> None:
     """Best-effort billing email to the team owner."""
     try:
@@ -542,6 +589,8 @@ async def _handle_subscription_event(
         )
     elif event_type == "subscription.paused":
         team.subscription_status = "paused"
+
+    await _sync_dm_auto_reply(db, team, paid=team.plan_tier != "free")
 
 
 def _apply_dodo_subscription(team: Team, sub: dict) -> None:
@@ -724,6 +773,8 @@ async def _handle_polar_subscription_event(
     elif event_type == "subscription.paused":
         team.subscription_status = "paused"
 
+    await _sync_dm_auto_reply(db, team, paid=team.plan_tier != "free")
+
 
 # ---------------------------------------------------------------------------
 # Dodo Payments (Standard Webhooks)
@@ -893,3 +944,5 @@ async def _handle_dodo_subscription_event(
         team.subscription_status = "failed"
     elif event_type == "subscription.paused":
         team.subscription_status = "paused"
+
+    await _sync_dm_auto_reply(db, team, paid=team.plan_tier != "free")

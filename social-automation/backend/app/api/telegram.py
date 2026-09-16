@@ -548,6 +548,9 @@ async def update_auto_reply_config(
     user: User = Depends(get_current_user),
 ):
     account = await _get_telegram_account(db, account_id, user)
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = dict(account.meta_data or {})
     meta["telegram_auto_reply"] = body.model_dump()
     account.meta_data = meta
@@ -577,6 +580,8 @@ async def create_bot(
         lang_names = {"en": "English", "el": "Greek (Ελληνικά)"}
         system_prompt += f" Always reply in {lang_names.get(req.language, req.language)}."
 
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     bot_config = BotConfig(name=req.name, enabled=True, system_prompt=system_prompt)
     meta = dict(account.meta_data or {})
     meta["telegram_bot"] = bot_config.model_dump()
@@ -670,6 +675,8 @@ async def activate_bot(
     user: User = Depends(get_current_user),
 ):
     account = await _get_telegram_account(db, account_id, user)
+    from app.api.deps import check_plan_feature
+    await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = dict(account.meta_data or {})
     bot = meta.get("telegram_bot")
     if not bot:

@@ -88,6 +88,9 @@ async def update_twitter_dm_auto_reply(
 ):
     """Update the Twitter DM auto-reply configuration for an account."""
     account = await _get_account(account_id, current_user, db, "twitter")
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["twitter_auto_reply"] = body.model_dump()
     account.meta_data = meta
@@ -184,6 +187,9 @@ async def update_tiktok_dm_auto_reply(
 ):
     """Update the TikTok DM auto-reply configuration for an account."""
     account = await _get_account(account_id, current_user, db, "tiktok")
+    if body.enabled:
+        from app.api.deps import check_plan_feature
+        await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["tiktok_auto_reply"] = body.model_dump()
     account.meta_data = meta
