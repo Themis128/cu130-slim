@@ -9,6 +9,7 @@ Only for inbound messages (users must message first).
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -100,6 +101,22 @@ async def update_twitter_dm_auto_reply(
     return body
 
 
+def _twitter_bridge() -> Any:
+    """Return a browser-bridge session for the Twitter DM endpoints.
+
+    The bridge drives x.com/messages through the logged-in web session —
+    no X API credits needed. ``browser_session`` takes the exclusive
+    browser lock so we don't fight the polling workers.
+    """
+    from app.core.config import get_settings
+    from app.services.browser_bridge import BrowserBridgeClient
+    from app.services.browser_orchestrator import browser_session
+
+    return browser_session(
+        "twitter", BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+    )
+
+
 @router.get("/twitter/{account_id}/dm/events")
 async def list_twitter_dm_events(
     account_id: uuid.UUID,
@@ -107,19 +124,33 @@ async def list_twitter_dm_events(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List recent Twitter DM events (requires dm.read scope + paid tier)."""
-    account = await _get_account(account_id, current_user, db, "twitter")
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Twitter account has no access token — connect via OAuth first")
-    from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
+    """List recent Twitter DM conversations via the browser bridge.
 
-    token = decrypt_token(account.access_token_enc)
-    client = TwitterAPIClient(access_token=token)
+    Uses the logged-in x.com web session (free path) instead of the
+    metered X API — the official dm_events endpoint requires paid API
+    credits.
+    """
+    await _get_account(account_id, current_user, db, "twitter")
     try:
-        result = await client.list_dm_events(max_results=max_results)
-        return result
-    except TwitterAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
+        async with _twitter_bridge() as bridge:
+            result = await bridge.get_twitter_dm_conversations()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Browser bridge unavailable or no x.com session: {str(exc)[:300]}",
+        ) from exc
+    conversations = (result or {}).get("conversations", [])[:max_results]
+    return {"data": conversations, "meta": {"result_count": len(conversations), "source": "browser_bridge"}}
+
+
+def _twitter_thread_id(account: SocialAccount, participant_id: str) -> str:
+    """Build an x.com DM thread URL id from a participant user id.
+
+    X web thread ids are ``{lower_user_id}-{higher_user_id}``.
+    """
+    own = str(account.account_id or "")
+    pair = sorted([own, str(participant_id)], key=int)
+    return f"{pair[0]}-{pair[1]}"
 
 
 @router.post("/twitter/{account_id}/dm/send")
@@ -129,29 +160,34 @@ async def send_twitter_dm(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Send a Twitter DM to a user (requires dm.write scope + paid tier)."""
+    """Send a Twitter DM via the browser bridge (free path).
+
+    Accepts ``conversation_id``/``thread_id`` (x.com thread id or URL)
+    or ``participant_id`` (numeric X user id — converted to a thread id).
+    """
     account = await _get_account(account_id, current_user, db, "twitter")
-    if not account.access_token_enc:
-        raise HTTPException(status_code=400, detail="Twitter account has no access token — connect via OAuth first")
-    participant_id = body.get("participant_id")
     text = body.get("text")
-    conversation_id = body.get("conversation_id")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
+    thread_id = body.get("conversation_id") or body.get("thread_id")
+    if not thread_id and body.get("participant_id"):
+        participant = str(body["participant_id"]).strip()
+        if not participant.isdigit():
+            raise HTTPException(status_code=400, detail="participant_id must be a numeric X user id")
+        if not account.account_id:
+            raise HTTPException(status_code=400, detail="account_id missing — cannot derive thread id")
+        thread_id = _twitter_thread_id(account, participant)
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="conversation_id, thread_id or participant_id is required")
+    # Accept full x.com URLs too
+    if "/messages/" in str(thread_id):
+        thread_id = str(thread_id).rsplit("/messages/", 1)[-1].split("?")[0].strip("/")
 
-    token = decrypt_token(account.access_token_enc)
-    client = TwitterAPIClient(access_token=token)
-    try:
-        if conversation_id:
-            result = await client.send_dm_to_conversation(conversation_id, text)
-        elif participant_id:
-            result = await client.send_dm(participant_id, text)
-        else:
-            raise HTTPException(status_code=400, detail="participant_id or conversation_id is required")
-        return result
-    except TwitterAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
+    async with _twitter_bridge() as bridge:
+        result = await bridge.send_twitter_dm_message(str(thread_id), text)
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=502, detail=result["error"])
+    return {"status": "sent", "thread_id": thread_id, "source": "browser_bridge", "result": result}
 
 
 # ── TikTok DM endpoints ─────────────────────────────────────────────────────
