@@ -1441,6 +1441,9 @@ class BrowserBridgeClient:
             );
             if (!editor) return {{ error: 'Could not find the tweet composer' }};
             editor.focus();
+            // Clear any persisted draft first so we never double-type.
+            document.execCommand('selectAll', false, null);
+            document.execCommand('delete', false, null);
             document.execCommand('insertText', false, {escaped_text});
             return {{ status: 'typed', length: (editor.innerText || '').length }};
         }}""")
