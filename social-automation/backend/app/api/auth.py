@@ -1829,19 +1829,55 @@ async def instagram2_callback(
         access_token = token_data.get("access_token")
 
         # Exchange for long-lived token (valid ~60 days, refreshable)
-        # NOTE: Meta changed this endpoint from GET to POST in 2025.
-        # Using GET now returns "Unsupported request - method type: get".
-        ll_resp = await http.post(
-            "https://graph.instagram.com/access_token",
-            data={
-                "grant_type": "ig_exchange_token",
-                "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
-                "access_token": access_token,
-            },
-        )
-        ll_data = ll_resp.json()
-        long_lived_token = ll_data.get("access_token", access_token)
+        # NOTE: Meta changed this endpoint from GET to POST in 2025, and the
+        # unversioned POST path is routed as an object ID ("Object with ID
+        # 'access_token' does not exist"). Use the versioned path first, then
+        # fall back to the documented GET form.
+        ll_data: dict = {}
+        for attempt in (
+            lambda: http.post(
+                "https://graph.instagram.com/v21.0/access_token",
+                data={
+                    "grant_type": "ig_exchange_token",
+                    "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            ),
+            lambda: http.get(
+                "https://graph.instagram.com/access_token",
+                params={
+                    "grant_type": "ig_exchange_token",
+                    "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            ),
+        ):
+            ll_resp = await attempt()
+            try:
+                ll_data = ll_resp.json()
+            except Exception:
+                ll_data = {}
+            if ll_data.get("access_token"):
+                break
+            logger.warning(
+                "ig_exchange_token attempt failed (%s): %s",
+                ll_resp.status_code,
+                ll_resp.text[:200],
+            )
+        long_lived_token = ll_data.get("access_token")
         expires_in = ll_data.get("expires_in")
+        if not long_lived_token:
+            # Never silently store the ~1h short-lived token — it dies within
+            # hours and the account looks "active" until the first publish.
+            logger.error(
+                "ig_exchange_token failed (%s): %s",
+                ll_resp.status_code,
+                ll_resp.text[:300],
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Instagram long-lived token exchange failed: {ll_resp.text[:300]}",
+            )
 
         # Get user profile info
         profile_resp = await http.get(
