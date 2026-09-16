@@ -1451,6 +1451,17 @@ class BrowserBridgeClient:
         if isinstance(result, dict) and result.get("error"):
             return {"status": "error", "error": result["error"]}
 
+        # Remove attachments left over from a persisted draft so the image
+        # is not attached twice.
+        await self.evaluate("""() => {
+            const box = document.querySelector('[data-testid="attachments"]');
+            if (!box) return { status: 'no_attachments' };
+            const rm = box.querySelector('button[aria-label*="Remove"], button[aria-label*="remove"], div[role="button"][aria-label*="Remove"]');
+            if (rm) rm.click();
+            return { status: 'cleared' };
+        }""")
+        await asyncio.sleep(1)
+
         # Attach images through the composer's hidden file input
         for b64, mime in (image_b64_list or [])[:4]:
             resp = await self.evaluate(f"""() => {{
