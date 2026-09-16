@@ -1175,7 +1175,15 @@ async def similar_assets(
     if not similar:
         return []
 
-    ids = [uuid.UUID(s["embedding_id"]) for s in similar if s.get("embedding_id")]
+    ids = []
+    for s in similar:
+        emb = s.get("embedding_id")
+        if not emb:
+            continue
+        try:
+            ids.append(uuid.UUID(emb))
+        except (ValueError, AttributeError, TypeError):
+            continue
     result = await db.execute(
         select(MediaAsset.id, MediaAsset.ai_caption).where(
             MediaAsset.id.in_(ids),

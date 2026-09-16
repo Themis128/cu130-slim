@@ -116,7 +116,7 @@ async def list_twitter_dm_events(
         result = await client.list_dm_events(max_results=max_results)
         return result
     except TwitterAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
 
 
 @router.post("/twitter/{account_id}/dm/send")
@@ -148,7 +148,7 @@ async def send_twitter_dm(
             raise HTTPException(status_code=400, detail="participant_id or conversation_id is required")
         return result
     except TwitterAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
 
 
 # ── TikTok DM endpoints ─────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ async def list_tiktok_dm_conversations(
         result = await client.list_dm_conversations()
         return result
     except TikTokAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
 
 
 @router.post("/tiktok/{account_id}/dm/send")
@@ -247,4 +247,4 @@ async def send_tiktok_dm(
         result = await client.send_dm(conversation_id, {"text": text})
         return result
     except TikTokAPIError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)[:400]) from exc
