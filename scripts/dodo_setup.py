@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -63,22 +63,25 @@ def env_set(key: str, value: str) -> None:
 
 
 def api(method: str, path: str, base: str, key: str, body: dict | None = None) -> dict:
-    req = urllib.request.Request(
-        f"{base}{path}",
-        method=method,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read()[:300].decode(errors="replace")
-        raise SystemExit(f"Dodo {method} {path} -> {exc.code}: {detail}")
+    # Dodo's API is behind Cloudflare bot protection — non-browser TLS
+    # signatures get error 1010. Route through the WARP proxy.
+    cmd = [
+        "curl", "-s", "--socks5-hostname", "127.0.0.1:1080",
+        "-X", method, f"{base}{path}",
+        "-H", f"Authorization: Bearer {key}",
+        "-H", "Content-Type: application/json",
+        "-H", "Accept: application/json",
+        "--max-time", "30",
+        "-w", "\n%{http_code}",
+    ]
+    if body is not None:
+        cmd += ["-d", json.dumps(body)]
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=40).stdout
+    *resp_text, code = out.rsplit("\n", 1)
+    text = resp_text[0] if resp_text else ""
+    if not code.startswith("2"):
+        raise SystemExit(f"Dodo {method} {path} -> {code}: {text[:300]}")
+    return json.loads(text) if text else {}
 
 
 def main() -> None:
@@ -113,9 +116,9 @@ def main() -> None:
                 "price": cents,
                 "currency": "USD",
                 "payment_frequency_count": 1,
-                "payment_frequency_interval": "month",
+                "payment_frequency_interval": "Month",
                 "subscription_period_count": 1,
-                "subscription_period_interval": "month",
+                "subscription_period_interval": "Month",
             },
         })
         product_id = product.get("product_id") or product.get("id")
