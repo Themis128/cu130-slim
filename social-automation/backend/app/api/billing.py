@@ -698,3 +698,144 @@ async def _handle_polar_subscription_event(
         )
     elif event_type == "subscription.paused":
         team.subscription_status = "paused"
+
+
+# ---------------------------------------------------------------------------
+# Dodo Payments (Standard Webhooks)
+# ---------------------------------------------------------------------------
+
+
+async def _find_team_for_dodo_event(db: AsyncSession, data: dict) -> Team | None:
+    """Resolve the team for a Dodo event via metadata.team_id → customer_id → email."""
+    team_id = (data.get("metadata") or {}).get("team_id")
+    if team_id:
+        try:
+            team = (
+                await db.execute(select(Team).where(Team.id == uuid.UUID(str(team_id))))
+            ).scalar_one_or_none()
+            if team:
+                return team
+        except (ValueError, TypeError):
+            pass
+    customer_id = data.get("customer_id") or (data.get("customer") or {}).get("customer_id")
+    if customer_id:
+        team = (
+            await db.execute(select(Team).where(Team.dodo_customer_id == customer_id))
+        ).scalar_one_or_none()
+        if team:
+            return team
+    email = (data.get("customer") or {}).get("email")
+    if email:
+        user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if user:
+            return (
+                await db.execute(select(Team).where(Team.owner_id == user.id))
+            ).scalar_one_or_none()
+    return None
+
+
+@router.post("/dodo-webhook")
+async def dodo_webhook(request: Request, db: DbSession):
+    """Dodo notification webhook — Standard Webhooks verified, idempotent.
+
+    Configure under Dodo Dashboard → Developer → Webhooks with
+    ``POST /api/v1/billing/dodo-webhook`` and set ``DODO_WEBHOOK_SECRET``.
+    The ``webhook-id`` header is the delivery id and serves as the
+    idempotency key in ``billing_events``.
+    """
+    raw = await request.body()
+    event_id = request.headers.get("webhook-id", "")
+    if not dodo_api.verify_webhook_signature(
+        raw,
+        event_id,
+        request.headers.get("webhook-timestamp", ""),
+        request.headers.get("webhook-signature", ""),
+    ):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from None
+
+    event_type = event.get("type", "unknown")
+    data = event.get("data") or {}
+
+    existing = (
+        await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))
+    ).scalar_one_or_none()
+    if existing:
+        return {"status": "duplicate", "event_id": event_id}
+
+    row = BillingEvent(event_id=event_id, event_type=event_type, payload=event)
+    db.add(row)
+    team = await _find_team_for_dodo_event(db, data)
+    if team:
+        row.team_id = team.id
+
+    try:
+        if event_type.startswith("subscription."):
+            await _handle_dodo_subscription_event(db, team, event_type, data)
+        elif event_type == "payment.succeeded":
+            # A paid subscription payment links the subscription to the team.
+            if team and data.get("subscription_id"):
+                team.dodo_subscription_id = data["subscription_id"]
+            if team and data.get("customer_id"):
+                team.dodo_customer_id = data["customer_id"]
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        row.error = str(exc)[:2000]
+        await db.commit()
+        logger.exception("dodo webhook %s (%s) failed", event_type, event_id)
+        raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
+
+    return {"status": "processed", "event_type": event_type}
+
+
+async def _handle_dodo_subscription_event(
+    db: AsyncSession, team: Team | None, event_type: str, data: dict
+) -> None:
+    if not team:
+        logger.warning("dodo webhook %s: no team resolved", event_type)
+        return
+
+    customer_id = (data.get("customer") or {}).get("customer_id") or data.get("customer_id")
+    if customer_id:
+        team.dodo_customer_id = customer_id
+
+    if event_type in (
+        "subscription.active",
+        "subscription.updated",
+        "subscription.renewed",
+    ):
+        _apply_dodo_subscription(team, data)
+        if event_type == "subscription.active":
+            await _notify_team_owner(
+                db, team,
+                f"SocialAuto {team.plan_tier} subscription active",
+                f"Your {team.plan_tier} plan is now active.",
+                "billing_activated",
+            )
+    elif event_type == "subscription.on_hold":
+        # Renewal payment failed — recoverable via payment-method update.
+        team.subscription_status = "on_hold"
+        await _notify_team_owner(
+            db, team,
+            "SocialAuto payment failed",
+            "Your subscription payment failed. Update your payment method to keep your plan.",
+            "billing_past_due",
+        )
+    elif event_type in ("subscription.cancelled", "subscription.expired"):
+        team.subscription_status = data.get("status", "cancelled")
+        team.plan_tier = "free"
+        await _notify_team_owner(
+            db, team,
+            "SocialAuto subscription ended",
+            "Your subscription has ended and the team is now on the free plan.",
+            "billing_canceled",
+        )
+    elif event_type == "subscription.failed":
+        # Terminal: mandate creation failed — never grant the tier.
+        team.subscription_status = "failed"
+    elif event_type == "subscription.paused":
+        team.subscription_status = "paused"
