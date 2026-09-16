@@ -2,6 +2,19 @@
 .env
 .env.local
 .env.*.local
+# All .env variants (backups, env-specific) — keep example/template + CI fixture tracked
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.github/test.env
+
+# Secrets and credentials — never track
+.secrets/
+*.pem
+*.key
+*.credentials
+n8n-export/credentials.json
 
 # Devin local config / secrets
 .devin/mcp_config.local.json
