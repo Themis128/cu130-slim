@@ -1394,8 +1394,17 @@ async def _publish_instagram_via_graph(
                 children_ids=child_ids,
                 caption=caption,
             )
+        # IG processes containers asynchronously — publishing before the
+        # container reaches FINISHED fails with 9007 "Media ID is not
+        # available". Poll until ready (images are usually quick).
+        await client.wait_for_container_ready(creation_id, timeout=60.0)
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:
+        return PublishResult(
+            success=False,
+            error=f"Instagram publish failed: {exc}",
+        )
+    except TimeoutError as exc:
         return PublishResult(
             success=False,
             error=f"Instagram publish failed: {exc}",

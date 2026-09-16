@@ -582,8 +582,9 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
     ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
     monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "17841460000000001"}),
-        _FakeResponse(200, {"id": "17841460000000002"}),
+        _FakeResponse(200, {"id": "17841460000000001"}),   # create container
+        _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
+        _FakeResponse(200, {"id": "17841460000000002"}),   # publish
     ])
 
     with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
@@ -594,8 +595,8 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
 
     assert result.success is True
     assert result.platform_post_id == "17841460000000002"
-    # Should have called Graph API (2 calls: container + publish)
-    assert len(fake.calls) == 2
+    # Should have called Graph API (3 calls: container + status + publish)
+    assert len(fake.calls) == 3
 
 
 @pytest.mark.asyncio
@@ -629,8 +630,9 @@ async def test_publish_instagram_sidecar_session_expired(ig_account_with_session
 
     # Graph API mock for fallback (numeric IDs required by _validate_id)
     fake_graph = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "17841460000000003"}),
-        _FakeResponse(200, {"id": "17841460000000004"}),
+        _FakeResponse(200, {"id": "17841460000000003"}),   # create container
+        _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
+        _FakeResponse(200, {"id": "17841460000000004"}),   # publish
     ])
 
     import app.services.instagram_api as graph_mod
