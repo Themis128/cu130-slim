@@ -1,6 +1,43 @@
-# Paddle Billing Architecture
+# Billing Architecture (multi-provider)
 
-Monetization layer for SocialAuto built on **Paddle Billing v2** (merchant of record — Paddle handles VAT/sales tax, invoicing, and payment methods). Currently wired end-to-end in **sandbox**; going live only requires env keys and a webhook destination (see [Go-live checklist](#go-live-checklist)).
+Monetization layer for SocialAuto. All supported providers are **Merchants of Record** — they handle VAT/sales tax, invoicing, and payment methods. The active provider is selected by `BILLING_PROVIDER` (`paddle` | `polar` | `dodo`).
+
+> **Status**: Paddle's account application was **rejected** (AI/generative-AI product category). Polar was integrated next but its only payout rail is Stripe Connect, which was ruled out. **Dodo Payments** is the target provider: MoR, free to start, pays out directly to a bank account — no Stripe. Paddle code is retained as a fallback path.
+
+## Provider comparison
+
+| | Paddle | Polar | Dodo (current target) |
+|---|---|---|---|
+| Base URL | `api.paddle.com` / sandbox | `api.polar.sh/v1` / sandbox | `live.dodopayments.com` / test |
+| Auth | `PADDLE_API_KEY` Bearer | `POLAR_ACCESS_TOKEN` Bearer | `DODO_PAYMENTS_API_KEY` Bearer |
+| Checkout | transaction → hosted URL or Paddle.js overlay | `POST /checkouts` → `url` | `POST /checkouts` → `checkout_url` |
+| Portal | `POST /customers/{id}/portal-sessions` | `POST /customer-sessions` | `POST /customers/{id}/customer-portal/session` |
+| Cancel | `PATCH /subscriptions/{id}` `scheduled_change` | `PATCH` `cancel_at_period_end` | `PATCH` `cancel_at_next_billing_date` |
+| Webhook path | `POST /billing/webhook` (`Paddle-Signature`) | `POST /billing/polar-webhook` | `POST /billing/dodo-webhook` |
+| Signature | HMAC-SHA256 `h1=` scheme | Standard Webhooks | Standard Webhooks |
+| Team linkage | `custom_data.team_id` | `metadata.team_id` + `external_customer_id` | `metadata.team_id` + `customer_id` → email |
+| Team columns | `paddle_customer_id` / `paddle_subscription_id` | `polar_*` | `dodo_*` |
+| Payouts | Wire/PayPal/Payoneer | Stripe Connect only | Direct bank transfer |
+
+## Shared design (all providers)
+
+- **Server-created hosted checkout**: `POST /billing/checkout` returns a `checkout_url`; the frontend redirects. Paddle additionally supports the Paddle.js overlay.
+- **Webhook-driven plan state**: `teams.plan_tier` is only mutated by verified webhook events (or `/billing/sync` reconciliation). No client-side trust.
+- **Idempotent webhooks**: every event is persisted in `billing_events`; replayed deliveries short-circuit as `{"status": "duplicate"}`. Paddle uses `event_id`; Polar/Dodo use the `webhook-id` delivery header.
+- **Cancel at period end**: paid tier remains until `subscription_period_end`, then the cancel event drops the team to `free`. Dodo `subscription.on_hold` (failed renewal) keeps the tier while notifying the owner — it is recoverable, unlike terminal `failed`.
+- **Slack revenue digest**: daily Celery task posts to `SLACK_BILLING_WEBHOOK_URL`/`SLACK_BILLING_CHANNEL_ID` (legacy `SLACK_PADDLE_*` fallback). Content switches automatically with `BILLING_PROVIDER`. Preview: `GET /ops/billing-digest/preview`.
+
+## Dodo setup (current path)
+
+1. Sign up at dodopayments.com, complete KYC with the NBG bank account for payouts.
+2. Dashboard → Developer → API Keys → put in `.env` as `DODO_PAYMENTS_API_KEY`.
+3. Run `python3 scripts/dodo_setup.py` — creates the 3 products, registers the webhook, fetches the signing secret into `.env`, and sets `BILLING_PROVIDER=dodo`.
+4. `docker compose restart social-api social-worker-default celery-beat`.
+5. Smoke-test a test-mode checkout, then set `DODO_ENVIRONMENT=live_mode` and repeat with a live key.
+
+---
+
+## Legacy Paddle notes (kept for reference)
 
 ## Design choices
 
