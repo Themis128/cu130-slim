@@ -34,10 +34,13 @@ WEBHOOK_EVENTS = [
     "subscription.updated",
     "subscription.renewed",
     "subscription.on_hold",
+    "subscription.past_due",
     "subscription.failed",
     "subscription.cancelled",
     "subscription.expired",
     "subscription.paused",
+    "subscription.unpaused",
+    "subscription.plan_changed",
     "payment.succeeded",
     "payment.failed",
 ]

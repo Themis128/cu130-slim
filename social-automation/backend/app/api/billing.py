@@ -807,6 +807,8 @@ async def _handle_dodo_subscription_event(
         "subscription.active",
         "subscription.updated",
         "subscription.renewed",
+        "subscription.unpaused",
+        "subscription.plan_changed",
     ):
         _apply_dodo_subscription(team, data)
         if event_type == "subscription.active":
@@ -816,9 +818,10 @@ async def _handle_dodo_subscription_event(
                 f"Your {team.plan_tier} plan is now active.",
                 "billing_activated",
             )
-    elif event_type == "subscription.on_hold":
+    elif event_type in ("subscription.on_hold", "subscription.past_due"):
         # Renewal payment failed — recoverable via payment-method update.
-        team.subscription_status = "on_hold"
+        # past_due = grace period open, access kept until deadline.
+        team.subscription_status = "past_due" if event_type == "subscription.past_due" else "on_hold"
         await _notify_team_owner(
             db, team,
             "SocialAuto payment failed",
