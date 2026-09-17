@@ -9,13 +9,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user, log_action, require_admin
+from app.api.deps import get_user_team
 from app.core.security import encrypt_token
 from app.db.session import get_db
 from app.models.ai_provider import AIProvider
 from app.models.ai_usage import AIUsageLog
 from app.models.user import Team, User
 from app.services.inference import PROVIDER_CATALOG
-from app.api.deps import get_user_team
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

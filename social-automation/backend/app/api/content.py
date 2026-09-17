@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
-from app.api.deps import get_user_team, TeamId, check_quota
+from app.api.deps import TeamId, check_quota, get_user_team
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount

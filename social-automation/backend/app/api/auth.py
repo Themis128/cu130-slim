@@ -748,11 +748,10 @@ async def export_user_data(
     db: AsyncSession = Depends(get_db),
 ):
     """Export all user data (posts, media metadata, analytics) as JSON."""
+    from app.api.deps import get_user_team
     from app.models.analytics import PostAnalyticsSnapshot
     from app.models.content import MediaAsset, Post
     from app.models.social_account import SocialAccount
-
-    from app.api.deps import get_user_team
 
     team = await get_user_team(db, current_user)
     if not team:

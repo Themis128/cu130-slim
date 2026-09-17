@@ -16,13 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.api.deps import get_user_team
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.meta_graph import facebook_graph_url
-from app.api.deps import get_user_team
 
 router = APIRouter()
 

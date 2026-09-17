@@ -8,12 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
+from app.api.deps import get_user_team
 from app.db.session import get_db
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
-from app.api.deps import get_user_team
 
 router = APIRouter()
 

@@ -22,7 +22,7 @@ from app.api.auth import (
     tiktok_client,
     twitter_client,
 )
-from app.api.deps import get_user_team, TeamId, check_quota
+from app.api.deps import TeamId, check_quota, get_user_team
 from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token, sign_oauth_state
 from app.db.session import get_db
