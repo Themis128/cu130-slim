@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.digital_card import DigitalCard
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
+from app.api.deps import get_user_team
 
 router = APIRouter()
 
@@ -24,10 +25,7 @@ router = APIRouter()
 
 
 async def _get_team(user: User, db: AsyncSession) -> Team:
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     return team

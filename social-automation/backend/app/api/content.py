@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user, log_action, require_admin, require_editor
-from app.api.deps import TeamId, check_quota
+from app.api.deps import get_user_team, TeamId, check_quota
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
@@ -161,10 +161,7 @@ async def list_posts(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return PostListResponse(posts=[], total=0, page=page, page_size=page_size)
 
@@ -196,10 +193,7 @@ async def get_calendar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return []
 
@@ -469,10 +463,7 @@ async def cross_post_to_platform(
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Resolve team
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 

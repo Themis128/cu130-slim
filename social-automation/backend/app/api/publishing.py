@@ -13,6 +13,7 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
+from app.api.deps import get_user_team
 
 router = APIRouter()
 
@@ -102,10 +103,7 @@ async def list_queue(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return QueueListResponse(items=[], total=0, page=page, page_size=page_size)
 
@@ -268,10 +266,7 @@ async def publish_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return []
 

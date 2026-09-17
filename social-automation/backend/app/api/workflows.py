@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId
+from app.api.deps import get_user_team, TeamId
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import Team, TeamMember, User
@@ -79,10 +79,7 @@ async def list_workflows(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return []
 
@@ -101,10 +98,7 @@ async def list_templates(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return []
 
@@ -123,10 +117,7 @@ async def create_template(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -421,10 +412,7 @@ async def generate_workflow(
         n8n_workflow["name"] = f"Generated: {request.prompt[:50]}"
     else:
         # Generate workflow JSON using AI
-        result = await db.execute(
-            select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-        )
-        team = result.scalars().first()
+        team = await get_user_team(db, current_user)
 
         ai_prompt = (
             "You are an n8n workflow generator. Given a natural-language description, "
@@ -471,10 +459,7 @@ async def generate_workflow(
             n8n_workflow = _fallback_workflow(request.prompt)
 
     # Save generated workflow
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
 
     gen_workflow = GeneratedWorkflow(
         team_id=team.id if team else uuid.uuid4(),
@@ -546,10 +531,7 @@ async def import_cloudless_carousel(
     import json
     import os
 
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 

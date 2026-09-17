@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId, check_quota
+from app.api.deps import get_user_team, TeamId, check_quota
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
@@ -582,10 +582,7 @@ Return JSON with:
 
     seo_score = None
     try:
-        team_result = await db.execute(
-            select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-        )
-        team = team_result.scalars().first()
+        team = await get_user_team(db, current_user)
         seo_result = await _seo_service.analyze_seo(
             text=request.content,
             platform=request.platform,
@@ -634,10 +631,7 @@ async def analyze_seo_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Analyze content for SEO: keywords, score, meta title/description, and recommendations."""
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     team_id = team.id if team else None
 
     result = await seo.analyze_seo(
@@ -727,10 +721,7 @@ async def generate_image(
         _is_workers_ai_image_model,
     )
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -1026,10 +1017,7 @@ async def generate_image_pipeline(
     """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement)."""
     import base64
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -1149,10 +1137,7 @@ async def save_draft(
     db: AsyncSession = Depends(get_db),
 ):
     """Save generated image as draft for later posting."""
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
 
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -1200,10 +1185,7 @@ async def list_drafts(
     db: AsyncSession = Depends(get_db),
 ):
     """List all saved drafts for the current user's team."""
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
 
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -1256,10 +1238,7 @@ async def post_draft(
     """Post a saved draft to the selected social platform."""
     from app.models.social_account import SocialAccount
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -1387,10 +1366,7 @@ async def get_image_status(
                             # shows up in the Media Library (once per job).
                             asset_id = None
                             storage_path = None
-                            team_result = await db.execute(
-                                select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-                            )
-                            team = team_result.scalars().first()
+                            team = await get_user_team(db, current_user)
                             if team:
                                 existing = await db.execute(
                                     select(MediaAsset).where(
@@ -1468,10 +1444,7 @@ async def generate_image_flux(
     """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API."""
     import base64
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -2095,10 +2068,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
     from app.services.quality_pipeline import apply_quality_pipeline
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
 
     quality = await apply_quality_pipeline(
         content=improved,
@@ -2181,10 +2151,7 @@ Return JSON with:
             variables_used[var] = f"<{var}>"
 
     # Save generated workflow
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
 
     gen_workflow = GeneratedWorkflow(
         team_id=team.id if team else uuid.uuid4(),
@@ -2325,10 +2292,7 @@ async def generate_carousel(
     db: AsyncSession = Depends(get_db),
 ):
     # Check chroma for similar existing carousel content before generating
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
         similar = await chroma_client.query_similar(str(team.id), request.topic, n_results=3)
@@ -2521,10 +2485,7 @@ async def generate_carousel_pipeline(
 
     from app.services.plain_english import run_nlp_check_and_fix
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2708,10 +2669,7 @@ async def run_carousel_and_publish(
     """
     from app.services.carousel_pipeline import run_cloudless_carousel_pipeline
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2827,10 +2785,7 @@ async def save_generation_template(
     db: AsyncSession = Depends(get_db),
 ):
     """Save a successful generation run as a reusable template in the Workflows page."""
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2929,10 +2884,7 @@ async def seed_default_workflows(
     current_user: User = Depends(get_current_user),
 ):
     """Upsert one default PromptTemplate per content type so Workflows page shows them."""
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -3376,10 +3328,7 @@ async def generate_emoji(
     )
 
     # Check quota
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
 
@@ -3570,10 +3519,7 @@ async def generate_emoji_batch(
         raise HTTPException(status_code=400, detail="At least one concept required")
 
     # Check quota
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
 

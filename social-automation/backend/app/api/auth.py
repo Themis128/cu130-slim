@@ -752,10 +752,9 @@ async def export_user_data(
     from app.models.content import MediaAsset, Post
     from app.models.social_account import SocialAccount
 
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    from app.api.deps import get_user_team
+
+    team = await get_user_team(db, current_user)
     if not team:
         return {"user": {"email": current_user.email}, "posts": [], "media": [], "accounts": [], "analytics": []}
 

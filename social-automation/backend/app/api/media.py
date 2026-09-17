@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId
+from app.api.deps import get_user_team, TeamId
 from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
@@ -161,10 +161,7 @@ async def upload_media(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -335,10 +332,7 @@ async def list_media(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         return MediaListResponse(assets=[], total=0, page=page, page_size=page_size)
 
@@ -474,10 +468,7 @@ async def bulk_delete_media(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -541,10 +532,7 @@ async def generate_image(
         _call_local_diffusers_txt2img,
         _call_workers_ai_image,
     )
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -739,10 +727,7 @@ async def prepare_upload(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -774,10 +759,7 @@ async def complete_upload(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -861,10 +843,7 @@ async def create_collection(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -890,10 +869,7 @@ async def list_collections(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1059,10 +1035,7 @@ async def search_media(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1124,10 +1097,7 @@ async def retag_asset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1154,10 +1124,7 @@ async def similar_assets(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 

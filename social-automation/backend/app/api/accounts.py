@@ -22,7 +22,7 @@ from app.api.auth import (
     tiktok_client,
     twitter_client,
 )
-from app.api.deps import TeamId, check_quota
+from app.api.deps import get_user_team, TeamId, check_quota
 from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token, sign_oauth_state
 from app.db.session import get_db
@@ -356,10 +356,7 @@ async def sync_linkedin_organizations(
     """
     from app.api.auth import _sync_linkedin_organizations
 
-    team_result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = team_result.scalars().first()
+    team = await get_user_team(db, current_user)
     if not team:
         raise HTTPException(status_code=403, detail="No team found for user")
 
