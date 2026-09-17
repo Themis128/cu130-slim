@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.ai_provider import AIProvider
-from app.models.user import Team, TeamMember
+
 from app.services import usage_tracker
 from app.services.cf_models import (
     CF_TEXT_FREE,
@@ -44,7 +44,6 @@ _CIRCUIT_COOLDOWN_SECONDS = 60
 # Last CF neuron spend extracted from response headers (consumed by call_inference)
 _last_cf_neurons: int | None = None
 
-
 def _extract_cf_neurons(headers: httpx.Headers) -> int | None:
     """Extract actual neuron spend from Cloudflare Workers AI response headers."""
     for hname in ("cf-ai-neurons-spent", "cf-ai-neuron-estimate", "x-cf-ai-neurons"):
@@ -55,7 +54,6 @@ def _extract_cf_neurons(headers: httpx.Headers) -> int | None:
             except (ValueError, TypeError):
                 logger.debug("Non-numeric neuron header %s=%r", hname, val)
     return None
-
 
 def _circuit_is_open(provider: str) -> bool:
     """Check if a provider's circuit breaker is open (in cooldown)."""
@@ -69,7 +67,6 @@ def _circuit_is_open(provider: str) -> bool:
         return False
     return bool(state.get("open_until"))
 
-
 def _circuit_record_failure(provider: str) -> None:
     """Record a failure for *provider*; open the circuit after threshold."""
     state = _circuit_state.setdefault(provider, {"failures": 0})
@@ -77,11 +74,9 @@ def _circuit_record_failure(provider: str) -> None:
     if state["failures"] >= _CIRCUIT_FAILURE_THRESHOLD:
         state["open_until"] = datetime.now(UTC) + timedelta(seconds=_CIRCUIT_COOLDOWN_SECONDS)
 
-
 def _circuit_record_success(provider: str) -> None:
     """Reset the failure counter on success."""
     _circuit_state.pop(provider, None)
-
 
 def _estimate_cost(provider: str, model: str, prompt: str, actual_neurons: int | None) -> float | None:
     """Rough USD cost estimate per inference call (Phase 4.2).
@@ -94,7 +89,6 @@ def _estimate_cost(provider: str, model: str, prompt: str, actual_neurons: int |
     """
     _ = (provider, model, prompt, actual_neurons)  # all free-tier / local for now
     return 0.0
-
 
 def _ai_token() -> str:
     """Return the Workers AI token, preferring CLOUDFLARE_AI_API_TOKEN over CLOUDFLARE_API_TOKEN."""
@@ -295,7 +289,6 @@ PROVIDER_CATALOG = [
     },
 ]
 
-
 async def _get_provider_config(
     provider_name: str,
     team_id: uuid.UUID | None,
@@ -363,13 +356,11 @@ async def _get_provider_config(
     model = db_model if db_model else str(catalog["default_model"])
     return _resolve_base_url(provider_name, base_url), model, api_key
 
-
 def _resolve_base_url(provider_name: str, base_url: str) -> str:
     """Substitute Cloudflare account ID (or other placeholders) into a provider base URL."""
     if provider_name == "cloudflare" and "{account_id}" in base_url:
         return base_url.replace("{account_id}", settings.CLOUDFLARE_ACCOUNT_ID)
     return base_url
-
 
 # Speech-to-text model identifiers available on Cloudflare Workers AI
 STT_MODELS: dict[str, str] = {
@@ -381,7 +372,6 @@ STT_MODELS: dict[str, str] = {
     "nova-3": "@cf/deepgram/nova-3",
     "flux": "@cf/deepgram/flux",
 }
-
 
 async def list_workers_ai_models() -> list[dict]:
     """Fetch the live Workers AI model catalog for the configured account.
@@ -430,7 +420,6 @@ async def list_workers_ai_models() -> list[dict]:
             page += 1
 
     return models
-
 
 async def transcribe_workers_ai(
     audio_bytes: bytes,
@@ -509,7 +498,6 @@ async def transcribe_workers_ai(
         **{k: v for k, v in result.items() if k != "text"},
     }
 
-
 async def _call_workers_ai_chat(
     prompt: str,
     model: str,
@@ -587,7 +575,6 @@ async def _call_workers_ai_chat(
         return _parse_json_response(response_text)
     return {"text": response_text}
 
-
 # ---------------------------------------------------------------------------
 # Workers AI Image Generation (SDXL / FLUX image models)
 # ---------------------------------------------------------------------------
@@ -612,7 +599,6 @@ _WORKERS_AI_IMAGE_KEYWORDS = (
 # Model identifiers are ``@author/name[/subname]`` (e.g. ``@cf/meta/llama-3.2-3b-instruct``).
 _WORKERS_AI_MODEL_RE = re.compile(r"^@[\w./-]+$")
 
-
 def _validate_workers_ai_model(model: str) -> str:
     """Validate and normalize a Workers AI model identifier before using it in a URL."""
     if not isinstance(model, str) or not model:
@@ -625,12 +611,10 @@ def _validate_workers_ai_model(model: str) -> str:
     # Percent-encode the model to ensure any unexpected characters cannot change the URL structure.
     return quote(model, safe="@/")
 
-
 def _is_workers_ai_image_model(model: str) -> bool:
     """Heuristic: detect whether a Workers AI model identifier targets image generation."""
     normalized = (model or "").lower()
     return any(kw in normalized for kw in _WORKERS_AI_IMAGE_KEYWORDS)
-
 
 async def _call_local_diffusers_txt2img(
     prompt: str,
@@ -680,7 +664,6 @@ async def _call_local_diffusers_txt2img(
     data = resp.json()
     b64 = data["data"][0]["b64_json"]
     return {"image_base64": b64, "model": payload["model"]}
-
 
 async def _call_workers_ai_image(
     prompt: str,
@@ -768,7 +751,6 @@ async def _call_workers_ai_image(
             "format": "base64",
             "prompt": prompt,
         }
-
 
 async def _call_workers_ai_img2img(
     prompt: str,
@@ -882,7 +864,6 @@ async def _call_workers_ai_img2img(
         detail=f"Cloudflare Workers AI img2img capacity exceeded after retries: {last_error}",
     )
 
-
 async def _call_workers_ai_flux2_edit(
     prompt: str,
     image_bytes: bytes,
@@ -961,7 +942,6 @@ async def _call_workers_ai_flux2_edit(
         status_code=502,
         detail=f"Cloudflare FLUX.2 edit capacity exceeded after retries: {last_error}",
     )
-
 
 async def _call_cf_image_pipeline(
     prompt: str,
@@ -1075,7 +1055,6 @@ async def _call_cf_image_pipeline(
         "models": {"txt2img": txt2img_model, "img2img": enhance_model_used},
     }
 
-
 # ---------------------------------------------------------------------------
 # Workers AI Batch Inference (queueRequest=true)
 # ---------------------------------------------------------------------------
@@ -1095,7 +1074,6 @@ def _workers_ai_credentials(api_key: str | None = None) -> tuple[str, str]:
             detail="CLOUDFLARE_AI_API_TOKEN (or CLOUDFLARE_API_TOKEN) is not configured for Cloudflare Workers AI.",
         )
     return account_id, key
-
 
 async def submit_workers_ai_batch(
     model: str,
@@ -1145,7 +1123,6 @@ async def submit_workers_ai_batch(
         "model": result.get("model") or model,
     }
 
-
 async def retrieve_workers_ai_batch(
     model: str,
     request_id: str,
@@ -1191,7 +1168,6 @@ async def retrieve_workers_ai_batch(
         "model": result.get("model") or model,
     }
 
-
 # ---------------------------------------------------------------------------
 # Cloudflare quota / rate-limit detection
 # ---------------------------------------------------------------------------
@@ -1206,7 +1182,6 @@ def _is_cf_quota_error(exc: HTTPException) -> bool:
         lower = str(exc.detail or "").lower()
         return any(kw in lower for kw in ("neuron", "quota", "budget", "limit", "rate", "exceed", "capacity"))
     return False
-
 
 # ---------------------------------------------------------------------------
 # Hugging Face Inference API — free-tier callables
@@ -1253,7 +1228,6 @@ async def _call_hf_chat(
         return _parse_json_response(content)
     return {"text": content}
 
-
 async def _call_hf_txt2img(
     prompt: str,
     model: str,
@@ -1298,7 +1272,6 @@ async def _call_hf_txt2img(
         "model": model,
     }
 
-
 async def _call_hf_img2img(
     prompt: str,
     image_b64: str,
@@ -1342,7 +1315,6 @@ async def _call_hf_img2img(
         "provider": "huggingface",
         "model": model,
     }
-
 
 # ---------------------------------------------------------------------------
 # Pixazo — free FLUX Schnell txt2img (60 RPM, no daily cap)
@@ -1393,7 +1365,6 @@ async def _call_pixazo_txt2img(
         "model": "flux-1-schnell",
     }
 
-
 # ---------------------------------------------------------------------------
 # Groq — free-tier text fallback (14.4K req/day, 30 RPM)
 # ---------------------------------------------------------------------------
@@ -1438,7 +1409,6 @@ async def _call_groq_chat(
     if schema:
         return _parse_json_response(content)
     return {"text": content}
-
 
 # ---------------------------------------------------------------------------
 # Together AI — free FLUX.1-schnell txt2img fallback
@@ -1486,7 +1456,6 @@ async def _call_together_txt2img(
         "provider": "together",
         "model": model,
     }
-
 
 async def _do_call_inference(
     prompt: str,
@@ -1608,7 +1577,6 @@ async def _do_call_inference(
         prompt, base_url=base_url, model=model, api_key=api_key or "", schema=schema, max_tokens=max_tokens
     )
 
-
 async def _text_provider_chain(
     provider_name: str,
     team_id: uuid.UUID | None,
@@ -1665,7 +1633,6 @@ async def _text_provider_chain(
     # a round-trip and opens its circuit breaker before the real provider.
     local = ["dmr"] if "dmr" not in cloud and credentials.get("dmr") else []
     return [*local, *cloud]
-
 
 async def call_inference(
     prompt: str,
@@ -1818,7 +1785,6 @@ async def call_inference(
         )
         raise
 
-
 async def _call_dmr_chat(
     prompt: str,
     schema: dict | None = None,
@@ -1858,7 +1824,6 @@ async def _call_dmr_chat(
         return result
     return result
 
-
 async def _call_dmr_embedding(text: str, model_override: str | None = None) -> list[float]:
     """Generate embeddings via Docker Model Runner (OpenAI-compatible /embeddings).
 
@@ -1870,7 +1835,6 @@ async def _call_dmr_embedding(text: str, model_override: str | None = None) -> l
         return await call_dmr_embedding(text, model_override=model_override)
     except ConnectionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
 
 async def _call_openai_compat(
     prompt: str,
@@ -1909,7 +1873,6 @@ async def _call_openai_compat(
         return _parse_json_response(content)
     return {"text": content}
 
-
 def _extract_json_object(text: str) -> str | None:
     """Return the first *balanced* ``{...}`` object in ``text`` (string-aware)."""
     depth = 0
@@ -1936,7 +1899,6 @@ def _extract_json_object(text: str) -> str | None:
                 if depth == 0 and start is not None:
                     return text[start : i + 1]
     return None
-
 
 def _parse_json_response(text: str) -> dict:
     """Parse a provider response into a dict, tolerating markdown fences,
@@ -1979,7 +1941,6 @@ def _parse_json_response(text: str) -> dict:
         ),
     )
 
-
 async def _call_nvidia_flux(
     prompt: str,
     base_url: str,
@@ -2021,7 +1982,6 @@ async def _call_nvidia_flux(
         raise HTTPException(status_code=502, detail="NVIDIA FLUX API returned no image data")
 
     return base64.b64decode(image_b64)
-
 
 async def _call_nvidia_flux_dev(
     prompt: str,
@@ -2071,7 +2031,6 @@ async def _call_nvidia_flux_dev(
 
     return base64.b64decode(image_b64)
 
-
 async def _call_local_sd35(
     prompt: str,
     base_url: str,
@@ -2118,7 +2077,6 @@ async def _call_local_sd35(
         raise HTTPException(status_code=502, detail="Local SD3.5 NIM artifact has no base64 data")
 
     return base64.b64decode(image_b64)
-
 
 async def _call_nvidia_flux_pipeline(
     prompt: str,
@@ -2186,7 +2144,6 @@ async def _call_nvidia_flux_pipeline(
         raise HTTPException(status_code=502, detail="NVIDIA FLUX Kontext API returned no image data")
 
     return base64.b64decode(image_b64)
-
 
 async def get_team_id_for_user(user_id: uuid.UUID, db: AsyncSession) -> uuid.UUID | None:
     from app.api.deps import get_user_team

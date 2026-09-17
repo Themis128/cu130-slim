@@ -11,12 +11,11 @@ from app.api.auth import get_current_user
 from app.api.deps import get_user_team, TeamId
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.user import Team, TeamMember, User
+, User
 from app.models.workflow import ContentPromptTemplate, GeneratedWorkflow, PromptTemplate
 
 router = APIRouter()
 settings = get_settings()
-
 
 class PromptTemplateCreate(BaseModel):
     name: str
@@ -26,7 +25,6 @@ class PromptTemplateCreate(BaseModel):
     category: str | None = None
     tags: list[str] = []
     is_public: bool = False
-
 
 class PromptTemplateResponse(BaseModel):
     id: uuid.UUID
@@ -45,17 +43,14 @@ class PromptTemplateResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class WorkflowGenerateRequest(BaseModel):
     prompt: str
     template_id: uuid.UUID | None = None
-
 
 class WorkflowGenerateResponse(BaseModel):
     n8n_workflow_json: dict
     variables_used: dict
     template_id: uuid.UUID | None
-
 
 class GeneratedWorkflowResponse(BaseModel):
     id: uuid.UUID
@@ -71,7 +66,6 @@ class GeneratedWorkflowResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-
 
 @router.get("", response_model=list[GeneratedWorkflowResponse])
 async def list_workflows(
@@ -91,7 +85,6 @@ async def list_workflows(
     rows = await db.execute(query)
     return rows.scalars().all()
 
-
 @router.get("/templates", response_model=list[PromptTemplateResponse])
 async def list_templates(
     category: str | None = None,
@@ -109,7 +102,6 @@ async def list_templates(
 
     result = await db.execute(query)
     return result.scalars().all()
-
 
 @router.post("/templates", response_model=PromptTemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_template(
@@ -138,7 +130,6 @@ async def create_template(
 
     return template
 
-
 @router.get("/templates/{template_id}", response_model=PromptTemplateResponse)
 async def get_template(
     template_id: uuid.UUID,
@@ -154,7 +145,6 @@ async def get_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
-
 
 @router.patch("/templates/{template_id}", response_model=PromptTemplateResponse)
 async def update_template(
@@ -184,7 +174,6 @@ async def update_template(
     await db.refresh(template)
     return template
 
-
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
     template_id: uuid.UUID,
@@ -205,7 +194,6 @@ async def delete_template(
 # Phase 5 — Content Prompt Templates (per pillar/tone/platform)
 # ---------------------------------------------------------------------------
 
-
 class ContentTemplateCreate(BaseModel):
     name: str
     pillar_id: uuid.UUID | None = None
@@ -215,7 +203,6 @@ class ContentTemplateCreate(BaseModel):
     user_prompt_template: str
     variables: list[str] = []
     is_default: bool = False
-
 
 class ContentTemplateOut(BaseModel):
     id: uuid.UUID
@@ -231,7 +218,6 @@ class ContentTemplateOut(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 @router.get("/content-templates", response_model=list[ContentTemplateOut])
 async def list_content_templates(
@@ -253,7 +239,6 @@ async def list_content_templates(
     result = await db.execute(q)
     return result.scalars().all()
 
-
 @router.post("/content-templates", response_model=ContentTemplateOut, status_code=status.HTTP_201_CREATED)
 async def create_content_template(
     data: ContentTemplateCreate,
@@ -266,7 +251,6 @@ async def create_content_template(
     await db.commit()
     await db.refresh(tpl)
     return tpl
-
 
 @router.patch("/content-templates/{template_id}", response_model=ContentTemplateOut)
 async def update_content_template(
@@ -288,7 +272,6 @@ async def update_content_template(
     await db.refresh(tpl)
     return tpl
 
-
 @router.delete("/content-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_content_template(
     template_id: uuid.UUID,
@@ -303,7 +286,6 @@ async def delete_content_template(
     if tpl:
         await db.delete(tpl)
         await db.commit()
-
 
 
 @router.get("/{workflow_id}", response_model=GeneratedWorkflowResponse)
@@ -322,7 +304,6 @@ async def get_workflow(
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
 
-
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
     workflow_id: uuid.UUID,
@@ -339,7 +320,6 @@ async def delete_workflow(
         raise HTTPException(status_code=404, detail="Workflow not found")
     await db.delete(workflow)
     await db.commit()
-
 
 @router.post("/{workflow_id}/undeploy")
 async def undeploy_workflow(
@@ -377,7 +357,6 @@ async def undeploy_workflow(
     await db.commit()
 
     return {"message": "Workflow undeployed", "status": "draft"}
-
 
 @router.post("/generate", response_model=WorkflowGenerateResponse)
 async def generate_workflow(
@@ -478,7 +457,6 @@ async def generate_workflow(
         template_id=request.template_id,
     )
 
-
 def _fallback_workflow(prompt: str) -> dict:
     """Generate a basic n8n workflow structure as fallback."""
     from app.core.config import get_settings
@@ -520,7 +498,6 @@ def _fallback_workflow(prompt: str) -> dict:
         },
         "settings": {"executionOrder": "v1"},
     }
-
 
 @router.post("/import-cloudless-carousel")
 async def import_cloudless_carousel(
@@ -640,7 +617,6 @@ async def import_cloudless_carousel(
         "name": name,
     }
 
-
 @router.post("/deploy/{workflow_id}")
 async def deploy_workflow(
     workflow_id: uuid.UUID,
@@ -671,7 +647,6 @@ async def deploy_workflow(
 
     return {"message": "Workflow deployed", "n8n_workflow_id": workflow.n8n_workflow_id}
 
-
 @router.post("/execute/{workflow_id}")
 async def execute_workflow(
     workflow_id: uuid.UUID,
@@ -701,7 +676,6 @@ async def execute_workflow(
         execution = resp.json()
 
     return {"message": "Execution started", "execution_id": execution.get("id")}
-
 
 @router.get("/{workflow_id}/executions")
 async def get_workflow_executions(
@@ -742,7 +716,6 @@ async def get_workflow_executions(
             "time": finished_at or ex.get("startedAt", ""),
         })
     return runs
-
 
 
 async def _resolve_team_id(user: User, db: AsyncSession) -> uuid.UUID:

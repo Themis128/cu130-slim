@@ -15,7 +15,7 @@ from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.digital_card import DigitalCard
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, User
 from app.api.deps import get_user_team
 
 router = APIRouter()

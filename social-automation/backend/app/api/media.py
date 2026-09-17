@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
-from app.models.user import Team, TeamMember, User
+, User
 from app.services import minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
 from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
@@ -63,7 +63,6 @@ try:
 except ImportError:  # pragma: no cover - environment-dependent
     pass
 
-
 class MediaAssetResponse(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID
@@ -92,13 +91,11 @@ class MediaAssetResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class MediaListResponse(BaseModel):
     assets: list[MediaAssetResponse]
     total: int
     page: int
     page_size: int
-
 
 # ---------------------------------------------------------------------------
 # Image quality gate
@@ -152,7 +149,6 @@ async def _score_and_store_quality(
     flag_modified(asset, "meta_data")
     await db.commit()
 
-
 @router.post("/upload", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
 async def upload_media(
     file: UploadFile = File(...),
@@ -198,7 +194,6 @@ async def upload_media(
         await _score_and_store_quality(asset, content, db)
 
     return asset
-
 
 @router.get("/view")
 async def view_media(path: str = Query(..., description="Relative storage path or object key of the asset")):
@@ -319,7 +314,6 @@ async def view_media(path: str = Query(..., description="Relative storage path o
 
     raise HTTPException(status_code=404, detail="Media file not found on any storage backend")
 
-
 @router.get("/assets", response_model=MediaListResponse)
 async def list_media(
     page: int = Query(1, ge=1),
@@ -380,7 +374,6 @@ async def list_media(
 
     return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
 
-
 class MediaAssetUpdateRequest(BaseModel):
     filename: str | None = None
     alt_text: str | None = None
@@ -388,7 +381,6 @@ class MediaAssetUpdateRequest(BaseModel):
     collection_id: uuid.UUID | None = None
     is_favorite: bool | None = None
     is_archived: bool | None = None
-
 
 @router.get("/assets/{asset_id}", response_model=MediaAssetResponse)
 async def get_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -399,7 +391,6 @@ async def get_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = D
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     return asset
-
 
 @router.patch("/assets/{asset_id}", response_model=MediaAssetResponse)
 async def update_media(
@@ -433,7 +424,6 @@ async def update_media(
     await db.refresh(asset)
     return asset
 
-
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id))
@@ -457,10 +447,8 @@ async def delete_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User 
     await db.delete(asset)
     await db.commit()
 
-
 class BulkDeleteRequest(BaseModel):
     ids: list[uuid.UUID]
-
 
 @router.post("/assets/bulk-delete", status_code=status.HTTP_200_OK)
 async def bulk_delete_media(
@@ -497,7 +485,6 @@ async def bulk_delete_media(
     await db.commit()
     return {"deleted": deleted}
 
-
 class MediaGenerateOptions(BaseModel):
     width: int | None = None
     height: int | None = None
@@ -506,12 +493,10 @@ class MediaGenerateOptions(BaseModel):
     steps: int = 4
     cfg_scale: float = 3.5
 
-
 class MediaGenerateImageRequest(BaseModel):
     prompt: str
     options: MediaGenerateOptions | None = None
     workflow_json: str | dict | None = None  # legacy ComfyUI field — ignored
-
 
 @router.post("/generate-image", response_model=MediaAssetResponse)
 async def generate_image(
@@ -691,7 +676,6 @@ async def generate_image(
 
     return asset
 
-
 # ---------------------------------------------------------------------------
 # Presigned R2 upload flow
 # ---------------------------------------------------------------------------
@@ -703,12 +687,10 @@ class PresignedUploadRequest(BaseModel):
     alt_text: str | None = None
     tags: list[str] | None = None
 
-
 class PresignedUploadResponse(BaseModel):
     key: str
     upload_url: str
     public_url: str | None
-
 
 class CompleteUploadRequest(BaseModel):
     key: str
@@ -719,7 +701,6 @@ class CompleteUploadRequest(BaseModel):
     height: int | None = None
     alt_text: str | None = None
     tags: list[str] | None = None
-
 
 @router.post("/upload/prepare", response_model=PresignedUploadResponse)
 async def prepare_upload(
@@ -751,7 +732,6 @@ async def prepare_upload(
             detail="Neither R2 nor MinIO S3 credentials are configured. Use the server-side /upload endpoint instead.",
         )
     return url
-
 
 @router.post("/upload/complete", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
 async def complete_upload(
@@ -801,7 +781,6 @@ async def complete_upload(
         pass
     return asset
 
-
 # ---------------------------------------------------------------------------
 # Collections
 # ---------------------------------------------------------------------------
@@ -811,12 +790,10 @@ class MediaCollectionCreateRequest(BaseModel):
     description: str | None = None
     cover_asset_id: uuid.UUID | None = None
 
-
 class MediaCollectionUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     cover_asset_id: uuid.UUID | None = None
-
 
 class MediaCollectionResponse(BaseModel):
     id: uuid.UUID
@@ -831,11 +808,9 @@ class MediaCollectionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class CollectionListResponse(BaseModel):
     collections: list[MediaCollectionResponse]
     total: int
-
 
 @router.post("/collections", response_model=MediaCollectionResponse, status_code=status.HTTP_201_CREATED)
 async def create_collection(
@@ -863,7 +838,6 @@ async def create_collection(
     response.asset_count = 0
     return response
 
-
 @router.get("/collections", response_model=CollectionListResponse)
 async def list_collections(
     current_user: User = Depends(get_current_user),
@@ -889,7 +863,6 @@ async def list_collections(
 
     return CollectionListResponse(collections=items, total=len(items))
 
-
 @router.get("/collections/{collection_id}", response_model=MediaCollectionResponse)
 async def get_collection(
     collection_id: uuid.UUID,
@@ -910,7 +883,6 @@ async def get_collection(
     response = MediaCollectionResponse.model_validate(collection)
     response.asset_count = len(count.scalars().all())
     return response
-
 
 @router.patch("/collections/{collection_id}", response_model=MediaCollectionResponse)
 async def update_collection(
@@ -944,7 +916,6 @@ async def update_collection(
     response.asset_count = len(count.scalars().all())
     return response
 
-
 @router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_collection(
     collection_id: uuid.UUID,
@@ -962,10 +933,8 @@ async def delete_collection(
     await db.delete(collection)
     await db.commit()
 
-
 class CollectionAssetRequest(BaseModel):
     asset_id: uuid.UUID
-
 
 @router.post("/collections/{collection_id}/assets", response_model=MediaAssetResponse)
 async def add_asset_to_collection(
@@ -992,7 +961,6 @@ async def add_asset_to_collection(
     await db.refresh(asset)
     return asset
 
-
 @router.delete("/collections/{collection_id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_asset_from_collection(
     collection_id: uuid.UUID,
@@ -1014,7 +982,6 @@ async def remove_asset_from_collection(
 
     asset.collection_id = None
     await db.commit()
-
 
 # ---------------------------------------------------------------------------
 # Search
@@ -1081,7 +1048,6 @@ async def search_media(
 
     return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
 
-
 # ---------------------------------------------------------------------------
 # AI auto-tagging and similarity
 # ---------------------------------------------------------------------------
@@ -1089,7 +1055,6 @@ async def search_media(
 class SimilarAssetResponse(BaseModel):
     asset_id: uuid.UUID | None
     ai_caption: str | None
-
 
 @router.post("/assets/{asset_id}/tag", response_model=MediaAssetResponse)
 async def retag_asset(
@@ -1116,7 +1081,6 @@ async def retag_asset(
     except Exception:
         pass
     return asset
-
 
 @router.get("/assets/{asset_id}/similar", response_model=list[SimilarAssetResponse])
 async def similar_assets(
@@ -1159,6 +1123,5 @@ async def similar_assets(
     )
     rows = result.all()
     return [SimilarAssetResponse(asset_id=row[0], ai_caption=row[1]) for row in rows]
-
 
 # Need to import User

@@ -20,7 +20,7 @@ from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, User
 from app.models.workflow import GeneratedWorkflow, PromptTemplate
 from app.services import chroma_client, seo
 from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE, CONTENT_WORKFLOW_CONFIGS

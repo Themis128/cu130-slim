@@ -518,7 +518,7 @@ async def update_linkedin_dm_auto_reply(
     """Update the LinkedIn DM auto-reply configuration for an account."""
     account = await _load_linkedin_account(db, account_id, current_user)
     if body.enabled:
-        from app.api.deps import get_user_team, check_plan_feature
+        from app.api.deps import check_plan_feature
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["linkedin_auto_reply"] = body.model_dump()

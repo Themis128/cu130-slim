@@ -13,7 +13,7 @@ from app.api.deps import get_user_team, TeamId, check_quota
 from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, User
 from app.services.content_renderer import render_post_text
 from app.services.spellcheck import auto_correct
 
