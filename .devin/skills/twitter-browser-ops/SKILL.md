@@ -68,17 +68,32 @@ and always unpauses beat. Exit 2 = manual captcha needed.
 
 ## Browser contention (shared browser-novnc)
 
-All platforms share one Chromium. Messenger/personal-DM pollers call
-`/session/start` for their platform and **tear down the current context**,
-hijacking the page mid-login or mid-compose. Mitigations:
+All platforms share one Chromium. The bridge now enforces a **busy-hold**:
+every live-page interaction extends `_state["busy_until"]` (+180s), and
+`/session/start` for a *different* platform returns `409 Browser busy`
+while held. Same-platform start reuses the session instead of restarting.
+`{"platform": "...", "force": true}` overrides for manual recovery.
 
-- **Pause beat before manual/scripted login:**
-  `docker compose pause celery-beat` … `docker compose unpause celery-beat`
-- Publishing uses `browser_session("twitter", client)` (Redis lock
-  `browser-bridge:lock`) — pollers that bypass the lock can still hijack;
-  pausing beat is the reliable guard.
-- If the page jumps to `facebook.com/login` or `instagram.com` mid-flow, a
-  poller hijacked it — pause beat and retry.
+Remaining gap: page-level `navigate`/`evaluate` calls aren't attributed to
+a platform, so a poller can still navigate a busy session's page. When a
+publish must not be disturbed, **pause beat first**:
+
+```bash
+docker compose pause celery-beat   # stops all scheduled pollers
+docker compose unpause celery-beat # resume afterwards
+```
+
+## Composer notes
+
+- X counts weighted chars (URLs = 23 via t.co, emoji = 2). If **Post** is
+  disabled, check for *"You have exceeded the character limit by N"* in
+  `document.body.innerText` — trim and retype. `_fit_x_limit` in
+  `publishing.py` handles this on the automated path.
+- Text entry must use `document.execCommand('insertText')` after
+  `selectAll`/`delete` — direct `innerText` writes don't update X's
+  composer state and leave Post disabled.
+- Success signal: composer closes and the SPA returns to `/home`; verify
+  on `x.com/<handle>` — latest article shows the tweet + media.
 
 ## Quick probes
 
