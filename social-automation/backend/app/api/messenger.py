@@ -1026,7 +1026,7 @@ async def get_personal_conversations(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(, platform='facebook'))
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")
@@ -1061,7 +1061,7 @@ async def get_personal_messages(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(, platform='facebook'))
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")
@@ -1095,7 +1095,7 @@ async def send_personal_message(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(, platform='facebook'))
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")

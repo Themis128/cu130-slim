@@ -293,6 +293,7 @@ async def _ensure_live_page():
         _state["browser"] = None
         _state["status"] = "idle"
         _state["busy_until"] = 0.0
+        _state["busy_owner"] = None
         _state["message"] = f"Browser session died: {exc}"
         # #region agent log
         _dbg("context dead; cleared state", {"error": str(exc)[:200]})
@@ -442,6 +443,7 @@ async def stop_session():
         _state["status"] = "idle"
         _state["platform"] = None
         _state["busy_until"] = 0.0
+        _state["busy_owner"] = None
         _state["message"] = "Session stopped"
         return {"status": "stopped"}
 

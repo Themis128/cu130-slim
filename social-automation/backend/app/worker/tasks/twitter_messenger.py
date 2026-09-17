@@ -160,7 +160,7 @@ async def _process_account(
     dmr_url: str,
 ) -> int:
     """Process a single Twitter account — poll DMs via browser bridge and reply."""
-    bridge = BrowserBridgeClient(get_settings(, platform='twitter').BROWSER_BRIDGE_URL)
+    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform='twitter')
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 

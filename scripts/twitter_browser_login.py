@@ -47,7 +47,7 @@ def post(path: str, body: dict) -> dict:
     req = urllib.request.Request(
         BRIDGE + path,
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Platform": "twitter"},
     )
     try:
         return json.loads(urllib.request.urlopen(req, timeout=90).read())
