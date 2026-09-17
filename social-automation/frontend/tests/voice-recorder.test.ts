@@ -11,22 +11,33 @@ let accessToken = ''
 let refreshToken = ''
 
 async function registerAndLogin(request: APIRequestContext) {
-  await request.post(`${API_V1}/auth/register`, {
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'VR E2E' },
-  })
-  let body: Record<string, string> = {}
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // A 429 on register means the user was NOT created — retry the whole pair.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const reg = await request.post(`${API_V1}/auth/register`, {
+      data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'VR E2E' },
+    })
+    if (reg.status() === 429) {
+      await new Promise((res) => setTimeout(res, 5000 + 5000 * attempt))
+      continue
+    }
     const r = await request.post(`${API_V1}/auth/login`, {
       form: { username: TEST_EMAIL, password: TEST_PASSWORD },
     })
-    if (r.status() !== 429) {
-      body = await r.json()
-      break
+    if (r.status() === 429) {
+      await new Promise((res) => setTimeout(res, 5000 + 5000 * attempt))
+      continue
     }
-    await new Promise((res) => setTimeout(res, 3000 * (attempt + 1)))
+    const body = await r.json()
+    accessToken = body.access_token
+    refreshToken = body.refresh_token
+    // Fresh users are redirected to /onboarding — mark complete via the real API
+    await request.patch(`${API_V1}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { onboarding_completed: true },
+    }).catch(() => {})
+    return
   }
-  accessToken = body.access_token
-  refreshToken = body.refresh_token
+  throw new Error('register/login exhausted retries (rate limited)')
 }
 
 test.use({
@@ -47,8 +58,9 @@ test.describe('VoiceRecorder — live @e2e', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
 
   test.beforeAll(async ({ request }) => {
+    // register/login may wait out the auth rate-limit window
     await registerAndLogin(request)
-  })
+  }, { timeout: 180_000 })
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(

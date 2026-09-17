@@ -58,8 +58,8 @@ function makeToneWav(seconds = 1): Buffer {
 /** Register a fresh user and log in, populating the auth-token globals. */
 async function registerAndLogin(request: APIRequestContext) {
   // Register + login, retrying on 429 (auth rate limiter under parallel workers).
-  let login: Awaited<ReturnType<APIRequestContext['post']>> | null = null
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // A 429 on register means the user was NOT created — retry the whole pair.
+  for (let attempt = 0; attempt < 8; attempt++) {
     const reg = await request.post(`${API_V1}/auth/register`, {
       data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'Cloudflare E2E' },
     })
@@ -67,16 +67,29 @@ async function registerAndLogin(request: APIRequestContext) {
     if (!reg.ok() && reg.status() !== 400 && reg.status() !== 429) {
       throw new Error(`Unexpected register response ${reg.status()}: ${reg.statusText()}`)
     }
-    login = await request.post(`${API_V1}/auth/login`, {
+    if (reg.status() === 429) {
+      await new Promise((r) => setTimeout(r, 5000 + 5000 * attempt))
+      continue
+    }
+    const login = await request.post(`${API_V1}/auth/login`, {
       form: { username: TEST_EMAIL, password: TEST_PASSWORD },
     })
-    if (login.status() !== 429) break
-    await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)))
+    if (login.status() === 429) {
+      await new Promise((r) => setTimeout(r, 5000 + 5000 * attempt))
+      continue
+    }
+    expect(login.status(), await login.text()).toBe(200)
+    const tokens = await login.json()
+    accessToken = tokens.access_token
+    refreshToken = tokens.refresh_token
+    // Fresh users are redirected to /onboarding — mark complete via the real API
+    await request.patch(`${API_V1}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { onboarding_completed: true },
+    }).catch(() => {})
+    return
   }
-  expect(login!.status(), await login!.text()).toBe(200)
-  const tokens = await login!.json()
-  accessToken = tokens.access_token
-  refreshToken = tokens.refresh_token
+  throw new Error('register/login exhausted retries (rate limited)')
 }
 
 function headers() {
@@ -102,10 +115,11 @@ test.describe('Cloudflare backend contract @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
+    // register/login may wait out the auth rate-limit window
     await registerAndLogin(request)
     const h = await request.get(`${API_URL}/health`)
     expect(h.status()).toBe(200)
-  })
+  }, { timeout: 180_000 })
 
   test('GET /health reports the service', async ({ request }) => {
     const r = await request.get(`${API_URL}/health`)
@@ -265,8 +279,9 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
+    // register/login may wait out the auth rate-limit window
     await registerAndLogin(request)
-  })
+  }, { timeout: 180_000 })
 
   test.use({ baseURL: process.env.E2E_FRONTEND_URL ?? 'http://localhost:8082' })
 
@@ -290,6 +305,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
   test('AI Providers page renders the Cloudflare card from the live catalog', async ({ page }) => {
     await page.goto('/settings/ai-providers')
     await expect(page).toHaveURL(/\/settings\/ai-providers/)
+    await page.waitForLoadState('networkidle')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
     await expect(cfCard).toBeVisible()
     // The card starts collapsed — click the header to expand it
