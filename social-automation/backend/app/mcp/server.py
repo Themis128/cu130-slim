@@ -39,8 +39,12 @@ async def _get_token() -> str:
     global API_TOKEN
     if API_TOKEN:
         return API_TOKEN
-    email = os.environ.get("SOCIALAUTO_ADMIN_EMAIL", "")
-    password = os.environ.get("SOCIALAUTO_ADMIN_PASSWORD", "")
+    email = os.environ.get("SOCIALAUTO_ADMIN_EMAIL") or os.environ.get(
+        "SOCIAL_ADMIN_EMAIL", ""
+    )
+    password = os.environ.get("SOCIALAUTO_ADMIN_PASSWORD") or os.environ.get(
+        "SOCIAL_ADMIN_PASSWORD", ""
+    )
     if not email or not password:
         raise RuntimeError(
             "Set SOCIALAUTO_TOKEN or SOCIALAUTO_ADMIN_EMAIL+SOCIALAUTO_ADMIN_PASSWORD"
