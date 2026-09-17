@@ -197,6 +197,11 @@ async def create_checkout(
                 customer_name=current_user.name,
             )
         except polar_api.PolarError as exc:
+            if "AlreadyActiveSubscription" in str(exc):
+                raise HTTPException(
+                    status_code=409,
+                    detail="An active subscription already exists. Manage or change your plan from the customer portal.",
+                ) from exc
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return CheckoutResponse(transaction_id=txn["id"], checkout_url=txn["checkout_url"])
 
