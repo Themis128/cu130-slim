@@ -158,7 +158,7 @@ services:
     - backend
     - gpu
     ports:
-    - 8000:8000
+    - 127.0.0.1:8000:8000
     volumes:
     - ./.env:/app/.env:ro
     - ./storage-user/custom_nodes:/home/user/ComfyUI/custom_nodes
@@ -202,7 +202,7 @@ services:
     - backend
     - db
     ports:
-    - 5678:5678
+    - 127.0.0.1:5678:5678
     volumes:
     - ./n8n-data:/home/node/.n8n
     - ./storage-user/metadata:/home/node/.n8n/storage/metadata
@@ -323,7 +323,7 @@ services:
     - backend
     - db
     ports:
-    - 3000:3000
+    - 127.0.0.1:3000:3000
     volumes:
     - ./storage-user/metadata:/storage/metadata:ro
     environment:
@@ -394,7 +394,7 @@ services:
     networks:
     - backend
     ports:
-    - 8001:8000
+    - 127.0.0.1:8001:8000
     volumes:
     - ./.env:/app/.env:ro
     - ./chroma:/chroma/chroma
@@ -417,8 +417,8 @@ services:
     networks:
     - backend
     ports:
-    - 9100:9000
-    - 9101:9001
+    - 127.0.0.1:9100:9000
+    - 127.0.0.1:9101:9001
     environment:
     - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
     - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -438,7 +438,7 @@ services:
     networks:
     - backend
     ports:
-    - 8010:8010
+    - 127.0.0.1:8010:8010
     environment:
     # Limit Java heap — spell/grammar check doesn't need 512MB.
     - Java_Xms=128m
@@ -457,7 +457,7 @@ services:
     networks:
     - backend
     ports:
-    - 9000:9000
+    - 127.0.0.1:9000:9000
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - portainer_data:/data
@@ -470,7 +470,7 @@ services:
     - backend
     - db
     ports:
-    - 5555:5555
+    - 127.0.0.1:5555:5555
     environment:
     - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -500,7 +500,7 @@ services:
     networks:
     - backend
     ports:
-    - 8081:8081
+    - 127.0.0.1:8081:8081
     volumes:
     - ./.env:/app/.env:rw
     environment:
@@ -524,7 +524,7 @@ services:
     - backend
     - frontend
     ports:
-    - 8080:8080
+    - 127.0.0.1:8080:8080
     depends_on:
       env-manager-backend:
         condition: service_healthy
@@ -547,7 +547,7 @@ services:
     volumes:
     - social_postgres_data:/var/lib/postgresql/data
     ports:
-    - 5433:5432
+    - 127.0.0.1:5433:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -561,7 +561,7 @@ services:
     networks:
     - db
     ports:
-    - 6379:6379
+    - 127.0.0.1:6379:6379
     environment:
     - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
@@ -585,7 +585,7 @@ services:
     - backend
     - db
     ports:
-    - 8083:8000
+    - 127.0.0.1:8083:8000
     environment:
     - TZ=Europe/Athens
     - APP_TIMEZONE=Europe/Athens
@@ -806,7 +806,7 @@ services:
     extends: social-api
     container_name: social-api-green
     ports: !override
-    - 18083:8000
+    - 127.0.0.1:18083:8000
     profiles:
     - bluegreen
   # ── Celery workers (queue-dedicated) ──────────────────────────────────────
@@ -1000,7 +1000,7 @@ services:
     container_name: social-frontend
     command: ["node", "novnc-server.cjs"]
     ports:
-    - 8082:8083
+    - 127.0.0.1:8082:8083
     environment:
     - TZ=Europe/Athens
     - NEXT_PUBLIC_APP_TIMEZONE=Europe/Athens
@@ -1040,7 +1040,7 @@ services:
     networks:
     - backend
     ports:
-    - 8011:8000
+    - 127.0.0.1:8011:8000
     environment:
     - TZ=Europe/Athens
     - AIOGRAPI_REST_DB_PATH=/data/db.json
@@ -1067,7 +1067,7 @@ services:
     networks:
     - backend
     ports:
-    - 1080:1080
+    - 127.0.0.1:1080:1080
     environment:
     - WARP_SLEEP=2
     - TZ=Europe/Athens
@@ -1105,10 +1105,10 @@ services:
     networks:
     - backend
     ports:
-    - 6080:6080    # noVNC web interface (for iframe embedding)
-    - 5900:5900    # VNC (desktop client)
-    - 9223:9223    # Bridge API (for social-api)
-    - 6081:6081    # Audio WebSocket (for noVNC audio)
+    - 127.0.0.1:6080:6080    # noVNC web interface (for iframe embedding)
+    - 127.0.0.1:5900:5900    # VNC (desktop client)
+    - 127.0.0.1:9223:9223    # Bridge API (for social-api)
+    - 127.0.0.1:6081:6081    # Audio WebSocket (for noVNC audio)
     environment:
     - SCREEN_WIDTH=1280
     - SCREEN_HEIGHT=800
@@ -1143,7 +1143,7 @@ services:
     networks:
     - backend
     ports:
-    - 9224:9224
+    - 127.0.0.1:9224:9224
     environment:
     - TIKTOK_SIDECAR_PORT=9224
     - TZ=Europe/Athens
@@ -1172,7 +1172,7 @@ services:
     networks:
     - backend
     ports:
-    - 9225:9225
+    - 127.0.0.1:9225:9225
     environment:
     - LINKEDIN_SIDECAR_PORT=9225
     - TZ=Europe/Athens
@@ -1203,7 +1203,7 @@ services:
     - backend
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "9227", "--path", "/mcp"]
     ports:
-    - 9227:9227
+    - 127.0.0.1:9227:9227
     environment:
     - TRANSPORT=streamable-http
     - HOST=0.0.0.0
@@ -1236,8 +1236,8 @@ services:
     networks:
     - backend
     ports:
-    - 9228:9228
-    - 9229:9229
+    - 127.0.0.1:9228:9228
+    - 127.0.0.1:9229:9229
     environment:
     - AIRBYTE_MCP_PORT=9228
     - AIRBYTE_MCP_HEALTH_PORT=9229
@@ -1280,7 +1280,7 @@ services:
     networks:
     - backend
     ports:
-    - 9226:9226
+    - 127.0.0.1:9226:9226
     environment:
     - FACEBOOK_SIDECAR_PORT=9226
     - TZ=Europe/Athens
@@ -1309,7 +1309,7 @@ services:
     - backend
     ports:
     # Host 9230 — 9229 is airbyte-mcp-server health; keep container listen port aligned.
-    - 9230:9230
+    - 127.0.0.1:9230:9230
     environment:
     - SOCIAL_API_URL=http://social-api:8000
     - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL:-}

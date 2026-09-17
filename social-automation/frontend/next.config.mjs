@@ -24,6 +24,21 @@ const nextConfig = {
       { protocol: 'https', hostname: 'media.licdn.com' },
     ],
   },
+  // Security headers on every response — complements Cloudflare edge headers
+  // (HSTS, nosniff) so the app is protected even if reached without the edge.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ]
+  },
   async rewrites() {
     return [
       {

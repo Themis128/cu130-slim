@@ -112,9 +112,11 @@ export default function PrivacyPolicyPage() {
             We use industry-standard security measures:
           </p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>OAuth tokens encrypted at rest (AES-256).</li>
-            <li>HTTPS/TLS for all connections.</li>
-            <li>Cloudflare Tunnel for secure access (no open ports).</li>
+            <li>OAuth tokens encrypted at rest (Fernet AES-128-CBC + HMAC).</li>
+            <li>Passwords hashed with Argon2.</li>
+            <li>HTTPS/TLS for all public connections.</li>
+            <li>Internal services bound to localhost; public access only via Cloudflare Tunnel.</li>
+            <li>Gzip response compression on the API.</li>
             <li>Rate limiting and circuit breakers for API protection.</li>
             <li>Webhook signature verification for all incoming Meta events.</li>
           </ul>
