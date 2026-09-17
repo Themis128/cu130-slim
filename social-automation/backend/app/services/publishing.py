@@ -602,10 +602,12 @@ async def _publish_twitter_via_browser(
     client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
     try:
         # Hold the shared-browser lock so messenger pollers can't hijack
-        # the session mid-compose. X's web composer posts a single tweet —
+        # the session mid-compose. Wait longer than the 90s lock expiry —
+        # proceeding without the lock once raced another task and the page
+        # died mid-navigation. X's web composer posts a single tweet —
         # trim to the weighted 280-char limit (URLs count 23 via t.co,
         # emoji/ellipsis count double) or Post stays disabled.
-        async with browser_session("twitter", client):
+        async with browser_session("twitter", client, max_wait=180):
             res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:
         return PublishResult(

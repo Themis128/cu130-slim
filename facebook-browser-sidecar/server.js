@@ -1352,18 +1352,50 @@ async function handlePostPhoto(req, res) {
         tmpPaths.push(tmpPath);
       }
       await fileInput.setInputFiles(tmpPaths);
-      await page.waitForTimeout(3000);
+      // Wait for the media preview to finish processing — FB shows a "..."
+      // spinner in the media area and the Next button stays disabled until
+      // the upload completes.
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(1000);
+        const ready = await page.evaluate(() => {
+          const next = [...document.querySelectorAll('div[role="dialog"] button, div[role="dialog"] [role="button"]')]
+            .find((e) => (e.innerText || '').trim() === 'Next');
+          const imgs = document.querySelectorAll('div[role="dialog"] img');
+          const spinner = document.querySelector('div[role="dialog"] [role="progressbar"], div[role="dialog"] svg[aria-label*="loading" i]');
+          return { nextEnabled: !!(next && !next.disabled && next.getAttribute('aria-disabled') !== 'true'), imgs: imgs.length, spinner: !!spinner };
+        }).catch(() => ({}));
+        if (ready.nextEnabled || (ready.imgs > 0 && !ready.spinner)) break;
+      }
 
-      // Type caption if provided
+      // Type caption if provided. Scope to the open dialog first — the feed
+      // composer behind the modal also matches the generic textbox selector
+      // and its clicks get intercepted by the dialog backdrop.
       if (message) {
-        const editor = page.locator('div[role="textbox"]:visible, div[contenteditable="true"]:visible').first();
-        if (await editor.count() > 0) {
-          await editor.click();
+        const editor = page.locator(
+          'div[role="dialog"] div[role="textbox"]:visible, ' +
+          'div[role="dialog"] div[contenteditable="true"]:visible'
+        ).first();
+        const fallback = page.locator('div[role="textbox"]:visible, div[contenteditable="true"]:visible').first();
+        const target = (await editor.count() > 0) ? editor : fallback;
+        if (await target.count() > 0) {
+          // FB overlays intercept pointer events on the composer — focus via
+          // JS and type, skipping Playwright's actionability checks.
+          await target.evaluate((el) => el.focus());
           await page.waitForTimeout(500);
           await page.keyboard.type(message);
           await page.waitForTimeout(1000);
         }
       }
+
+      // FB's new composer is two-step: "Next" on the media step, then "Post"
+      // on the confirm screen. Click Next first when present.
+      const nextBtn = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('div[role="dialog"] button, div[role="dialog"] [role="button"]')]
+          .find((e) => (e.innerText || '').trim() === 'Next' && e.offsetParent !== null);
+        if (el) { el.click(); return true; }
+        return false;
+      }).catch(() => false);
+      if (nextBtn) await page.waitForTimeout(3000);
 
       // Click "Post"
       const posted = await clickPost();
@@ -1478,11 +1510,17 @@ async function handlePostVideo(req, res) {
       // Video uploads take significantly longer than photos
       await page.waitForTimeout(5000);
 
-      // Type caption if provided
+      // Type caption if provided — scope to the open dialog so the feed
+      // composer behind the modal doesn't intercept the click.
       if (message) {
-        const editor = page.locator('div[role="textbox"]:visible, div[contenteditable="true"]:visible').first();
-        if (await editor.count() > 0) {
-          await editor.click();
+        const editor = page.locator(
+          'div[role="dialog"] div[role="textbox"]:visible, ' +
+          'div[role="dialog"] div[contenteditable="true"]:visible'
+        ).first();
+        const fallback = page.locator('div[role="textbox"]:visible, div[contenteditable="true"]:visible').first();
+        const target = (await editor.count() > 0) ? editor : fallback;
+        if (await target.count() > 0) {
+          await target.evaluate((el) => el.focus());
           await page.waitForTimeout(500);
           await page.keyboard.type(message);
           await page.waitForTimeout(1000);
@@ -1732,23 +1770,30 @@ async function setPrivacy(privacy) {
 
 /** Find and click the "Post" button in the composer dialog. */
 async function clickPost() {
-  for (const sel of [
-    'div[role="dialog"] button:has-text("Post")',
-    'div[role="dialog"] [role="button"]:has-text("Post")',
-    'button[type="submit"]:has-text("Post")',
-    'button:has-text("Post")',
-    '[role="button"]:has-text("Post")',
-  ]) {
-    const btn = page.locator(sel).first();
-    if (await btn.isVisible().catch(() => false)) {
-      // Make sure it's not the "Post" tab/label — check it's a button-like element
-      const tagName = await btn.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
-      if (tagName === 'button' || (await btn.getAttribute('role')) === 'button') {
-        await btn.click();
-        await page.waitForTimeout(2000);
-        return true;
-      }
-    }
+  // Exact accessible-name match first — :has-text("Post") also matches
+  // "Add to your post" and similar controls.
+  const dialogPost = page.locator('div[role="dialog"]').getByRole('button', { name: 'Post', exact: true }).first();
+  if (await dialogPost.isVisible().catch(() => false)) {
+    await dialogPost.click();
+    await page.waitForTimeout(2000);
+    return true;
+  }
+  const pagePost = page.getByRole('button', { name: 'Post', exact: true }).first();
+  if (await pagePost.isVisible().catch(() => false)) {
+    await pagePost.click();
+    await page.waitForTimeout(2000);
+    return true;
+  }
+  // Fallback: any button whose trimmed text is exactly "Post"
+  const exact = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('button, [role="button"]')];
+    const el = els.find((e) => (e.innerText || '').trim() === 'Post' && e.offsetParent !== null);
+    if (el) { el.click(); return true; }
+    return false;
+  }).catch(() => false);
+  if (exact) {
+    await page.waitForTimeout(2000);
+    return true;
   }
   return false;
 }

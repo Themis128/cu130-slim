@@ -1565,15 +1565,28 @@ class BrowserBridgeClient:
         if isinstance(vr, dict) and vr.get("composerOpen"):
             return {"status": "error", "error": "Composer still open after Post click — tweet likely not sent"}
 
-        # Grab the newest tweet URL from the profile for the post record
-        await self.navigate("https://x.com/home")
-        await asyncio.sleep(4)
+        # Grab the posted tweet URL for the record. X shows a "Your post was
+        # sent — View" toast whose link points at the new status; fall back to
+        # the profile page's first status link (the home timeline's top
+        # article can belong to a followed account — never scrape /home).
         link_resp = await self.evaluate("""() => {
-            const a = document.querySelector('article a[href*="/status/"] time')?.closest('a');
-            return { url: a ? a.href : null };
+            const toast = document.querySelector('[data-testid="toast"] a[href*="/status/"]');
+            const acct = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+            const m = acct ? (acct.getAttribute('aria-label') || '').match(/@([A-Za-z0-9_]+)/) : null;
+            return { url: toast ? toast.href : null, handle: m ? m[1] : null };
         }""")
         lr = link_resp.get("result", link_resp) if isinstance(link_resp, dict) else link_resp
         tweet_url = lr.get("url") if isinstance(lr, dict) else None
+        handle = lr.get("handle") if isinstance(lr, dict) else None
+        if not tweet_url and handle:
+            await self.navigate(f"https://x.com/{handle}")
+            await asyncio.sleep(4)
+            link_resp = await self.evaluate("""() => {
+                const a = document.querySelector('article a[href*="/status/"] time')?.closest('a');
+                return { url: a ? a.href : null };
+            }""")
+            lr = link_resp.get("result", link_resp) if isinstance(link_resp, dict) else link_resp
+            tweet_url = lr.get("url") if isinstance(lr, dict) else None
         return {"status": "ok", "posted": True, "url": tweet_url}
 
     # ── TikTok DM (direct messages) ─────────────────────────────────────
