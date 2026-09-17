@@ -435,6 +435,7 @@ async def stop_session():
             _state["browser"] = None
         _state["status"] = "idle"
         _state["platform"] = None
+        _state["busy_until"] = 0.0
         _state["message"] = "Session stopped"
         return {"status": "stopped"}
 
