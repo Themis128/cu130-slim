@@ -42,7 +42,7 @@ test.describe('Login Page — real backend', () => {
 
     // Real navigation to dashboard
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 30000 });
-    // Dashboard greeting header renders with the real user's name
-    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible({ timeout: 15000 });
+    // Dashboard greeting renders in a <p> under the Dashboard heading
+    await expect(page.getByText(/good (morning|afternoon|evening)/i)).toBeVisible({ timeout: 15000 });
   });
 });

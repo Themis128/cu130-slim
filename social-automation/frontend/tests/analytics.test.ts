@@ -12,7 +12,7 @@ test.describe('Analytics Page — real backend', () => {
   test('should load and show the analytics heading', async ({ authenticatedPage: page }) => {
     await page.goto('/analytics');
     await expect(page).toHaveURL('/analytics');
-    await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Analytics', exact: true })).toBeVisible();
     await expect(page.getByText(/track your social media performance/i)).toBeVisible();
   });
 

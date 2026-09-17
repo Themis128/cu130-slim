@@ -14,6 +14,6 @@ test.describe('Admin Login — real credentials', () => {
 
     // Should navigate to dashboard
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 30000 });
-    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/good (morning|afternoon|evening)/i)).toBeVisible({ timeout: 15000 });
   });
 });

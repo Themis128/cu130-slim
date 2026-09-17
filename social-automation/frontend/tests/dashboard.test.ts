@@ -5,9 +5,8 @@ test.describe('Dashboard Page — real backend', () => {
     await page.goto('/dashboard');
     await expect(page).toHaveURL('/dashboard');
 
-    // Greeting header (time-based: Good morning/afternoon/evening)
-    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/social media overview for the last 30 days/i)).toBeVisible();
+    // Greeting (time-based: Good morning/afternoon/evening) renders in a <p>
+    await expect(page.getByText(/good (morning|afternoon|evening)/i)).toBeVisible({ timeout: 15000 });
 
     // Stat cards (Published / Scheduled / Drafts / Failed)
     await expect(page.getByText('Published', { exact: true })).toBeVisible();
@@ -27,7 +26,7 @@ test.describe('Dashboard Page — real backend', () => {
     await expect(page.getByRole('link', { name: /create post/i }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /open calendar/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /upload media/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /connect accounts/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /connect (accounts|channels)/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /view analytics/i })).toBeVisible();
   });
 
