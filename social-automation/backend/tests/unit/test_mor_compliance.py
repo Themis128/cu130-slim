@@ -159,6 +159,60 @@ class TestSlackChannelOverride:
         assert "channel" not in self._FakeClient.last_payload
 
 
+class TestPolarTeamResolution:
+    """Polar merges customers by email — one Polar customer can serve several
+    teams, so checkout-scoped identifiers (metadata.team_id,
+    external_customer_id) must beat the customer-level external_id."""
+
+    class _FakeResult:
+        def __init__(self, value):
+            self._v = value
+
+        def scalar_one_or_none(self):
+            return self._v
+
+    class _FakeDB:
+        def __init__(self, teams):
+            self._teams = teams
+
+        async def execute(self, stmt):
+            import uuid as _uuid
+
+            for v in stmt.compile().params.values():
+                if isinstance(v, _uuid.UUID):
+                    return TestPolarTeamResolution._FakeResult(self._teams.get(v))
+            return TestPolarTeamResolution._FakeResult(None)
+
+    @pytest.mark.asyncio
+    async def test_metadata_team_id_beats_shared_customer_external_id(self):
+        """Regression: shared Polar customer's external_id pointed to the wrong
+        team — checkout metadata must win."""
+        import uuid
+
+        from app.models.user import Team
+
+        admin_team = Team(id=uuid.uuid4(), name="admin")
+        other_team = Team(id=uuid.uuid4(), name="other")
+        db = self._FakeDB({admin_team.id: admin_team, other_team.id: other_team})
+        data = {
+            "customer": {"external_id": str(admin_team.id)},
+            "metadata": {"team_id": str(other_team.id)},
+        }
+        team = await billing._find_team_for_polar_event(db, data)
+        assert team is other_team
+
+    @pytest.mark.asyncio
+    async def test_external_id_used_when_no_checkout_metadata(self):
+        import uuid
+
+        from app.models.user import Team
+
+        team = Team(id=uuid.uuid4(), name="t")
+        db = self._FakeDB({team.id: team})
+        data = {"customer": {"external_id": str(team.id)}}
+        assert await billing._find_team_for_polar_event(db, data) is team
+
+
 class TestResponseCompression:
     """Polar/Dodo reviewer tooling expects compression on the public app."""
 
