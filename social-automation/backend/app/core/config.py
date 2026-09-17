@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
     TWITTER_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/twitter/callback"
+    # Credentials for the browser-fallback login flow (x.com web UI). The
+    # username must be the account handle — entering an email routes into
+    # X's signup funnel ("Email signups are only allowed on the apps").
+    TWITTER_LOGIN_USERNAME: str = ""
+    TWITTER_LOGIN_EMAIL: str = ""
+    TWITTER_LOGIN_PASSWORD: str = ""
 
     INSTAGRAM_CLIENT_ID: str = ""
     INSTAGRAM_CLIENT_SECRET: str = ""
