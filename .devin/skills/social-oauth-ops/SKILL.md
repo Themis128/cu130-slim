@@ -25,7 +25,12 @@ A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs
 - **Meta (FB/IG/Threads)**: ~60-day tokens — refreshed when within 4h of expiry.
 - **LinkedIn**: tokens don't expire (no `expires_in`).
 
-If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page.
+If a refresh fails, the account is marked `expired` — but the task now
+**retries `expired` accounts unconditionally on every run** (auto-heal,
+Sept 2026), as long as a `refresh_token_enc` is stored. A successful
+retry restores `active` automatically, so a transient failure no longer
+sticks forever. Only an `expired` account with **no stored refresh
+token** needs manual reconnect from the Accounts page.
 
 Trigger manually:
 ```bash
