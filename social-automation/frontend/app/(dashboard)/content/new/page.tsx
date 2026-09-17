@@ -40,12 +40,12 @@ import toast from 'react-hot-toast'
 type PreviewProps = { content: string; media: File[]; identity: PreviewIdentity }
 
 const platforms = [
-  { id: 'linkedin',  name: 'LinkedIn',    icon: 'in', color: 'bg-blue-600',  textColor: 'text-blue-600',  borderColor: 'border-blue-600',  maxChars: 3000  },
-  { id: 'twitter',   name: 'Twitter / X', icon: '𝕏',  color: 'bg-sky-500',   textColor: 'text-sky-500',   borderColor: 'border-sky-500',   maxChars: 280   },
-  { id: 'instagram', name: 'Instagram',   icon: '📷', color: 'bg-pink-500',  textColor: 'text-pink-500',  borderColor: 'border-pink-500',  maxChars: 2200  },
-  { id: 'facebook',  name: 'Facebook',    icon: 'f',  color: 'bg-blue-700',  textColor: 'text-blue-700',  borderColor: 'border-blue-700',  maxChars: 63206 },
-  { id: 'threads',   name: 'Threads',     icon: '@',  color: 'bg-gray-800',  textColor: 'text-gray-800',  borderColor: 'border-gray-800',  maxChars: 500   },
-  { id: 'tiktok',    name: 'TikTok',      icon: 'TT', color: 'bg-black',     textColor: 'text-black',     borderColor: 'border-black',     maxChars: 2200  },
+  { id: 'linkedin',  name: 'LinkedIn',    icon: 'in', color: 'bg-blue-600',  textColor: 'text-blue-600',  borderColor: 'border-blue-600',  maxChars: 3000,  mediaRequired: false },
+  { id: 'twitter',   name: 'Twitter / X', icon: '𝕏',  color: 'bg-sky-500',   textColor: 'text-sky-500',   borderColor: 'border-sky-500',   maxChars: 280,   mediaRequired: false },
+  { id: 'instagram', name: 'Instagram',   icon: '📷', color: 'bg-pink-500',  textColor: 'text-pink-500',  borderColor: 'border-pink-500',  maxChars: 2200,  mediaRequired: true  },
+  { id: 'facebook',  name: 'Facebook',    icon: 'f',  color: 'bg-blue-700',  textColor: 'text-blue-700',  borderColor: 'border-blue-700',  maxChars: 63206, mediaRequired: false },
+  { id: 'threads',   name: 'Threads',     icon: '@',  color: 'bg-gray-800',  textColor: 'text-gray-800',  borderColor: 'border-gray-800',  maxChars: 500,   mediaRequired: false },
+  { id: 'tiktok',    name: 'TikTok',      icon: 'TT', color: 'bg-black',     textColor: 'text-black',     borderColor: 'border-black',     maxChars: 2200,  mediaRequired: true  },
 ]
 
 const _SUPPORTED_PLATFORM_IDS = new Set(platforms.map((p) => p.id))
@@ -521,6 +521,14 @@ export default function NewPostPage() {
     [selectedPlatforms, content.length]
   )
 
+  const mediaRequiredPlatforms = useMemo(
+    () =>
+      selectedPlatforms
+        .filter((pid) => _PLATFORM_META_BY_ID.get(pid)?.mediaRequired)
+        .map((pid) => _PLATFORM_META_BY_ID.get(pid)?.name ?? pid),
+    [selectedPlatforms]
+  )
+
   const handlePlatformToggle = (platformId: string) => {
     if (!connectedPlatforms.includes(platformId)) {
       toast.error(`Connect your ${platformId} account first`)
@@ -615,6 +623,15 @@ export default function NewPostPage() {
     if (action !== 'draft' && overLimitPlatforms.length > 0) {
       toast.error(`Content exceeds limit for ${overLimitPlatforms.join(', ')}`)
       return
+    }
+    // Instagram/TikTok APIs reject text-only posts — block at compose time
+    // instead of letting the publish fail silently in the queue.
+    if (action !== 'draft' && mediaIds.length === 0) {
+      const needsMedia = mediaRequiredPlatforms
+      if (needsMedia.length > 0) {
+        toast.error(`${needsMedia.join(' and ')} require at least one image or video — attach media below`)
+        return
+      }
     }
     try {
       const targets = selectedAccountIds.map((id) => ({ social_account_id: id }))
@@ -853,6 +870,11 @@ export default function NewPostPage() {
                   </div>
                 )
               })}
+              {mediaRequiredPlatforms.length > 0 && mediaIds.length === 0 && (
+                <p className="mt-3 text-xs text-amber-600">
+                  {mediaRequiredPlatforms.join(' and ')} require at least one image or video — attach media below before publishing or scheduling.
+                </p>
+              )}
               {selectedPlatforms.includes('tiktok') && (
                 <div className="mt-4 space-y-3 rounded-lg border p-3">
                   <div>
