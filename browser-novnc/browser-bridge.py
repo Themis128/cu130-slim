@@ -384,6 +384,7 @@ async def start_session(req: StartRequest):
 
         site = SITES[platform]
         _state["platform"] = platform
+        _state["busy_until"] = 0.0
         _state["status"] = "waiting"
         _state["message"] = f"Opening {site['url']} — log in via the noVNC viewer"
         _state["cookies"] = {}
