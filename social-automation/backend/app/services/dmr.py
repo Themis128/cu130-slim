@@ -828,13 +828,15 @@ async def call_dmr_vllm_chat(
     vLLM serves safetensors models only (GGUF models belong to llama.cpp via
     call_dmr_chat). This path is manual-selection only — it is NOT in the
     automatic fallback chain. On an 8GB card vLLM runs at
-    gpu-memory-utilization 0.7, which competes with llama.cpp-loaded GGUF
-    models; keep one loaded at a time.
+    gpu-memory-utilization 0.25 (configured via the full model ref
+    `docker.io/ai/smollm2-vllm:latest` — once a model has a runtime config,
+    DMR resolves ONLY the full ref; short names 404). It still competes
+    with llama.cpp-loaded GGUF models; keep one loaded at a time.
     """
     url = getattr(settings, "DMR_VLLM_URL", "") or ""
     if not url:
         raise ConnectionError("DMR vLLM backend is not configured (DMR_VLLM_URL)")
-    model = model_override or "ai/smollm2-vllm"
+    model = model_override or "docker.io/ai/smollm2-vllm:latest"
     messages = []
     if system:
         messages.append({"role": "system", "content": system})

@@ -109,11 +109,11 @@ PROVIDER_CATALOG = [
         "name": "dmr-vllm",
         "display_name": "Docker Model Runner (vLLM, experimental)",
         "base_url": "",  # filled from DMR_VLLM_URL at runtime
-        "default_model": "ai/smollm2-vllm",
+        "default_model": "docker.io/ai/smollm2-vllm:latest",
         "requires_key": False,
         "in_fallback_chain": False,
         "description": "EXPERIMENTAL: vLLM backend on the GPU runner — safetensors models only, manual selection. Never in the auto fallback chain.",
-        "model_examples": ["ai/smollm2-vllm", "ai/functiongemma-vllm"],
+        "model_examples": ["docker.io/ai/smollm2-vllm:latest", "ai/functiongemma-vllm"],
     },
     {
         "name": "nvidia",
@@ -298,7 +298,7 @@ async def _get_provider_config(
         return settings.DMR_URL, settings.DMR_TEXT_MODEL, None
 
     if provider_name == "dmr-vllm":
-        return getattr(settings, "DMR_VLLM_URL", ""), "ai/smollm2-vllm", None
+        return getattr(settings, "DMR_VLLM_URL", ""), "docker.io/ai/smollm2-vllm:latest", None
 
     if provider_name == "local-diffusers":
         return settings.LOCAL_DIFFUSERS_URL, settings.LOCAL_DIFFUSERS_MODEL, None
