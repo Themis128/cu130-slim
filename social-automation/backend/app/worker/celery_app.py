@@ -66,9 +66,13 @@ celery_app.conf.update(
     # tasks get intermediate limits based on their expected duration.
     task_annotations={
         # ── publishing queue: fail fast ──────────────────────────────────
+        # One run processes all pending rows; a browser-fallback row under
+        # poller contention needs ~5-7 min (lock wait + 409 retries +
+        # force-preempt + compose), so the soft limit must exceed that or
+        # the batch dies mid-row and strands the rest in "processing".
         "app.worker.tasks.publishing.process_publish_queue": {
-            "soft_time_limit": 600,
-            "time_limit": 900,
+            "soft_time_limit": 900,
+            "time_limit": 1200,
         },
         "app.worker.tasks.publishing.check_scheduled_posts": {
             "soft_time_limit": 120,
