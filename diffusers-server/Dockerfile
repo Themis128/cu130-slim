@@ -1,15 +1,17 @@
 # Lightweight Diffusers text-to-image server for NVIDIA GPU (RTX 3070 / 8GB VRAM)
 # Exposes OpenAI-compatible /v1/images/generations API on port 7860
-FROM nvidia/cuda:12.6.0-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.0-cudnn-runtime-ubuntu24.04
 
-# System deps: python3.11, pip, curl (healthcheck), libgl (PIL/numpy)
+# System deps: python3.12, pip, curl (healthcheck), libgl (PIL/numpy)
+# NOTE: ubuntu22.04's python3.11 package is stuck at 3.11.0rc1 which lacks
+# sys.get_int_max_str_digits — torch._dynamo polyfills require it.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        python3.11 python3.11-venv python3-pip curl libgl1 libglib2.0-0 \
+        python3.12 python3.12-venv python3-pip curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
-    && python3.11 -m venv /opt/venv \
+    && python3.12 -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 
 ENV PATH="/opt/venv/bin:$PATH"
 
