@@ -599,7 +599,8 @@ async def _publish_twitter_via_browser(
         if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
     ]
 
-    client = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+    settings = get_settings()
+    client = BrowserBridgeClient(settings.BROWSER_BRIDGE_URL)
     try:
         # Hold the shared-browser lock so messenger pollers can't hijack
         # the session mid-compose. Wait longer than the 90s lock expiry —
@@ -608,6 +609,28 @@ async def _publish_twitter_via_browser(
         # trim to the weighted 280-char limit (URLs count 23 via t.co,
         # emoji/ellipsis count double) or Post stays disabled.
         async with browser_session("twitter", client, max_wait=180):
+            state = await client.is_twitter_logged_in()
+            if not state.get("logged_in"):
+                # Self-heal: drive the two-step login with stored creds.
+                # Username MUST be the handle — an email enters the signup
+                # funnel. One attempt only; repeated failures risk lockout.
+                login_user = (
+                    settings.TWITTER_LOGIN_USERNAME
+                    or account.username
+                    or ""
+                ).lstrip("@")
+                if login_user and settings.TWITTER_LOGIN_PASSWORD:
+                    login_res = await client.twitter_login(
+                        login_user, settings.TWITTER_LOGIN_PASSWORD
+                    )
+                    if login_res.get("status") != "logged_in":
+                        return PublishResult(
+                            success=False,
+                            error=(
+                                "X API quota exhausted and browser login failed: "
+                                f"{login_res.get('error')}"
+                            ),
+                        )
             res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:
         return PublishResult(
