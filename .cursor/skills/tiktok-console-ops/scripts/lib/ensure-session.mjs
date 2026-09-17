@@ -17,10 +17,16 @@ if (!EMAIL || !PASSWORD) {
   process.exit(1);
 }
 
+// Optional proxy (e.g. TIKTOK_LOGIN_PROXY=socks5://127.0.0.1:1080 for WARP) —
+// TikTok rate-limits password logins per IP+account, so a different egress IP
+// can clear "Maximum number of attempts reached".
+const PROXY = process.env.TIKTOK_LOGIN_PROXY;
 const browser = await chromium.launch({
   headless: true,
   args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
+  ...(PROXY ? { proxy: { server: PROXY } } : {}),
 });
+if (PROXY) console.error(`[ensure-session] using proxy ${PROXY}`);
 const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
 });

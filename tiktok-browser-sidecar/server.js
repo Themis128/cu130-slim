@@ -24,6 +24,7 @@ let context = null;
 let page = null;
 let sessionId = null;
 let userId = null;
+let extraCookies = {};
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
@@ -53,17 +54,20 @@ async function ensureBrowser() {
 
   page = await context.newPage();
 
-  // Inject session cookie if available
-  if (sessionId) {
-    await context.addCookies([{
-      name: 'sessionid',
-      value: sessionId,
-      domain: '.tiktok.com',
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
-    }]);
+  // Inject session cookies if available — sessionid alone is often not enough;
+  // TikTok also consults sid_tt/sid_guard/uid_tt for authentication.
+  if (sessionId || Object.keys(extraCookies).length) {
+    const cookies = Object.entries({ sessionid: sessionId, ...extraCookies })
+      .filter(([, v]) => v)
+      .map(([name, value]) => ({
+        name, value,
+        domain: '.tiktok.com',
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      }));
+    await context.addCookies(cookies);
   }
 }
 
@@ -145,12 +149,14 @@ async function closeDialogs() {
 
 /** Set the TikTok session cookie and verify the session is alive. */
 async function handleSetSession(req, res) {
-  const { session_id, user_id } = req.body;
-  if (!session_id) {
-    return res.status(400).json({ error: 'session_id is required' });
+  const { session_id, user_id, cookies } = req.body;
+  if (!session_id && !cookies) {
+    return res.status(400).json({ error: 'session_id or cookies is required' });
   }
-  sessionId = session_id;
+  sessionId = session_id || null;
   userId = user_id || null;
+  // Optional name→value map for the full cookie set (sid_tt, uid_tt, msToken…)
+  extraCookies = cookies && typeof cookies === 'object' ? cookies : {};
   await closeBrowser();
   await ensureBrowser();
   try {
