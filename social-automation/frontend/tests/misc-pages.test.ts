@@ -1,11 +1,12 @@
 import { test, expect } from './helpers/auth';
 
 test.describe('Home and misc pages — real backend', () => {
-  test('home page redirects to login when unauthenticated', async ({ page }) => {
+  test('home page renders the public landing page when unauthenticated', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    // Should redirect to /login or /dashboard depending on auth state
-    await expect(page).toHaveURL(/\/(login|dashboard)/);
+    // Anonymous users see the marketing landing page (not a redirect)
+    await expect(page).toHaveURL('/');
+    await expect(page.getByRole('link', { name: /sign in/i }).first()).toBeVisible();
   });
 
   test('home page redirects to dashboard when authenticated', async ({ authenticatedPage: page }) => {
