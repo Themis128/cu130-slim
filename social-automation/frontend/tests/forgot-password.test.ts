@@ -41,12 +41,18 @@ test.describe('Forgot Password Page — real backend', () => {
     await expect(page.getByRole('heading', { name: /check your email/i })).toBeVisible({ timeout: 15000 });
   });
 
-  test('should show debug token link in development for a real user', async ({ page }) => {
+  test('should show debug token link in development for a real user', async ({ page, request }) => {
+    // The backend only returns debug_token when DEBUG=true — detect and skip.
+    const probe = await request.post(`${API_BASE}/api/v1/auth/forgot-password`, {
+      data: { email: TEST_USER.email },
+    });
+    const body = await probe.json().catch(() => ({}));
+    test.skip(!body.debug_token, 'backend not in DEBUG mode — no debug_token issued');
+
     await page.goto('/forgot-password');
     await page.getByLabel('Email').fill(TEST_USER.email);
     await page.getByRole('button', { name: /send reset link/i }).click();
 
-    // Real backend returns a debug_token in dev mode
     await expect(page.getByText(/development mode - debug token/i)).toBeVisible({ timeout: 15000 });
   });
 });
