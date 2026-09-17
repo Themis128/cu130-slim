@@ -39,18 +39,30 @@ class BrowserBridgeError(Exception):
 class BrowserBridgeClient:
     """Thin HTTP wrapper around the browser-novnc bridge API."""
 
-    def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = DEFAULT_TIMEOUT,
+        platform: str | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        # Sent as the X-Platform header on every request — the bridge uses
+        # it to attribute busy-holds and reject foreign-platform calls while
+        # a session is mid-flow.
+        self._platform = platform
+
+    def _headers(self) -> dict[str, str]:
+        return {"X-Platform": self._platform} if self._platform else {}
 
     async def health(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.get(f"{self._base_url}/health")
             resp.raise_for_status()
             return resp.json()
 
     async def start_session(self, platform: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/start",
                 json={"platform": platform},
@@ -60,7 +72,7 @@ class BrowserBridgeClient:
             return resp.json()
 
     async def session_status(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.get(f"{self._base_url}/session/status")
             resp.raise_for_status()
             return resp.json()
@@ -110,7 +122,7 @@ class BrowserBridgeClient:
         # Try extracting cookies — the browser may be logged in but the
         # session status hasn't been updated yet
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
                 resp = await client.post(f"{self._base_url}/session/extract")
                 if resp.status_code == 200:
                     data = resp.json()
@@ -132,7 +144,7 @@ class BrowserBridgeClient:
         }
 
     async def session_login(self, username: str, password: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/login",
                 json={"username": username, "password": password},
@@ -148,7 +160,7 @@ class BrowserBridgeClient:
         Playwright — required where sites (e.g. X/Arkose) reject synthetic
         clicks.
         """
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/mouse-click",
                 json={"x": x, "y": y},
@@ -316,7 +328,7 @@ class BrowserBridgeClient:
         return {"status": "error", "error": "login did not complete before timeout"}
 
     async def navigate(self, url: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/navigate",
                 json={"url": url},
@@ -326,14 +338,14 @@ class BrowserBridgeClient:
             return resp.json()
 
     async def extract_cookies(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(f"{self._base_url}/session/extract")
             if resp.status_code >= 400:
                 raise BrowserBridgeError(resp.status_code, resp.text)
             return resp.json()
 
     async def stop_session(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(f"{self._base_url}/session/stop")
             if resp.status_code >= 400:
                 raise BrowserBridgeError(resp.status_code, resp.text)
@@ -343,7 +355,7 @@ class BrowserBridgeClient:
 
     async def get_instagram_profile(self) -> dict[str, Any]:
         """Read the Instagram profile from the logged-in browser session."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.get(f"{self._base_url}/profile/instagram")
             if resp.status_code >= 400:
                 raise BrowserBridgeError(resp.status_code, resp.text)
@@ -363,7 +375,7 @@ class BrowserBridgeClient:
             payload["biography"] = biography
         if external_url is not None:
             payload["external_url"] = external_url
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.patch(
                 f"{self._base_url}/profile/instagram",
                 json=payload,
@@ -376,7 +388,7 @@ class BrowserBridgeClient:
 
     async def click(self, selector: str, text: str | None = None) -> dict[str, Any]:
         """Click an element via the bridge."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/click",
                 json={"selector": selector, "text": text},
@@ -387,7 +399,7 @@ class BrowserBridgeClient:
 
     async def fill(self, selector: str, value: str) -> dict[str, Any]:
         """Fill an input/textarea via the bridge."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/fill",
                 json={"selector": selector, "value": value},
@@ -398,7 +410,7 @@ class BrowserBridgeClient:
 
     async def evaluate(self, expression: str) -> dict[str, Any]:
         """Evaluate JS in the browser and return the result."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/evaluate",
                 json={"expression": expression},
@@ -411,7 +423,7 @@ class BrowserBridgeClient:
         self, selector: str, file_path: str, click_selector: str | None = None
     ) -> dict[str, Any]:
         """Upload a file via the bridge's native Playwright set_input_files."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
             resp = await client.post(
                 f"{self._base_url}/session/upload",
                 json={
