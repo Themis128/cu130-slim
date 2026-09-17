@@ -704,6 +704,16 @@ export function useCloudflareOverview(days?: number) {
   })
 }
 
+/** Live publishing pipeline — short poll since this is operational data */
+export function usePublishPipeline(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'pipeline', days],
+    queryFn: () => analyticsApi.getPublishPipeline({ days }),
+    select: (response) => response.data,
+    refetchInterval: 15000,
+  })
+}
+
 // AI hooks
 export function useGenerateContent() {
   return useMutation({

@@ -15,8 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview } from '@/hooks/useQueries'
-import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview } from '@/types'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview, usePublishPipeline } from '@/hooks/useQueries'
+import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview, PublishPipeline } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { analyticsApi } from '@/services/api'
 import {
@@ -77,6 +77,7 @@ export default function AnalyticsPage() {
   const { data: followerData } = useFollowerGrowth(days)
   const { data: botSummaryRaw, isLoading: botLoading } = useBotSummary(days)
   const { data: cfOverviewRaw, isLoading: cfLoading } = useCloudflareOverview(7)
+  const { data: pipeline } = usePublishPipeline(days) as { data: PublishPipeline | undefined }
   const botSummary = botSummaryRaw as BotAnalyticsSummary | undefined
   const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
@@ -108,6 +109,22 @@ export default function AnalyticsPage() {
     if (published === 0) return 0
     return Math.round(total / published)
   }, [overview])
+
+  // Stacked publish-volume chart: pivot daily rows to {date, <platform>: n}
+  const publishDaily = useMemo(() => {
+    if (!pipeline?.daily?.length) return []
+    const byDate = new Map<string, Record<string, number | string>>()
+    for (const d of pipeline.daily) {
+      const row = byDate.get(d.date) ?? { date: d.date }
+      row[d.platform] = ((row[d.platform] as number) ?? 0) + d.published
+      byDate.set(d.date, row)
+    }
+    return [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  }, [pipeline])
+  const dailyPlatforms = useMemo(
+    () => [...new Set((pipeline?.daily ?? []).map((d) => d.platform))],
+    [pipeline]
+  )
 
   if (overviewLoading) {
     return (
@@ -336,6 +353,230 @@ export default function AnalyticsPage() {
           </Card>
         ))}
       </div>
+
+      {/* Publishing Pipeline — live operational status */}
+      {pipeline && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-amber-500" />
+              <div>
+                <CardTitle>Publishing Pipeline</CardTitle>
+                <CardDescription>
+                  Live delivery status — queue, per-platform success, and upcoming scheduled posts
+                </CardDescription>
+              </div>
+              <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-600 dark:text-green-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Queue chips */}
+            <div className="flex flex-wrap gap-3">
+              <div className="rounded-lg border px-4 py-2.5">
+                <p className="text-xs text-muted-foreground">Queued</p>
+                <p className="text-xl font-bold tabular-nums">{pipeline.queue.pending}</p>
+              </div>
+              <div className="rounded-lg border px-4 py-2.5">
+                <p className="text-xs text-muted-foreground">Publishing now</p>
+                <p className="text-xl font-bold tabular-nums text-blue-500">{pipeline.queue.processing}</p>
+              </div>
+              <div className="rounded-lg border px-4 py-2.5">
+                <p className="text-xs text-muted-foreground">Stuck</p>
+                <p className={cn('text-xl font-bold tabular-nums', pipeline.queue.stuck_processing > 0 ? 'text-red-500' : '')}>
+                  {pipeline.queue.stuck_processing}
+                </p>
+              </div>
+              <div className="rounded-lg border px-4 py-2.5">
+                <p className="text-xs text-muted-foreground">Published ({days}d)</p>
+                <p className="text-xl font-bold tabular-nums text-green-500">{pipeline.queue.published_period}</p>
+              </div>
+              <div className="rounded-lg border px-4 py-2.5">
+                <p className="text-xs text-muted-foreground">Failed ({days}d)</p>
+                <p className={cn('text-xl font-bold tabular-nums', pipeline.queue.failed_period > 0 ? 'text-red-500' : '')}>
+                  {pipeline.queue.failed_period}
+                </p>
+              </div>
+            </div>
+
+            {/* Daily publish volume — stacked by platform */}
+            {publishDaily.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Posts published per day</p>
+                <div style={{ height: '12rem' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={publishDaily}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }}
+                        className="text-xs"
+                      />
+                      <YAxis className="text-xs" allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                        labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
+                      />
+                      {dailyPlatforms.map((plat, i) => (
+                        <Bar
+                          key={plat}
+                          dataKey={plat}
+                          stackId="published"
+                          name={plat}
+                          fill={PLATFORM_COLOR[plat] ?? COLORS[i % COLORS.length]}
+                          radius={i === dailyPlatforms.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Per-platform delivery table */}
+            {pipeline.platforms.length > 0 && (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Platform</TableHead>
+                      <TableHead className="text-right">Success</TableHead>
+                      <TableHead className="text-right">Published</TableHead>
+                      <TableHead className="text-right">Failed</TableHead>
+                      <TableHead className="text-right">Pending</TableHead>
+                      <TableHead>Last published</TableHead>
+                      <TableHead>Last error</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pipeline.platforms.map((p) => (
+                      <TableRow key={p.platform}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                              style={{ backgroundColor: PLATFORM_COLOR[p.platform] ?? '#6366f1' }}
+                            >
+                              {p.platform[0].toUpperCase()}
+                            </div>
+                            <span className="font-medium capitalize">{p.platform}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {p.success_rate != null ? (
+                            <span className={cn(
+                              'inline-flex items-center gap-2 font-mono text-sm font-medium',
+                              p.success_rate >= 0.9 ? 'text-green-500' : p.success_rate >= 0.7 ? 'text-amber-500' : 'text-red-500'
+                            )}>
+                              <span className="inline-block h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+                                <span
+                                  className="block h-full rounded-full"
+                                  style={{
+                                    width: `${Math.round(p.success_rate * 100)}%`,
+                                    backgroundColor: p.success_rate >= 0.9 ? '#22c55e' : p.success_rate >= 0.7 ? '#f59e0b' : '#ef4444',
+                                  }}
+                                />
+                              </span>
+                              {Math.round(p.success_rate * 100)}%
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">{p.published}</TableCell>
+                        <TableCell className={cn('text-right font-mono text-sm', p.failed > 0 && 'text-red-500 font-medium')}>
+                          {p.failed}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">{p.pending}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {p.last_published_at ? formatRelativeTime(p.last_published_at) : '—'}
+                        </TableCell>
+                        <TableCell className="max-w-[260px]">
+                          {p.last_error ? (
+                            <span className="text-xs text-red-500 line-clamp-2" title={p.last_error}>
+                              {p.last_error}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Account health + upcoming schedule */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm font-medium mb-2">Connected accounts</p>
+                {pipeline.accounts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No accounts connected.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {pipeline.accounts.map((a, i) => {
+                      const expired = a.token_expires_at ? new Date(a.token_expires_at) < new Date() : false
+                      const expiringSoon = a.token_expires_at
+                        ? !expired && new Date(a.token_expires_at).getTime() - Date.now() < 7 * 864e5
+                        : false
+                      const dot = a.status !== 'active' || expired
+                        ? 'bg-red-500'
+                        : expiringSoon
+                          ? 'bg-amber-500'
+                          : 'bg-green-500'
+                      return (
+                        <span
+                          key={`${a.platform}-${a.username}-${i}`}
+                          className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+                          title={`${a.status}${expired ? ' — token expired' : expiringSoon ? ' — token expiring soon' : ''}`}
+                        >
+                          <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
+                          <span className="capitalize">{a.platform}</span>
+                          {a.username && <span className="text-muted-foreground">@{a.username}</span>}
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">Upcoming scheduled</p>
+                {pipeline.upcoming.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nothing scheduled.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {pipeline.upcoming.map((u) => (
+                      <Link
+                        key={u.post_id}
+                        href={`/content/${u.post_id}/edit`}
+                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 hover:bg-accent transition-colors"
+                      >
+                        <span className="text-xs truncate min-w-0">{u.content_preview || 'Untitled'}</span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {u.platforms.map((pl) => (
+                            <span
+                              key={pl}
+                              className="inline-block h-2 w-2 rounded-full"
+                              style={{ backgroundColor: PLATFORM_COLOR[pl] ?? '#6366f1' }}
+                              title={pl}
+                            />
+                          ))}
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {u.scheduled_at ? formatRelativeTime(u.scheduled_at) : ''}
+                          </span>
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts — 2-col on wide screens, 1-col on narrow */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>

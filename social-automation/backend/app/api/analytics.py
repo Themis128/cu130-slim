@@ -17,6 +17,7 @@ from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
+from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
 from app.services.analytics_sync import sync_team_analytics
@@ -346,6 +347,52 @@ class PlatformMetrics(BaseModel):
     total_engagement: int
     total_impressions: int
     engagement_rate: float
+
+
+class PipelineQueueStats(BaseModel):
+    pending: int
+    processing: int
+    stuck_processing: int
+    published_period: int
+    failed_period: int
+
+
+class PipelinePlatformStat(BaseModel):
+    platform: str
+    published: int
+    failed: int
+    pending: int
+    success_rate: float | None
+    last_published_at: datetime | None
+    last_error: str | None
+
+
+class PipelineDayPoint(BaseModel):
+    date: str
+    platform: str
+    published: int
+
+
+class PipelineAccountHealth(BaseModel):
+    platform: str
+    username: str | None
+    status: str
+    token_expires_at: datetime | None
+
+
+class UpcomingScheduledPost(BaseModel):
+    post_id: uuid.UUID
+    content_preview: str
+    scheduled_at: datetime | None
+    platforms: list[str]
+
+
+class PublishPipelineOut(BaseModel):
+    queue: PipelineQueueStats
+    platforms: list[PipelinePlatformStat]
+    daily: list[PipelineDayPoint]
+    accounts: list[PipelineAccountHealth]
+    upcoming: list[UpcomingScheduledPost]
 
 
 @router.get("/overview", response_model=OverviewMetrics)
@@ -903,6 +950,190 @@ async def get_platform_metrics(
             )
         )
     return metrics
+
+
+@router.get("/pipeline", response_model=PublishPipelineOut)
+async def get_publish_pipeline(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Live publishing-pipeline health: queue depth, per-platform delivery
+    stats, daily publish volume, account/token health, upcoming schedule.
+
+    This is the operational view — it answers "is my post actually going
+    out?" rather than engagement performance.
+    """
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    now = datetime.now(UTC)
+    since = now - timedelta(days=days)
+
+    # ── Live queue depth (team-scoped via posts join) ──────────────────
+    queue_rows = await db.execute(
+        select(PublishQueue.status, func.count())
+        .select_from(PublishQueue)
+        .join(Post, Post.id == PublishQueue.post_id)
+        .where(Post.team_id == team.id)
+        .group_by(PublishQueue.status)
+    )
+    queue_counts = {s: int(c) for s, c in queue_rows.all()}
+
+    stuck_row = await db.execute(
+        select(func.count(PublishQueue.id))
+        .select_from(PublishQueue)
+        .join(Post, Post.id == PublishQueue.post_id)
+        .where(
+            Post.team_id == team.id,
+            PublishQueue.status == QueueStatus.PROCESSING,
+            PublishQueue.locked_at < now - timedelta(minutes=15),
+        )
+    )
+
+    # ── Per-platform delivery stats for the period (from post_targets) ─
+    target_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            PostTarget.status,
+            func.count(PostTarget.post_id),
+        )
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(Post.team_id == team.id, Post.created_at >= since)
+        .group_by(SocialAccount.platform, PostTarget.status)
+    )
+    stats: dict[str, dict[str, int]] = {}
+    for platform, status, cnt in target_rows.all():
+        stats.setdefault(platform, {})[status] = int(cnt)
+
+    last_pub_rows = await db.execute(
+        select(SocialAccount.platform, func.max(PostTarget.published_at))
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(Post.team_id == team.id, PostTarget.status == "published")
+        .group_by(SocialAccount.platform)
+    )
+    last_pub = {p: ts for p, ts in last_pub_rows.all()}
+
+    # Latest failure per platform (most recent post wins)
+    err_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            PostTarget.error_message,
+            Post.created_at,
+        )
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            Post.team_id == team.id,
+            PostTarget.status == "failed",
+            PostTarget.error_message.isnot(None),
+            Post.created_at >= since,
+        )
+        .order_by(Post.created_at.desc())
+    )
+    last_err: dict[str, str] = {}
+    for platform, err, _created in err_rows.all():
+        last_err.setdefault(platform, err[:200])
+
+    platform_stats = []
+    for platform, counts in sorted(stats.items()):
+        published = counts.get("published", 0)
+        failed = counts.get("failed", 0)
+        total_done = published + failed
+        platform_stats.append(
+            PipelinePlatformStat(
+                platform=platform,
+                published=published,
+                failed=failed,
+                pending=counts.get("pending", 0),
+                success_rate=(published / total_done) if total_done else None,
+                last_published_at=last_pub.get(platform),
+                last_error=last_err.get(platform),
+            )
+        )
+
+    # ── Daily publish volume per platform ──────────────────────────────
+    day_expr = func.date_trunc("day", PostTarget.published_at)
+    daily_rows = await db.execute(
+        select(day_expr.label("day"), SocialAccount.platform, func.count())
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            Post.team_id == team.id,
+            PostTarget.status == "published",
+            PostTarget.published_at >= since,
+        )
+        .group_by(day_expr, SocialAccount.platform)
+        .order_by(day_expr)
+    )
+    daily = [
+        PipelineDayPoint(date=day.date().isoformat(), platform=platform, published=int(cnt))
+        for day, platform, cnt in daily_rows.all()
+        if day is not None
+    ]
+
+    # ── Connected-account health ───────────────────────────────────────
+    acct_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            SocialAccount.username,
+            SocialAccount.status,
+            SocialAccount.token_expires_at,
+        ).where(SocialAccount.team_id == team.id)
+        .order_by(SocialAccount.platform)
+    )
+    accounts = [
+        PipelineAccountHealth(
+            platform=p, username=u, status=s, token_expires_at=exp
+        )
+        for p, u, s, exp in acct_rows.all()
+    ]
+
+    # ── Upcoming scheduled posts ───────────────────────────────────────
+    upcoming_rows = await db.execute(
+        select(Post)
+        .where(
+            Post.team_id == team.id,
+            Post.status == PostStatus.SCHEDULED,
+            Post.scheduled_at.isnot(None),
+            Post.scheduled_at >= now,
+        )
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+        .order_by(Post.scheduled_at.asc())
+        .limit(5)
+    )
+    upcoming = []
+    for post in upcoming_rows.scalars().all():
+        platforms = sorted({t.social_account.platform for t in post.targets if t.social_account})
+        upcoming.append(
+            UpcomingScheduledPost(
+                post_id=post.id,
+                content_preview=(post.content_text or "")[:100],
+                scheduled_at=post.scheduled_at,
+                platforms=platforms,
+            )
+        )
+
+    return PublishPipelineOut(
+        queue=PipelineQueueStats(
+            pending=queue_counts.get(QueueStatus.PENDING, 0),
+            processing=queue_counts.get(QueueStatus.PROCESSING, 0),
+            stuck_processing=int(stuck_row.scalar() or 0),
+            published_period=sum(s.get("published", 0) for s in stats.values()),
+            failed_period=sum(s.get("failed", 0) for s in stats.values()),
+        ),
+        platforms=platform_stats,
+        daily=daily,
+        accounts=accounts,
+        upcoming=upcoming,
+    )
 
 
 @router.get("/reports/export")

@@ -191,6 +191,39 @@ export interface PlatformMetrics {
   engagement_rate: number
 }
 
+/** Live publishing pipeline from GET /analytics/pipeline */
+export interface PublishPipeline {
+  queue: {
+    pending: number
+    processing: number
+    stuck_processing: number
+    published_period: number
+    failed_period: number
+  }
+  platforms: Array<{
+    platform: string
+    published: number
+    failed: number
+    pending: number
+    success_rate: number | null
+    last_published_at: string | null
+    last_error: string | null
+  }>
+  daily: Array<{ date: string; platform: string; published: number }>
+  accounts: Array<{
+    platform: string
+    username: string | null
+    status: string
+    token_expires_at: string | null
+  }>
+  upcoming: Array<{
+    post_id: string
+    content_preview: string
+    scheduled_at: string | null
+    platforms: string[]
+  }>
+}
+
 /** Top posts from GET /analytics/top-posts */
 export interface TopPost {
   post_id: string
