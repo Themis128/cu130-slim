@@ -14,14 +14,38 @@ analytics_events, prompt_templates, generated_workflows, post_analytics_snapshot
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.services.d1_client import d1_client
 
 logger = logging.getLogger(__name__)
+
+# Redis keys for shared sync state. _last_sync used to be a per-process
+# dict — Celery prefork workers never shared it and restarts wiped it, so
+# every sync fell back to full-table upserts (~145 rows every ~30s across
+# 4 workers = ~100K D1 writes/day, the entire free-tier budget).
+_RS_LAST_SYNC = "d1sync:last:{table}"
+_RS_DEBOUNCE = "d1sync:debounce:{table}"
+_RS_HASHES = "d1sync:hashes:{table}"
+
+# Minimum seconds between D1 writes for a given table. Queue tasks run
+# every ~30s; a 2-minute lag on the D1 mirror is fine for read replicas.
+_SYNC_MIN_INTERVAL = int(os.environ.get("D1_SYNC_MIN_INTERVAL", "120"))
+
+
+async def _sync_redis() -> Any:
+    """Shared Redis client for sync watermarks/debounce."""
+    import redis.asyncio as aioredis
+
+    from app.core.config import get_settings
+
+    return aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+
 
 # Tables to sync to D1, with their primary key column(s).
 #
