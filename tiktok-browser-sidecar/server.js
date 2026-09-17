@@ -13,7 +13,9 @@ import express from 'express';
 import { chromium } from 'playwright';
 
 const PORT = process.env.TIKTOK_SIDECAR_PORT || 9224;
-const TIKTOK_PROFILE_URL = 'https://www.tiktok.com/@user3113682023385';
+const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || 'cloudless.gr';
+const TIKTOK_PROFILE_URL =
+  process.env.TIKTOK_PROFILE_URL || `https://www.tiktok.com/@${TIKTOK_USERNAME}`;
 const TIKTOK_SETTINGS_URL = 'https://www.tiktok.com/setting?lang=en';
 const TIKTOK_BIZ_REG_URL = 'https://www.tiktok.com/business-suite/business-registration/verify?source=onboarding';
 
@@ -147,6 +149,25 @@ async function closeDialogs() {
 
 // ── API: Session ───────────────────────────────────────────────────────────
 
+/**
+ * Decide whether the current page shows an authenticated session.
+ * A logged-out tiktok.com renders "Log in" buttons, and a dead profile URL
+ * ("Couldn't find this account") is not evidence of a session either.
+ */
+async function checkLoggedIn() {
+  const title = await page.title();
+  const url = page.url();
+  if (title.includes('Log in') || url.includes('login')) return false;
+  if (title.includes("Couldn't find")) return false;
+  try {
+    const loginBtn = page.locator('button:has-text("Log in"), a:has-text("Log in")');
+    if (await loginBtn.count() > 0) return false;
+  } catch {
+    // DOM query failures are non-fatal — fall through to the title result
+  }
+  return true;
+}
+
 /** Set the TikTok session cookie and verify the session is alive. */
 async function handleSetSession(req, res) {
   const { session_id, user_id, cookies } = req.body;
@@ -163,7 +184,7 @@ async function handleSetSession(req, res) {
     await page.goto(TIKTOK_PROFILE_URL, { waitUntil: 'networkidle', timeout: 60000 });
     await page.waitForTimeout(3000);
     const title = await page.title();
-    const isLoggedIn = !title.includes('Log in') && !page.url().includes('login');
+    const isLoggedIn = await checkLoggedIn();
     res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -175,7 +196,7 @@ async function handleCheckSession(req, res) {
   try {
     await gotoProfile();
     const title = await page.title();
-    const isLoggedIn = !title.includes('Log in') && !page.url().includes('login');
+    const isLoggedIn = await checkLoggedIn();
     res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -669,7 +690,7 @@ async function handleBrowse(req, res) {
     const title = await page.title();
     const finalUrl = page.url();
     const text = (await page.locator('body').innerText().catch(() => '')).slice(0, 6000);
-    const logged_in = !title.includes('Log in') && !finalUrl.includes('login');
+    const logged_in = await checkLoggedIn();
     res.json({ status: 'ok', logged_in, url: finalUrl, title, text_preview: text.slice(0, 1500) });
   } catch (err) {
     res.status(500).json({ error: err.message });
