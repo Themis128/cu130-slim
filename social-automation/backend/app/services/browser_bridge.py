@@ -61,15 +61,36 @@ class BrowserBridgeClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def start_session(self, platform: str, force: bool = False) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
-            resp = await client.post(
-                f"{self._base_url}/session/start",
-                json={"platform": platform, "force": force},
-            )
-            if resp.status_code >= 400:
-                raise BrowserBridgeError(resp.status_code, resp.text)
-            return resp.json()
+    async def start_session(
+        self,
+        platform: str,
+        force: bool = False,
+        contention_retries: int = 0,
+    ) -> dict[str, Any]:
+        """Start a browser session for ``platform``.
+
+        On HTTP 409 (another platform's busy-hold or a fresh login
+        window), retries ``contention_retries`` times with 20s backoff.
+        The last 3 retries escalate to ``force`` — a publisher has at
+        most a few queue attempts while a preempted poller just re-runs
+        on its next cycle.
+        """
+        for attempt in range(contention_retries + 1):
+            async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
+                resp = await client.post(
+                    f"{self._base_url}/session/start",
+                    json={
+                        "platform": platform,
+                        "force": force or attempt >= max(contention_retries - 2, 1),
+                    },
+                )
+                if resp.status_code == 409 and attempt < contention_retries:
+                    await asyncio.sleep(20)
+                    continue
+                if resp.status_code >= 400:
+                    raise BrowserBridgeError(resp.status_code, resp.text)
+                return resp.json()
+        raise BrowserBridgeError(409, "browser busy")
 
     async def session_status(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
@@ -131,22 +152,14 @@ class BrowserBridgeClient:
         except Exception:
             pass
 
-        # Session is waiting, error, or has no cookies — restart it. A 409
-        # means another platform holds the browser (busy-hold or a fresh
-        # login window); retry patiently so this attempt can outlast a
-        # poller's hold instead of burning a queue retry. Under continuous
-        # poller traffic a fresh hold can start before the next retry lands,
-        # so after ~4 minutes of contention escalate to force — a publisher
-        # has at most 3 queue attempts while a preempted poller simply
-        # re-runs on its next cycle.
-        for attempt in range(15):
-            try:
-                await self.start_session(platform, force=attempt >= 12)
-                break
-            except BrowserBridgeError as exc:
-                if exc.status_code != 409:
-                    break
-                await asyncio.sleep(20)
+        # Session is waiting, error, or has no cookies — restart it.
+        # contention_retries lets start_session outlast another platform's
+        # busy-hold (and finally force-preempt it) instead of burning a
+        # queue attempt on the first 409.
+        try:
+            await self.start_session(platform, contention_retries=14)
+        except BrowserBridgeError:
+            pass
 
         return {
             "status": "waiting",

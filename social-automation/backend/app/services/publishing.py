@@ -615,7 +615,10 @@ async def _publish_twitter_via_browser(
             status = await client.session_status()
             if status.get("platform") != "twitter":
                 try:
-                    await client.start_session("twitter")
+                    # Pollers churn the shared browser continuously; let
+                    # this call outlast holds and finally force-preempt
+                    # rather than burning one of only 3 queue attempts.
+                    await client.start_session("twitter", contention_retries=14)
                 except BrowserBridgeError as exc:
                     return PublishResult(
                         success=False,
