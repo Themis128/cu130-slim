@@ -492,6 +492,7 @@ Current chain (oldest → newest):
 
 ## Documentation & diagrams
 
+- **Always update the architecture documentation** whenever infrastructure, integrations, or system design changes — this is a standing requirement, not optional. Update `docs/application-architecture.md` (the canonical doc) plus any affected `AGENTS.md` / `README` notes in the same commit as the change.
 - If the scope, architecture, or behavior changes, update `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (and its Devin copy at `~/.devin/plans/plan-e6a92ed66b9dca4a.md`) and any affected `AGENTS.md` / `README` notes.
 - Keep the Mermaid diagrams in the roadmap in sync with the actual flows (inference fallback, media lifecycle, publishing, etc.).
 - Every new feature or user-facing workflow must have a step-by-step guide in `docs/superpowers/guides/`. Add a link in the guides `README.md` and, if relevant, in the frontend empty-state or help text.
