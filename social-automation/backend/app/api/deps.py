@@ -68,10 +68,14 @@ async def get_current_team_id(
         .join(TeamMember, TeamMember.team_id == Team.id)
         .where(TeamMember.user_id == current_user.id)
         .order_by(
-            # Prefer teams where the user is the owner (role == 'OWNER')
+            # Prefer teams the user actually owns (owner_id) — a member role of
+            # 'owner' on someone else's team must not outrank true ownership.
+            (Team.owner_id == current_user.id).desc(),
+            # Then member-level owner role, then higher plan tiers, then the
+            # oldest team — deterministic when several teams tie otherwise.
             (TeamMember.role == UserRole.OWNER).desc(),
-            # Then prefer higher plan tiers (enterprise > business > pro > free)
             _tier_rank.desc(),
+            Team.created_at.asc(),
         )
     )
     team_id = result.scalars().first()
