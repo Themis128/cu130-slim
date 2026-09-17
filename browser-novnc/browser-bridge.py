@@ -157,6 +157,14 @@ _state: dict[str, Any] = {
 # caller frees the browser for pollers within minutes.
 BUSY_HOLD_SECONDS = 180.0
 
+# Callers identify themselves with the X-Platform header; while the
+# busy-hold is active only requests tagged with the owning platform may
+# touch the page. Middleware copies the header into this contextvar so
+# _ensure_live_page can enforce ownership without endpoint changes.
+_req_platform: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "req_platform", default=None
+)
+
 app = FastAPI(title="Browser Bridge", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
