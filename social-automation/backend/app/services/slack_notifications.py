@@ -47,7 +47,10 @@ async def _post_slack_text(
             for attempt in range(1, 5):
                 try:
                     if webhook_url:
-                        resp = await client.post(webhook_url, json={"text": text})
+                        payload: dict = {"text": text}
+                        if channel_id.startswith("#"):
+                            payload["channel"] = channel_id
+                        resp = await client.post(webhook_url, json=payload)
                         if resp.status_code >= 300:
                             last_err = f"Webhook HTTP {resp.status_code}: {resp.text[:200]}"
                             # Webhooks rarely need retry on 4xx.
