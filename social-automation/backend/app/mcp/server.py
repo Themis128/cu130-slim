@@ -20,10 +20,10 @@ import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
-    ListToolsRequest,
     ListToolsResult,
+    PaginatedRequestParams,
     TextContent,
     Tool,
 )
@@ -408,15 +408,15 @@ TOOLS: list[Tool] = [
 ]
 
 
-async def _handle_list_tools(ctx: Any, request: ListToolsRequest) -> ListToolsResult:
+async def _handle_list_tools(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
     """Handle tools/list request."""
     return ListToolsResult(tools=TOOLS)
 
 
-async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResult:
+async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallToolResult:
     """Handle tools/call request."""
-    name = request.params.name
-    arguments = request.params.arguments or {}
+    name = params.name
+    arguments = params.arguments or {}
 
     try:
         if name == "list_accounts":
@@ -594,8 +594,8 @@ async def _handle_call_tool(ctx: Any, request: CallToolRequest) -> CallToolResul
 
 
 # Register handlers
-server.add_request_handler("tools/list", ListToolsRequest, _handle_list_tools)
-server.add_request_handler("tools/call", CallToolRequest, _handle_call_tool)
+server.add_request_handler("tools/list", PaginatedRequestParams, _handle_list_tools)
+server.add_request_handler("tools/call", CallToolRequestParams, _handle_call_tool)
 
 
 async def main() -> None:

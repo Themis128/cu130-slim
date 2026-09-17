@@ -59,6 +59,7 @@ dependencies = [
     "reportlab>=4.0.0",       # PDF generation from scratch
     "pdfplumber>=0.11.0",     # text/table extraction from PDFs
     "pdf2image>=1.17.0",      # PDF page -> PIL Image (needs poppler-utils)
+    "mcp>=2.2.0",             # MCP stdio server (app.mcp.server)
 ]
 
 [project.optional-dependencies]
@@ -69,7 +70,6 @@ dev = [
     "respx>=0.22.0",
     "ruff==0.4.3",
     "mypy==1.10.0",
-    "mcp>=2.2.0",
 ]
 
 [build-system]
