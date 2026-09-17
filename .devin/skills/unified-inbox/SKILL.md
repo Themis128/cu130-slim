@@ -143,4 +143,4 @@ curl -s http://localhost:8083/api/v1/inbox/inbox \
 - Real-time updates via WebSocket
 - Cross-platform search (search messages across all platforms)
 - Conversation threading (group messages by sender across platforms)
-- Frontend UI component for the unified inbox
+- ~~Frontend UI component~~ — shipped at `/inbox` (sidebar nav, platform filters, unread badges, 30s polling)
