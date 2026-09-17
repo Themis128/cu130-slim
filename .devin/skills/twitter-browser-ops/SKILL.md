@@ -68,15 +68,20 @@ and always unpauses beat. Exit 2 = manual captcha needed.
 
 ## Browser contention (shared browser-novnc)
 
-All platforms share one Chromium. The bridge now enforces a **busy-hold**:
-every live-page interaction extends `_state["busy_until"]` (+180s), and
-`/session/start` for a *different* platform returns `409 Browser busy`
-while held. Same-platform start reuses the session instead of restarting.
-`{"platform": "...", "force": true}` overrides for manual recovery.
+All platforms share one Chromium. The bridge enforces a **busy-hold with
+platform attribution**: `BrowserBridgeClient(url, platform="twitter")`
+sends `X-Platform: twitter` on every request; tagged interactions set a
+180s hold owned by that platform (`busy_owner`/`busy_until`). While held,
+requests tagged for another platform — or untagged — get
+`409 Browser busy` from `_ensure_live_page` (covers navigate/evaluate/
+fill/click/extract), and `/session/start` for another platform returns
+409 too. The owning platform re-enters freely; a same-platform start
+reuses the session. `{"platform": "...", "force": true}` overrides for
+manual recovery.
 
-Remaining gap: page-level `navigate`/`evaluate` calls aren't attributed to
-a platform, so a poller can still navigate a busy session's page. When a
-publish must not be disturbed, **pause beat first**:
+All backend call sites are tagged (`twitter`, `instagram`, `facebook`,
+`threads`, `tiktok`). For extra safety during a manual noVNC session you
+can still **pause beat**:
 
 ```bash
 docker compose pause celery-beat   # stops all scheduled pollers

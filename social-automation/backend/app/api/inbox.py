@@ -173,7 +173,7 @@ async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversat
 async def _fetch_personal_messenger(account: SocialAccount) -> list[UnifiedConversation]:
     """Fetch conversations from personal Facebook Messenger (browser bridge)."""
     try:
-        bridge = BrowserBridgeClient("http://browser-novnc:9223")
+        bridge = BrowserBridgeClient("http://browser-novnc:9223", platform="facebook")
         result = await bridge.get_personal_messenger_conversations_fast()
         convos = []
         for convo in result.get("conversations", []):

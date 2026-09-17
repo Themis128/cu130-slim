@@ -197,8 +197,8 @@ def _get_instagram_private_client() -> InstagramPrivateAPIClient:
     return InstagramPrivateAPIClient(settings.INSTAGRAM_PRIVATE_API_URL)
 
 
-def _get_browser_bridge_client() -> BrowserBridgeClient:
-    return BrowserBridgeClient(settings.BROWSER_BRIDGE_URL)
+def _get_browser_bridge_client(platform: str) -> BrowserBridgeClient:
+    return BrowserBridgeClient(settings.BROWSER_BRIDGE_URL, platform=platform)
 
 
 def _get_instagram_session_id(account: SocialAccount) -> str | None:
@@ -530,7 +530,7 @@ async def get_threads_settings(
     if not account.username:
         raise HTTPException(status_code=400, detail="Threads account has no username")
 
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("threads")
     try:
         settings = await bridge.get_threads_settings(account.username)
     except BrowserBridgeError as e:
@@ -560,7 +560,7 @@ async def update_threads_settings(
     if not account.username:
         raise HTTPException(status_code=400, detail="Threads account has no username")
 
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("threads")
     try:
         result = await bridge.update_threads_settings(
             account.username,
@@ -606,7 +606,7 @@ async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
             logger.warning("Instagram sidecar failed (%s) — falling back to browser bridge", e.detail)
 
     # Fallback: browser-novnc bridge
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("instagram")
     try:
         data = await bridge.get_instagram_profile()
         return ProfileResponse(
@@ -686,7 +686,7 @@ async def _get_threads_profile(account: SocialAccount) -> ProfileResponse:
     if not account.username:
         raise HTTPException(status_code=400, detail="Threads account has no username")
 
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("threads")
     try:
         data = await bridge.get_threads_profile(account.username)
     except BrowserBridgeError as e:
@@ -716,7 +716,7 @@ async def _update_threads_profile(
     }
     ignored = [k for k, v in kwargs.items() if v is not None and k != "biography"]
 
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("threads")
     try:
         result = await bridge.update_threads_profile(
             account.username,
@@ -787,7 +787,7 @@ async def _update_instagram_profile(
             logger.warning("Instagram sidecar update failed (%s) — falling back to browser bridge", e.detail)
 
     # Fallback: browser-novnc bridge
-    bridge = _get_browser_bridge_client()
+    bridge = _get_browser_bridge_client("instagram")
     try:
         result = await bridge.update_instagram_profile(
             full_name=kwargs.get("full_name"),
