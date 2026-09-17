@@ -43,7 +43,7 @@ integration.
 | Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
 | Products | Login Kit, Content Posting API |
-| Mode | Production submitted / **Not approved** (use `MEDIA_UPLOAD`) |
+| Mode | Production **under review** (resubmitted after Sep 3 rejection — website URL fixed to `cloudless.gr`); use `MEDIA_UPLOAD` until approved |
 
 **Ops skill (scripts + MCP):** `.cursor/skills/tiktok-console-ops/` — domain verify, DNS TXT, sidecar session, console inspect. MCP server key: `tiktok-console` in `.devin/mcp_config.json`.
 
@@ -94,6 +94,15 @@ Per [TikTok media transfer docs](https://developers.tiktok.com/doc/content-posti
    - Enter `cloudless.gr` (base domain covers all subdomains including `social.cloudless.gr`)
    - Or enter `social.cloudless.gr` directly (subdomain only)
 5. TikTok generates a DNS verification string (e.g. `tiktok-domain-verification=abc123...`)
+
+> **Sandbox vs Production URL properties are separate.** Verifying the domain on
+> the Production tab does NOT cover the Sandbox environment (`cloudless-dev`) —
+> unaudited apps' Content Posting calls run in the **sandbox** context, so
+> `PULL_FROM_URL` fails with `url_ownership_unverified` until the domain is
+> verified on the **Sandbox** tab too. The sandbox flow issues a
+> `tiktok-developers-site-verification=...` TXT record (not
+> `tiktok-domain-verification=`) — add it as a TXT on `@` anyway; it verifies
+> the domain for sandbox URL properties.
 
 ### Add DNS TXT record in Cloudflare
 

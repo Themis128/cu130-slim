@@ -107,8 +107,18 @@ async def _refresh_expiring_tokens_async() -> dict:
             platform = account.platform
             account_label = f"{platform}/{account.username or account.account_id}"
 
-            # Skip if we refreshed too recently
-            if account.updated_at and (now - account.updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL:
+            # Skip if we refreshed too recently — but never skip a token that is
+            # already expired: updated_at is bumped by unrelated account writes
+            # (e.g. publish attempts), which would starve a dead token forever.
+            token_still_valid = (
+                account.token_expires_at is not None
+                and account.token_expires_at > now
+            )
+            if (
+                token_still_valid
+                and account.updated_at
+                and (now - account.updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL
+            ):
                 logger.info("Skipping %s — refreshed recently (%s)", account_label, account.updated_at)
                 summary["skipped"] += 1
                 continue
