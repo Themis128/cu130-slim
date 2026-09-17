@@ -125,6 +125,145 @@ class BrowserBridgeClient:
                 raise BrowserBridgeError(resp.status_code, resp.text)
             return resp.json()
 
+    async def mouse_click(self, x: float, y: float) -> dict[str, Any]:
+        """Trusted mouse click at viewport coordinates via the bridge.
+
+        Unlike JS ``el.click()``, this dispatches real input events through
+        Playwright — required where sites (e.g. X/Arkose) reject synthetic
+        clicks.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/session/mouse-click",
+                json={"x": x, "y": y},
+            )
+            if resp.status_code >= 400:
+                raise BrowserBridgeError(resp.status_code, resp.text)
+            return resp.json()
+
+    async def is_twitter_logged_in(self) -> dict[str, Any]:
+        """Probe the live page for an authenticated x.com session."""
+        try:
+            probe = await self.evaluate(
+                "() => ({url: location.href, loggedIn: !!document.querySelector("
+                "'[data-testid=SideNav_AccountSwitcher_Button]')})"
+            )
+        except BrowserBridgeError as exc:
+            return {"logged_in": False, "url": None, "error": exc.detail}
+        res = probe.get("result", probe) if isinstance(probe, dict) else probe
+        if not isinstance(res, dict):
+            return {"logged_in": False, "url": None}
+        return {"logged_in": bool(res.get("loggedIn")), "url": res.get("url")}
+
+    async def _click_visible_continue(self) -> bool:
+        """Find a visible 'Continue' button and mouse-click it."""
+        probe = await self.evaluate(
+            """() => {
+                const els = [...document.querySelectorAll('button,[role=button]')];
+                const c = els.find(e => (e.innerText || '').trim() === 'Continue' && e.offsetParent !== null);
+                if (!c) return {found: false};
+                const b = c.getBoundingClientRect();
+                return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
+            }"""
+        )
+        res = probe.get("result", probe) if isinstance(probe, dict) else probe
+        if not isinstance(res, dict) or not res.get("found"):
+            return False
+        await self.mouse_click(res["x"], res["y"])
+        return True
+
+    async def twitter_login(
+        self, username: str, password: str, timeout_s: float = 90.0
+    ) -> dict[str, Any]:
+        """Drive X's two-step onboarding login flow with stored credentials.
+
+        Flow quirks discovered empirically (Sept 2026):
+        - ``x.com/login`` now redirects to ``/i/jf/onboarding/web?mode=login``
+          — that funnel IS the login page.
+        - Enter the **username handle**, NOT the email: an email routes into
+          the signup funnel ("Email signups are only allowed on the apps").
+        - Two steps: username -> Continue -> password -> Continue. Filling
+          the password early on step 1 breaks the flow.
+        - Click the **visible** Continue via real mouse events — the page
+          renders duplicate hidden buttons and JS ``.click()`` is untrusted.
+        - On step 2 the username input is disabled/prefilled; fill only the
+          enabled ``input[name=password]``.
+        """
+        await self.navigate("https://x.com/i/flow/login")
+
+        # Step 1 — wait for the identifier field, then enter the handle.
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        filled = False
+        while asyncio.get_event_loop().time() < deadline:
+            probe = await self.evaluate(
+                "() => !!document.querySelector('input[name=username_or_email]')"
+            )
+            res = probe.get("result", probe) if isinstance(probe, dict) else probe
+            if res:
+                await self.fill("input[name=username_or_email]", username)
+                filled = True
+                break
+            await asyncio.sleep(1)
+        if not filled:
+            return {"status": "error", "error": "login form did not render"}
+
+        await asyncio.sleep(1.5)
+        if not await self._click_visible_continue():
+            return {"status": "error", "error": "Continue button not found (step 1)"}
+
+        # Step 2 — wait for the password step, then fill the enabled field.
+        filled = False
+        while asyncio.get_event_loop().time() < deadline:
+            probe = await self.evaluate(
+                """() => ({
+                    pwStep: location.href.includes('login_enter_password'),
+                    pwReady: !![...document.querySelectorAll('input[name=password]')]
+                        .find(i => !i.disabled && i.offsetParent !== null),
+                    arkose: !!document.querySelector('iframe[src*=arkose],[id*=arkose]'),
+                    err: document.body.innerText.includes('password you entered is incorrect')
+                        || document.body.innerText.includes('Wrong password'),
+                })"""
+            )
+            res = probe.get("result", probe) if isinstance(probe, dict) else probe
+            if isinstance(res, dict):
+                if res.get("arkose"):
+                    return {"status": "error", "error": "arkose captcha — manual login via noVNC required"}
+                if res.get("err"):
+                    return {"status": "error", "error": "x.com rejected the password (check TWITTER_LOGIN_PASSWORD)"}
+                if res.get("pwReady"):
+                    await self.fill("input[name=password]", password)
+                    filled = True
+                    break
+            await asyncio.sleep(1)
+        if not filled:
+            return {"status": "error", "error": "password step did not render"}
+
+        await asyncio.sleep(1.5)
+        if not await self._click_visible_continue():
+            return {"status": "error", "error": "Continue button not found (step 2)"}
+
+        # Wait for authenticated state (or a rejection).
+        while asyncio.get_event_loop().time() < deadline:
+            state = await self.is_twitter_logged_in()
+            if state.get("logged_in"):
+                return {"status": "logged_in", "url": state.get("url")}
+            probe = await self.evaluate(
+                """() => ({
+                    arkose: !!document.querySelector('iframe[src*=arkose],[id*=arkose]'),
+                    err: document.body.innerText.includes('password you entered is incorrect')
+                        || document.body.innerText.includes('Wrong password'),
+                })"""
+            )
+            res = probe.get("result", probe) if isinstance(probe, dict) else probe
+            if isinstance(res, dict):
+                if res.get("arkose"):
+                    return {"status": "error", "error": "arkose captcha — manual login via noVNC required"}
+                if res.get("err"):
+                    return {"status": "error", "error": "x.com rejected the password (check TWITTER_LOGIN_PASSWORD)"}
+            await asyncio.sleep(2)
+
+        return {"status": "error", "error": "login did not complete before timeout"}
+
     async def navigate(self, url: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
