@@ -217,6 +217,7 @@ async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversati
         client = InstagramAPIClient(
             access_token=access_token,
             ig_user_id=str(ig_user_id),
+            use_business_login_api=meta.get("login_type") == "business_login",
         )
         result = await client.get_conversations(limit=25)
         convos = []
