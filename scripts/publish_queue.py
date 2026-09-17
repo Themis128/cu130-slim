@@ -43,11 +43,13 @@ def sql(query: str) -> list[list[str]]:
 def cmd_list(args) -> None:
     where = f"WHERE q.status = '{args.status}'" if args.status else ""
     rows = sql(
-        f"""SELECT q.id, q.status, q.attempts, q.max_attempts, q.locked_by,
-                   sa.platform, sa.username, left(coalesce(q.last_error,''),80),
-                   q.scheduled_at::text
+        f"""SELECT q.id, q.status, q.attempts, q.max_attempts,
+                   coalesce(q.locked_by,''), sa.platform, sa.username,
+                   left(coalesce(t.error_message,''),80), q.scheduled_at::text
             FROM publish_queue q
             LEFT JOIN social_accounts sa ON sa.id = q.social_account_id
+            LEFT JOIN post_targets t
+              ON t.post_id = q.post_id AND t.social_account_id = q.social_account_id
             {where}
             ORDER BY q.created_at DESC LIMIT {args.limit}"""
     )
