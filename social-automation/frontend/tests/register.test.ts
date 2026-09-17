@@ -60,9 +60,9 @@ test.describe('Register Page — real backend', () => {
     await page.locator('#confirmPassword').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
-    // Real auto-login flow navigates to /dashboard
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 30000 });
-    await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeVisible({ timeout: 15000 });
+    // Fresh users land on the onboarding wizard (dashboard layout redirects
+    // while onboarding_completed=false) — still proves auto-login worked.
+    await expect(page).toHaveURL(/\/(onboarding|dashboard)/, { timeout: 30000 });
   });
 
   test('should show error when registering an existing email', async ({ page }) => {

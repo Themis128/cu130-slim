@@ -1,4 +1,4 @@
-import { test, expect, TEST_USER } from './helpers/auth';
+import { test, expect, TEST_USER, ensureTestUser } from './helpers/auth';
 
 test.describe('Login Page — real backend', () => {
   test('should load successfully', async ({ page }) => {
@@ -34,6 +34,7 @@ test.describe('Login Page — real backend', () => {
   });
 
   test('should log in with real test user and reach dashboard', async ({ page }) => {
+    await ensureTestUser(); // guarantees the user exists + onboarding_completed=true
     await page.goto('/login');
     await page.getByLabel('Email').fill(TEST_USER.email);
     await page.getByLabel('Password').fill(TEST_USER.password);

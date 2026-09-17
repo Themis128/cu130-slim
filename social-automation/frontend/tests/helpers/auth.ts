@@ -67,6 +67,17 @@ export async function ensureTestUser(): Promise<AuthTokens> {
       });
       if (res.ok) {
         cachedTokens = (await res.json()) as AuthTokens;
+        // Mark onboarding complete — the dashboard layout force-redirects
+        // users with onboarding_completed=false to /onboarding, which breaks
+        // every authenticated page assertion for fresh test users.
+        await fetch(`${API_BASE}/api/v1/auth/me`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cachedTokens.access_token}`,
+          },
+          body: JSON.stringify({ onboarding_completed: true }),
+        }).catch(() => {});
         return cachedTokens;
       }
       if (res.status === 429) {
