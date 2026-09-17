@@ -18,7 +18,6 @@ from app.models.ai_provider import AIProvider
 from app.models.user import Team, TeamMember
 from app.services import usage_tracker
 from app.services.cf_models import (
-from app.api.deps import get_user_team
     CF_TEXT_FREE,
     CF_TXT2IMG_FREE,
     GROQ_API_BASE,
@@ -2190,5 +2189,7 @@ async def _call_nvidia_flux_pipeline(
 
 
 async def get_team_id_for_user(user_id: uuid.UUID, db: AsyncSession) -> uuid.UUID | None:
+    from app.api.deps import get_user_team
+
     team = await get_user_team(db, user_id)
     return team.id if team else None
