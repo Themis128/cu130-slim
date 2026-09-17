@@ -277,6 +277,24 @@ DMR auto-unloads models after idle, so simultaneous loading is rare.
 | vLLM | Production, high throughput | Safetensors | NVIDIA (Linux/WSL2) | Yes (Docker Desktop 4.54+) |
 | Diffusers | Image generation (Stable Diffusion) | DDUF | NVIDIA (Linux only) | **No** |
 
+### vLLM operational notes (verified Sept 2026)
+
+- **Configure with the FULL model ref**: `docker model configure
+  docker.io/ai/smollm2-vllm:latest --gpu-memory-utilization 0.25`. The short
+  name (`ai/smollm2-vllm`) exits 0 but silently no-ops — verify with
+  `docker model configure show <model>`.
+- **Once a model has a runtime config, the API resolves ONLY the full ref**:
+  `ai/smollm2-vllm` → 404, `docker.io/ai/smollm2-vllm:latest` → 200. The
+  app's `dmr-vllm` provider defaults to the full ref for this reason.
+- **VRAM contention**: vLLM defaults to `gpu-memory-utilization 0.92` and
+  fails with `Free memory ... is less than desired GPU memory utilization`
+  when llama.cpp models hold VRAM. 0.25 (~2GB) works for smollm2-vllm
+  alongside llama.cpp; unload GGUF models (`docker model unload --all`)
+  before loading larger vLLM models.
+- Runner-level config (e.g. `docker model configure --gpu-memory-utilization`
+  on the runner) is lost when `install-runner`/`reinstall-runner` recreates
+  the `docker-model-runner` container — reapply per-model configs after.
+
 ## Fallback chain
 
 ```
