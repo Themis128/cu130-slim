@@ -57,18 +57,24 @@ function makeToneWav(seconds = 1): Buffer {
 
 /** Register a fresh user and log in, populating the auth-token globals. */
 async function registerAndLogin(request: APIRequestContext) {
-  const reg = await request.post(`${API_V1}/auth/register`, {
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'Cloudflare E2E' },
-  })
-  // 400 = email already exists from a prior worker run; that is acceptable.
-  if (!reg.ok() && reg.status() !== 400) {
-    throw new Error(`Unexpected register response ${reg.status()}: ${reg.statusText()}`)
+  // Register + login, retrying on 429 (auth rate limiter under parallel workers).
+  let login: Awaited<ReturnType<APIRequestContext['post']>> | null = null
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const reg = await request.post(`${API_V1}/auth/register`, {
+      data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'Cloudflare E2E' },
+    })
+    // 400 = email already exists from a prior worker run; that is acceptable.
+    if (!reg.ok() && reg.status() !== 400 && reg.status() !== 429) {
+      throw new Error(`Unexpected register response ${reg.status()}: ${reg.statusText()}`)
+    }
+    login = await request.post(`${API_V1}/auth/login`, {
+      form: { username: TEST_EMAIL, password: TEST_PASSWORD },
+    })
+    if (login.status() !== 429) break
+    await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)))
   }
-  const login = await request.post(`${API_V1}/auth/login`, {
-    form: { username: TEST_EMAIL, password: TEST_PASSWORD },
-  })
-  expect(login.status(), await login.text()).toBe(200)
-  const tokens = await login.json()
+  expect(login!.status(), await login!.text()).toBe(200)
+  const tokens = await login!.json()
   accessToken = tokens.access_token
   refreshToken = tokens.refresh_token
 }

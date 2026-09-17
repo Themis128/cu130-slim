@@ -14,10 +14,17 @@ async function registerAndLogin(request: APIRequestContext) {
   await request.post(`${API_V1}/auth/register`, {
     data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'VR E2E' },
   })
-  const r = await request.post(`${API_V1}/auth/login`, {
-    form: { username: TEST_EMAIL, password: TEST_PASSWORD },
-  })
-  const body = await r.json()
+  let body: Record<string, string> = {}
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const r = await request.post(`${API_V1}/auth/login`, {
+      form: { username: TEST_EMAIL, password: TEST_PASSWORD },
+    })
+    if (r.status() !== 429) {
+      body = await r.json()
+      break
+    }
+    await new Promise((res) => setTimeout(res, 3000 * (attempt + 1)))
+  }
   accessToken = body.access_token
   refreshToken = body.refresh_token
 }
