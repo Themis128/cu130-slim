@@ -589,3 +589,7 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. DMR (Do
 - **DMR SDXL on disk**: The `ai/stable-diffusion` model (6.94 GB DDUF) is cached locally but cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
 - **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so DMR/ComfyUI can use the VRAM.
 - **DMR + local-diffusers coexistence**: DMR auto-unloads its model after idle, so the two rarely hold VRAM simultaneously. When both are active (~7GB total), it fits in 8GB but leaves little headroom.
+
+## Billing preferences
+
+- **The user uses Dodo, not Stripe.** For merchant-of-record / payment work, prefer Dodo. Polar is configured as `BILLING_PROVIDER=polar` but the user's payment platform of choice is Dodo. Do not direct the user to Stripe-branded flows expecting them to have a Stripe account — note that Polar internally uses Stripe Identity/Stripe Express for its KYC and payout onboarding even when the merchant doesn't otherwise use Stripe.
