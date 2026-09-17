@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
-, User
+from app.models.user import User
 from app.services import minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
 from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
