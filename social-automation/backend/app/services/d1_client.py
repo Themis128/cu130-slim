@@ -130,7 +130,7 @@ class D1Client:
 
         # Daily write budget: throttle writes when approaching free tier limit
         if self._is_write(sql):
-            self._maybe_reset_daily_counter()
+            await self._maybe_reset_daily_counter()
             if self._write_count >= self.D1_DAILY_WRITE_LIMIT - self.D1_WRITE_BUDGET_HEADROOM:
                 if not self._write_throttled:
                     logger.warning(
@@ -175,12 +175,16 @@ class D1Client:
             logger.error("D1 query failed: %s | SQL: %s", msg, sql[:200])
             raise RuntimeError(f"D1 error: {msg}")
 
-        # Track write
-        if self._is_write(sql):
-            self._write_count += 1
+        results = data.get("result", [])
+        meta = results[0].get("meta", {}) if results else {}
+        rows_written = int(meta.get("rows_written") or 0)
+
+        # Track actual rows written (D1 bills per row, not per statement)
+        # against a Redis-shared counter so all workers see the same budget.
+        if self._is_write(sql) or rows_written:
+            await self._record_writes(rows_written or 1)
             self._write_throttled = False
 
-        results = data.get("result", [])
         if not results:
             return []
 
@@ -193,9 +197,54 @@ class D1Client:
         sql_stripped = sql.lstrip().upper()
         return sql_stripped.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE"))
 
-    def _maybe_reset_daily_counter(self) -> None:
-        """Reset the daily write counter if it's a new UTC day."""
+    async def _shared_writes_today(self) -> int | None:
+        """Today's rows-written counter shared across all processes via Redis.
+
+        Returns None when Redis is unavailable — callers fall back to the
+        per-process counter.
+        """
+        try:
+            import redis.asyncio as aioredis
+
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                val = await r.get(f"d1:writes:{datetime.now(UTC).date().isoformat()}")
+                return int(val) if val is not None else 0
+            finally:
+                await r.aclose()
+        except Exception:
+            return None
+
+    async def _record_writes(self, rows: int) -> None:
+        """Record rows written to D1 — Redis shared counter + local fallback."""
+        self._write_count += rows
+        try:
+            import redis.asyncio as aioredis
+
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                key = f"d1:writes:{datetime.now(UTC).date().isoformat()}"
+                await r.incrby(key, rows)
+                await r.expire(key, 172800)  # keep yesterday + today
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
+
+    async def _maybe_reset_daily_counter(self) -> None:
+        """Reset the daily write counter if it's a new UTC day.
+
+        When Redis is reachable the shared counter is authoritative —
+        per-process counters undercount badly across prefork workers.
+        """
+        shared = await self._shared_writes_today()
         today = datetime.now(UTC).date()
+        if shared is not None:
+            if self._write_count_date != today or shared != self._write_count:
+                self._write_count = shared
+                self._write_count_date = today
+                self._write_throttled = False
+            return
         if self._write_count_date != today:
             if self._write_count > 0:
                 logger.info(
@@ -206,10 +255,9 @@ class D1Client:
             self._write_count_date = today
             self._write_throttled = False
 
-    @property
-    def write_budget(self) -> dict[str, Any]:
+    async def write_budget(self) -> dict[str, Any]:
         """Return daily write budget status for health checks."""
-        self._maybe_reset_daily_counter()
+        await self._maybe_reset_daily_counter()
         return {
             "writes_today": self._write_count,
             "limit": self.D1_DAILY_WRITE_LIMIT,
