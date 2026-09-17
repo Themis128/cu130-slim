@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -82,15 +82,22 @@ async def _refresh_expiring_tokens_async() -> dict:
 
     async with _worker_db() as db:
         # Find all accounts with a refresh token that will expire soon.
-        # Include "expired" accounts: a past refresh failure marks the account
-        # expired, but the OAuth refresh token itself is often still valid —
-        # retrying lets transient failures self-heal instead of staying dead.
+        # Include "expired" accounts unconditionally: a past refresh failure
+        # marks the account expired, but the OAuth refresh token itself is
+        # often still valid — and token_expires_at may be far in the future,
+        # so a window-based filter alone would leave the flag stuck forever.
+        # MIN_REFRESH_INTERVAL below bounds the retry rate for dead tokens.
         result = await db.execute(
             select(SocialAccount).where(
                 SocialAccount.status.in_(["active", "expired"]),
                 SocialAccount.refresh_token_enc.isnot(None),
-                SocialAccount.token_expires_at.isnot(None),
-                SocialAccount.token_expires_at <= cutoff,
+                or_(
+                    SocialAccount.status == "expired",
+                    and_(
+                        SocialAccount.token_expires_at.isnot(None),
+                        SocialAccount.token_expires_at <= cutoff,
+                    ),
+                ),
             )
         )
         accounts = result.scalars().all()
