@@ -111,12 +111,17 @@ TOOLS: list[Tool] = [
                 "platforms": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Platforms: linkedin, twitter, facebook, instagram, threads, tiktok",
+                    "description": "Platforms: linkedin, twitter, facebook, instagram, threads, tiktok, telegram",
+                },
+                "account_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific social account IDs to target (overrides platforms)",
                 },
                 "scheduled_at": {"type": "string", "description": "ISO 8601 datetime (optional)"},
                 "media_ids": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["content", "platforms"],
+            "required": ["content"],
         },
     ),
     Tool(
