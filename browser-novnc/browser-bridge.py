@@ -157,6 +157,9 @@ _state: dict[str, Any] = {
     # a poller that opens a login page nobody uses would block the browser
     # for the full 10-minute login-detection loop.
     "waiting_since": 0.0,
+    # True when the waiting session was started for a human noVNC login —
+    # grants INTERACTIVE_WAITING_TIMEOUT instead of WAITING_TIMEOUT.
+    "interactive": False,
 }
 
 # Seconds a platform keeps exclusive use of the browser after its last
@@ -171,6 +174,11 @@ BUSY_HOLD_SECONDS = 180.0
 # (~1-2 min) plus margin, short enough that a stale poller session can't
 # starve publishers for the full 10-minute detection loop.
 WAITING_TIMEOUT = 300.0
+
+# Interactive sessions (a human is logging in via noVNC) get a much longer
+# abandoned-login window — typing creds, solving a captcha, or fetching a
+# 2FA code legitimately takes longer than a poller's automated attempt.
+INTERACTIVE_WAITING_TIMEOUT = 1800.0
 
 # Callers identify themselves with the X-Platform header; while the
 # busy-hold is active only requests tagged with the owning platform may
@@ -321,6 +329,9 @@ async def _ensure_live_page():
 class StartRequest(BaseModel):
     platform: str
     force: bool = False
+    # Human-driven login via noVNC — gets a longer waiting window before the
+    # session is treated as abandoned and becomes preemptible by pollers.
+    interactive: bool = False
 
 
 @app.get("/health")
@@ -369,9 +380,12 @@ async def start_session(req: StartRequest):
             raise HTTPException(400, f"Unknown platform: {platform}. Available: {list(SITES.keys())}")
 
         if _state["status"] in ("waiting", "extracting") and not req.force:
+            wait_timeout = (
+                INTERACTIVE_WAITING_TIMEOUT if _state.get("interactive") else WAITING_TIMEOUT
+            )
             stale_waiting = (
                 _state["status"] == "waiting"
-                and time.time() - _state.get("waiting_since", 0.0) > WAITING_TIMEOUT
+                and time.time() - _state.get("waiting_since", 0.0) > wait_timeout
             )
             # Same-platform re-entry during an active login is fine (reuse
             # below); foreign platforms are blocked unless the waiting
@@ -442,6 +456,7 @@ async def start_session(req: StartRequest):
         _state["platform"] = platform
         _state["status"] = "waiting"
         _state["waiting_since"] = time.time()
+        _state["interactive"] = bool(req.interactive)
         # A tagged caller starting its own session takes an immediate
         # busy-hold — without it the window between this start and the
         # caller's first page interaction is unprotected, letting a

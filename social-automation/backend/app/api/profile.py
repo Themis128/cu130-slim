@@ -1805,7 +1805,7 @@ async def start_browser_session(
         try:
             resp = await client.post(
                 f"{_BROWSER_BRIDGE_URL}/session/start",
-                json={"platform": req.platform},
+                json={"platform": req.platform, "interactive": True},
             )
             resp.raise_for_status()
             data = resp.json()
