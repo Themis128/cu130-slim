@@ -54,6 +54,24 @@ async def get_current_team_id(
     #    This prevents a user who belongs to multiple teams (e.g. admin
     #    invited to a free-tier team) from being defaulted to the wrong
     #    (non-owned, lower-tier) team on login without an explicit switch.
+    team = await get_user_team(db, current_user)
+    if team is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not a member of any team",
+        )
+    return team.id
+
+
+async def get_user_team(db: AsyncSession, user: User) -> Team | None:
+    """Resolve a user's primary team deterministically.
+
+    Priority: owned teams first (``Team.owner_id``), then member-level owner
+    role, then higher plan tier, then oldest team. This is the single
+    authoritative resolver — endpoints must use it (or ``TeamId``) instead of
+    ad-hoc ``select(Team).join(TeamMember).first()`` lookups, which return an
+    arbitrary team when a user has multiple memberships.
+    """
     from sqlalchemy import case
 
     _tier_rank = case(
@@ -64,41 +82,29 @@ async def get_current_team_id(
         else_=0,
     )
     result = await db.execute(
-        select(Team.id)
+        select(Team)
         .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == current_user.id)
+        .where(TeamMember.user_id == user.id)
         .order_by(
-            # Prefer teams the user actually owns (owner_id) — a member role of
-            # 'owner' on someone else's team must not outrank true ownership.
-            (Team.owner_id == current_user.id).desc(),
-            # Then member-level owner role, then higher plan tiers, then the
-            # oldest team — deterministic when several teams tie otherwise.
+            (Team.owner_id == user.id).desc(),
             (TeamMember.role == UserRole.OWNER).desc(),
             _tier_rank.desc(),
             Team.created_at.asc(),
         )
     )
-    team_id = result.scalars().first()
-    if team_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is not a member of any team",
-        )
-    return team_id  # type: ignore[return-value]
+    return result.scalars().first()
 
 
 TeamId = Annotated[uuid.UUID, Depends(get_current_team_id)]
 
 
 async def get_current_team(
-    current_user: CurrentUser,
+    team_id: TeamId,
     db: DbSession,
 ) -> Team:
     """Return the user's Team object, raising 403 if they have no team."""
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == current_user.id)
-    )
-    team = result.scalars().first()
+    result = await db.execute(select(Team).where(Team.id == team_id))
+    team = result.scalar_one_or_none()
     if team is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
