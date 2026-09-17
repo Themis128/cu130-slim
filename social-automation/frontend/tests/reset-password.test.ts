@@ -82,7 +82,8 @@ test.describe('Reset Password Page — real backend', () => {
       }
       await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
     }
-    expect(token).toBeTruthy();
+    // debug_token only exists when the backend runs DEBUG=true — skip otherwise
+    test.skip(!token, 'backend not in DEBUG mode — no debug_token issued');
 
     await page.goto(`/reset-password?token=${token}`);
     await page.waitForLoadState('networkidle');

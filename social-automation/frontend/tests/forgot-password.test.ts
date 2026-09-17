@@ -1,4 +1,4 @@
-import { test, expect, TEST_USER } from './helpers/auth';
+import { test, expect, TEST_USER, API_BASE } from './helpers/auth';
 
 test.describe('Forgot Password Page — real backend', () => {
   test('should load successfully', async ({ page }) => {
