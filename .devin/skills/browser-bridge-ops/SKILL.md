@@ -220,4 +220,14 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
 - The evaluate endpoint uses `expression` (not `script`) as the JSON key.
 - Some platforms (LinkedIn, Facebook, TikTok) have dedicated sidecar
   containers with their own ports (9225, 9226, 9224).
+- **Busy-hold (anti-hijack)**: every live-page interaction extends a 180s
+  hold; `/session/start` for a *different* platform returns `409 Browser
+  busy` while held, and a same-platform start reuses the session. Pass
+  `{"platform": "...", "force": true}` to override for manual recovery.
+  For an uninterrupted manual session (e.g. noVNC login), pause pollers:
+  `docker compose pause celery-beat` … `unpause` afterwards.
+- Page-level `navigate`/`evaluate` are NOT platform-attributed — a poller
+  can still move a busy session's page. Pause beat for critical flows.
+- For X/Twitter specifically (two-step login, composer quirks), see the
+  `twitter-browser-ops` skill.
 - Wait 2-3 seconds between navigation and interaction for pages to load.
