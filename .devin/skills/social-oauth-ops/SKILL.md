@@ -34,7 +34,7 @@ token** needs manual reconnect from the Accounts page.
 
 Trigger manually:
 ```bash
-docker compose exec -T social-worker celery -A app.worker.celery_app call app.worker.tasks.token_refresh.refresh_expiring_tokens
+docker compose exec -T social-worker-publishing celery -A app.worker.celery_app call app.worker.tasks.token_refresh.refresh_expiring_tokens
 ```
 
 ## Common operations
