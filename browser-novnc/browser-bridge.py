@@ -410,13 +410,33 @@ async def start_session(req: StartRequest):
                 "reused": True,
             }
 
+        # Cancel any previous session's background task — otherwise its
+        # 10-minute login-detection loop keeps a Chromium alive on the
+        # shared profile and the new launch dies with "Opening in
+        # existing browser session".
+        old_task = _state.get("task")
+        if old_task and not old_task.done():
+            old_task.cancel()
+            try:
+                await old_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            _state["task"] = None
+
         # Close any existing browser
-        if _state["browser"]:
+        if _state["context"]:
+            try:
+                await _state["context"].close()
+            except Exception:
+                pass
+        elif _state["browser"]:
             try:
                 await _state["browser"].close()
             except Exception:
                 pass
-            _state["browser"] = None
+        _state["browser"] = None
+        _state["context"] = None
+        _state["page"] = None
 
         site = SITES[platform]
         _state["platform"] = platform
@@ -428,7 +448,7 @@ async def start_session(req: StartRequest):
         _state["cookies"] = {}
 
         # Start browser in background
-        asyncio.create_task(_run_browser(platform))
+        _state["task"] = asyncio.create_task(_run_browser(platform))
 
         return {
             "platform": platform,
