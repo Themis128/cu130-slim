@@ -1075,8 +1075,37 @@ userdb is keyed by full email.
 requirements as tests: billing route surface (checkout/portal/cancel/webhooks),
 pricing-parity between `PLAN_LIMITS` and the advertised product specs, webhook
 signature enforcement, the account-deletion endpoint (GDPR/Meta), support
-channel settings, Slack channel-override behavior, and gzip middleware. A
-drift between the site, the code, and the product catalog fails the suite.
+channel settings, Slack channel-override behavior, Polar webhook team
+resolution ordering, and gzip middleware. A drift between the site, the code,
+and the product catalog fails the suite.
+
+### Verified end-to-end (Sep 17, 2026)
+
+All four tiers exercised live against Polar on a dedicated test team:
+
+- `free` checkout → `400 Invalid tier 'free'` (free is the default plan, not
+  purchasable).
+- `pro` / `business` / `enterprise` checkouts created hosted sessions priced
+  $10 / $50 / $150; each completed with the `REVIEW100` 100%-off code and the
+  webhook provisioned the matching `plan_tier` + `subscription_status=active`
+  + `polar_subscription_id` + `subscription_period_end` on the correct team.
+- Cancellation (`POST /billing/cancel` → `cancel_at_period_end`, or Polar
+  revoke) delivers `subscription.canceled`/`revoked` webhooks that return the
+  team to `plan_tier=free`, `subscription_status=canceled`.
+- Webhook idempotency verified: replaying a delivery ID returns
+  `{"status":"duplicate"}`; unsigned/bad-signature requests get `401`.
+- Customer portal (`POST /billing/portal`) returns a hosted
+  `polar.sh/cloudless/portal` session URL.
+
+**Shared-customer caveat**: Polar merges customers by email, so one Polar
+customer can back multiple teams. Webhook team resolution therefore tries
+checkout-scoped identifiers first (`metadata.team_id`,
+`external_customer_id`) before the customer-level `external_id`, and the
+portal API uses `customer_id` (not `external_customer_id`). Polar also blocks
+a new subscription checkout while the customer already has an active
+subscription (`AlreadyActiveSubscriptionError`) — upgrades/downgrades go
+through the customer portal, and `cancel_at_period_end` keeps the sub active
+until period end (immediate freeing requires a revoke).
 
 ## Security Architecture
 
