@@ -71,7 +71,7 @@ export default function PrivacyPolicyPage() {
             <li><strong>Primary:</strong> Cloudflare D1 (edge database) and Cloudflare KV (cache).</li>
             <li><strong>Failover:</strong> Local PostgreSQL database on our infrastructure.</li>
             <li><strong>Media:</strong> Cloudflare R2 or local MinIO (S3-compatible storage).</li>
-            <li><strong>OAuth tokens:</strong> Encrypted at rest using AES-256.</li>
+            <li><strong>OAuth tokens:</strong> Encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256).</li>
           </ul>
         </section>
 
@@ -84,6 +84,8 @@ export default function PrivacyPolicyPage() {
             <li>Facebook/Meta (to publish posts and manage Messenger, as directed by you).</li>
             <li>LinkedIn, Twitter/X, TikTok, Threads (to publish content, as directed by you).</li>
             <li>Cloudflare (for edge database, cache, and AI inference).</li>
+            <li>Polar Software, Inc. and Dodo Payments (our Merchants of Record — they process payments, taxes, refunds, and invoicing; we share your name, email, and billing details with them when you purchase).</li>
+            <li>Resend (transactional email delivery — we share your email address to send account and billing notifications).</li>
           </ul>
         </section>
 

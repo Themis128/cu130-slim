@@ -56,6 +56,11 @@ export default function RefundPolicyPage() {
             within 5–10 business days depending on your bank or card issuer. You never need to
             dispute a charge to get help — contact us first and we will resolve it.
           </p>
+          <p>
+            Note: charges on your bank or card statement appear as
+            <strong> POLAR*CLOUDLESS</strong> or <strong>DODOPAYMENTS*</strong> — these are our
+            payment partners processing your SocialAuto subscription.
+          </p>
         </section>
 
         <section>
