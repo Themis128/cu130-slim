@@ -87,6 +87,16 @@ function headers() {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Live backend contract tests (no browser)
 // ─────────────────────────────────────────────────────────────────────────────
+// Fake-device launch args are worker-scoped — harmless on non-Chromium browsers.
+test.use({
+  launchOptions: {
+    args: [
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      '--autoplay-policy=user-gesture-required',
+    ],
+  },
+})
 
 test.describe('Cloudflare backend contract @e2e', () => {
   test.describe.configure({ mode: 'serial' })
@@ -352,17 +362,8 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
   test.describe('VoiceRecorder (Chromium-only)', () => {
     test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
 
-    // Scoped here so non-Chromium browsers never create a context with mic permissions
-    test.use({
-      permissions: ['microphone'],
-      launchOptions: {
-        args: [
-          '--use-fake-device-for-media-stream',
-          '--use-fake-ui-for-media-stream',
-          '--autoplay-policy=user-gesture-required',
-        ],
-      },
-    })
+    // Context-scoped here so non-Chromium browsers never get mic permissions
+    test.use({ permissions: ['microphone'] })
 
     test('uploads real (fake-device) audio to the live /ai/transcribe endpoint', async ({
       page,
