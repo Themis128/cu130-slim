@@ -58,8 +58,9 @@ if action == 'list':
 
 if action == 'add':
     content = token_value.strip().strip('"')
-    if not content.startswith('tiktok-domain-verification='):
-        print(json.dumps({'ok': False, 'error': 'token must start with tiktok-domain-verification='}))
+    if not (content.startswith('tiktok-domain-verification=')
+            or content.startswith('tiktok-developers-site-verification=')):
+        print(json.dumps({'ok': False, 'error': 'token must start with tiktok-domain-verification= or tiktok-developers-site-verification='}))
         sys.exit(1)
     # Skip if already present
     data = req(f'https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?type=TXT&per_page=100')
