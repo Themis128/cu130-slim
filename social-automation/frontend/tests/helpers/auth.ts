@@ -130,12 +130,19 @@ export async function registerAndLoginUser(
   password: string,
   name: string,
 ): Promise<AuthTokens> {
-  const reg = await fetch(`${API_BASE}/api/v1/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name }),
-  });
-  if (!reg.ok && reg.status !== 400 && reg.status !== 409 && reg.status !== 422) {
+  // Register, retrying on 429 — the rate limiter (5/min) trips when parallel
+  // workers each create isolated users.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const reg = await fetch(`${API_BASE}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (reg.ok || reg.status === 400 || reg.status === 409 || reg.status === 422) break;
+    if (reg.status === 429 && attempt < 4) {
+      await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+      continue;
+    }
     throw new Error(`Register failed ${reg.status}: ${await reg.text()}`);
   }
 

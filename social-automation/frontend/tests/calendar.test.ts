@@ -114,7 +114,7 @@ test.describe('Calendar grid — seeded post', () => {
     const when = new Date();
     when.setDate(Math.min(when.getDate() + 2, 28));
     when.setHours(12, 0, 0, 0);
-    const res = await request.post(`${API_BASE}/api/v1/posts`, {
+    const res = await request.post(`${API_BASE}/api/v1/content/posts`, {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
       data: { content_text: 'Calendar E2E seeded post', scheduled_at: when.toISOString() },
     });

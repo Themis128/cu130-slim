@@ -62,11 +62,18 @@ test.describe('Reset Password Page — real backend', () => {
     const password = 'InitialPass-123!';
     const newPassword = 'NewResetPass-456!';
 
-    const regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
+    let regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
       data: { email, password, name: 'Reset Test' },
       timeout: 30000,
     });
-    expect(regRes.ok()).toBeTruthy();
+    for (let attempt = 0; attempt < 4 && regRes.status() === 429; attempt++) {
+      await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+      regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
+        data: { email, password, name: 'Reset Test' },
+        timeout: 30000,
+      });
+    }
+    expect(regRes.ok(), await regRes.text()).toBeTruthy();
 
     // Request reset link — retry to handle rate limiting and slow responses
     let token: string | null = null;
