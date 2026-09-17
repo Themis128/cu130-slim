@@ -175,14 +175,19 @@ async def cancel_subscription(subscription_id: str) -> dict:
     )
 
 
-async def create_portal_session(customer_external_id: str) -> str:
-    """Return the Polar hosted customer-portal URL for this customer."""
+async def create_portal_session(customer_id: str) -> str:
+    """Return the Polar hosted customer-portal URL for this customer.
+
+    Uses ``customer_id`` (not ``external_customer_id``): Polar merges
+    customers by email, so a customer may be bound to a different team's
+    external_id than the one requesting the portal.
+    """
     s = _settings()
     data = await _request(
         "POST",
         "/customer-sessions/",
         json={
-            "external_customer_id": customer_external_id,
+            "customer_id": customer_id,
             "return_url": f"{s.FRONTEND_URL.rstrip('/')}/settings/billing",
         },
     )

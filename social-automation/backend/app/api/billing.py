@@ -241,15 +241,15 @@ async def customer_portal(
     _require_billing()
     team = await _get_team(team_id, db)
     if _provider() == "polar":
-        # Polar portals resolve the customer via its external_id (team UUID).
-        # Ensure the customer exists so the portal works pre-checkout too.
+        # Polar portals resolve the customer via customer_id; ensure the
+        # customer exists so the portal works pre-checkout too.
         try:
             if not team.polar_customer_id:
                 team.polar_customer_id = await polar_api.get_or_create_customer(
                     str(team.id), current_user.email, current_user.name
                 )
                 await db.commit()
-            url = await polar_api.create_portal_session(str(team.id))
+            url = await polar_api.create_portal_session(str(team.polar_customer_id))
         except polar_api.PolarError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"portal_url": url}
