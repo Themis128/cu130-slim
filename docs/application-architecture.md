@@ -1052,12 +1052,24 @@ userdb is keyed by full email.
 | `#polar-support` | `SLACK_SUPPORT_*`, `SLACK_BILLING_*` (pending webhook) | Polar user support / billing digest |
 
 - `app/services/slack_notifications.py` posts via Incoming Webhook
-  (`{"text": ...}` — channel-bound) with a Slack Web API fallback
-  (`chat.postMessage`) when `SLACK_BOT_TOKEN`/`SLACK_ACCESS_TOKEN` is set.
-- Incoming webhooks are channel-bound; a payload `channel` override works only
-  if the Slack app permits it. `SLACK_BOT_TOKEN` is currently empty, so
-  channel creation/API calls require a user-provided `xoxb` token with
-  `channels:manage`.
+  (`{"text": ...}`) with a Slack Web API fallback (`chat.postMessage`) when
+  `SLACK_BOT_TOKEN`/`SLACK_ACCESS_TOKEN` is set.
+- **Channel override**: when a `*_CHANNEL_ID` env var is a channel name
+  (`#polar-support`), the webhook payload includes `"channel"` so one app
+  webhook serves multiple channels. IDs (`C...`) are never sent as overrides.
+- `SLACK_SUPPORT_*` points at `#polar-support` (Polar user support);
+  `SLACK_BILLING_*` remains available for the billing digest channel.
+- `SLACK_BOT_TOKEN` is currently empty — channel creation/API calls require a
+  user-provided `xoxb` token with `channels:manage`.
+
+### MoR compliance contract tests
+
+`tests/unit/test_mor_compliance.py` encodes the Polar/Dodo policy
+requirements as tests: billing route surface (checkout/portal/cancel/webhooks),
+pricing-parity between `PLAN_LIMITS` and the advertised product specs, webhook
+signature enforcement, the account-deletion endpoint (GDPR/Meta), support
+channel settings, Slack channel-override behavior, and gzip middleware. A
+drift between the site, the code, and the product catalog fails the suite.
 
 ## Security Architecture
 
