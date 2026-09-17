@@ -50,12 +50,10 @@ test.describe('Calendar scheduled-content integration — real backend', () => {
     await expect(page.getByText(/0 posts in/i)).toBeVisible({ timeout: 15000 });
   });
 
-  test('should show empty state in day detail panel', async ({ authenticatedPage: page }) => {
+  test('should show empty state for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    // Click the first day cell to open the detail panel
-    const dayCells = page.locator('.min-h-\\[130px\\].cursor-pointer');
-    await dayCells.first().click();
-    // The day detail shows "Nothing scheduled" for a fresh user
-    await expect(page.getByText(/nothing scheduled/i).first()).toBeVisible({ timeout: 15000 });
+    // With zero posts the calendar renders the empty-state card (no grid)
+    await expect(page.getByRole('heading', { name: /nothing scheduled yet/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('link', { name: /schedule your first post/i })).toBeVisible();
   });
 });
