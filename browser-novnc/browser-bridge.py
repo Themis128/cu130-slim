@@ -174,6 +174,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _platform_tag_middleware(request, call_next):
+    token = _req_platform.set(request.headers.get("x-platform"))
+    try:
+        return await call_next(request)
+    finally:
+        _req_platform.reset(token)
+
+
 async def _ensure_live_page():
     """Return a live Playwright page, recovering from a closed tab if possible.
 
@@ -222,6 +231,21 @@ async def _ensure_live_page():
         },
     )
     # #endregion
+
+    # Busy-hold enforcement: while a platform is actively using the
+    # browser, only requests tagged with that platform (X-Platform header)
+    # may touch the page. Untagged or foreign-platform calls get 409 —
+    # this stops pollers steering the page mid-login/mid-compose.
+    owner = _state.get("platform")
+    req_plat = _req_platform.get()
+    if (
+        owner
+        and req_plat != owner
+        and time.time() < _state.get("busy_until", 0.0)
+    ):
+        raise HTTPException(
+            409, f"Browser busy with {owner} session — try again shortly"
+        )
 
     page = _state.get("page")
     if page is not None:
