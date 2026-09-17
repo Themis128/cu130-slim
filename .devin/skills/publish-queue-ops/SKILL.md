@@ -42,18 +42,27 @@ Or via the API: `POST /api/v1/publishing/queue/{id}/retry` (admin token).
 
 ## Duplicate reconciliation (after a race)
 
-If duplicates reach external platforms (pre-fix race), clean per platform:
+If duplicates reach external platforms (pre-fix race), use the dedupe
+tool — **dry-run by default**, deletion needs `--delete --yes`:
 
-- **Facebook Page** — `GET /{page-id}/feed` lists posts; delete extras via
-  `DELETE /{post_id}` with the page token.
-- **Instagram** — Graph API has **no media delete**; list via
-  `/{ig-user}/media` to identify, delete manually in the app.
-- **LinkedIn** — no post-delete for org shares via current scopes; delete
-  the extra share on the page manually.
-- **Threads/TikTok** — check via API; delete duplicates by ID if supported.
+```bash
+python3 scripts/dedupe_posts.py list <post_id>
+python3 scripts/dedupe_posts.py delete <platform_post_id> --platform threads --delete --yes
+```
+
+Platform delete support:
+
+- **Threads** — `ThreadsAPI.delete_post(media_id)` — supported
+- **Facebook Page** — `FacebookAPI.delete_post(post_id)` — supported
+- **LinkedIn** — `LinkedInAPI.delete_post(post_urn)` — supported
+- **Twitter/X** — API delete will likely `402 credits depleted`; use the
+  browser session instead
+- **Instagram** — Graph API has **no media delete**; delete in the app
+- **TikTok** — no API delete; delete in the app
 
 Keep the post whose `platform_post_id` is recorded in `post_targets` —
-that row is the tracked one.
+that row is the tracked one. The tool marks deleted rows
+`status='deleted'` after a successful external delete.
 
 ## Common failure signatures
 

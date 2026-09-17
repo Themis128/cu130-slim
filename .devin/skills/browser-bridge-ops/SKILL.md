@@ -234,6 +234,10 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
   compatibility) — but all known call sites in backend workers/APIs are
   tagged. For an uninterrupted manual session (e.g. noVNC login), pause
   pollers: `docker compose pause celery-beat` … `unpause` afterwards.
+- **Regression check**: `python3 scripts/browser_contention_check.py`
+  verifies the busy-hold end-to-end (owner calls pass, foreign/untagged
+  get 409, foreign start 409, same-platform start reuses). Never sends
+  `force`. Run after any change to `_ensure_live_page` or `_state`.
 - For X/Twitter specifically (two-step login, composer quirks), see the
   `twitter-browser-ops` skill.
 - Wait 2-3 seconds between navigation and interaction for pages to load.
