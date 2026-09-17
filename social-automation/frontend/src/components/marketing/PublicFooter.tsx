@@ -14,7 +14,7 @@ const columns = [
     title: 'Company',
     links: [
       { label: 'About', href: '/about' },
-      { label: 'Contact', href: 'mailto:hello@cloudless.gr' },
+      { label: 'Contact', href: '/contact' },
     ],
   },
   {
@@ -22,6 +22,9 @@ const columns = [
     links: [
       { label: 'Privacy', href: '/privacy' },
       { label: 'Terms', href: '/terms' },
+      { label: 'Refunds', href: '/refund' },
+      { label: 'Acceptable Use', href: '/acceptable-use' },
+      { label: 'Data Deletion', href: '/data-deletion' },
     ],
   },
 ]
