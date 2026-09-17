@@ -23,7 +23,7 @@ const faqs = [
   },
   {
     q: 'What does "unlimited posts" mean?',
-    a: 'On the Business and Enterprise plans there is no monthly post cap. Fair-use limits apply to prevent abuse, but they are generous enough for any real-world workflow.',
+    a: 'On the Enterprise plan there is no monthly post cap. Pro includes 500 posts/month and Business includes 2,000 posts/month — generous enough for real-world workflows, with fair-use limits to prevent abuse.',
   },
 ]
 

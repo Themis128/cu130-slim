@@ -6,23 +6,26 @@ accounts. A value of ``-1`` means *unlimited*.
 
 from __future__ import annotations
 
+# Limits must match the Polar/Dodo product descriptions and the public
+# pricing page — MoR verification checks that advertised and enforced
+# quotas agree.
 PLAN_LIMITS: dict[str, dict[str, int]] = {
     "free": {
-        "posts_per_month": 10,
-        "ai_calls_per_month": 50,
-        "social_accounts": 1,
+        "posts_per_month": 50,
+        "ai_calls_per_month": 100,
+        "social_accounts": 3,
         "dm_auto_reply": 0,  # DM automation is a paid feature
     },
     "pro": {
-        "posts_per_month": 100,
-        "ai_calls_per_month": 500,
-        "social_accounts": 5,
+        "posts_per_month": 500,
+        "ai_calls_per_month": 5000,
+        "social_accounts": 15,
         "dm_auto_reply": 1,
     },
     "business": {
-        "posts_per_month": -1,  # unlimited
-        "ai_calls_per_month": 5000,
-        "social_accounts": 20,
+        "posts_per_month": 2000,
+        "ai_calls_per_month": 20000,
+        "social_accounts": 50,
         "dm_auto_reply": 1,
     },
     "enterprise": {

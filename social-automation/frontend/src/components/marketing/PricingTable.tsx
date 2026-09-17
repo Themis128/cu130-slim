@@ -13,15 +13,17 @@ interface PricingTier {
   highlighted?: boolean
 }
 
+// Prices must match the Polar/Dodo product catalog — MoR verification
+// holds applications when website pricing differs from product prices.
 const tiers: PricingTier[] = [
   {
     name: 'Free',
-    price: '€0',
+    price: '$0',
     period: '/mo',
     description: 'For individuals getting started with automation.',
     features: [
-      '1 social account',
-      '10 posts per month',
+      '3 social accounts',
+      '50 posts per month',
       'Basic AI content generation',
       'Community support',
     ],
@@ -29,12 +31,13 @@ const tiers: PricingTier[] = [
   },
   {
     name: 'Pro',
-    price: '€29',
+    price: '$10',
     period: '/mo',
     description: 'For creators and small teams scaling output.',
     features: [
-      '5 social accounts',
-      '100 posts per month',
+      '15 social accounts',
+      '500 posts per month',
+      '5,000 AI calls per month',
       'Advanced AI content generation',
       'Analytics & insights',
       'Email support',
@@ -44,12 +47,13 @@ const tiers: PricingTier[] = [
   },
   {
     name: 'Business',
-    price: '€99',
+    price: '$50',
     period: '/mo',
     description: 'For growing teams that need collaboration.',
     features: [
-      '20 social accounts',
-      'Unlimited posts',
+      '50 social accounts',
+      '2,000 posts per month',
+      '20,000 AI calls per month',
       'Team members',
       'Brand kit management',
       'Priority support',
@@ -58,15 +62,16 @@ const tiers: PricingTier[] = [
   },
   {
     name: 'Enterprise',
-    price: 'Custom',
+    price: '$150',
+    period: '/mo',
     description: 'For organizations with advanced requirements.',
     features: [
-      'Unlimited everything',
+      'Unlimited posts, AI calls & accounts',
       'Single sign-on (SSO)',
       'Dedicated support',
       'Custom integrations',
     ],
-    cta: 'Contact Sales',
+    cta: 'Get Started',
   },
 ]
 
