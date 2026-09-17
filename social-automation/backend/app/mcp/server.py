@@ -438,6 +438,19 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 body["media_ids"] = arguments["media_ids"]
             if "scheduled_at" in arguments:
                 body["scheduled_at"] = arguments["scheduled_at"]
+            account_ids = list(arguments.get("account_ids") or [])
+            platforms = arguments.get("platforms") or []
+            if platforms and not account_ids:
+                # Resolve each requested platform to its active account(s).
+                accounts = await _api_request("GET", "/api/v1/accounts")
+                wanted = {p.lower() for p in platforms}
+                account_ids = [
+                    a["id"]
+                    for a in accounts
+                    if a.get("platform", "").lower() in wanted and a.get("status") == "active"
+                ]
+            if account_ids:
+                body["target_account_ids"] = account_ids
             result = await _api_request("POST", "/api/v1/content/posts", json_body=body)
         elif name == "list_posts":
             params: dict = {}
