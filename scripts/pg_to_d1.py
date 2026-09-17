@@ -18,7 +18,7 @@ def convert(input_sql: str) -> str:
     lines = input_sql.split("\n")
     output = []
     enum_map: dict[str, list[str]] = {}
-    skip_block = False
+    table_pks: dict[str, str] = {}
 
     i = 0
     while i < len(lines):
@@ -63,7 +63,7 @@ def convert(input_sql: str) -> str:
                 if i >= len(lines):
                     break
                 table_sql += "\n" + lines[i]
-            table_sql = convert_table(table_sql, enum_map)
+            table_sql = convert_table(table_sql, enum_map, table_pks)
             output.append(table_sql)
             i += 1
             continue
@@ -89,8 +89,16 @@ def convert(input_sql: str) -> str:
             i += 1
             continue
 
-        # Skip ALTER TABLE (we inline constraints in CREATE TABLE)
+        # ALTER TABLE ... ADD CONSTRAINT/PRIMARY KEY → record for inlining
+        # into CREATE TABLE (composite PKs live here, e.g. post_targets).
         if stripped.startswith("ALTER TABLE") or stripped.startswith("ALTER TYPE"):
+            pk_match = re.match(
+                r"ALTER TABLE (?:ONLY )?(?:public\.)?(\w+).*ADD (?:CONSTRAINT \w+ )?PRIMARY KEY \(([^)]+)\)",
+                stripped,
+                re.IGNORECASE,
+            )
+            if pk_match:
+                table_pks[pk_match.group(1)] = pk_match.group(2).replace('"', "")
             i += 1
             continue
 
@@ -108,7 +116,7 @@ def convert(input_sql: str) -> str:
     return "\n".join(output)
 
 
-def convert_table(sql: str, enum_map: dict) -> str:
+def convert_table(sql: str, enum_map: dict, table_pks: dict | None = None) -> str:
     """Convert a CREATE TABLE statement to SQLite-compatible SQL."""
     # Remove public. schema prefix
     sql = sql.replace("public.", "")
@@ -205,6 +213,14 @@ def convert_table(sql: str, enum_map: dict) -> str:
     sql = re.sub(r"  +", " ", sql)
     # Clean up double commas from varying removal
     sql = re.sub(r",\s*,", ",", sql)
+
+    # Inline a composite PK captured from ALTER TABLE (e.g. post_targets)
+    if table_pks and "PRIMARY KEY" not in sql.upper():
+        name_match = re.search(r"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?[\"']?(\w+)[\"']?", sql, re.IGNORECASE)
+        if name_match and name_match.group(1) in table_pks:
+            pk_cols = table_pks[name_match.group(1)]
+            close = sql.rfind(")")
+            sql = sql[:close].rstrip().rstrip(",") + f",\n    PRIMARY KEY ({pk_cols})\n" + sql[close:]
 
     return sql
 

@@ -118,6 +118,57 @@ class SyncService:
         self._last_sync: dict[str, datetime] = {}
         self._d1_write_limit_hit: bool = False
         self._d1_write_limit_reset_at: datetime | None = None
+        self._d1_pk_cache: dict[str, bool] = {}
+
+    async def _d1_table_has_pk(self, table: str) -> bool:
+        """Return True if the D1 table has a PRIMARY KEY (cached per process)."""
+        if table in self._d1_pk_cache:
+            return self._d1_pk_cache[table]
+        try:
+            cols = await d1_client.query_all(f"PRAGMA table_info({table})")
+            has_pk = any(c.get("pk") for c in cols)
+        except Exception:
+            has_pk = False
+        self._d1_pk_cache[table] = has_pk
+        return has_pk
+
+    async def _repair_d1_pk(self, table: str, pk_cols: list[str]) -> bool:
+        """Rebuild a PK-less D1 table with the expected composite PK.
+
+        Recreates the table as <table>_repaired with PRIMARY KEY over pk_cols,
+        copies deduplicated rows (last write wins per PK), then swaps it in.
+        Self-heals the duplicate-row damage caused by INSERT OR REPLACE on a
+        PK-less table. Returns True when the repaired table is live.
+        """
+        try:
+            info = await d1_client.query_all(f"PRAGMA table_info({table})")
+            if not info:
+                return False
+            col_defs = ", ".join(
+                f"{c['name']} {c['type'] or 'TEXT'}{' NOT NULL' if c.get('notnull') else ''}"
+                for c in info
+            )
+            col_names = ", ".join(c["name"] for c in info)
+            pk_str = ", ".join(pk_cols)
+            new_table = f"{table}_repaired"
+
+            await d1_client.execute(
+                f"CREATE TABLE IF NOT EXISTS {new_table} "
+                f"({col_defs}, PRIMARY KEY ({pk_str}))"
+            )
+            # DISTINCT + ORDER BY rowid keeps one copy per PK (dedupe)
+            await d1_client.execute(
+                f"INSERT OR REPLACE INTO {new_table} SELECT {col_names} "
+                f"FROM {table} GROUP BY {pk_str}"
+            )
+            await d1_client.execute(f"DROP TABLE {table}")
+            await d1_client.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+            self._d1_pk_cache[table] = True
+            logger.info("Repaired D1 table %s: added PK (%s) and deduplicated", table, pk_str)
+            return True
+        except Exception as exc:
+            logger.error("D1 PK repair failed for %s: %s", table, exc)
+            return False
 
     @staticmethod
     def _d1_to_pg_value(column: str, value: Any) -> Any:
@@ -288,10 +339,27 @@ class SyncService:
                 await self._set_last_sync(table, r)
                 return stats
 
+            # INSERT OR REPLACE only deduplicates on a PRIMARY KEY/UNIQUE
+            # violation. A D1 table created without a PK turns every
+            # "upsert" into a plain INSERT — duplicating rows each cycle
+            # (this is what ballooned post_targets to 150k+ rows).
+            if not await self._d1_table_has_pk(table):
+                logger.warning(
+                    "D1 table %r has no PRIMARY KEY — attempting repair",
+                    table,
+                )
+                if not await self._repair_d1_pk(table, pk_cols):
+                    logger.error(
+                        "D1 table %r still has no PRIMARY KEY — refusing to "
+                        "upsert (would silently duplicate rows)",
+                        table,
+                    )
+                    stats["errors"] += 1
+                    return stats
+
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
             col_str = ", ".join(columns)
             placeholders = ", ".join(["?"] * len(columns))
-            # Use INSERT OR REPLACE which works without explicit PRIMARY KEY constraints
             sql = (
                 f"INSERT OR REPLACE INTO {table} ({col_str}) "
                 f"VALUES ({placeholders})"
@@ -474,19 +542,54 @@ class SyncService:
                     f"ON CONFLICT ({pk_conflict}) DO NOTHING"
                 )
 
-            async with engine.begin() as conn:
-                for row in rows:
-                    # Convert D1 (SQLite) values back to Postgres-compatible types
-                    row_data = {}
-                    for col in columns:
-                        val = row[col]
-                        row_data[col] = self._d1_to_pg_value(col, val)
-                    try:
+            converted = [
+                {col: self._d1_to_pg_value(col, row[col]) for col in columns}
+                for row in rows
+            ]
+
+            # D1 rows may contain PK duplicates (from the PK-less-table bug).
+            # Dedupe by PK — last occurrence wins — before upserting.
+            seen: dict[str, dict[str, Any]] = {}
+            for row_data in converted:
+                seen[json.dumps([str(row_data.get(c)) for c in pk_cols])] = row_data
+            if len(seen) < len(converted):
+                logger.info(
+                    "Deduped %s: %d D1 rows -> %d by PK",
+                    table, len(converted), len(seen),
+                )
+            converted = list(seen.values())
+
+            async def _row_upsert(row_data: dict[str, Any]) -> bool:
+                try:
+                    async with engine.begin() as conn:
                         await conn.execute(text(sql), row_data)
-                        stats["synced"] += 1
-                    except Exception as exc:
-                        logger.error("Postgres sync row failed for %s: %s", table, exc)
-                        stats["errors"] += 1
+                    return True
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping unsyncable %s row %s: %s",
+                        table,
+                        {c: row_data.get(c) for c in pk_cols},
+                        exc,
+                    )
+                    return False
+
+            # Batch upserts (500/transaction) for speed; on batch failure
+            # fall back to per-row transactions so one bad row (e.g. an FK
+            # violation from a D1 orphan) can't poison the whole batch.
+            batch_size = 500
+            for i in range(0, len(converted), batch_size):
+                batch = converted[i : i + batch_size]
+                try:
+                    async with engine.begin() as conn:
+                        for row_data in batch:
+                            await conn.execute(text(sql), row_data)
+                    stats["synced"] += len(batch)
+                except Exception:
+                    for row_data in batch:
+                        if await _row_upsert(row_data):
+                            stats["synced"] += 1
+                        else:
+                            stats["errors"] += 1
 
         finally:
             await engine.dispose()
