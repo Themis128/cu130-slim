@@ -107,7 +107,9 @@ test.describe('Calendar grid — seeded post', () => {
   test.setTimeout(150_000);
   let tokens: AuthTokens;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeAll(async ({ request }, testInfo) => {
+    // Register may wait out the auth rate-limit window when workers collide
+    testInfo.setTimeout(150_000);
     const email = `cal-e2e-${randomUUID().slice(0, 8)}@example.com`;
     tokens = await registerAndLoginUser(email, 'Cal-E2E-Pass-123!', 'Calendar E2E');
 
