@@ -447,6 +447,9 @@ Beat Schedule:
 │ Name                     │ Task                           │ Schedule │
 ├──────────────────────────┼────────────────────────────────┼──────────┤
 │ process-publish-queue    │ publishing.process_publish_queue│ 30s      │
+│                          │  (claims via FOR UPDATE SKIP     │          │
+│                          │   LOCKED; stale locks >15min     │          │
+│                          │   auto-reclaimed)                │          │
 │ check-scheduled-posts    │ publishing.check_scheduled_posts│ 60s      │
 │ sync-analytics           │ analytics.sync_all_analytics   │ 300s     │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
@@ -1124,6 +1127,8 @@ until period end (immediate freeing requires a revoke).
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  Authorization                                                │   │
 │  │  • Team-scoped data (team_id on all tables)                 │   │
+│  │  • Single team resolver (get_user_team/TeamId — owned first, │   │
+│  │    then owner-role, tier, oldest; no ad-hoc .first() joins)  │   │
 │  │  • Role hierarchy: OWNER > ADMIN > EDITOR > VIEWER          │   │
 │  │  • Admin bypass (SOCIAL_ADMIN_EMAIL)                        │   │
 │  │  • Quota enforcement (free/pro/business/enterprise)         │   │
