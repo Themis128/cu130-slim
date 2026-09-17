@@ -11,6 +11,7 @@ The bridge runs on port 9223 inside the container.
 """
 
 import asyncio
+import contextvars
 import json
 import os
 import re
