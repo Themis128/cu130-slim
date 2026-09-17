@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
-import type { TokenResponse, ApiError } from '@/types'
+import type { TokenResponse, ApiError, UnifiedInboxResponse } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
@@ -1216,6 +1216,10 @@ export const mediaEnhanceApi = {
 export const auditApi = {
   list: (params?: { action?: string; resource_type?: string; start_date?: string; end_date?: string; page?: number; page_size?: number }) =>
     api.get('/audit/audit-logs', { params }),
+}
+
+export const inboxApi = {
+  getInbox: () => api.get<UnifiedInboxResponse>('/inbox/inbox'),
 }
 
 export default api

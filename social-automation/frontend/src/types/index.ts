@@ -351,3 +351,22 @@ export interface ApiError {
     type: string
   }>
 }
+// Unified inbox
+export interface UnifiedConversation {
+  platform: string // messenger | personal_messenger | instagram | whatsapp
+  account_id: string
+  account_name: string
+  thread_id: string | null
+  sender_name: string
+  preview: string
+  unread: boolean
+  timestamp: string | null
+  url: string | null
+  e2ee: boolean
+}
+
+export interface UnifiedInboxResponse {
+  conversations: UnifiedConversation[]
+  total: number
+  by_platform: Record<string, number>
+}

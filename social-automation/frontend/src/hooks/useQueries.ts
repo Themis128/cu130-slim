@@ -13,6 +13,7 @@ import {
   linkedinApi,
   brandApi,
   auditApi,
+  inboxApi,
   getAccessToken,
 } from '@/services/api'
 import type { Post, MediaAsset, PromptTemplate, GeneratedWorkflow, SocialAccount } from '@/types'
@@ -1114,5 +1115,15 @@ export function useAuditLogs(params?: { action?: string; resource_type?: string;
     queryKey: ['audit-logs', params],
     queryFn: () => auditApi.list(params),
     select: (response) => response.data,
+  })
+}
+
+// Unified inbox hook — polls so new DMs surface without a manual refresh
+export function useInbox() {
+  return useQuery({
+    queryKey: ['inbox'],
+    queryFn: () => inboxApi.getInbox(),
+    select: (response) => response.data,
+    refetchInterval: 30000,
   })
 }
