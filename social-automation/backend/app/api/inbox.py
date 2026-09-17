@@ -197,9 +197,21 @@ async def _fetch_personal_messenger(account: SocialAccount) -> list[UnifiedConve
 async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversation]:
     """Fetch Instagram DM conversations (Instagram Messaging API)."""
     try:
+        from app.core.security import decrypt_token
+
         meta = account.meta_data or {}
         access_token = meta.get("access_token")
-        ig_user_id = meta.get("ig_user_id") or meta.get("instagram_user_id")
+        if not access_token and account.access_token_enc:
+            try:
+                access_token = decrypt_token(account.access_token_enc)
+            except Exception:
+                access_token = None
+        ig_user_id = (
+            meta.get("ig_user_id")
+            or meta.get("instagram_user_id")
+            or meta.get("ig_business_id")
+            or account.account_id
+        )
         if not access_token or not ig_user_id:
             return []
         client = InstagramAPIClient(
