@@ -234,6 +234,26 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
   compatibility) — but all known call sites in backend workers/APIs are
   tagged. For an uninterrupted manual session (e.g. noVNC login), pause
   pollers: `docker compose pause celery-beat` … `unpause` afterwards.
+- **Waiting-session timeout**: a session stuck in `waiting` (login page
+  open, nobody authenticating) blocks foreign `session/start` for
+  `WAITING_TIMEOUT` (300s), then becomes preemptible. `extracting` stays
+  a hard block (short-lived cookie extraction). Without this a stale
+  poller login page starved publishers for the full 10-min detect loop.
+- **Start is synchronous-ready**: `session/start` waits (≤20s) for the
+  page to exist before returning — callers can evaluate/navigate
+  immediately. It also takes an immediate busy-hold when the caller's
+  `X-Platform` matches the session platform, closing the gap where a
+  poller could tear down a brand-new session between start and first
+  interaction.
+- **Contention retries**: `client.start_session(platform,
+  contention_retries=14)` retries 409s every 20s, escalating to
+  `force` on the last 3 tries — publishers outlast poller churn instead
+  of burning queue attempts.
+- **Launch collision**: session start cancels the previous
+  `_run_browser` task and closes the old context before relaunching;
+  `launch_persistent_context` retries once after `pkill -f chromium`
+  when an orphan holds `/app/browser-profile` ("Opening in existing
+  browser session").
 - **Regression check**: `python3 scripts/browser_contention_check.py`
   verifies the busy-hold end-to-end (owner calls pass, foreign/untagged
   get 409, foreign start 409, same-platform start reuses). Never sends

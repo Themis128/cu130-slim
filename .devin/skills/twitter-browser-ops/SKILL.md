@@ -77,7 +77,19 @@ requests tagged for another platform — or untagged — get
 fill/click/extract), and `/session/start` for another platform returns
 409 too. The owning platform re-enters freely; a same-platform start
 reuses the session. `{"platform": "...", "force": true}` overrides for
-manual recovery.
+manual recovery. Extra rules that make publishes survive poller churn:
+
+- A `waiting` session blocks foreign starts for `WAITING_TIMEOUT`
+  (300s), then is preemptible — stale login windows can't starve
+  publishers.
+- `session/start` returns only after the page is live (≤20s) and a
+  tagged start takes an immediate hold — no unprotected gap.
+- `client.start_session("twitter", contention_retries=14)` — used by
+  `_publish_twitter_via_browser` — retries 409s every 20s and
+  force-preempts on the last 3 tries. A publish waits ~5min worst case
+  but no longer fails just because pollers are cycling sessions.
+- Session start cancels the prior `_run_browser` task and retries
+  launch after killing orphan Chromium if the profile lock collides.
 
 All backend call sites are tagged (`twitter`, `instagram`, `facebook`,
 `threads`, `tiktok`). For extra safety during a manual noVNC session you
