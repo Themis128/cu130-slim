@@ -440,10 +440,19 @@ async def start_session(req: StartRequest):
 
         site = SITES[platform]
         _state["platform"] = platform
-        _state["busy_until"] = 0.0
-        _state["busy_owner"] = None
         _state["status"] = "waiting"
         _state["waiting_since"] = time.time()
+        # A tagged caller starting its own session takes an immediate
+        # busy-hold — without it the window between this start and the
+        # caller's first page interaction is unprotected, letting a
+        # poller's /session/start tear down a brand-new session.
+        caller = _req_platform.get()
+        if caller and caller == platform:
+            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+            _state["busy_owner"] = caller
+        else:
+            _state["busy_until"] = 0.0
+            _state["busy_owner"] = None
         _state["message"] = f"Opening {site['url']} — log in via the noVNC viewer"
         _state["cookies"] = {}
 
