@@ -103,6 +103,8 @@ test.describe('Calendar Page — real backend', () => {
  * TEST_USER stays post-free for the empty-state tests above.
  */
 test.describe('Calendar grid — seeded post', () => {
+  // beforeAll may wait out the auth rate-limit window when workers collide
+  test.setTimeout(150_000);
   let tokens: AuthTokens;
 
   test.beforeAll(async ({ request }) => {

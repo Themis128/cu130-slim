@@ -66,8 +66,8 @@ test.describe('Reset Password Page — real backend', () => {
       data: { email, password, name: 'Reset Test' },
       timeout: 30000,
     });
-    for (let attempt = 0; attempt < 4 && regRes.status() === 429; attempt++) {
-      await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+    for (let attempt = 0; attempt < 8 && regRes.status() === 429; attempt++) {
+      await new Promise((r) => setTimeout(r, 5000 + 5000 * attempt));
       regRes = await request.post(`${API_BASE}/api/v1/auth/register`, {
         data: { email, password, name: 'Reset Test' },
         timeout: 30000,

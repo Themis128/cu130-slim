@@ -13,7 +13,7 @@ test.describe('Analytics Page — real backend', () => {
     await page.goto('/analytics');
     await expect(page).toHaveURL('/analytics');
     await expect(page.getByRole('heading', { name: 'Analytics', exact: true })).toBeVisible();
-    await expect(page.getByText(/track your social media performance/i)).toBeVisible();
+    await expect(page.getByText(/what to do next/i)).toBeVisible();
   });
 
   test('should display all 5 KPI cards', async ({ authenticatedPage: page }) => {

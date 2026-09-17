@@ -25,8 +25,8 @@ test.describe('Dashboard Page — real backend', () => {
     // Quick action links
     await expect(page.getByRole('link', { name: /create post/i }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /open calendar/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /upload media/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /connect (accounts|channels)/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /upload media/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /connect (accounts|channels)/i }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /view analytics/i })).toBeVisible();
   });
 
