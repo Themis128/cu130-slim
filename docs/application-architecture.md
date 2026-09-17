@@ -1007,6 +1007,58 @@ AI Request                Inference Router      CF Workers AI       DMR         
      │                       │  text (static)     │                 │            │
 ```
 
+## Mail & Notification Infrastructure
+
+### Self-hosted mail (OMV-HA, `192.168.1.130`)
+
+The mail server runs on the user's OMV-HA (OpenMediaVault) box — not in the
+Compose stack. It hosts the `cloudless.gr` virtual mailbox domain and provides
+the email client mailboxes.
+
+```
+Outbound : app/client → Postfix :587 (submission, SASL) → relay smtp.resend.com:587
+Inbound  : internet → Cloudflare Email Routing (route*.mx.cloudflare.net)
+           → Postfix :25 → virtual_transport lmtp:unix:private/dovecot-lmtp
+           → Dovecot → Maildir /var/mail/vhosts/cloudless.gr/<user> (uid/gid 5000)
+Client   : IMAP 143 (STARTTLS) / 993 (IMAPS) — cleartext auth refused (TLS required)
+```
+
+| Component | Detail |
+|-----------|--------|
+| MTA | Postfix — `virtual_mailbox_domains = cloudless.gr`, LMTP delivery to Dovecot, outbound relay via Resend |
+| MDA/IMAP | Dovecot 2.4 — `protocols = imap lmtp`, passwd-file users in `/etc/dovecot/users` (keyed `user@domain`) |
+| Virtual users | `/etc/dovecot/users` → `tbaltzakis@cloudless.gr`, `polar@cloudless.gr`; `first_valid_uid = 5000` |
+| Mailboxes | `/var/mail/vhosts/cloudless.gr/{tbaltzakis,polar}` (Maildir) |
+| Sieve | Default script `/etc/dovecot/sieve/default/phishing.sieve` (file driver — path must be the script file, not the directory) |
+| SSH admin | `ssh tbaltzakis@192.168.1.130` — key-based (`OMV_SSH_*` in `.env`) |
+
+**Key config gotcha**: `conf.d/20-lmtp.conf` must keep
+`auth_username_format = %{user}` (full address). Debian's default
+`%{user|username|lower}` strips the domain → LMTP resolves `user@cloudless.gr`
+to the *system* user (uid 1000) → `first_valid_uid=5000` rejects → 451
+deferred queue. Do not re-enable domain stripping while the passwd-file
+userdb is keyed by full email.
+
+- `polar@cloudless.gr` — dedicated mailbox for the Polar SocialAuto app
+  (credentials in `.env` as `POLAR_MAILBOX_*`).
+
+### Slack notification channels (`socialauto` workspace)
+
+| Channel | Env vars | Purpose |
+|---------|----------|---------|
+| `#socialauto` | `SLACK_WEBHOOK_URL`, `SLACK_CHANNEL_ID` | Daily digest |
+| `#socialauto-alerts` | `SLACK_ALERTS_WEBHOOK_URL`, `SLACK_ALERTS_CHANNEL_ID` | Operational alerts |
+| `#socialauto-publishing` | `SLACK_PUBLISHING_WEBHOOK_URL` | Publish-success posts |
+| `#polar-support` | `SLACK_SUPPORT_*`, `SLACK_BILLING_*` (pending webhook) | Polar user support / billing digest |
+
+- `app/services/slack_notifications.py` posts via Incoming Webhook
+  (`{"text": ...}` — channel-bound) with a Slack Web API fallback
+  (`chat.postMessage`) when `SLACK_BOT_TOKEN`/`SLACK_ACCESS_TOKEN` is set.
+- Incoming webhooks are channel-bound; a payload `channel` override works only
+  if the Slack app permits it. `SLACK_BOT_TOKEN` is currently empty, so
+  channel creation/API calls require a user-provided `xoxb` token with
+  `channels:manage`.
+
 ## Security Architecture
 
 ```
@@ -1042,6 +1094,7 @@ AI Request                Inference Router      CF Workers AI       DMR         
 │  │  • Cloudflare Tunnel (cloudless.gr)                          │   │
 │  │  • WARP SOCKS5 proxy (free, non-datacenter IP)              │   │
 │  │  • Internal Docker network (backend, db, gpu)               │   │
+│  │  • All published ports bound to 127.0.0.1 (0 LAN exposure)  │   │
 │  │  • No direct DB exposure to internet                        │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
@@ -1119,16 +1172,20 @@ AI Request                Inference Router      CF Workers AI       DMR         
 | `INSTAGRAM_PRIVATE_API_URL` | aiograpi sidecar |
 | `MESSENGER_SIDECAR_URL` | Messenger webhook sidecar |
 | `SLACK_WEBHOOK_URL` | Slack notifications |
+| `SLACK_SUPPORT_WEBHOOK_URL/CHANNEL_ID` | Support channel (#polar-support) |
+| `SLACK_BILLING_WEBHOOK_URL/CHANNEL_ID` | Billing digest channel |
 | `SMTP_*` | Transactional email |
+| `POLAR_MAILBOX_*` | polar@cloudless.gr mailbox on OMV-HA |
+| `OMV_SSH_*` | OMV-HA mail server admin (key-based SSH) |
 
 ## Quota Tiers
 
 | Tier | Posts | AI Calls | Accounts | Price |
 |------|-------|----------|----------|-------|
-| Free | 10 | 50 | 1 | €0 |
-| Pro | 100 | 500 | 5 | €19/mo |
-| Business | ∞ | 5,000 | 20 | €49/mo |
-| Enterprise | ∞ | ∞ | ∞ | Custom |
+| Free | 50 | 100 | 3 | $0 |
+| Pro | 500 | 5,000 | 15 | $10/mo |
+| Business | 2,000 | 20,000 | 50 | $50/mo |
+| Enterprise | ∞ | ∞ | ∞ | $150/mo |
 
 Admin team is auto-set to Enterprise with unlimited everything.
 
@@ -1143,6 +1200,9 @@ Admin team is auto-set to Enterprise with unlimited everything.
 | `default` | Tunnel/misc | cloudflared |
 
 ## Port Map
+
+All published ports are bound to `127.0.0.1` — no service is reachable on the
+LAN; public traffic arrives only via the Cloudflare Tunnel.
 
 | Port | Service | Purpose |
 |------|---------|---------|
