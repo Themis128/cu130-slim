@@ -34,6 +34,19 @@ test.describe('Home and misc pages — real backend', () => {
     await expect(page.getByRole('heading', { name: /browser viewer/i })).toBeVisible({ timeout: 10000 });
   });
 
+  test('inbox page renders unified inbox with filters', async ({ authenticatedPage: page }) => {
+    await page.goto('/inbox');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: /All \(\d+\)/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Unread only' })).toBeVisible();
+    // With no conversations, the empty state shows; with data, rows render
+    const main = page.getByRole('main');
+    const emptyState = main.getByRole('heading', { name: /no conversations yet|nothing matches/i });
+    const anyRow = main.getByText(/Page Messenger|Personal Messenger/).first();
+    await expect(emptyState.or(anyRow)).toBeVisible({ timeout: 10000 });
+  });
+
   test('mcp-stack page renders heading and stack overview', async ({ authenticatedPage: page }) => {
     await page.goto('/mcp-stack');
     await page.waitForLoadState('networkidle');
