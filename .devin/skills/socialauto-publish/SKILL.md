@@ -111,6 +111,42 @@ Posts can target any combination of connected accounts:
 - Threads
 - TikTok
 
+## Multi-platform publish recipe (media-correct)
+
+Each platform needs the right media type — don't attach a video to
+image-only targets or vice versa. The proven recipe:
+
+1. **Image post** — `media_ids=[image_asset]` → targets: Facebook Page,
+   Instagram Business, LinkedIn org, Threads, Twitter/X.
+2. **Video post** — separate post with `media_ids=[video_asset]` →
+   target: TikTok only (video required for FILE_UPLOAD/DIRECT_POST).
+3. **Telegram/WhatsApp** — never target for feed posts; they are
+   messaging channels and the worker marks them `skipped` by design.
+4. Verify with `scripts/publish_queue.py targets <post_id>` — every
+   target should reach `published` with a `platform_post_id`/`url`.
+
+Via the `socialauto` MCP server: `create_post` accepts `platforms`
+(names) or `account_ids` (UUIDs) — it resolves them to
+`target_account_ids`. MCP `list_accounts` + `list_media` give the IDs.
+
+## Post-publish verification
+
+After `publish-now`, confirm the media actually landed — not just the
+status flag:
+
+- **Facebook**: `GET /{page-id}/feed` → post has `attachments` with
+  `media_type: photo`/`video`.
+- **Instagram**: `GET /{ig-media-id}?fields=media_type,media_url` →
+  `IMAGE`/`VIDEO` with CDN URL.
+- **Threads**: target `platform_url` resolves; `media_type` on the post.
+- **LinkedIn**: worker log shows `POST /rest/posts` → 201 + prior asset
+  upload `201` (`/rest/images` or `/rest/videos`).
+- **TikTok**: `SEND_TO_USER_INBOX` means FILE_UPLOAD mode — video sits in
+  the TikTok inbox for manual publish until DIRECT_POST audit passes.
+- **X/Twitter**: check `x.com/<handle>` latest article — text + image
+  present. API `402 credits depleted` routes to the browser fallback
+  (see `twitter-browser-ops` skill).
+
 ## Important notes
 
 - The `publish-now` endpoint queues the post via Celery; publishing happens
