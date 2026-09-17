@@ -236,24 +236,25 @@ async def _ensure_live_page():
 
     # Busy-hold enforcement: while a platform is actively using the
     # browser, only requests tagged with that platform (X-Platform header)
-    # may touch the page. Untagged or foreign-platform calls get 409 —
+    # may touch the page. Foreign-platform and untagged calls get 409 —
     # this stops pollers steering the page mid-login/mid-compose.
-    owner = _state.get("platform")
     req_plat = _req_platform.get()
-    if (
-        owner
-        and req_plat != owner
-        and time.time() < _state.get("busy_until", 0.0)
-    ):
+    busy_owner = _state.get("busy_owner")
+    if time.time() < _state.get("busy_until", 0.0) and req_plat != busy_owner:
         raise HTTPException(
-            409, f"Browser busy with {owner} session — try again shortly"
+            409, f"Browser busy with {busy_owner or 'another'} session — try again shortly"
         )
+
+    def _touch() -> None:
+        if req_plat:
+            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+            _state["busy_owner"] = req_plat
 
     page = _state.get("page")
     if page is not None:
         try:
             if not page.is_closed():
-                _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+                _touch()
                 return page
         except Exception:
             pass
@@ -271,7 +272,7 @@ async def _ensure_live_page():
             if closed:
                 continue
             _state["page"] = candidate
-            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+            _touch()
             # #region agent log
             _dbg("recovered existing open page from context", {})
             # #endregion
@@ -279,7 +280,7 @@ async def _ensure_live_page():
 
         page = await context.new_page()
         _state["page"] = page
-        _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+        _touch()
         # #region agent log
         _dbg("opened new page on existing context", {})
         # #endregion
@@ -360,14 +361,15 @@ async def start_session(req: StartRequest):
             _state["browser"] is not None
             and time.time() < _state.get("busy_until", 0.0)
         )
+        busy_owner = _state.get("busy_owner")
         if busy and not req.force:
-            if _state["platform"] != platform:
+            if platform != busy_owner and platform != _state["platform"]:
                 raise HTTPException(
                     409,
-                    f"Browser busy with {_state['platform']} session — try again shortly",
+                    f"Browser busy with {busy_owner or _state['platform']} session — try again shortly",
                 )
-            # Same platform already running — reuse it instead of tearing
-            # down the context mid-operation.
+            # Caller already owns the session or the busy-hold — reuse it
+            # instead of tearing down the context mid-operation.
             return {
                 "platform": _state["platform"],
                 "status": _state["status"],
@@ -387,6 +389,7 @@ async def start_session(req: StartRequest):
         site = SITES[platform]
         _state["platform"] = platform
         _state["busy_until"] = 0.0
+        _state["busy_owner"] = None
         _state["status"] = "waiting"
         _state["message"] = f"Opening {site['url']} — log in via the noVNC viewer"
         _state["cookies"] = {}
