@@ -1263,8 +1263,7 @@ async def _run_browser(platform: str):
             # Use persistent context so cookies survive between sessions
             user_data_dir = "/app/browser-profile"
             os.makedirs(user_data_dir, exist_ok=True)
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir,
+            launch_kwargs = dict(
                 headless=False,
                 viewport={
                     "width": int(os.environ.get("SCREEN_WIDTH", 1280)),
@@ -1277,6 +1276,25 @@ async def _run_browser(platform: str):
                     "--start-maximized",
                 ],
             )
+            try:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir, **launch_kwargs
+                )
+            except Exception as launch_err:
+                # A preempted session can leave an orphaned Chromium
+                # holding the profile dir ("Opening in existing browser
+                # session"). Kill strays and retry once before giving up.
+                if "existing browser session" not in str(launch_err):
+                    raise
+                import subprocess
+
+                subprocess.run(
+                    ["pkill", "-f", "chromium"], capture_output=True
+                )
+                await asyncio.sleep(2)
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir, **launch_kwargs
+                )
             browser = context.browser
             page = context.pages[0] if context.pages else await context.new_page()
             _state["browser"] = browser
