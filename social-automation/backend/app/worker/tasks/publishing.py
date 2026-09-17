@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import httpx
 from celery import shared_task
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
@@ -224,22 +224,40 @@ async def _worker_db():
 
 async def _process_publish_queue_async() -> None:
     async with _worker_db() as db:
+        # Atomic claim via FOR UPDATE SKIP LOCKED: concurrent queue processors
+        # each receive a disjoint set of rows — a second worker skips rows the
+        # first already locked, eliminating the duplicate-publish race where two
+        # processors SELECT the same PENDING rows before either commits.
+        # PROCESSING rows with a stale lock (>15 min) are reclaimed to recover
+        # from worker crashes mid-publish.
+        now = datetime.now(UTC)
+        stale_cutoff = now - timedelta(minutes=15)
         result = await db.execute(
             select(PublishQueue)
             .where(
-                PublishQueue.status == QueueStatus.PENDING,
-                PublishQueue.scheduled_at <= datetime.now(UTC),
+                PublishQueue.scheduled_at <= now,
+                or_(
+                    PublishQueue.status == QueueStatus.PENDING,
+                    and_(
+                        PublishQueue.status == QueueStatus.PROCESSING,
+                        PublishQueue.locked_at < stale_cutoff,
+                    ),
+                ),
             )
             .order_by(PublishQueue.priority.desc(), PublishQueue.scheduled_at.asc())
             .limit(50)
+            .with_for_update(skip_locked=True)
         )
         items = result.scalars().all()
 
+        worker_id = os.environ.get("HOSTNAME", "celery-worker")
         for item in items:
             item.status = QueueStatus.PROCESSING
-            item.locked_at = datetime.now(UTC)
-            item.locked_by = "celery-worker"
-            await db.commit()
+            item.locked_at = now
+            item.locked_by = worker_id
+        await db.commit()  # commit once: releases row locks; status keeps them claimed
+
+        for item in items:
 
             try:
                 post_result = await db.execute(select(Post).where(Post.id == item.post_id))
