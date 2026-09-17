@@ -746,8 +746,7 @@ async def get_workflow_executions(
 
 
 async def _resolve_team_id(user: User, db: AsyncSession) -> uuid.UUID:
-    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
-    team = result.scalars().first()
+    team = await get_user_team(db, user)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team.id

@@ -689,8 +689,7 @@ class CommentOut(BaseModel):
 
 
 async def _get_team(user: User, db: AsyncSession) -> Team:
-    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
-    team = result.scalars().first()
+    team = await get_user_team(db, user)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team

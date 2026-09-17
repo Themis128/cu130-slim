@@ -15,6 +15,7 @@ from app.models.ai_provider import AIProvider
 from app.models.ai_usage import AIUsageLog
 from app.models.user import Team, TeamMember, User
 from app.services.inference import PROVIDER_CATALOG
+from app.api.deps import get_user_team
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,8 +57,7 @@ class AIProviderOut(BaseModel):
 
 
 async def _get_team(user: User, db: AsyncSession) -> Team:
-    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
-    team = result.scalars().first()
+    team = await get_user_team(db, user)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team

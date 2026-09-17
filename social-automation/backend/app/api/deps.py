@@ -63,7 +63,7 @@ async def get_current_team_id(
     return team.id
 
 
-async def get_user_team(db: AsyncSession, user: User) -> Team | None:
+async def get_user_team(db: AsyncSession, user: User | uuid.UUID) -> Team | None:
     """Resolve a user's primary team deterministically.
 
     Priority: owned teams first (``Team.owner_id``), then member-level owner
@@ -74,6 +74,7 @@ async def get_user_team(db: AsyncSession, user: User) -> Team | None:
     """
     from sqlalchemy import case
 
+    user_id = user.id if isinstance(user, User) else user
     _tier_rank = case(
         (Team.plan_tier == "enterprise", 4),
         (Team.plan_tier == "business", 3),
@@ -84,9 +85,9 @@ async def get_user_team(db: AsyncSession, user: User) -> Team | None:
     result = await db.execute(
         select(Team)
         .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == user.id)
+        .where(TeamMember.user_id == user_id)
         .order_by(
-            (Team.owner_id == user.id).desc(),
+            (Team.owner_id == user_id).desc(),
             (TeamMember.role == UserRole.OWNER).desc(),
             _tier_rank.desc(),
             Team.created_at.asc(),

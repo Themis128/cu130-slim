@@ -120,8 +120,7 @@ class GenerateCommentResponse(BaseModel):
 
 
 async def _team_for_user(db: AsyncSession, user: User) -> Team:
-    result = await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
-    team = result.scalars().first()
+    team = await get_user_team(db, user)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     return team
@@ -518,7 +517,7 @@ async def update_linkedin_dm_auto_reply(
     """Update the LinkedIn DM auto-reply configuration for an account."""
     account = await _load_linkedin_account(db, account_id, current_user)
     if body.enabled:
-        from app.api.deps import check_plan_feature
+        from app.api.deps import get_user_team, check_plan_feature
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["linkedin_auto_reply"] = body.model_dump()

@@ -22,15 +22,13 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.meta_graph import facebook_graph_url
+from app.api.deps import get_user_team
 
 router = APIRouter()
 
 
 async def _get_team(db: AsyncSession, user: User) -> Team | None:
-    result = await db.execute(
-        select(Team).join(TeamMember).where(TeamMember.user_id == user.id)
-    )
-    return result.scalars().first()
+    return await get_user_team(db, user)
 
 
 async def _get_ig_client(
