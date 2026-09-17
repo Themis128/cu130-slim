@@ -621,11 +621,16 @@ def _apply_dodo_subscription(team: Team, sub: dict) -> None:
 
 
 async def _find_team_for_polar_event(db: AsyncSession, data: dict) -> Team | None:
-    """Resolve the team for a Polar event via external_id → metadata → customer_id."""
+    """Resolve the team for a Polar event.
+
+    Checkout-scoped identifiers (metadata.team_id, external_customer_id)
+    take precedence over the customer-level external_id: Polar merges
+    customers by email, so one Polar customer can serve several teams.
+    """
     candidates = [
-        (data.get("customer") or {}).get("external_id"),
         (data.get("metadata") or {}).get("team_id"),
         data.get("external_customer_id"),
+        (data.get("customer") or {}).get("external_id"),
     ]
     for cand in candidates:
         if not cand:
