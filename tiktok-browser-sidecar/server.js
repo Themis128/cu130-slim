@@ -88,6 +88,13 @@ async function gotoSettings() {
   await ensureBrowser();
   await page.goto(TIKTOK_SETTINGS_URL, { waitUntil: 'networkidle', timeout: 60000 });
   await page.waitForTimeout(3000);
+  // Settings pages require auth — fail fast instead of timing out on
+  // elements that never render for logged-out visitors.
+  if (!(await checkLoggedIn())) {
+    const err = new Error('Not logged in — log into tiktok.com via POST /session or noVNC first');
+    err.status = 401;
+    throw err;
+  }
 }
 
 async function gotoProfile() {
@@ -187,7 +194,7 @@ async function handleSetSession(req, res) {
     const isLoggedIn = await checkLoggedIn();
     res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -199,7 +206,7 @@ async function handleCheckSession(req, res) {
     const isLoggedIn = await checkLoggedIn();
     res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -236,7 +243,7 @@ async function handleReadProfile(req, res) {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -261,7 +268,7 @@ async function handleSetPrivateAccount(req, res) {
     const after = await sw.getAttribute('aria-checked');
     res.json({ status: 'ok', setting: 'private_account', enabled: after === 'true' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -330,7 +337,7 @@ async function handleSetComments(req, res) {
     await page.waitForTimeout(500);
     res.json({ status: 'ok', setting: 'comments', permission, ...result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -420,7 +427,7 @@ async function handleSetDirectMessages(req, res) {
       others_result: othersResult,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -433,7 +440,7 @@ async function handleSetDesktopNotifications(req, res) {
     const result = await clickSwitch('Allow in browser');
     res.json({ status: 'ok', setting: 'desktop_notifications', enabled: result.after });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -476,7 +483,7 @@ async function handleSetInteractionNotifications(req, res) {
     await page.waitForTimeout(500);
     res.json({ status: 'ok', setting: 'interaction_notifications', ...settings });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -499,7 +506,7 @@ async function handleSetPersonalizedAds(req, res) {
     const after = await sw.getAttribute('aria-checked');
     res.json({ status: 'ok', setting: 'personalized_ads', enabled: after === 'true' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -512,7 +519,7 @@ async function handleSetColorContrast(req, res) {
     const result = await clickSwitch('Increase color contrast');
     res.json({ status: 'ok', setting: 'color_contrast', enabled: result.after });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -616,7 +623,7 @@ async function handleBusinessVerificationFill(req, res) {
       requires_manual: ['company_certification_document', 'submit'],
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -633,7 +640,7 @@ async function handleBusinessVerificationStatus(req, res) {
       res.json({ status: 'ok', verified: false, note: 'Business verification section not found' });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -666,7 +673,7 @@ async function handleReadAllSettings(req, res) {
                 commentsValue?.includes('Friends') ? 'Friends' : 'unknown',
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -693,7 +700,7 @@ async function handleBrowse(req, res) {
     const logged_in = await checkLoggedIn();
     res.json({ status: 'ok', logged_in, url: finalUrl, title, text_preview: text.slice(0, 1500) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 
@@ -709,7 +716,7 @@ async function handleScreenshot(req, res) {
       png_base64: buf.toString('base64'),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }
 

@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -39,6 +39,18 @@ class PostCreate(BaseModel):
     recurrence_pattern: RecurrencePattern = RecurrencePattern.NONE
     recurrence_interval: int = 0  # N days/weeks/months
     recurrence_max: int = 0  # 0 = unlimited
+
+    @model_validator(mode="after")
+    def _has_content(self) -> "PostCreate":
+        """A post must carry at least text, media, or a link — reject empty drafts."""
+        if (
+            not (self.content_text or "").strip()
+            and not self.media_ids
+            and not self.link_url
+        ):
+            raise ValueError("Post must include text, media, or a link")
+        return self
+
 
 class PostUpdate(BaseModel):
     content_text: str | None = None

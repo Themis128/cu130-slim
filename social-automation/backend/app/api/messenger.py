@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
@@ -64,10 +65,16 @@ async def _get_facebook_page_account(
             status_code=400,
             detail="Messenger setup requires a Facebook Page account",
         )
-    # Verify team membership
-    if account.team_id != user.team_id if hasattr(user, "team_id") else True:
-        # Admin bypass
-        if user.email != settings.SOCIAL_ADMIN_EMAIL and account.team_id != getattr(user, "team_id", None):
+    if user.email != settings.SOCIAL_ADMIN_EMAIL:
+        from app.models.user import TeamMember
+
+        mem = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == account.team_id,
+                TeamMember.user_id == user.id,
+            )
+        )
+        if mem.scalar_one_or_none() is None:
             raise HTTPException(status_code=403, detail="Not authorized to manage this account")
     return account
 
@@ -999,8 +1006,17 @@ async def _get_facebook_user_account(
             status_code=400,
             detail="Personal Messenger requires a Facebook personal (user) account",
         )
-    if user.email != settings.SOCIAL_ADMIN_EMAIL and account.team_id != getattr(user, "team_id", None):
-        raise HTTPException(status_code=403, detail="Not authorized to manage this account")
+    if user.email != settings.SOCIAL_ADMIN_EMAIL:
+        from app.models.user import TeamMember
+
+        mem = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == account.team_id,
+                TeamMember.user_id == user.id,
+            )
+        )
+        if mem.scalar_one_or_none() is None:
+            raise HTTPException(status_code=403, detail="Not authorized to manage this account")
     return account
 
 
@@ -1400,10 +1416,37 @@ PERSONALITY_PRESETS = {
 }
 
 
+async def _get_messenger_account(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    team_id: uuid.UUID,
+    user: User,
+) -> SocialAccount:
+    """Load a Facebook account and verify the caller's team may manage it.
+
+    Admin (SOCIAL_ADMIN_EMAIL) bypasses the team check.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.platform != "facebook":
+        raise HTTPException(
+            status_code=400,
+            detail="Messenger bot is only supported for Facebook accounts",
+        )
+    if account.team_id != team_id and user.email != settings.SOCIAL_ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Not authorized to manage this account")
+    return account
+
+
 @router.post("/{account_id}/bot/create")
 async def create_bot(
     account_id: uuid.UUID,
     req: BotCreateRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1419,15 +1462,7 @@ async def create_bot(
     2. Indexes brand knowledge for RAG
     3. Enables the chatbot polling task
     """
-    # Determine account type
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    if account.platform != "facebook":
-        raise HTTPException(status_code=400, detail="Bot creation is only supported for Facebook accounts")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     from app.api.deps import check_plan_feature
     await check_plan_feature("dm_auto_reply", account.team_id, db)
@@ -1551,16 +1586,12 @@ async def create_bot(
 @router.get("/{account_id}/bot")
 async def get_bot(
     account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current bot configuration for an account."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     bot_config = meta.get("messenger_bot")
@@ -1588,16 +1619,12 @@ async def get_bot(
 async def update_bot(
     account_id: uuid.UUID,
     config: BotConfig,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update the bot configuration for an account."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     meta["messenger_bot"] = config.model_dump()
@@ -1623,16 +1650,12 @@ async def update_bot(
 @router.post("/{account_id}/bot/activate")
 async def activate_bot(
     account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Activate the bot for an account."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     bot_config = meta.get("messenger_bot")
@@ -1658,16 +1681,12 @@ async def activate_bot(
 @router.post("/{account_id}/bot/deactivate")
 async def deactivate_bot(
     account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Deactivate the bot for an account (stops auto-replies)."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     bot_config = meta.get("messenger_bot")
@@ -1692,16 +1711,12 @@ async def deactivate_bot(
 async def bot_pause_thread(
     account_id: uuid.UUID,
     thread_id: str,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Pause the bot for a specific conversation (human handoff)."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     bot_config = meta.get("messenger_bot", {})
@@ -1725,16 +1740,12 @@ async def bot_pause_thread(
 async def bot_resume_thread(
     account_id: uuid.UUID,
     thread_id: str,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Resume the bot for a specific conversation."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     meta = account.meta_data or {}
     bot_config = meta.get("messenger_bot", {})
