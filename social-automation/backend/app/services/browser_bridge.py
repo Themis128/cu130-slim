@@ -131,11 +131,19 @@ class BrowserBridgeClient:
         except Exception:
             pass
 
-        # Session is waiting, error, or has no cookies — restart it
-        try:
-            await self.start_session(platform)
-        except BrowserBridgeError:
-            pass
+        # Session is waiting, error, or has no cookies — restart it. A 409
+        # means another platform holds the browser (busy-hold or a fresh
+        # login window); retry briefly so this attempt can outlast a
+        # poller's hold instead of burning a queue retry. Stale "waiting"
+        # sessions are preempted by the bridge after WAITING_TIMEOUT.
+        for _ in range(12):
+            try:
+                await self.start_session(platform)
+                break
+            except BrowserBridgeError as exc:
+                if exc.status_code != 409:
+                    break
+                await asyncio.sleep(20)
 
         return {
             "status": "waiting",

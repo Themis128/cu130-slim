@@ -151,6 +151,12 @@ _state: dict[str, Any] = {
     # so they can't lock themselves out — they're just unprotected.
     "busy_until": 0.0,
     "busy_owner": None,
+    # When the current session entered "waiting" (login window opened).
+    # A waiting session older than WAITING_TIMEOUT is treated as abandoned
+    # and can be preempted by another platform's /session/start — otherwise
+    # a poller that opens a login page nobody uses would block the browser
+    # for the full 10-minute login-detection loop.
+    "waiting_since": 0.0,
 }
 
 # Seconds a platform keeps exclusive use of the browser after its last
@@ -158,6 +164,13 @@ _state: dict[str, Any] = {
 # attach, post) including slow media uploads; short enough that a crashed
 # caller frees the browser for pollers within minutes.
 BUSY_HOLD_SECONDS = 180.0
+
+# Seconds a "waiting" session (login window open, nobody authenticated yet)
+# may block other platforms before it is treated as abandoned and can be
+# preempted. Must be long enough for a real human/service login via noVNC
+# (~1-2 min) plus margin, short enough that a stale poller session can't
+# starve publishers for the full 10-minute detection loop.
+WAITING_TIMEOUT = 300.0
 
 # Callers identify themselves with the X-Platform header; while the
 # busy-hold is active only requests tagged with the owning platform may
@@ -355,8 +368,26 @@ async def start_session(req: StartRequest):
         if platform not in SITES:
             raise HTTPException(400, f"Unknown platform: {platform}. Available: {list(SITES.keys())}")
 
-        if _state["status"] in ("waiting", "extracting"):
-            raise HTTPException(409, f"Session already active for {_state['platform']}")
+        if _state["status"] in ("waiting", "extracting") and not req.force:
+            stale_waiting = (
+                _state["status"] == "waiting"
+                and time.time() - _state.get("waiting_since", 0.0) > WAITING_TIMEOUT
+            )
+            # Same-platform re-entry during an active login is fine (reuse
+            # below); foreign platforms are blocked unless the waiting
+            # session is stale — i.e. the login window was abandoned.
+            if platform == _state["platform"]:
+                return {
+                    "platform": _state["platform"],
+                    "status": _state["status"],
+                    "message": _state["message"],
+                    "cookies_found": list(_state["cookies"].keys()),
+                    "reused": True,
+                }
+            if not stale_waiting:
+                raise HTTPException(
+                    409, f"Session already active for {_state['platform']}"
+                )
 
         busy = (
             _state["browser"] is not None
@@ -392,6 +423,7 @@ async def start_session(req: StartRequest):
         _state["busy_until"] = 0.0
         _state["busy_owner"] = None
         _state["status"] = "waiting"
+        _state["waiting_since"] = time.time()
         _state["message"] = f"Opening {site['url']} — log in via the noVNC viewer"
         _state["cookies"] = {}
 
