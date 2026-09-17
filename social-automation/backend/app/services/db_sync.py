@@ -155,6 +155,8 @@ class SyncService:
         table: str,
         pk: str = "id",
         batch_size: int = 100,
+        *,
+        debounce: bool = True,
     ) -> dict[str, int]:
         """Sync changed rows from local PostgreSQL to D1.
 
@@ -162,7 +164,9 @@ class SyncService:
         Uses INSERT OR REPLACE for SQLite/D1.
 
         Incremental: only syncs rows with updated_at > last_sync_at.
-        Falls back to full sync on first run or if table has no updated_at.
+        Tables without updated_at use a Redis-cached row-hash diff so only
+        rows whose content actually changed are written — D1 bills per
+        affected row, so a no-op upsert costs the same as a real write.
         """
         if table not in _ALLOWED_TABLES:
             logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
@@ -192,36 +196,96 @@ class SyncService:
             stats["skipped"] = 1
             return stats
 
+        # Shared sync state lives in Redis — Celery prefork processes and
+        # restarts must not each keep their own watermark (that was what
+        # turned every worker task into a full-table D1 upsert).
+        r = None
+        try:
+            r = await _sync_redis()
+            if debounce and not await r.set(
+                _RS_DEBOUNCE.format(table=table), "1", nx=True, ex=_SYNC_MIN_INTERVAL
+            ):
+                logger.debug("D1 sync debounced for %s (interval %ds)", table, _SYNC_MIN_INTERVAL)
+                stats["skipped"] = 1
+                return stats
+        except Exception:
+            if r is not None:
+                try:
+                    await r.aclose()
+                except Exception:
+                    pass
+                r = None
+
         engine = create_async_engine(settings.DATABASE_URL)
         try:
-            # Incremental sync: only fetch rows changed since last sync
-            last_sync = self._last_sync.get(table)
+            async with engine.connect() as col_check:
+                col_result = await col_check.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :tbl AND column_name = 'updated_at'"
+                    ),
+                    {"tbl": table},
+                )
+                has_updated_at = col_result.fetchone() is not None
+
+            # Incremental watermark — Redis-shared with in-memory fallback
+            last_sync: datetime | None = None
+            if has_updated_at:
+                if r is not None:
+                    try:
+                        ts = await r.get(_RS_LAST_SYNC.format(table=table))
+                        last_sync = datetime.fromisoformat(ts) if ts else None
+                    except Exception:
+                        last_sync = None
+                else:
+                    last_sync = self._last_sync.get(table)
+
             select_sql = f"SELECT * FROM {table}"
             if last_sync:
-                # Check if table has updated_at column
-                async with engine.connect() as col_check:
-                    col_result = await col_check.execute(
-                        text(
-                            "SELECT column_name FROM information_schema.columns "
-                            "WHERE table_name = :tbl AND column_name = 'updated_at'"
-                        ),
-                        {"tbl": table},
-                    )
-                    has_updated_at = col_result.fetchone() is not None
-
-                if has_updated_at:
-                    select_sql += f" WHERE updated_at > '{last_sync.isoformat()}'"
-                    logger.debug("Incremental sync for %s (since %s)", table, last_sync.isoformat())
-                # else: full sync (no updated_at column)
+                select_sql += f" WHERE updated_at > '{last_sync.isoformat()}'"
+                logger.debug("Incremental sync for %s (since %s)", table, last_sync.isoformat())
 
             async with engine.connect() as conn:
                 result = await conn.execute(text(select_sql))
                 columns = list(result.keys())
                 rows = result.fetchall()
 
-            if not rows:
+            pk_cols = [p.strip() for p in pk.split(",")]
+
+            def _pk_key(row_dict: dict[str, Any]) -> str:
+                return json.dumps([str(row_dict.get(c)) for c in pk_cols])
+
+            def _row_hash(row_dict: dict[str, Any]) -> str:
+                return hashlib.sha1(
+                    json.dumps(row_dict, sort_keys=True, default=str).encode()
+                ).hexdigest()
+
+            # Tables without updated_at (or first sync) can't select by
+            # watermark — diff row content against the Redis hash map so we
+            # only write rows that actually changed. Entries present in the
+            # map but gone from Postgres get deleted in D1.
+            hash_key = _RS_HASHES.format(table=table)
+            use_hash_diff = not last_sync and r is not None
+            new_hashes: dict[str, str] = {}
+            old_hashes: dict[str, str] = {}
+            if use_hash_diff:
+                try:
+                    old_hashes = await r.hgetall(hash_key)
+                except Exception:
+                    old_hashes = {}
+                changed_rows = []
+                for row in rows:
+                    row_dict = dict(zip(columns, row, strict=False))
+                    key = _pk_key(row_dict)
+                    h = _row_hash(row_dict)
+                    new_hashes[key] = h
+                    if old_hashes.get(key) != h:
+                        changed_rows.append(row)
+                rows = changed_rows
+
+            if not rows and not (use_hash_diff and set(old_hashes) - set(new_hashes)):
                 logger.debug("No changed rows in %s to sync", table)
-                self._last_sync[table] = datetime.now(UTC)
+                await self._set_last_sync(table, r)
                 return stats
 
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
@@ -232,17 +296,16 @@ class SyncService:
                 f"INSERT OR REPLACE INTO {table} ({col_str}) "
                 f"VALUES ({placeholders})"
             )
+            delete_sql = (
+                f"DELETE FROM {table} WHERE "
+                + " AND ".join(f"{c} = ?" for c in pk_cols)
+            )
 
-            # Batch upsert
-            _consecutive_errors = 0
-            for row in rows:
-                row_dict = dict(zip(columns, row, strict=False))
-                # Serialize complex types for D1
+            def _ser(row_dict: dict[str, Any]) -> list[Any]:
                 values = []
                 for col in columns:
                     val = row_dict[col]
                     if isinstance(val, dict | list):
-                        # Convert non-JSON-serializable items (UUID, etc) to strings
                         val = json.dumps(val, default=str)
                     elif isinstance(val, bool):
                         val = 1 if val else 0
@@ -253,30 +316,42 @@ class SyncService:
                     else:
                         val = str(val) if not isinstance(val, int | float | str) else val
                     values.append(val)
+                return values
 
+            def _limit_hit() -> None:
+                now = datetime.now(UTC)
+                reset_at = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                if reset_at <= now:
+                    reset_at = reset_at + timedelta(days=1)
+                self._d1_write_limit_hit = True
+                self._d1_write_limit_reset_at = reset_at
+                logger.info("D1 write circuit breaker active until %s UTC", reset_at.isoformat())
+
+            # Upsert changed rows only
+            _consecutive_errors = 0
+            synced_keys: list[str] = []
+            for row in rows:
+                row_dict = dict(zip(columns, row, strict=False))
                 try:
-                    await d1_client.execute(sql, values)
+                    await d1_client.execute(sql, _ser(row_dict))
                     stats["synced"] += 1
+                    key = _pk_key(row_dict)
+                    synced_keys.append(key)
+                    # Record the hash for every row written, in every mode —
+                    # keeps the map accurate so a restart diffs instead of
+                    # re-upserting the whole table.
+                    new_hashes[key] = _row_hash(row_dict)
                     _consecutive_errors = 0
                 except Exception as exc:
                     exc_str = str(exc)
                     logger.error("D1 sync row failed for %s: %s", table, exc)
                     stats["errors"] += 1
                     _consecutive_errors += 1
-                    # If D1 free tier daily limit is hit, set circuit breaker and skip all remaining
                     if "exceeded" in exc_str.lower() and "daily" in exc_str.lower():
                         logger.warning(
                             "D1 daily write limit reached — skipping remaining tables for this sync cycle"
                         )
-                        # Set circuit breaker — reset at next midnight UTC
-                        now = datetime.now(UTC)
-                        reset_at = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                        if reset_at <= now:
-                            reset_at = reset_at + timedelta(days=1)
-                        self._d1_write_limit_hit = True
-                        self._d1_write_limit_reset_at = reset_at
-                        logger.info("D1 write circuit breaker active until %s UTC", reset_at.isoformat())
-                        stats["skipped"] = stats.get("skipped", 0) + (len(rows) - stats["synced"] - stats["errors"])
+                        _limit_hit()
                         break
                     if _consecutive_errors >= 3:
                         logger.error(
@@ -285,12 +360,63 @@ class SyncService:
                         )
                         break
 
+            # Delete D1 rows whose PK vanished from Postgres
+            if use_hash_diff and not self._d1_write_limit_hit:
+                deleted_keys: list[str] = []
+                for key in set(old_hashes) - set(new_hashes):
+                    try:
+                        pk_vals = json.loads(key)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    try:
+                        await d1_client.execute(delete_sql, pk_vals)
+                        deleted_keys.append(key)
+                    except Exception as exc:
+                        logger.error("D1 stale-row delete failed for %s: %s", table, exc)
+                        if "exceeded" in str(exc).lower() and "daily" in str(exc).lower():
+                            _limit_hit()
+                            break
+                if deleted_keys:
+                    stats["deleted"] = len(deleted_keys)
+            else:
+                deleted_keys = []
+
+            # Persist the hash map of what D1 now mirrors
+            if r is not None and (synced_keys or deleted_keys):
+                try:
+                    if synced_keys:
+                        await r.hset(hash_key, mapping={k: new_hashes[k] for k in synced_keys})
+                    if deleted_keys:
+                        await r.hdel(hash_key, *deleted_keys)
+                except Exception:
+                    pass
+
+            await self._set_last_sync(table, r)
+
         finally:
             await engine.dispose()
+            if r is not None:
+                try:
+                    await r.aclose()
+                except Exception:
+                    pass
 
-        self._last_sync[table] = datetime.now(UTC)
-        logger.info("Synced %s: %d rows to D1", table, stats["synced"])
+        logger.info(
+            "Synced %s: %d rows to D1 (%d deleted, %d errors)",
+            table, stats["synced"], stats.get("deleted", 0), stats["errors"],
+        )
         return stats
+
+    async def _set_last_sync(self, table: str, r: Any = None) -> None:
+        """Persist the sync watermark — Redis when available, else memory."""
+        now = datetime.now(UTC)
+        if r is not None:
+            try:
+                await r.set(_RS_LAST_SYNC.format(table=table), now.isoformat())
+                return
+            except Exception:
+                pass
+        self._last_sync[table] = now
 
     async def sync_table_to_postgres(
         self,
@@ -370,11 +496,13 @@ class SyncService:
         return stats
 
     async def sync_all_to_d1(self) -> dict[str, dict[str, int]]:
-        """Sync all tables from Postgres to D1."""
+        """Sync all tables from Postgres to D1 (operator-triggered, no debounce)."""
         async with self._sync_lock:
             results = {}
             for t in SYNC_TABLES:
-                results[t["table"]] = await self.sync_table_to_d1(t["table"], t["pk"])
+                results[t["table"]] = await self.sync_table_to_d1(
+                    t["table"], t["pk"], debounce=False
+                )
             return results
 
     async def sync_all_to_postgres(self) -> dict[str, dict[str, int]]:
