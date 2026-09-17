@@ -600,7 +600,7 @@ async def _publish_twitter_via_browser(
     ]
 
     settings = get_settings()
-    client = BrowserBridgeClient(settings.BROWSER_BRIDGE_URL)
+    client = BrowserBridgeClient(settings.BROWSER_BRIDGE_URL, platform="twitter")
     try:
         # Hold the shared-browser lock so messenger pollers can't hijack
         # the session mid-compose. Wait longer than the 90s lock expiry —
