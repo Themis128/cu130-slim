@@ -80,8 +80,15 @@ class BrowserBridgeClient:
             status = {"status": "error", "message": "Bridge unreachable"}
 
         # Session is active and logged in — bridge returns "active" or "done"
-        # (after cookie extraction) with cookies_found populated
-        if status.get("status") in ("active", "done") and status.get("cookies_found"):
+        # (after cookie extraction) with cookies_found populated. The session
+        # must belong to the requested platform — a logged-in Facebook session
+        # must not satisfy a Twitter check (the cookie jar is platform-scoped
+        # at extraction time, and the browser may be parked on a login page).
+        if (
+            status.get("status") in ("active", "done")
+            and status.get("platform") == platform
+            and status.get("cookies_found")
+        ):
             return {"status": "active", "message": "Session active"}
 
         # Try extracting cookies — the browser may be logged in but the
@@ -91,7 +98,7 @@ class BrowserBridgeClient:
                 resp = await client.post(f"{self._base_url}/session/extract")
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data.get("cookies_found"):
+                    if data.get("cookies_found") and data.get("platform") == platform:
                         return {"status": "active", "message": "Session active"}
         except Exception:
             pass
@@ -1449,7 +1456,15 @@ class BrowserBridgeClient:
                 editor_found = True
                 break
         if not editor_found:
-            return {"status": "error", "error": "Could not find the tweet composer"}
+            landed = pr.get("url") if isinstance(pr, dict) else None
+            return {
+                "status": "error",
+                "error": (
+                    f"Could not find the tweet composer (landed on {landed}) — "
+                    "the x.com browser session is likely logged out; "
+                    "re-login via the noVNC viewer (/session/start twitter)"
+                ),
+            }
 
         escaped_text = _json.dumps(text)
         type_response = await self.evaluate(f"""() => {{
