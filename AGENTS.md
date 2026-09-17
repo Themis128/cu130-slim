@@ -593,3 +593,4 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. DMR (Do
 ## Billing preferences
 
 - **The user uses Dodo, not Stripe.** For merchant-of-record / payment work, prefer Dodo. Polar is configured as `BILLING_PROVIDER=polar` but the user's payment platform of choice is Dodo. Do not direct the user to Stripe-branded flows expecting them to have a Stripe account — note that Polar internally uses Stripe Identity/Stripe Express for its KYC and payout onboarding even when the merchant doesn't otherwise use Stripe.
+- **Email**: The user's email client/server runs on their OMV-HA box (OpenMediaVault home server). Dedicated mailboxes (e.g. for the Polar SocialAuto app) must be created there — do NOT set up forwarding to Gmail. Inbound mail for cloudless.gr is handled by Cloudflare Email Routing (route*.mx.cloudflare.net) which can forward to the OMV-HA mailbox.
