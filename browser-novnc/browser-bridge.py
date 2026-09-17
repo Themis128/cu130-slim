@@ -145,10 +145,12 @@ _state: dict[str, Any] = {
     "page": None,
     "cookies": {},
     "lock": asyncio.Lock(),
-    # Cross-platform hijack guard: every live-page interaction extends this
-    # hold; /session/start for a *different* platform is refused (409) while
-    # the hold is active so pollers can't tear down a busy session.
+    # Cross-platform hijack guard: tagged live-page interactions extend
+    # busy_until under busy_owner; foreign-platform and untagged callers
+    # get 409 while the hold is active. Untagged calls never set the hold,
+    # so they can't lock themselves out — they're just unprotected.
     "busy_until": 0.0,
+    "busy_owner": None,
 }
 
 # Seconds a platform keeps exclusive use of the browser after its last
