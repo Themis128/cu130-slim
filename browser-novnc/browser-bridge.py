@@ -459,12 +459,20 @@ async def start_session(req: StartRequest):
         # Start browser in background
         _state["task"] = asyncio.create_task(_run_browser(platform))
 
-        return {
-            "platform": platform,
-            "status": "waiting",
-            "message": _state["message"],
-            "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
-        }
+    # Wait for the page to come live before returning — callers fire
+    # evaluate/navigate immediately after start, and a 200 with no page
+    # yet would 400 their very next call (observed in publish fallback).
+    for _ in range(40):
+        await asyncio.sleep(0.5)
+        if _state["page"] is not None or _state["status"] == "error":
+            break
+
+    return {
+        "platform": platform,
+        "status": "waiting" if _state["page"] is not None else _state["status"],
+        "message": _state["message"],
+        "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
+    }
 
 
 @app.get("/session/status")
