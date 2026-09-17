@@ -36,6 +36,8 @@ test.use({
 
 test.describe('VoiceRecorder — live @e2e', () => {
   test.describe.configure({ mode: 'serial' })
+  // Skip before the page fixture is created — Firefox rejects the 'microphone' permission
+  test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
 
   test.beforeAll(async ({ request }) => {
     await registerAndLogin(request)
@@ -58,9 +60,7 @@ test.describe('VoiceRecorder — live @e2e', () => {
 
   test('VoiceRecorder uploads real (fake-device) audio to the live /ai/transcribe endpoint', async ({
     page,
-    browserName,
   }) => {
-    test.skip(browserName !== 'chromium', 'fake audio device is Chromium-only')
     test.setTimeout(120_000)
 
     const transcribeResp = page.waitForResponse(
