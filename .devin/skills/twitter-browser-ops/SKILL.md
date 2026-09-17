@@ -18,27 +18,33 @@ session authenticated and driving the login flow.
 `set_input_files`, max 4).
 
 Before posting, the fallback now calls `client.is_twitter_logged_in()`; if
-logged out it attempts `client.twitter_login(handle, password)` once using
-`TWITTER_LOGIN_USERNAME`/`TWITTER_LOGIN_PASSWORD` (handle falls back to
-`account.username`). Repeated credential failures risk X lockouts — the
-login is attempted at most once per publish.
+logged out it attempts `client.twitter_login(identifier, password)` once
+using `TWITTER_LOGIN_USERNAME` → `TWITTER_LOGIN_EMAIL` → `account.username`
+for the identifier and `TWITTER_LOGIN_PASSWORD` for the password. Repeated
+credential failures risk X lockouts — the login is attempted at most once
+per publish.
 
 ## Login flow quirks (verified Sept 2026)
 
 1. `x.com/login` redirects to `/i/jf/onboarding/web?mode=login` — that
    funnel **is** the login page. Do not look for the old two-page login.
-2. **Enter the username handle (`TBaltzakis`), not the email.** Entering an
-   email routes into the signup funnel: *"Get the app to finish signing up
-   using email — Email signups are only allowed on the apps"*. This is the
-   `download_app_pivot` loop — it is NOT a captcha, it means the email was
-   used where a handle was expected.
+2. The identifier field accepts the account's login email or handle
+   (`TWITTER_LOGIN_USERNAME`/`TWITTER_LOGIN_EMAIL` —
+   `baltzakis.themis@gmail.com`). **Do not fill the password input on step
+   1** — doing so flips the funnel into signup mode: *"Get the app to
+   finish signing up using email — Email signups are only allowed on the
+   apps"* (the `download_app_pivot` loop). Fill ONLY
+   `input[name=username_or_email]`, click Continue, and the real
+   `login_enter_password` step appears.
 3. Two steps: `input[name=username_or_email]` → **Continue** →
    `#/s/login_enter_password` → `input[name=password]` → **Continue**.
    Never fill the password on step 1.
 4. On step 2 the `username` input is `disabled` and prefilled — filling it
    throws; fill only the enabled password input.
-5. The page renders **duplicate hidden buttons** — pick the *visible*
-   Continue (`offsetParent !== null`) and click via `/session/mouse-click`
+5. The page renders **duplicate hidden buttons** and **localized labels**
+   (the account locale can show Greek `Συνέχεια`/`Σύνδεση`/`Επόμενο` instead
+   of Continue/Log in). Match all variants, pick the *visible* one
+   (`offsetParent !== null`), and click via `/session/mouse-click`
    (trusted input). JS `el.click()` may be rejected by Arkose.
 6. Success = redirect to `x.com/home` with
    `[data-testid=SideNav_AccountSwitcher_Button]` present. Failure signals:

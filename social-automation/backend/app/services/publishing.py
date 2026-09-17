@@ -591,7 +591,7 @@ async def _publish_twitter_via_browser(
     (same host dir mounted read-only), so the bridge can attach them via
     Playwright's native set_input_files.
     """
-    from app.services.browser_bridge import BrowserBridgeClient
+    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
     from app.services.browser_orchestrator import browser_session
 
     image_paths = [
@@ -609,13 +609,25 @@ async def _publish_twitter_via_browser(
         # trim to the weighted 280-char limit (URLs count 23 via t.co,
         # emoji/ellipsis count double) or Post stays disabled.
         async with browser_session("twitter", client, max_wait=180):
+            # Take ownership of the shared browser for twitter BEFORE
+            # probing — otherwise our own interactions extend another
+            # platform's busy-hold and block the takeover.
+            status = await client.session_status()
+            if status.get("platform") != "twitter":
+                try:
+                    await client.start_session("twitter")
+                except BrowserBridgeError as exc:
+                    return PublishResult(
+                        success=False,
+                        error=f"X API quota exhausted and browser busy: {exc.detail}",
+                    )
             state = await client.is_twitter_logged_in()
             if not state.get("logged_in"):
                 # Self-heal: drive the two-step login with stored creds.
-                # Username MUST be the handle — an email enters the signup
-                # funnel. One attempt only; repeated failures risk lockout.
+                # One attempt only; repeated failures risk lockout.
                 login_user = (
                     settings.TWITTER_LOGIN_USERNAME
+                    or settings.TWITTER_LOGIN_EMAIL
                     or account.username
                     or ""
                 ).lstrip("@")

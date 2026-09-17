@@ -71,8 +71,13 @@ def pause_beat(paused: bool) -> None:
 def click_continue() -> bool:
     res = evaluate(
         """(() => {
-            const els = [...document.querySelectorAll('button,[role=button]')];
-            const c = els.find(e => (e.innerText || '').trim() === 'Continue' && e.offsetParent !== null);
+            const labels = ['Continue', 'Next', 'Log in', 'Sign in',
+                            'Συνέχεια', 'Σύνδεση', 'Επόμενο'];
+            const els = [...document.querySelectorAll('button,[role=button],input[type=submit]')];
+            const c = els.find(e => {
+                const t = (e.innerText || e.value || '').trim();
+                return labels.includes(t) && e.offsetParent !== null;
+            });
             if (!c) return {found: false};
             const b = c.getBoundingClientRect();
             return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
@@ -89,6 +94,7 @@ def main() -> int:
     username = (
         (sys.argv[1] if len(sys.argv) > 1 else "")
         or env.get("TWITTER_LOGIN_USERNAME")
+        or env.get("TWITTER_LOGIN_EMAIL")
         or "TBaltzakis"
     ).lstrip("@")
     password = env.get("TWITTER_LOGIN_PASSWORD", "")
@@ -99,7 +105,7 @@ def main() -> int:
     print("Pausing celery-beat (stops browser-hijacking pollers)...")
     pause_beat(True)
     try:
-        print(post("/session/start", {"platform": "twitter"}))
+        print(post("/session/start", {"platform": "twitter", "force": True}))
         time.sleep(8)
         post("/session/navigate", {"url": "https://x.com/i/flow/login"})
         time.sleep(8)

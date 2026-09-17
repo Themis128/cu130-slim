@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -143,7 +144,17 @@ _state: dict[str, Any] = {
     "page": None,
     "cookies": {},
     "lock": asyncio.Lock(),
+    # Cross-platform hijack guard: every live-page interaction extends this
+    # hold; /session/start for a *different* platform is refused (409) while
+    # the hold is active so pollers can't tear down a busy session.
+    "busy_until": 0.0,
 }
+
+# Seconds a platform keeps exclusive use of the browser after its last
+# interaction. Long enough to cover a multi-step compose (navigate, type,
+# attach, post) including slow media uploads; short enough that a crashed
+# caller frees the browser for pollers within minutes.
+BUSY_HOLD_SECONDS = 180.0
 
 app = FastAPI(title="Browser Bridge", version="1.0.0")
 app.add_middleware(
@@ -207,6 +218,7 @@ async def _ensure_live_page():
     if page is not None:
         try:
             if not page.is_closed():
+                _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
                 return page
         except Exception:
             pass
@@ -224,6 +236,7 @@ async def _ensure_live_page():
             if closed:
                 continue
             _state["page"] = candidate
+            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
             # #region agent log
             _dbg("recovered existing open page from context", {})
             # #endregion
@@ -231,6 +244,7 @@ async def _ensure_live_page():
 
         page = await context.new_page()
         _state["page"] = page
+        _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
         # #region agent log
         _dbg("opened new page on existing context", {})
         # #endregion
@@ -255,6 +269,7 @@ async def _ensure_live_page():
 
 class StartRequest(BaseModel):
     platform: str
+    force: bool = False
 
 
 @app.get("/health")
@@ -289,14 +304,41 @@ async def list_platforms():
 
 @app.post("/session/start")
 async def start_session(req: StartRequest):
-    """Start a browser session for a platform — opens the login page."""
-    async with _state["lock"]:
-        if _state["status"] in ("waiting", "extracting"):
-            raise HTTPException(409, f"Session already active for {_state['platform']}")
+    """Start a browser session for a platform — opens the login page.
 
+    Refuses to tear down a browser that is busy with a different platform
+    (any live-page interaction extends ``_state['busy_until']``). Callers
+    that hit 409 should retry later — this is what stops messenger/social
+    pollers from killing an in-flight login or compose. ``force=true``
+    overrides the hold for manual recovery.
+    """
+    async with _state["lock"]:
         platform = req.platform.lower()
         if platform not in SITES:
             raise HTTPException(400, f"Unknown platform: {platform}. Available: {list(SITES.keys())}")
+
+        if _state["status"] in ("waiting", "extracting"):
+            raise HTTPException(409, f"Session already active for {_state['platform']}")
+
+        busy = (
+            _state["browser"] is not None
+            and time.time() < _state.get("busy_until", 0.0)
+        )
+        if busy and not req.force:
+            if _state["platform"] != platform:
+                raise HTTPException(
+                    409,
+                    f"Browser busy with {_state['platform']} session — try again shortly",
+                )
+            # Same platform already running — reuse it instead of tearing
+            # down the context mid-operation.
+            return {
+                "platform": _state["platform"],
+                "status": _state["status"],
+                "message": _state["message"],
+                "cookies_found": list(_state["cookies"].keys()),
+                "reused": True,
+            }
 
         # Close any existing browser
         if _state["browser"]:

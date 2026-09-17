@@ -79,6 +79,22 @@ class BrowserBridgeClient:
         except Exception:
             status = {"status": "error", "message": "Bridge unreachable"}
 
+        # A session for this platform is mid-login — give the bridge's
+        # detection loop time to observe the authenticated URL/cookies
+        # instead of erroring instantly.
+        if (
+            status.get("status") in ("waiting", "extracting")
+            and status.get("platform") == platform
+        ):
+            for _ in range(90):
+                await asyncio.sleep(1)
+                try:
+                    status = await self.session_status()
+                except Exception:
+                    status = {"status": "error"}
+                if status.get("status") not in ("waiting", "extracting"):
+                    break
+
         # Session is active and logged in — bridge returns "active" or "done"
         # (after cookie extraction) with cookies_found populated. The session
         # must belong to the requested platform — a logged-in Facebook session
@@ -142,28 +158,54 @@ class BrowserBridgeClient:
             return resp.json()
 
     async def is_twitter_logged_in(self) -> dict[str, Any]:
-        """Probe the live page for an authenticated x.com session."""
+        """Probe the live page for an authenticated x.com session.
+
+        If the shared page was navigated off x.com by another platform's
+        flow, jump to x.com/home first — the probe is only meaningful on
+        twitter's own SPA.
+        """
+        probe_expr = (
+            "() => ({url: location.href, loggedIn: !!document.querySelector("
+            "'[data-testid=SideNav_AccountSwitcher_Button]')})"
+        )
         try:
-            probe = await self.evaluate(
-                "() => ({url: location.href, loggedIn: !!document.querySelector("
-                "'[data-testid=SideNav_AccountSwitcher_Button]')})"
-            )
+            probe = await self.evaluate(probe_expr)
         except BrowserBridgeError as exc:
             return {"logged_in": False, "url": None, "error": exc.detail}
         res = probe.get("result", probe) if isinstance(probe, dict) else probe
         if not isinstance(res, dict):
             return {"logged_in": False, "url": None}
+        url = res.get("url") or ""
+        if not res.get("loggedIn") and "x.com" not in url and "twitter.com" not in url:
+            try:
+                await self.navigate("https://x.com/home")
+                await asyncio.sleep(8)
+                probe = await self.evaluate(probe_expr)
+            except BrowserBridgeError as exc:
+                return {"logged_in": False, "url": url, "error": exc.detail}
+            res = probe.get("result", probe) if isinstance(probe, dict) else probe
+            if not isinstance(res, dict):
+                return {"logged_in": False, "url": url}
         return {"logged_in": bool(res.get("loggedIn")), "url": res.get("url")}
 
     async def _click_visible_continue(self) -> bool:
-        """Find a visible 'Continue' button and mouse-click it."""
+        """Find a visible Continue/Next/Log-in button and mouse-click it.
+
+        The funnel renders localized labels (the account's locale can make
+        X show Greek 'Συνέχεια' / 'Σύνδεση'), so match several variants.
+        """
         probe = await self.evaluate(
             """() => {
-                const els = [...document.querySelectorAll('button,[role=button]')];
-                const c = els.find(e => (e.innerText || '').trim() === 'Continue' && e.offsetParent !== null);
+                const labels = ['Continue', 'Next', 'Log in', 'Sign in',
+                                'Συνέχεια', 'Σύνδεση', 'Επόμενο'];
+                const els = [...document.querySelectorAll('button,[role=button],input[type=submit]')];
+                const c = els.find(e => {
+                    const t = (e.innerText || e.value || '').trim();
+                    return labels.includes(t) && e.offsetParent !== null;
+                });
                 if (!c) return {found: false};
                 const b = c.getBoundingClientRect();
-                return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
+                return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2, label: (c.innerText||'').trim()};
             }"""
         )
         res = probe.get("result", probe) if isinstance(probe, dict) else probe
@@ -180,10 +222,11 @@ class BrowserBridgeClient:
         Flow quirks discovered empirically (Sept 2026):
         - ``x.com/login`` now redirects to ``/i/jf/onboarding/web?mode=login``
           — that funnel IS the login page.
-        - Enter the **username handle**, NOT the email: an email routes into
-          the signup funnel ("Email signups are only allowed on the apps").
-        - Two steps: username -> Continue -> password -> Continue. Filling
-          the password early on step 1 breaks the flow.
+        - The identifier field accepts the account's login username or
+          email (``TWITTER_LOGIN_USERNAME``/``TWITTER_LOGIN_EMAIL``).
+        - Two steps: identifier -> Continue -> password -> Continue.
+          Filling the password input on step 1 flips the funnel into
+          signup ("Email signups are only allowed on the apps").
         - Click the **visible** Continue via real mouse events — the page
           renders duplicate hidden buttons and JS ``.click()`` is untrusted.
         - On step 2 the username input is disabled/prefilled; fill only the
@@ -192,17 +235,23 @@ class BrowserBridgeClient:
         await self.navigate("https://x.com/i/flow/login")
 
         # Step 1 — wait for the identifier field, then enter the handle.
+        # An already-authenticated profile redirects off the login page, so
+        # check for the account switcher each iteration.
         deadline = asyncio.get_event_loop().time() + timeout_s
         filled = False
         while asyncio.get_event_loop().time() < deadline:
             probe = await self.evaluate(
-                "() => !!document.querySelector('input[name=username_or_email]')"
+                "() => ({form: !!document.querySelector('input[name=username_or_email]'),"
+                " loggedIn: !!document.querySelector('[data-testid=SideNav_AccountSwitcher_Button]')})"
             )
             res = probe.get("result", probe) if isinstance(probe, dict) else probe
-            if res:
-                await self.fill("input[name=username_or_email]", username)
-                filled = True
-                break
+            if isinstance(res, dict):
+                if res.get("loggedIn"):
+                    return {"status": "logged_in", "url": "already authenticated"}
+                if res.get("form"):
+                    await self.fill("input[name=username_or_email]", username)
+                    filled = True
+                    break
             await asyncio.sleep(1)
         if not filled:
             return {"status": "error", "error": "login form did not render"}
@@ -216,9 +265,9 @@ class BrowserBridgeClient:
         while asyncio.get_event_loop().time() < deadline:
             probe = await self.evaluate(
                 """() => ({
-                    pwStep: location.href.includes('login_enter_password'),
                     pwReady: !![...document.querySelectorAll('input[name=password]')]
                         .find(i => !i.disabled && i.offsetParent !== null),
+                    loggedIn: !!document.querySelector('[data-testid=SideNav_AccountSwitcher_Button]'),
                     arkose: !!document.querySelector('iframe[src*=arkose],[id*=arkose]'),
                     err: document.body.innerText.includes('password you entered is incorrect')
                         || document.body.innerText.includes('Wrong password'),
@@ -226,6 +275,8 @@ class BrowserBridgeClient:
             )
             res = probe.get("result", probe) if isinstance(probe, dict) else probe
             if isinstance(res, dict):
+                if res.get("loggedIn"):
+                    return {"status": "logged_in", "url": "authenticated during flow"}
                 if res.get("arkose"):
                     return {"status": "error", "error": "arkose captcha — manual login via noVNC required"}
                 if res.get("err"):
