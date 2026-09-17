@@ -1062,6 +1062,13 @@ userdb is keyed by full email.
 - `SLACK_BOT_TOKEN` is currently empty — channel creation/API calls require a
   user-provided `xoxb` token with `channels:manage`.
 
+### Billing providers (MoR)
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| **Polar** (`BILLING_PROVIDER=polar`, production) | ✅ **Live & approved** (Sep 17, 2026) | Org `cloudless` (`88b98199-…`); all capabilities on: checkout_payments, subscription_renewals, payouts, refunds. Identity verified (Stripe Identity), Stripe Express payout connected (GR/EUR). Hosted buy links: `buy.polar.sh/polar_cl_*` (pro/business/enterprise). Review discount code `REVIEW100` (100% off, forever). Webhook: `/api/v1/billing/polar-webhook` |
+| **Dodo** (code-ready) | ⏸ `MERCHANT_NOT_LIVE` | Products + webhook registered; checkout blocked until dashboard verification (Product Info Form → Persona KYC → bank). To activate: set `BILLING_PROVIDER=dodo` |
+
 ### MoR compliance contract tests
 
 `tests/unit/test_mor_compliance.py` encodes the Polar/Dodo policy
