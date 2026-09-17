@@ -1,12 +1,12 @@
-import { test, expect } from './helpers/auth';
+import { test, expect, API_BASE, setAuthCookies, registerAndLoginUser, type AuthTokens } from './helpers/auth';
+import { randomUUID } from 'crypto';
 
 /**
  * Calendar Page — real backend.
  *
- * A fresh test user has zero scheduled posts, so the calendar renders
- * with an empty grid. We verify the structural elements that always render
- * regardless of data: header, month label, weekday headers, grid, legend,
- * and the New Post button.
+ * The calendar hides the month grid behind an empty-state card when the
+ * viewed month has zero posts, so fresh-user tests assert the empty state,
+ * and grid-specific tests seed a scheduled post for a dedicated user.
  */
 
 test.describe('Calendar Page — real backend', () => {
@@ -22,36 +22,12 @@ test.describe('Calendar Page — real backend', () => {
     await expect(page.getByRole('button', { name: new RegExp(currentMonth, 'i') })).toBeVisible();
   });
 
-  test('should display weekday headers', async ({ authenticatedPage: page }) => {
-    await page.goto('/calendar');
-    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
-      await expect(page.getByText(day).first()).toBeVisible();
-    }
-  });
-
-  test('should display the calendar grid with day cells', async ({ authenticatedPage: page }) => {
-    await page.goto('/calendar');
-    // The grid uses min-h-[130px] cells
-    const dayCells = page.locator('.min-h-\\[130px\\]');
-    await expect(dayCells.first()).toBeVisible();
-    // At least 28 day cells in any month
-    const count = await dayCells.count();
-    expect(count).toBeGreaterThanOrEqual(28);
-  });
-
-  test('should highlight today', async ({ authenticatedPage: page }) => {
-    await page.goto('/calendar');
-    const today = new Date().getDate();
-    // Today's cell has a primary-colored circle around the day number
-    const todayNumber = page.locator('.bg-primary').getByText(today.toString());
-    await expect(todayNumber.first()).toBeVisible();
-  });
-
-  test('should show zero posts for a fresh user', async ({ authenticatedPage: page }) => {
+  test('should show empty state for a fresh user', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
     await page.waitForLoadState('networkidle');
-    // The subtitle shows "0 posts in <month>"
-    await expect(page.getByText(/0 posts in/i)).toBeVisible({ timeout: 20000 });
+    // With zero posts the grid is replaced by the empty-state card
+    await expect(page.getByRole('heading', { name: /nothing scheduled yet/i })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('link', { name: /schedule your first post/i })).toBeVisible();
   });
 
   test('should show the New Post button', async ({ authenticatedPage: page }) => {
@@ -72,7 +48,6 @@ test.describe('Calendar Page — real backend', () => {
     const monthButton = page.getByRole('button', { name: /\w+ \d{4}/ });
     const initialMonth = await monthButton.textContent();
 
-    // Click the previous-month button (has aria-label="Previous month")
     await page.getByRole('button', { name: 'Previous month' }).click();
     await page.waitForTimeout(300);
 
@@ -94,31 +69,12 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should return to current month when clicking the month button', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    // Navigate away
     await page.getByRole('button', { name: 'Next month' }).click();
     await page.waitForTimeout(300);
 
-    // Click the month button to return to today
     await page.getByRole('button', { name: /\w+ \d{4}/ }).click();
     const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
     await expect(page.getByRole('button', { name: new RegExp(currentMonth, 'i') })).toBeVisible();
-  });
-
-  test('should allow selecting a day and show the day detail panel', async ({ authenticatedPage: page }) => {
-    await page.goto('/calendar');
-    // Click the first actual day cell (padding cells lack cursor-pointer)
-    const dayCell = page.locator('.min-h-\\[130px\\].cursor-pointer').first();
-    await dayCell.click();
-
-    // Day detail panel appears with a "Schedule post" link
-    await expect(page.getByRole('link', { name: /schedule post/i })).toBeVisible();
-  });
-
-  test('should show empty state in day detail for a fresh user', async ({ authenticatedPage: page }) => {
-    await page.goto('/calendar');
-    const dayCell = page.locator('.min-h-\\[130px\\].cursor-pointer').first();
-    await dayCell.click();
-    await expect(page.getByText(/nothing scheduled/i).first()).toBeVisible();
   });
 
   test('should show the status legend', async ({ authenticatedPage: page }) => {
@@ -139,12 +95,65 @@ test.describe('Calendar Page — real backend', () => {
     await expect(page.getByRole('button', { name: /month/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /week/i })).toBeVisible();
   });
+});
 
-  test('should switch to week view', async ({ authenticatedPage: page }) => {
+/**
+ * Grid interactions need at least one post — the month grid only renders
+ * when filteredPosts.length > 0. Uses a dedicated user so the shared
+ * TEST_USER stays post-free for the empty-state tests above.
+ */
+test.describe('Calendar grid — seeded post', () => {
+  let tokens: AuthTokens;
+
+  test.beforeAll(async ({ request }) => {
+    const email = `cal-e2e-${randomUUID().slice(0, 8)}@example.com`;
+    tokens = await registerAndLoginUser(email, 'Cal-E2E-Pass-123!', 'Calendar E2E');
+
+    // Seed a post scheduled later this month (clamped to day 28 so it always
+    // stays inside the current month view).
+    const when = new Date();
+    when.setDate(Math.min(when.getDate() + 2, 28));
+    when.setHours(12, 0, 0, 0);
+    const res = await request.post(`${API_BASE}/api/v1/posts`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+      data: { content_text: 'Calendar E2E seeded post', scheduled_at: when.toISOString() },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await setAuthCookies(page, tokens);
+  });
+
+  test('should render the month grid with day cells and weekday headers', async ({ page }) => {
+    await page.goto('/calendar');
+    await page.waitForLoadState('networkidle');
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
+      await expect(page.getByText(day, { exact: true }).first()).toBeVisible({ timeout: 15000 });
+    }
+    const dayCells = page.locator('.min-h-\\[130px\\]');
+    await expect(dayCells.first()).toBeVisible();
+    expect(await dayCells.count()).toBeGreaterThanOrEqual(28);
+  });
+
+  test('should highlight today', async ({ page }) => {
+    await page.goto('/calendar');
+    const today = new Date().getDate();
+    await expect(page.locator('.bg-primary').getByText(today.toString()).first()).toBeVisible({ timeout: 15000 });
+  });
+
+  test('should allow selecting a day and show the day detail panel', async ({ page }) => {
+    await page.goto('/calendar');
+    await page.waitForLoadState('networkidle');
+    const dayCell = page.locator('.min-h-\\[130px\\].cursor-pointer').first();
+    await dayCell.click();
+    await expect(page.getByRole('link', { name: /schedule post/i })).toBeVisible();
+  });
+
+  test('should switch to week view', async ({ page }) => {
     await page.goto('/calendar');
     await page.getByRole('button', { name: /week/i }).click();
     await page.waitForTimeout(300);
-    // Week view renders a WeekCalendar component inside a bordered container
     await expect(page.locator('.rounded-xl.border').first()).toBeVisible();
   });
 });

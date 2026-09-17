@@ -120,4 +120,52 @@ export const test = base.extend<AuthFixture>({
   },
 });
 
+/**
+ * Register + login a dedicated fresh user (unique email per call) and mark
+ * onboarding complete. For tests that need isolated state (e.g. seeding posts)
+ * without affecting the shared TEST_USER.
+ */
+export async function registerAndLoginUser(
+  email: string,
+  password: string,
+  name: string,
+): Promise<AuthTokens> {
+  const reg = await fetch(`${API_BASE}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!reg.ok && reg.status !== 400 && reg.status !== 409 && reg.status !== 422) {
+    throw new Error(`Register failed ${reg.status}: ${await reg.text()}`);
+  }
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: email, password }),
+    });
+    if (res.ok) {
+      const tokens = (await res.json()) as AuthTokens;
+      await fetch(`${API_BASE}/api/v1/auth/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+        body: JSON.stringify({ onboarding_completed: true }),
+      }).catch(() => {});
+      return tokens;
+    }
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      continue;
+    }
+    lastError = new Error(`Login ${res.status}: ${await res.text()}`);
+    break;
+  }
+  throw lastError ?? new Error('login failed');
+}
+
 export { expect, FRONTEND_BASE, API_BASE };
