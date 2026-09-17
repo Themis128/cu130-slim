@@ -162,7 +162,7 @@ async def _process_account(
     dmr_url: str,
 ) -> int:
     """Process a single Threads account — poll conversations and reply."""
-    bridge = BrowserBridgeClient(bridge_url)
+    bridge = BrowserBridgeClient(bridge_url, platform='threads')
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 

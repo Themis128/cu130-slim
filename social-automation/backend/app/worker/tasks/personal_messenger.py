@@ -184,7 +184,7 @@ async def _process_account(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
     from app.services.browser_orchestrator import browser_session
 
-    bridge = BrowserBridgeClient(bridge_url)
+    bridge = BrowserBridgeClient(bridge_url, platform='facebook')
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 

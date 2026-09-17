@@ -113,7 +113,7 @@ def _twitter_bridge() -> Any:
     from app.services.browser_orchestrator import browser_session
 
     return browser_session(
-        "twitter", BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+        "twitter", BrowserBridgeClient(get_settings(, platform='twitter').BROWSER_BRIDGE_URL)
     )
 
 

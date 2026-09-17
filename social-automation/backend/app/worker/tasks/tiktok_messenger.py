@@ -160,7 +160,7 @@ async def _process_account(
     dmr_url: str,
 ) -> int:
     """Process a single TikTok account — poll DMs via browser bridge and reply."""
-    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL)
+    bridge = BrowserBridgeClient(get_settings(, platform='tiktok').BROWSER_BRIDGE_URL)
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 

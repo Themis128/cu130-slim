@@ -202,7 +202,7 @@ async def _process_account(
     if client is None:
         settings = get_settings()
         bridge_url = getattr(settings, "BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
-        bridge = BrowserBridgeClient(base_url=bridge_url)
+        bridge = BrowserBridgeClient(base_url=bridge_url, platform='instagram')
         try:
             await bridge.ensure_session("instagram")
             logger.info("Instagram DM: using browser bridge fallback for %s", account.id)
