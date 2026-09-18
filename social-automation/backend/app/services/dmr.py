@@ -358,27 +358,25 @@ def _select_model_by_complexity(
     """Route to the appropriate model based on platform, task, and complexity.
 
     - Explicit model_override always wins.
-    - JSON/schema requests → DMR_TEXT_MODEL (qwen3:8b — structured output needs
-      the most capable local model).
     - Long-form platforms (linkedin, facebook) → DMR_TEXT_MODEL.
     - Short-form platforms (instagram, tiktok, x, threads, youtube) →
       DMR_MID_MODEL (non-thinking instruct — much faster than the 8B thinking
-      model and already warm for chatbots).
+      model and already warm for chatbots). Schema requests on these platforms
+      also route here: json_object mode constrains decode to valid JSON, so
+      the 4B can't malform the flat caption/hashtag schemas they use.
+    - JSON/schema with no platform hint → DMR_TEXT_MODEL (complex nested
+      schemas like carousel outlines get the most capable local model).
     - Short prompts (<200 chars, no platform hint) → DMR_TINY_MODEL.
     - Everything else → DMR_TEXT_MODEL.
     """
     if model_override:
         return model_override
 
-    if schema:
+    p = platform.strip().lower() if platform else ""
+    if p in SHORT_FORM_PLATFORMS:
+        return settings.DMR_MID_MODEL
+    if schema or p in LONG_FORM_PLATFORMS:
         return settings.DMR_TEXT_MODEL
-
-    if platform:
-        p = platform.strip().lower()
-        if p in LONG_FORM_PLATFORMS:
-            return settings.DMR_TEXT_MODEL
-        if p in SHORT_FORM_PLATFORMS:
-            return settings.DMR_MID_MODEL
 
     # Short prompts don't need a big model
     if len(prompt) < 200:
