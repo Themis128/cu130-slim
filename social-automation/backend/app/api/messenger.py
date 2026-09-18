@@ -939,7 +939,7 @@ async def _generate_ai_response(
 
 
 @router.get("/sidecar/status", response_model=dict)
-async def sidecar_status() -> dict:
+async def sidecar_status(current_user: User = Depends(get_current_user)) -> dict:
     """Check the Messenger webhook sidecar health and stats.
 
     Returns sidecar health, processing statistics, and configuration.

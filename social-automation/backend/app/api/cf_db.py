@@ -9,8 +9,10 @@ Endpoints:
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.auth import get_current_user
+from app.models.user import User
 from app.services.d1_client import d1_client
 from app.services.db_router import db_router
 from app.services.db_sync import SYNC_TABLES, sync_service
@@ -46,19 +48,19 @@ async def cf_db_health() -> dict:
 
 
 @router.get("/status")
-async def cf_db_status() -> dict:
+async def cf_db_status(current_user: User = Depends(get_current_user)) -> dict:
     """Get the current state of the dual-write router."""
     return await db_router.health()
 
 
 @router.post("/sync")
-async def cf_db_sync() -> dict:
+async def cf_db_sync(current_user: User = Depends(get_current_user)) -> dict:
     """Trigger a full bidirectional sync between D1 and PostgreSQL."""
     return await sync_service.full_bidirectional_sync()
 
 
 @router.post("/replay")
-async def cf_db_replay() -> dict:
+async def cf_db_replay(current_user: User = Depends(get_current_user)) -> dict:
     """Replay queued writes to D1 after a D1 outage."""
     replayed = await db_router.replay_queue()
     return {
@@ -68,7 +70,7 @@ async def cf_db_replay() -> dict:
 
 
 @router.get("/tables")
-async def cf_db_tables() -> dict:
+async def cf_db_tables(current_user: User = Depends(get_current_user)) -> dict:
     """List D1 tables and their row counts."""
     if not d1_client.enabled:
         return {"enabled": False, "tables": []}
@@ -88,7 +90,7 @@ async def cf_db_tables() -> dict:
 
 
 @router.get("/sync-tables")
-async def cf_db_sync_tables() -> dict:
+async def cf_db_sync_tables(current_user: User = Depends(get_current_user)) -> dict:
     """List the tables configured for bidirectional sync."""
     return {
         "tables": [t["table"] for t in SYNC_TABLES],
