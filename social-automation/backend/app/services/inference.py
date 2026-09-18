@@ -103,7 +103,13 @@ PROVIDER_CATALOG = [
         "requires_key": False,
         "in_fallback_chain": True,
         "description": "Local Docker Model Runner (llama.cpp) — no API key needed, GPU-accelerated. Primary text inference provider.",
-        "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm3"],
+        "model_examples": [
+            "ai/qwen3:8b-q4_K_M",
+            "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+            "ai/qwen3-vl",
+            "ai/qwen3-embedding",
+            "ai/smollm3",
+        ],
     },
     {
         "name": "dmr-vllm",
