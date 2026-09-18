@@ -773,9 +773,13 @@ async def verify_2fa(
     return {"message": "Two-factor authentication enabled", "enabled": True}
 
 
+class TwoFactorDisableRequest(BaseModel):
+    current_password: str
+
+
 @router.delete("/2fa")
 async def disable_2fa(
-    data: ChangePasswordRequest,
+    data: TwoFactorDisableRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
