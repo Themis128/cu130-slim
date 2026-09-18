@@ -19,6 +19,7 @@ export default function RegisterPage() {
     email: '',
     password: '',
     confirmPassword: '',
+    discount_code: '',
   })
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -41,7 +42,12 @@ export default function RegisterPage() {
 
     setIsLoading(true)
     try {
-      const ok = await register({ name: formData.full_name, email: formData.email, password: formData.password })
+      const ok = await register({
+        name: formData.full_name,
+        email: formData.email,
+        password: formData.password,
+        ...(formData.discount_code.trim() ? { discount_code: formData.discount_code.trim() } : {}),
+      })
       if (!ok) return
       router.push('/dashboard')
       router.refresh()
@@ -123,6 +129,20 @@ export default function RegisterPage() {
                 error={errors.confirmPassword}
                 disabled={isLoading}
                 autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="discount_code">Discount code (optional)</Label>
+              <Input
+                id="discount_code"
+                name="discount_code"
+                type="text"
+                placeholder="e.g. LAUNCH20"
+                value={formData.discount_code}
+                onChange={handleChange}
+                error={errors.discount_code}
+                disabled={isLoading}
+                autoComplete="off"
               />
             </div>
             <Button type="submit" className="w-full" isLoading={isLoading}>

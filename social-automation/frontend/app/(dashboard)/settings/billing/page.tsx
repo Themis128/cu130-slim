@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Script from 'next/script'
-import { Check, CreditCard, ExternalLink, Loader2, XCircle } from 'lucide-react'
+import { Check, CreditCard, ExternalLink, Loader2, Tag, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
 import { Separator } from '@/components/ui/Separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { billingApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import { formatErrorToast } from '@/lib/humanizeError'
@@ -43,8 +46,48 @@ interface Subscription {
   paddle_subscription_id: string | null
   polar_customer_id: string | null
   polar_subscription_id: string | null
+  polar_discount_code: string | null
   dodo_customer_id: string | null
   dodo_subscription_id: string | null
+}
+
+interface DiscountInfo {
+  id: string
+  name: string | null
+  code: string
+  type: string // percentage | fixed
+  basis_points: number | null // percentage: 5000 = 50%
+  amount: number | null // fixed: minor units
+  currency: string | null
+  duration: string // once | forever | repeating
+  duration_in_months: number | null
+  starts_at: string | null
+  ends_at: string | null
+  max_redemptions: number | null
+  redemptions_count: number | null
+}
+
+interface DiscountState {
+  provider: string
+  code: string | null
+  valid: boolean
+  discount: DiscountInfo | null
+}
+
+function describeDiscount(d: DiscountInfo): string {
+  const value =
+    d.type === 'percentage' && d.basis_points != null
+      ? `${d.basis_points / 100}% off`
+      : d.type === 'fixed' && d.amount != null
+        ? `${(d.amount / 100).toFixed(2)} ${(d.currency || 'usd').toUpperCase()} off`
+        : 'Discount'
+  const duration =
+    d.duration === 'forever'
+      ? 'every payment'
+      : d.duration === 'repeating'
+        ? `for ${d.duration_in_months ?? '?'} months`
+        : 'on your first payment'
+  return `${d.name ? `${d.name} — ` : ''}${value}, applies ${duration}`
 }
 
 const TIER_LABELS: Record<string, string> = {
@@ -82,6 +125,9 @@ export default function BillingPage() {
   const [busyTier, setBusyTier] = useState<string | null>(null)
   const [portalLoading, setPortalLoading] = useState(false)
   const [paddleReady, setPaddleReady] = useState(false)
+  const [discount, setDiscount] = useState<DiscountState | null>(null)
+  const [discountInput, setDiscountInput] = useState('')
+  const [discountBusy, setDiscountBusy] = useState(false)
 
   const load = async () => {
     try {
@@ -93,6 +139,9 @@ export default function BillingPage() {
       setConfig(cfg.data)
       setPlans(pl.data.plans)
       setSub(s.data)
+      if (cfg.data.provider === 'polar') {
+        billingApi.discount().then((res) => setDiscount(res.data)).catch(() => {})
+      }
     } catch (e) {
       toast.error(formatErrorToast('Failed to load billing', e))
     } finally {
@@ -159,6 +208,37 @@ export default function BillingPage() {
       load()
     } catch (e) {
       toast.error(formatErrorToast('Cancel failed', e))
+    }
+  }
+
+  const applyDiscount = async () => {
+    const code = discountInput.trim()
+    if (!code) return
+    setDiscountBusy(true)
+    try {
+      const res = await billingApi.setDiscount(code)
+      setDiscount(res.data)
+      setDiscountInput('')
+      if (res.data.code && res.data.valid) toast.success('Discount code applied')
+      else if (res.data.code) toast('Code saved — Polar does not recognize it yet')
+      else toast.success('Discount code cleared')
+    } catch (e) {
+      toast.error(formatErrorToast('Could not save the discount code', e))
+    } finally {
+      setDiscountBusy(false)
+    }
+  }
+
+  const removeDiscount = async () => {
+    setDiscountBusy(true)
+    try {
+      const res = await billingApi.clearDiscount()
+      setDiscount(res.data)
+      toast.success('Discount code removed')
+    } catch (e) {
+      toast.error(formatErrorToast('Could not remove the discount code', e))
+    } finally {
+      setDiscountBusy(false)
     }
   }
 
@@ -240,6 +320,18 @@ export default function BillingPage() {
 
       <Separator />
 
+      <Tabs defaultValue="plans">
+        <TabsList className="mb-4">
+          <TabsTrigger value="plans">Plans</TabsTrigger>
+          {config?.provider === 'polar' && (
+            <TabsTrigger value="discount">
+              <Tag className="mr-2 h-4 w-4" />
+              Discount
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="plans">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {plans.map((plan) => {
           const isCurrent = plan.tier === currentTier
@@ -284,6 +376,70 @@ export default function BillingPage() {
           )
         })}
       </div>
+        </TabsContent>
+
+        {config?.provider === 'polar' && (
+          <TabsContent value="discount">
+            <Card>
+              <CardHeader>
+                <CardTitle>Discount code</CardTitle>
+                <CardDescription>
+                  Saved on your team and applied automatically to your next Polar checkout
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {discount?.code && (
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div>
+                      <p className="font-mono font-medium">{discount.code}</p>
+                      {discount.discount ? (
+                        <p className="text-sm text-muted-foreground">
+                          {describeDiscount(discount.discount)}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-amber-600">
+                          Polar does not recognize this code yet — it will be ignored at checkout.
+                        </p>
+                      )}
+                    </div>
+                    <Badge variant={discount.valid ? 'default' : 'secondary'}>
+                      {discount.valid ? 'Active' : 'Not active'}
+                    </Badge>
+                  </div>
+                )}
+                <div className="flex items-end gap-2 max-w-md">
+                  <div className="flex-1 space-y-2">
+                    <Label htmlFor="discount-code">
+                      {discount?.code ? 'Replace code' : 'Enter a code'}
+                    </Label>
+                    <Input
+                      id="discount-code"
+                      value={discountInput}
+                      onChange={(e) => setDiscountInput(e.target.value.toUpperCase())}
+                      placeholder="e.g. LAUNCH20"
+                      autoComplete="off"
+                      disabled={discountBusy}
+                    />
+                  </div>
+                  <Button onClick={applyDiscount} disabled={discountBusy || !discountInput.trim()}>
+                    {discountBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                  </Button>
+                  {discount?.code && (
+                    <Button variant="outline" onClick={removeDiscount} disabled={discountBusy}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Codes are managed in your Polar dashboard — percentage or fixed amount, one-time
+                  or recurring. The code is checked again at checkout, so expired or exhausted
+                  codes are simply skipped.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   )
 }

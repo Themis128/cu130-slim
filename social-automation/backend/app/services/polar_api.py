@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import logging
 import time
+from datetime import UTC, datetime
 
 import httpx
 
@@ -137,11 +138,13 @@ async def create_checkout(
     customer_id: str | None = None,
     customer_email: str | None = None,
     customer_name: str | None = None,
+    discount_id: str | None = None,
 ) -> dict:
     """Create a hosted checkout → returns ``{id, url}``.
 
     ``metadata.team_id`` and ``external_customer_id`` flow through to webhook
-    events so the team resolves without extra lookups.
+    events so the team resolves without extra lookups. ``discount_id``
+    pre-applies a Polar discount on the hosted checkout.
     """
     s = _settings()
     payload: dict = {
@@ -158,8 +161,66 @@ async def create_checkout(
         payload["customer_email"] = customer_email
     if customer_name:
         payload["customer_name"] = customer_name
+    if discount_id:
+        payload["discount_id"] = discount_id
     data = await _request("POST", "/checkouts/", json=payload)
     return {"id": data["id"], "checkout_url": data.get("url")}
+
+
+async def get_discount_for_code(code: str) -> dict | None:
+    """Return the Polar discount whose ``code`` matches (case-insensitive).
+
+    ``GET /discounts`` is filtered server-side by ``query`` (matches name or
+    code); we re-match the code client-side per Polar docs. Returns the raw
+    discount dict regardless of redemption state — callers use
+    ``discount_is_redeemable`` to decide whether it can be applied now.
+    """
+    code = (code or "").strip()
+    if not code:
+        return None
+    data = await _request("GET", "/discounts/", params={"query": code, "limit": 100})
+    for d in data.get("items") or []:
+        if (d.get("code") or "").lower() == code.lower():
+            return d
+    return None
+
+
+def discount_is_redeemable(discount: dict, now: datetime | None = None) -> bool:
+    """True when the discount is inside its window and under its cap."""
+    now = now or datetime.now(UTC)
+    starts_at = _parse_polar_dt(discount.get("starts_at"))
+    ends_at = _parse_polar_dt(discount.get("ends_at"))
+    if starts_at and starts_at > now:
+        return False
+    if ends_at and ends_at < now:
+        return False
+    max_red = discount.get("max_redemptions")
+    if max_red is not None and (discount.get("redemptions_count") or 0) >= max_red:
+        return False
+    return True
+
+
+async def get_discount_id_for_code(code: str) -> str | None:
+    """Resolve a redeemable Polar discount code to its discount ID.
+
+    Returns ``None`` when the code can't be resolved or isn't currently
+    redeemable — the caller treats that as "no discount" and still lets the
+    customer type the code manually on the hosted checkout page.
+    """
+    d = await get_discount_for_code(code)
+    if d and discount_is_redeemable(d):
+        return d.get("id")
+    return None
+
+
+def _parse_polar_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 async def get_subscription(subscription_id: str) -> dict:

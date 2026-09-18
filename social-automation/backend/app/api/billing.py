@@ -42,6 +42,11 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 class CheckoutRequest(BaseModel):
     tier: str  # pro | business | enterprise
+    discount_code: str | None = None  # optional Polar discount code override
+
+
+class DiscountCodeRequest(BaseModel):
+    code: str | None = None  # empty/None clears the stored code
 
 
 class CheckoutResponse(BaseModel):
@@ -159,10 +164,103 @@ async def get_subscription(
         "paddle_subscription_id": team.paddle_subscription_id,
         "polar_customer_id": team.polar_customer_id,
         "polar_subscription_id": team.polar_subscription_id,
+        "polar_discount_code": team.polar_discount_code,
         "dodo_customer_id": team.dodo_customer_id,
         "dodo_subscription_id": team.dodo_subscription_id,
         "provider": _provider(),
     }
+
+
+def _discount_payload(d: dict | None) -> dict | None:
+    """Curated discount fields the frontend needs to describe the offer."""
+    if not d:
+        return None
+    return {
+        "id": d.get("id"),
+        "name": d.get("name"),
+        "code": d.get("code"),
+        "type": d.get("type"),  # percentage | fixed
+        "basis_points": d.get("basis_points"),  # percentage: 5000 = 50%
+        "amount": d.get("amount"),  # fixed: minor units
+        "currency": d.get("currency"),
+        "duration": d.get("duration"),  # once | forever | repeating
+        "duration_in_months": d.get("duration_in_months"),
+        "starts_at": d.get("starts_at"),
+        "ends_at": d.get("ends_at"),
+        "max_redemptions": d.get("max_redemptions"),
+        "redemptions_count": d.get("redemptions_count"),
+    }
+
+
+async def _resolve_discount(code: str | None) -> tuple[dict | None, bool]:
+    """Return ``(discount payload, redeemable_now)`` for a code.
+
+    Only meaningful under the Polar provider; lookup failures are non-fatal
+    and simply report the code as unresolvable.
+    """
+    if _provider() != "polar" or not (code or "").strip():
+        return None, False
+    try:
+        d = await polar_api.get_discount_for_code(code)
+    except polar_api.PolarError as exc:
+        logger.warning("Polar discount lookup failed: %s", exc)
+        return None, False
+    return _discount_payload(d), bool(d and polar_api.discount_is_redeemable(d))
+
+
+@router.get("/discount")
+async def get_discount(
+    team_id: TeamId,
+    db: DbSession,
+    current_user: User = Depends(require_team_owner),
+):
+    """The team's stored Polar discount code plus its redemption state."""
+    team = await _get_team(team_id, db)
+    discount, valid = await _resolve_discount(team.polar_discount_code)
+    return {
+        "provider": _provider(),
+        "code": team.polar_discount_code,
+        "valid": valid,
+        "discount": discount,
+    }
+
+
+@router.put("/discount")
+async def set_discount(
+    body: DiscountCodeRequest,
+    team_id: TeamId,
+    db: DbSession,
+    current_user: User = Depends(require_team_owner),
+):
+    """Store (or clear) the team's Polar discount code.
+
+    The code is persisted even when Polar doesn't recognize it — it may not
+    be active yet, and the hosted checkout page still offers a manual field.
+    ``valid`` tells the frontend whether it would apply to a checkout today.
+    """
+    team = await _get_team(team_id, db)
+    team.polar_discount_code = (body.code or "").strip().upper() or None
+    await db.commit()
+    discount, valid = await _resolve_discount(team.polar_discount_code)
+    return {
+        "provider": _provider(),
+        "code": team.polar_discount_code,
+        "valid": valid,
+        "discount": discount,
+    }
+
+
+@router.delete("/discount")
+async def clear_discount(
+    team_id: TeamId,
+    db: DbSession,
+    current_user: User = Depends(require_team_owner),
+):
+    """Remove the team's stored discount code."""
+    team = await _get_team(team_id, db)
+    team.polar_discount_code = None
+    await db.commit()
+    return {"provider": _provider(), "code": None, "valid": False, "discount": None}
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
@@ -188,6 +286,17 @@ async def create_checkout(
 
     team = await _get_team(team_id, db)
     if _provider() == "polar":
+        # Resolve a discount code — request override wins, otherwise fall back
+        # to the code captured at registration (teams.polar_discount_code).
+        # Lookup failures are non-fatal: the hosted checkout page still shows
+        # a manual discount field the customer can use.
+        discount_id: str | None = None
+        discount_code = (body.discount_code or team.polar_discount_code or "").strip()
+        if discount_code:
+            try:
+                discount_id = await polar_api.get_discount_id_for_code(discount_code)
+            except polar_api.PolarError as exc:
+                logger.warning("Polar discount lookup failed for team %s: %s", team.id, exc)
         try:
             txn = await polar_api.create_checkout(
                 product_id=price_id,
@@ -195,6 +304,7 @@ async def create_checkout(
                 customer_id=team.polar_customer_id,
                 customer_email=current_user.email,
                 customer_name=current_user.name,
+                discount_id=discount_id,
             )
         except polar_api.PolarError as exc:
             if "AlreadyActiveSubscription" in str(exc):

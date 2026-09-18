@@ -167,7 +167,7 @@ export const getRefreshToken = () => {
 
 // Auth endpoints
 export const authApi = {
-  register: (data: { email: string; password: string; name: string }) =>
+  register: (data: { email: string; password: string; name: string; discount_code?: string }) =>
     api.post('/auth/register', data),
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', new URLSearchParams({ username: data.email, password: data.password }), {
@@ -223,10 +223,14 @@ export const billingApi = {
   config: () => api.get('/billing/config'),
   plans: () => api.get('/billing/plans'),
   subscription: () => api.get('/billing/subscription'),
-  checkout: (tier: string) => api.post('/billing/checkout', { tier }),
+  checkout: (tier: string, discountCode?: string) =>
+    api.post('/billing/checkout', { tier, ...(discountCode ? { discount_code: discountCode } : {}) }),
   portal: () => api.post('/billing/portal'),
   cancel: () => api.post('/billing/cancel'),
   sync: () => api.post('/billing/sync'),
+  discount: () => api.get('/billing/discount'),
+  setDiscount: (code: string) => api.put('/billing/discount', { code }),
+  clearDiscount: () => api.delete('/billing/discount'),
 }
 
 // Content endpoints

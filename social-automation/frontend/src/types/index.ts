@@ -336,6 +336,7 @@ export interface RegisterData {
   email: string
   password: string
   name: string
+  discount_code?: string
 }
 
 export interface TokenResponse {

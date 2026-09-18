@@ -75,6 +75,7 @@ class Team(Base):
     # Polar.sh Billing linkage (MoR replacement for Paddle)
     polar_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     polar_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    polar_discount_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Dodo Payments Billing linkage (MoR, direct bank payouts — no Stripe)
     dodo_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     dodo_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

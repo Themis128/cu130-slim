@@ -308,6 +308,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str | None = None
+    discount_code: str | None = None
 
 
 class UserResponse(BaseModel):
@@ -383,8 +384,13 @@ async def register(request: Request, user_data: UserCreate, db: AsyncSession = D
     db.add(user)
     await db.flush()
 
-    # Create default team
-    team = Team(name=f"{user.name or user.email}'s Team", owner_id=user.id)
+    # Create default team — keep the signup discount code so billing
+    # checkout can resolve it to a Polar discount and auto-apply it.
+    team = Team(
+        name=f"{user.name or user.email}'s Team",
+        owner_id=user.id,
+        polar_discount_code=(user_data.discount_code or "").strip().upper() or None,
+    )
     db.add(team)
     await db.flush()
 
