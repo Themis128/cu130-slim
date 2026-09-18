@@ -361,6 +361,7 @@ async def undeploy_workflow(
 @router.post("/generate", response_model=WorkflowGenerateResponse)
 async def generate_workflow(
     request: WorkflowGenerateRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -372,11 +373,18 @@ async def generate_workflow(
     """
     import re
 
+    from sqlalchemy import or_
+
     from app.services.inference import call_inference
 
     template = None
     if request.template_id:
-        result = await db.execute(select(PromptTemplate).where(PromptTemplate.id == request.template_id))
+        result = await db.execute(
+            select(PromptTemplate).where(
+                PromptTemplate.id == request.template_id,
+                or_(PromptTemplate.team_id == team_id, PromptTemplate.is_public),
+            )
+        )
         template = result.scalar_one_or_none()
 
     variables_used: dict = {}
