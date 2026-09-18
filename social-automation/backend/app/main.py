@@ -76,5 +76,6 @@ async def favicon():
 
 
 @app.get("/health")
+@app.get("/api/v1/health", include_in_schema=False)
 async def health_check():
     return {"status": "ok", "service": settings.APP_NAME, "version": settings.APP_VERSION}
