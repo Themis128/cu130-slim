@@ -62,8 +62,12 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_PREFIX)
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/api/v1/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except OSError:
+    pass
+if os.path.isdir(UPLOAD_DIR):
+    app.mount("/api/v1/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
