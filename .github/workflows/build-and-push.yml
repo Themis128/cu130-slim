@@ -73,7 +73,9 @@ jobs:
 
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
           docker system prune -af
 
       - name: Set up Docker Buildx

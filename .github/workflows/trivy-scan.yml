@@ -99,13 +99,22 @@ jobs:
       - name: Free up disk space
         if: matrix.service == 'comfyui'
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
           docker system prune -af
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Pull published comfyui image (avoids ~15GB build overhead)
+        if: matrix.service == 'comfyui'
+        run: |
+          docker pull baltzakist/cu130-slim-comfyui:latest || \
+            docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+
       - name: Build ${{ matrix.service }} image
+        if: matrix.service != 'comfyui'
         run: |
           docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache "${{ matrix.service }}"
 
@@ -183,15 +192,18 @@ jobs:
 
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
           docker system prune -af
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build ComfyUI image
+      - name: Pull published ComfyUI image (avoids ~15GB build overhead)
         run: |
-          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+          docker pull baltzakist/cu130-slim-comfyui:latest || \
+            docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
 
       - name: Resolve ComfyUI image ref
         id: image
