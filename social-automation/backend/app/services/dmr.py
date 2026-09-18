@@ -197,6 +197,7 @@ async def validate_dmr_models() -> dict[str, Any]:
     expected = {
         settings.DMR_TEXT_MODEL,
         settings.DMR_TINY_MODEL,
+        getattr(settings, "DMR_MID_MODEL", ""),
         getattr(settings, "DMR_CHATBOT_MODEL", ""),
         settings.DMR_EMBEDDING_MODEL,
         settings.DMR_VISION_MODEL,
@@ -536,9 +537,14 @@ async def warmup_models() -> None:
         # the configs are applied even after a DMR restart.
         await apply_best_practice_configs()
 
-        # Only warm the primary text model — it's the most frequently used
-        # and the largest.  Other models load near-instantly on first request.
-        models_to_warm = [settings.DMR_TEXT_MODEL]
+        # Warm the two hot-path models: the mid instruct (chatbots + short-form
+        # platform copy, latency-critical) and the primary text model (long-form
+        # + schema). Both fit together on the 8GB card (~7.9GB worst case).
+        models_to_warm = [
+            getattr(settings, "DMR_MID_MODEL", ""),
+            settings.DMR_TEXT_MODEL,
+        ]
+        models_to_warm = [m for m in dict.fromkeys(models_to_warm) if m]
 
         # Vision model is large — only warm if VRAM allows AND we have headroom
         if _has_vram_for_model(settings.DMR_VISION_MODEL):
@@ -842,10 +848,14 @@ async def call_dmr_chat(
     tools: list[dict] | None = None,
     stream: bool = False,
     temperature: float = 0.7,
+    platform: str | None = None,
 ) -> dict[str, Any]:
     """Call DMR for chat completion with all improvements active.
 
     This is the main entry point for text inference via DMR.
+    ``platform`` (e.g. "linkedin", "instagram") selects the content tier:
+    long-form platforms → the 8B model, short-form → the mid instruct model.
+
     Returns:
         {"text": str} for plain text
         {"json": dict} for schema/JSON responses
@@ -863,6 +873,7 @@ async def call_dmr_chat(
         tools=tools,
         stream=stream,
         timeout=dmr_timeout,
+        platform=platform,
     )
 
 

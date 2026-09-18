@@ -1465,10 +1465,14 @@ async def _do_call_inference(
     model_override: str | None = None,
     max_tokens: int | None = None,
     allow_fallback: bool = True,
+    platform: str | None = None,
 ) -> dict:
     """Call the requested inference provider and return parsed JSON or text dict."""
     if provider_name == "dmr":
-        return await _call_dmr_chat(prompt, schema=schema, model_override=model_override, max_tokens=max_tokens)
+        return await _call_dmr_chat(
+            prompt, schema=schema, model_override=model_override,
+            max_tokens=max_tokens, platform=platform,
+        )
 
     if provider_name == "dmr-vllm":
         # Experimental vLLM backend — manual selection only, safetensors models.
@@ -1645,6 +1649,7 @@ async def call_inference(
     *,
     endpoint: str = "",
     brand_context: str | None = None,
+    platform: str | None = None,
 ) -> dict:
     """Public inference entry point with usage tracking.
 
@@ -1654,6 +1659,10 @@ async def call_inference(
     If ``brand_context`` is provided, it is prepended to the prompt as a system
     instruction so every inference call can be brand-aware without callers
     manually assembling the system prompt.
+
+    ``platform`` (e.g. "linkedin", "instagram") feeds DMR's platform-aware
+    model routing — long-form platforms get the 8B model, short-form get the
+    mid instruct model. Ignored by non-DMR providers.
     """
     # Prepend brand context to the prompt if provided
     if brand_context:
@@ -1719,6 +1728,7 @@ async def call_inference(
                     model_override=effective_override,
                     max_tokens=max_tokens,
                     allow_fallback=False,
+                    platform=platform,
                 )
                 used_provider = candidate
                 if candidate != provider_name:
