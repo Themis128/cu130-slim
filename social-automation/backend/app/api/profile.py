@@ -150,9 +150,11 @@ class BrowserLoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Unified login response for private API or browser sessions."""
-    session_id: str | None = None
-    storage_state: dict | None = None
+    """Unified login response for private API or browser sessions.
+
+    Session credentials (session_id, storage_state) are stored server-side
+    and intentionally never returned to the client.
+    """
     logged_in: bool
     two_factor_required: bool = False
     challenge_required: bool = False
@@ -407,7 +409,6 @@ async def platform_login(
             await db.commit()
 
         return LoginResponse(
-            session_id=session_id,
             logged_in=bool(session_id) and not two_factor and not challenge,
             two_factor_required=two_factor,
             message=result.get(
@@ -486,7 +487,6 @@ async def platform_login(
             await db.commit()
 
         return LoginResponse(
-            storage_state=storage_state,
             logged_in=logged_in,
             two_factor_required=two_factor,
             message=result.get("message", "Login successful" if logged_in else "Login failed"),
