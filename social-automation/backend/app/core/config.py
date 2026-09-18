@@ -68,12 +68,15 @@ class Settings(BaseSettings):
     DMR_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1"
     # Base URL (no /engines/... suffix) for sidecars and worker tasks.
     DMR_BASE_URL: str = "http://host.docker.internal:12435"
-    DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # shares loaded model with schema path (VRAM-friendly on 8GB)
+    DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # long-form + schema/JSON (thinking model, ~5.2GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
     DMR_TINY_MODEL: str = "ai/smollm3"
+    # Mid-tier non-thinking instruct (4B, ~2.7GB resident) — short-form platform
+    # copy + chatbots. Pinned via keep-alive so the latency-critical paths stay warm.
+    DMR_MID_MODEL: str = "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
     # Chatbot model — needs strong instruction-following (pricing/recruiting/disclosure rules)
-    DMR_CHATBOT_MODEL: str = "ai/qwen3:8b-q4_K_M"
+    DMR_CHATBOT_MODEL: str = "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
     # Experimental vLLM backend on the same GPU runner (safetensors models only).
     DMR_VLLM_URL: str = "http://host.docker.internal:12435/engines/vllm/v1"
     # Max concurrent DMR requests — protects the 8GB card from KV-cache contention.
