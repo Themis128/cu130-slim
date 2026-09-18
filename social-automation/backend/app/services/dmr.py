@@ -330,24 +330,52 @@ async def _unload_idle_models() -> None:
 
 # ── Per-request model routing (improvement #6) ────────────────────────────────
 
+# Platform-aware routing tuned for the RTX 3070 8GB card.
+#
+# Two content tiers:
+#   long-form  → DMR_TEXT_MODEL  (qwen3:8b, thinking model — best for professional
+#                long copy, LinkedIn/Facebook posts, structured JSON)
+#   short-form → DMR_MID_MODEL   (qwen3-4b-instruct-2507, non-thinking — fast,
+#                punchy copy for Instagram/TikTok/X/Threads/YouTube; also the
+#                chatbot model, kept warm via keep-alive 30m)
+# Sub-200-char prompts on any platform still take the tiny model (smollm3),
+# and schema requests always take the 8B regardless of platform.
+LONG_FORM_PLATFORMS = frozenset({"linkedin", "facebook", "blog", "article"})
+SHORT_FORM_PLATFORMS = frozenset({
+    "instagram", "tiktok", "twitter", "x", "threads", "youtube", "pinterest",
+})
+
 
 def _select_model_by_complexity(
     prompt: str,
     schema: dict | None = None,
     model_override: str | None = None,
+    platform: str | None = None,
 ) -> str:
-    """Route to the appropriate model based on prompt complexity.
+    """Route to the appropriate model based on platform, task, and complexity.
 
     - Explicit model_override always wins.
-    - JSON/schema requests → qwen3:8b (structured output needs a capable model).
-    - Short prompts (<200 chars) → DMR_TINY_MODEL (smollm3 3.1B, ~2GB VRAM, reasoning off).
-    - Long/complex prompts → DMR_TEXT_MODEL (configured default, usually llama3.2).
+    - JSON/schema requests → DMR_TEXT_MODEL (qwen3:8b — structured output needs
+      the most capable local model).
+    - Long-form platforms (linkedin, facebook) → DMR_TEXT_MODEL.
+    - Short-form platforms (instagram, tiktok, x, threads, youtube) →
+      DMR_MID_MODEL (non-thinking instruct — much faster than the 8B thinking
+      model and already warm for chatbots).
+    - Short prompts (<200 chars, no platform hint) → DMR_TINY_MODEL.
+    - Everything else → DMR_TEXT_MODEL.
     """
     if model_override:
         return model_override
 
     if schema:
-        return "ai/qwen3:8b-q4_K_M"
+        return settings.DMR_TEXT_MODEL
+
+    if platform:
+        p = platform.strip().lower()
+        if p in LONG_FORM_PLATFORMS:
+            return settings.DMR_TEXT_MODEL
+        if p in SHORT_FORM_PLATFORMS:
+            return settings.DMR_MID_MODEL
 
     # Short prompts don't need a big model
     if len(prompt) < 200:
