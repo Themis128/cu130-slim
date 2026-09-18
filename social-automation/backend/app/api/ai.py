@@ -3158,7 +3158,7 @@ async def dmr_keep_alive(
 class DmrSpeculativeDecodingRequest(BaseModel):
     """DMR speculative decoding configuration request."""
     model: str
-    draft_model: str = "ai/smollm2"
+    draft_model: str = "hf.co/Qwen/Qwen3-0.6B-GGUF"
 
 
 @router.post("/dmr/speculative-decoding")

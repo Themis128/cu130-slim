@@ -86,7 +86,7 @@ class _FakeClient:
 
 def _dmr_settings(monkeypatch, url="http://dmr:12434/engines/v1"):
     monkeypatch.setattr(inference.settings, "DMR_URL", url)
-    monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
+    monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
     monkeypatch.setattr(inference.settings, "DMR_EMBEDDING_MODEL", "ai/mxbai-embed-large")
 
 
@@ -527,8 +527,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "Hello!"}}]})
         # Mock the DMR service's shared client and health check
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
@@ -546,8 +546,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(200, {
             "choices": [{"message": {"content": '{"slides": ["a", "b"]}'}}]
         })
@@ -567,8 +567,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(503, {"detail": "model loading"})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
@@ -587,8 +587,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(200, {
             "choices": [{"message": {"content": None, "reasoning_content": "I think..."}}]
         })
@@ -606,8 +606,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
@@ -623,8 +623,8 @@ class TestCallDmrChat:
         from app.services import dmr as dmr_mod
 
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
-        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm2:360M-Q4_K_M")
-        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm2")
+        monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
+        monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))

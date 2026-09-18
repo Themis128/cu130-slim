@@ -255,7 +255,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "model": {"type": "string", "description": "Model identifier (e.g. 'ai/smollm2', 'ai/qwen3:8b-q4_K_M')", "default": "ai/smollm2"},
+                "model": {"type": "string", "description": "Model identifier (e.g. 'ai/smollm3', 'ai/qwen3:8b-q4_K_M')", "default": "ai/smollm3"},
                 "message": {"type": "string", "description": "The user message / prompt"},
                 "system": {"type": "string", "description": "Optional system prompt"},
                 "max_tokens": {"type": "integer", "description": "Max tokens to generate", "default": 512},
@@ -273,7 +273,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm2"},
+                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm3"},
                 "prompt": {"type": "string", "description": "The prompt text"},
                 "max_tokens": {"type": "integer", "description": "Max tokens to generate", "default": 256},
                 "temperature": {"type": "number", "description": "Sampling temperature (0.0-2.0)", "default": 0.7},
@@ -314,7 +314,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm2"},
+                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm3"},
                 "message": {"type": "string", "description": "The user message"},
                 "stream": {"type": "boolean", "description": "Enable streaming (default false)", "default": False},
             },
@@ -327,7 +327,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm2"},
+                "model": {"type": "string", "description": "Model identifier", "default": "ai/smollm3"},
                 "message": {"type": "string", "description": "The user message"},
                 "system": {"type": "string", "description": "Optional system prompt"},
                 "max_tokens": {"type": "integer", "description": "Max tokens to generate", "default": 1024},
@@ -514,7 +514,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     # --- Inference ---
 
     elif name == "dmr_chat":
-        model = args.get("model", "ai/smollm2")
+        model = args.get("model", "ai/smollm3")
         message = args["message"]
         system = args.get("system")
         max_tokens = args.get("max_tokens", 512)
@@ -548,7 +548,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return _text_result(text)
 
     elif name == "dmr_completion":
-        model = args.get("model", "ai/smollm2")
+        model = args.get("model", "ai/smollm3")
         prompt = args["prompt"]
         max_tokens = args.get("max_tokens", 256)
         temperature = args.get("temperature", 0.7)
@@ -618,7 +618,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return _text_result(f"Model: {model}\nImage: {image_path}\nResponse: {content}")
 
     elif name == "dmr_ollama_chat":
-        model = args.get("model", "ai/smollm2")
+        model = args.get("model", "ai/smollm3")
         message = args["message"]
         stream = args.get("stream", False)
         result = _api_post("/api/chat", {
@@ -632,7 +632,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return _text_result(f"Model: {model}\nResponse: {content}")
 
     elif name == "dmr_anthropic":
-        model = args.get("model", "ai/smollm2")
+        model = args.get("model", "ai/smollm3")
         message = args["message"]
         system = args.get("system")
         max_tokens = args.get("max_tokens", 1024)
