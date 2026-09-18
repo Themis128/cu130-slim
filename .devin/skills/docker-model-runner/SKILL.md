@@ -14,7 +14,8 @@ fallback.
 │                                                             │
 │  Docker Model Runner (port 12435)                          │
 │  ├── llama.cpp engine (default, GGUF quantized)            │
-│  │   ├── ai/qwen3:8b-q4_K_M   (text, ~5GB VRAM)           │
+│  │   ├── ai/qwen3:8b-q4_K_M   (long-form + schema, ~5.1GB)│
+│  │   ├── Qwen3-4B-Instruct    (short-form + chatbots, ~2.7GB)│
 │  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
 │  │   ├── ai/qwen3-embedding   (embeddings)                 │
 │  │   └── ai/smollm3           (tiny/fast, 3.1B)            │
@@ -196,13 +197,30 @@ docker model status
 
 ## Current models
 
-| Model | Purpose | VRAM | Quantization |
-|-------|---------|------|--------------|
-| `ai/qwen3:8b-q4_K_M` | General text inference (primary) | ~5GB | Q4_K_M |
-| `ai/qwen3-vl` | Vision (alt text, smart crop, tagging) | ~5GB | Q4_K_M |
-| `ai/qwen3-embedding` | Chroma vector embeddings | low | - |
-| `ai/smollm3` | Tiny/fast tasks (3.1B, `--reasoning-budget 0`) | ~1.9GB | Q4_K_M |
-| `ai/smollm2` | Superseded rollback (360M) | 256MB | IQ2_XXS/Q4_K_M |
+| Model | Role | VRAM | Runtime config |
+|-------|------|------|----------------|
+| `ai/qwen3:8b-q4_K_M` | `DMR_TEXT_MODEL` — long-form (LinkedIn/Facebook) + schema/JSON | ~5.1GB | ctx 6144, keep-alive 5m |
+| `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | `DMR_MID_MODEL` + `DMR_CHATBOT_MODEL` — short-form platforms + all chatbots (non-thinking, ~90 TPS) | ~2.7GB | ctx 4096, keep-alive 30m |
+| `ai/qwen3-vl` | `DMR_VISION_MODEL` — alt text, smart crop, tagging | ~5GB | on-demand only |
+| `ai/qwen3-embedding` | `DMR_EMBEDDING_MODEL` — Chroma vectors (4096 dims) | ~1GB | on-demand |
+| `ai/smollm3` | `DMR_TINY_MODEL` — <200-char prompts | ~1.9GB | ctx 4096, keep-alive 5m, `--reasoning-budget 0` |
+| `ai/smollm2` | Superseded rollback (360M) | 256MB | - |
+| `ai/llama3.2` | Spare / manual selection | ~2GB | - |
+
+## Platform-aware routing
+
+`app/services/dmr.py::_select_model_by_complexity(prompt, schema,
+model_override, platform)` picks the model per request. `platform` flows from
+`call_inference(..., platform=)` → `call_dmr_chat`; generation endpoints pass
+`request.platform`, chatbots pin `model_override=DMR_CHATBOT_MODEL`.
+
+| Request shape | Model |
+|---|---|
+| `model_override` set | override wins |
+| short-form platform (instagram, tiktok, x, threads, youtube, pinterest) — with or without schema | `DMR_MID_MODEL` (4B — `json_object` decode guarantees valid JSON) |
+| long-form platform (linkedin, facebook, blog) or schema without platform | `DMR_TEXT_MODEL` (8B thinking) |
+| prompt <200 chars, no platform | `DMR_TINY_MODEL` (smollm3) |
+| everything else | `DMR_TEXT_MODEL` (8B) |
 
 ## Configuration
 
@@ -253,13 +271,39 @@ models:
       - "0.9"
 ```
 
+### Config is ephemeral — watchdog reapplies it
+
+`docker model configure` settings live **in runner memory only** — they are
+wiped on EVERY `docker restart docker-model-runner`, Docker Desktop reset, or
+WSL shutdown (verified: `configure show` returns `[]` after restart). They are
+NOT in the models volume.
+
+The `dmr-watchdog` compose service closes this gap: it mounts the
+`docker-model` CLI plugin (`/usr/local/lib/docker/cli-plugins/docker-model`,
+which resolves to the same path inside docker-desktop) and polls the runner's
+`StartedAt` every 60s — on change, it reapplies the canonical configs:
+
+```bash
+docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
+docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0
+```
+
+Manual reapply: `scripts/dmr-configure.sh`. Verify: `scripts/dmr-configure.sh show`.
+
+> **Gotcha**: `configure` REPLACES the whole per-model config — pass every
+> flag in one call. And hf.co GGUFs (like the 4B) NEED explicit
+> `--context-size` — their native ctx (262144) → llama.cpp tries to allocate
+> a 36GB KV cache → OOM on load.
+
 ## VRAM management
 
 The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
 
 | Model | VRAM when loaded |
 |-------|-----------------|
-| qwen3:8b-q4_K_M | ~5GB |
+| qwen3:8b-q4_K_M (ctx 6144) | ~5.1GB |
+| Qwen3-4B-Instruct (ctx 4096) | ~2.7GB |
 | qwen3-vl | ~5GB |
 | qwen3-embedding | ~1GB |
 | smollm3 | ~1.9GB |
@@ -267,9 +311,14 @@ The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
 | stable-diffusion (SDXL) | ~6GB (cannot run on WSL2) |
 | Local Diffusers SD 1.5 | ~2GB (works on WSL2) |
 
-**Important**: DMR models share GPU with the local-diffusers container. When
-qwen3:8b and SD 1.5 are both loaded, total VRAM usage is ~7GB (fits in 8GB).
-DMR auto-unloads models after idle, so simultaneous loading is rare.
+**Measured worst case**: 4B pinned (2.7GB) + 8B resident (5.1GB) ≈ **7.8GB**
+of 8GB — they fit together, so keep-alive never causes OOM. Vision (~5GB) or
+embeddings (~1GB) loading evicts the unpinned 8B (keep-alive 5m); the 4B
+stays resident for chatbots.
+
+**Important**: DMR models share GPU with the local-diffusers container.
+Before an SD 1.5 generation run, unload DMR models
+(`docker model unload --all`) if VRAM is tight.
 
 ## Inference engines
 
@@ -317,7 +366,7 @@ but NOT in the automatic fallback chain.
 
 ## MCP server
 
-The DMR MCP server (`scripts/dmr-mcp-server.py`) exposes **20 tools** to AI
+The DMR MCP server (`scripts/dmr-mcp-server.py`) exposes **26 tools** to AI
 agents via JSON-RPC over stdio. It automatically falls back to `docker model`
 CLI commands when the HTTP API is unreachable (common on WSL2).
 
@@ -343,12 +392,17 @@ CLI commands when the HTTP API is unreachable (common on WSL2).
 - `dmr_anthropic` — Anthropic-compatible messages
 - `dmr_generate_image` — Diffusers image generation
 
-**Monitoring & management** (4 tools):
+**Monitoring & management** (10 tools):
 - `dmr_ps` — List running (loaded in memory) models
 - `dmr_df` — Show disk usage
 - `dmr_unload` — Unload models from memory
 - `dmr_bench` — Benchmark model performance (TPS)
 - `dmr_logs` — Fetch DMR logs
+- `dmr_configure` — Set model runtime config (context-size, keep-alive, thinking, flags)
+- `dmr_configure_show` — Show current runtime configs (remember: wiped on restart)
+- `dmr_vram` — GPU name, VRAM used/free/total, utilization, power
+- `dmr_validate` — Check all SocialAuto-expected models are present
+- `dmr_route` — Preview platform-aware model routing (mirrors `_select_model_by_complexity`)
 
 ### MCP config
 
@@ -389,6 +443,11 @@ Environment variables:
 | `scripts/dmr-rm.sh` | Remove a local model |
 | `scripts/dmr-tag.sh` | Tag a model |
 | `scripts/dmr-push.sh` | Push a model to a registry |
+| `scripts/dmr-configure.sh` | Apply canonical runtime configs (also `show`) — re-run after any runner restart |
+| `scripts/dmr-vram.sh` | GPU VRAM, utilization, power + budget guide |
+| `scripts/dmr-route.sh` | Preview platform-aware routing without sending a request |
+| `scripts/dmr-validate.sh` | Check all expected models are pulled |
+| `scripts/dmr-warmup.sh` | Warm the 4B + 8B hot-path models |
 
 ## Common operations
 
