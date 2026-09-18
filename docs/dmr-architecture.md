@@ -34,7 +34,7 @@ Two inference backends are active:
 │  │  ├─ ai/qwen3:8b-q4_K_M   text+chatbot  ~5 GB VRAM              │  │
 │  │  ├─ ai/qwen3-vl          vision        ~5 GB VRAM              │  │
 │  │  ├─ ai/qwen3-embedding   embeddings    ~1 GB VRAM              │  │
-│  │  ├─ ai/smollm2           tiny/fast     ~256 MB                 │  │
+│  │  ├─ ai/smollm3           tiny/fast     ~1.9 GB                 │  │
 │  │  └─ ai/llama3.2          legacy        ~2 GB                   │  │
 │  │                                                                │  │
 │  │  vllm 0.27.1 ── Running (experimental, manual only)            │  │
@@ -79,7 +79,7 @@ Two inference backends are active:
 flowchart TB
     subgraph Host["Host — WSL2 · RTX 3070 8GB"]
         subgraph Runner["docker-model-runner :12435"]
-            LC["llama.cpp<br/>qwen3:8b · qwen3-vl<br/>qwen3-embedding · smollm2 · llama3.2"]
+            LC["llama.cpp<br/>qwen3:8b · qwen3-vl<br/>qwen3-embedding · smollm3 · llama3.2"]
             VL["vLLM 0.27.1 (experimental)<br/>smollm2-vllm @ 0.25 gpu-mem"]
             DF["diffusers — Not Installed"]
         end
@@ -108,13 +108,15 @@ flowchart TB
 
 ## Models
 
-| Model | Backend | Role | VRAM | Notes |
-|-------|---------|------|------|-------|
-| `ai/qwen3:8b-q4_K_M` | llama.cpp | Text + chatbot (`DMR_TEXT_MODEL` + `DMR_CHATBOT_MODEL`) | ~5 GB | One loaded model covers schema/JSON, content, and all chatbots |
-| `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | Shares GPU; auto-unloads when idle |
-| `ai/qwen3-embedding` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma | ~1 GB | |
-| `ai/smollm2` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars | ~256 MB | |
-| `ai/llama3.2` | llama.cpp | Legacy / spare | ~2 GB | Pulled, not referenced by env |
+| Model | Backend | Role | VRAM | Runtime config |
+|-------|---------|------|------|----------------|
+| `ai/qwen3:8b-q4_K_M` | llama.cpp | Text + chatbot (`DMR_TEXT_MODEL` + `DMR_CHATBOT_MODEL`) | ~5.5 GB | `context-size 8192`, `keep-alive 30m` |
+| `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults |
+| `ai/qwen3-embedding` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 4096 dims | ~1 GB | defaults |
+| `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars | ~1.9 GB | `--reasoning-budget 0` (disables thinking → direct content) |
+| `hf.co/Qwen/Qwen3-0.6B-GGUF` | llama.cpp | Speculative-draft candidate for qwen3:8b | ~0.6 GB | **Do not attach** — crashes llama.cpp (`vector::_M_range_check` on draft load, takes target offline) |
+| `ai/smollm2` | llama.cpp | Superseded by smollm3 | ~256 MB | kept pulled as rollback |
+| `ai/llama3.2` | llama.cpp | Legacy / spare | ~2 GB | defaults |
 | `docker.io/ai/smollm2-vllm:latest` | vLLM | Experimental | 0.25 GPU util | **Full ref required** — short name 404s once runtime config exists |
 | `ai/stable-diffusion` | diffusers | — | — | Pulled (6.94 GB DDUF) but **cannot run on WSL2** |
 
@@ -140,13 +142,51 @@ flowchart TB
 | `DMR_TEXT_MODEL` / `DMR_CHATBOT_MODEL` | `ai/qwen3:8b-q4_K_M` | content gen + Messenger/WhatsApp/Telegram bots |
 | `DMR_VISION_MODEL` | `ai/qwen3-vl` | image_enhance, media_ai |
 | `DMR_EMBEDDING_MODEL` | `ai/qwen3-embedding` | chroma_client |
-| `DMR_TINY_MODEL` | `ai/smollm2` | short-prompt routing in dmr.py |
+| `DMR_TINY_MODEL` | `ai/smollm3` | short-prompt routing in dmr.py |
 | `DMR_MAX_CONCURRENCY` | `4` | semaphore inside `app/services/dmr.py` |
 
 `app/services/dmr.py` is the single client for all DMR traffic: shared httpx
 pool (loop-aware for Celery prefork), health-check cache, cold-start retry,
-model warm-up, per-request routing (short→smollm2, complex→qwen3), streaming,
+model warm-up, per-request routing (short→smollm3, complex→qwen3), streaming,
 tool calling, VRAM-aware loading, and CLI fallback when HTTP is unreachable.
+
+## Runtime configuration
+
+`docker model configure` **replaces** the model's whole runtime config — it
+does not merge. Always pass every flag in one call:
+
+```bash
+docker model configure --context-size 8192 --keep-alive 30m ai/qwen3:8b-q4_K_M
+docker model configure ai/smollm3 -- --reasoning-budget 0
+docker model configure show <model>   # verify
+```
+
+Applied configs (verify with `configure show`):
+
+- `ai/qwen3:8b-q4_K_M` → `context-size 8192`, `keep-alive 30m`. The 30m
+  keep-alive removes chatbot cold-starts (~60s model load) after idle gaps.
+  Trade-off: pins ~5.5 GB VRAM during the window; other models evict/load on
+  demand as usual.
+- `ai/smollm3` → `--reasoning-budget 0`. SmolLM3 is a thinking model; without
+  this it burns tokens on `reasoning_content` and returns empty `content`.
+  (The app reads `reasoning_content` as a fallback, but disabling it keeps
+  the tiny route fast.)
+
+Important gaps:
+
+- **No `docker` CLI inside containers.** `apply_best_practice_configs()` and
+  `configure_speculative_decoding()` in `dmr.py` shell out to `docker model
+  configure`, which only exists on the host — they silently no-op in
+  containers. Runtime config must be applied from the host.
+- **Speculative decoding is currently broken.** Attaching
+  `hf.co/Qwen/Qwen3-0.6B-GGUF` as `--speculative-draft-model` for qwen3:8b
+  crashes llama.cpp b9879/72874f559 (`vector::_M_range_check` on draft load)
+  and takes the target model offline until the draft config is removed.
+  The draft model is pulled for a future retry after a runner update.
+- **VRAM budget**: qwen3:8b @ 8k ctx ≈ 5.5 GB + smollm3 ≈ 1.9 GB ≈ 7.4 GB
+  resident worst-case. local-diffusers needs ~2 GB — overlap is possible but
+  bounded (smollm3 auto-unloads ~5 min idle). Unload with
+  `docker model unload --all` if the diffusers path OOMs.
 
 ## Fallback & resilience
 

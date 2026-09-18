@@ -562,7 +562,10 @@ The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. DMR (Do
 - **Default model** in `app/core/config.py` is `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL`).
 - Verify with `docker model status` and `curl -sf http://localhost:12435/engines/v1/models`.
 - After context/flag changes: `docker model configure --context-size N ai/qwen3:8b-q4_K_M` — the model reloads on the next request.
-- Other DMR models available: `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2` (tiny/fast, 360M).
+- Other DMR models available: `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm3` (tiny/fast, `DMR_TINY_MODEL`, configured with `--reasoning-budget 0` to disable thinking). `ai/smollm2` remains pulled as rollback.
+- **`docker model configure` REPLACES the whole per-model config** — pass all flags in one call (`docker model configure --context-size 8192 --keep-alive 30m ai/qwen3:8b-q4_K_M`), verify with `configure show`. Current live config: qwen3:8b ctx=8192 keep-alive=30m; smollm3 `--reasoning-budget 0`.
+- **No `docker` CLI inside containers** — `apply_best_practice_configs()`/`configure_speculative_decoding()` in `dmr.py` no-op in-container; apply runtime config from the host.
+- **Speculative decoding broken on llama.cpp b9879**: attaching `hf.co/Qwen/Qwen3-0.6B-GGUF` as draft for qwen3:8b crashes the runner (`vector::_M_range_check` on draft load) and takes the model offline. Draft is pulled but not attached.
 - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
 
 ### ComfyUI (`social-media-comfyui-gpu` container)

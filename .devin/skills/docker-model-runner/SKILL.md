@@ -17,7 +17,7 @@ fallback.
 │  │   ├── ai/qwen3:8b-q4_K_M   (text, ~5GB VRAM)           │
 │  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
 │  │   ├── ai/qwen3-embedding   (embeddings)                 │
-│  │   └── ai/smollm2           (tiny/fast, 360M)            │
+│  │   └── ai/smollm3           (tiny/fast, 3.1B)            │
 │  └── Diffusers engine (NOT AVAILABLE on WSL2/Docker Desktop)│
 │      └── ai/stable-diffusion (SDXL, 6.94GB DDUF, pulled)   │
 │      └── Requires native Linux x86_64 + NVIDIA CUDA        │
@@ -201,7 +201,8 @@ docker model status
 | `ai/qwen3:8b-q4_K_M` | General text inference (primary) | ~5GB | Q4_K_M |
 | `ai/qwen3-vl` | Vision (alt text, smart crop, tagging) | ~5GB | Q4_K_M |
 | `ai/qwen3-embedding` | Chroma vector embeddings | low | - |
-| `ai/smollm2` | Tiny/fast tasks (360M) | 256MB | IQ2_XXS/Q4_K_M |
+| `ai/smollm3` | Tiny/fast tasks (3.1B, `--reasoning-budget 0`) | ~1.9GB | Q4_K_M |
+| `ai/smollm2` | Superseded rollback (360M) | 256MB | IQ2_XXS/Q4_K_M |
 
 ## Configuration
 
@@ -261,7 +262,8 @@ The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
 | qwen3:8b-q4_K_M | ~5GB |
 | qwen3-vl | ~5GB |
 | qwen3-embedding | ~1GB |
-| smollm2 | ~256MB |
+| smollm3 | ~1.9GB |
+| smollm2 (rollback) | ~256MB |
 | stable-diffusion (SDXL) | ~6GB (cannot run on WSL2) |
 | Local Diffusers SD 1.5 | ~2GB (works on WSL2) |
 
