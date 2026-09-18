@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import secrets
 import uuid
 
@@ -121,6 +122,20 @@ class SocialAccountResponse(BaseModel):
     meta_data: dict = {}
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("meta_data", mode="before")
+    @classmethod
+    def _strip_secret_meta(cls, v: object) -> object:
+        """Drop credential-shaped meta keys before serialization.
+
+        meta_data can hold page tokens, browser storage state (live session
+        cookies), WhatsApp access tokens, and other secrets — none of which
+        should leave the API. Keys are matched by name pattern.
+        """
+        if not isinstance(v, dict):
+            return v
+        secret_key = re.compile(r"token|secret|cookie|storage_state|password|session", re.I)
+        return {k: val for k, val in v.items() if not secret_key.search(str(k))}
 
 
 class ConnectResponse(BaseModel):
