@@ -940,6 +940,7 @@ class CollectionAssetRequest(BaseModel):
 async def add_asset_to_collection(
     collection_id: uuid.UUID,
     body: CollectionAssetRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -948,6 +949,7 @@ async def add_asset_to_collection(
         .join(MediaAsset, MediaAsset.id == body.asset_id)
         .where(
             MediaCollection.id == collection_id,
+            MediaCollection.team_id == team_id,
             MediaCollection.team_id == MediaAsset.team_id,
         )
     )

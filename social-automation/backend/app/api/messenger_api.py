@@ -60,10 +60,16 @@ async def _get_facebook_page_account(
             status_code=400,
             detail="Messenger setup requires a Facebook Page account",
         )
-    # Verify team membership
-    if account.team_id != user.team_id if hasattr(user, "team_id") else True:
-        # Admin bypass
-        if user.email != settings.SOCIAL_ADMIN_EMAIL and account.team_id != getattr(user, "team_id", None):
+    if user.email != settings.SOCIAL_ADMIN_EMAIL:
+        from app.models.user import TeamMember
+
+        mem = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == account.team_id,
+                TeamMember.user_id == user.id,
+            )
+        )
+        if mem.scalar_one_or_none() is None:
             raise HTTPException(status_code=403, detail="Not authorized to manage this account")
     return account
 

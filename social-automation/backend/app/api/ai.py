@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1245,7 +1245,10 @@ async def post_draft(
     # Resolve social account
     if request.account_id:
         account_result = await db.execute(
-            select(SocialAccount).where(SocialAccount.id == request.account_id)
+            select(SocialAccount).where(
+                SocialAccount.id == request.account_id,
+                SocialAccount.team_id == team.id,
+            )
         )
     else:
         account_result = await db.execute(
@@ -2130,10 +2133,17 @@ Return JSON with:
 
     intent = await call_inference(intent_prompt, provider_name="dmr", schema=schema)
 
+    team = await get_user_team(db, current_user)
+
     # Find matching template
     template = None
     if request.template_id:
-        result = await db.execute(select(PromptTemplate).where(PromptTemplate.id == request.template_id))
+        result = await db.execute(
+            select(PromptTemplate).where(
+                PromptTemplate.id == request.template_id,
+                or_(PromptTemplate.team_id == team.id, PromptTemplate.is_public),
+            )
+        )
         template = result.scalar_one_or_none()
     else:
         # Search for template by category
