@@ -1799,6 +1799,7 @@ async def _call_dmr_chat(
     schema: dict | None = None,
     model_override: str | None = None,
     max_tokens: int | None = None,
+    platform: str | None = None,
 ) -> dict:
     """Call Docker Model Runner (llama.cpp, OpenAI-compatible API on the host).
 
@@ -1822,6 +1823,7 @@ async def _call_dmr_chat(
             schema=schema,
             model_override=model_override,
             max_tokens=max_tokens,
+            platform=platform,
         )
     except ConnectionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
