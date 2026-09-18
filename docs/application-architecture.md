@@ -54,7 +54,7 @@ Messenger integration.
 
 ## Frontend Architecture
 
-### Route Groups (51 pages)
+### Route Groups (61 pages)
 
 ```
 app/
@@ -62,23 +62,32 @@ app/
 ├── layout.tsx                         # Root layout
 │
 ├── (auth)/                            # Authentication (5 pages)
-│   ├── login/                         # Sign in
-│   ├── register/                      # Sign up
+│   ├── login/                         # Sign in (+ TOTP step when 2FA enabled)
+│   ├── register/                      # Sign up (+ optional discount code)
 │   ├── forgot-password/               # Request reset
 │   ├── reset-password/                # Set new password
 │   └── accept-invite/                 # Team invite acceptance
 │
-├── (public)/                          # Public marketing (4 pages)
+├── (public)/                          # Public marketing & legal (11 pages)
 │   ├── about/                         # About page
 │   ├── features/                      # Feature highlights
 │   ├── pricing/                       # Pricing tiers
-│   └── api-docs/                      # Swagger UI
+│   ├── api-docs/                      # Swagger UI
+│   ├── contact/                       # Contact / support channel
+│   ├── terms/                         # Terms of service
+│   ├── privacy/                       # Privacy policy
+│   ├── refund/                        # Refund policy (MoR requirement)
+│   ├── acceptable-use/                # Acceptable use policy
+│   ├── data-deletion/                 # GDPR/Meta data deletion instructions
+│   └── card/[token]/                  # Public digital card view
 │
-├── (dashboard)/                       # Main app (39 pages)
+├── (dashboard)/                       # Main app (43 pages)
 │   ├── dashboard/                     # Overview + KPIs
 │   ├── accounts/                      # Connected accounts
 │   ├── analytics/                     # Performance metrics
+│   ├── inbox/                         # Unified inbox (Messenger/IG/WhatsApp)
 │   ├── calendar/                      # Content calendar
+│   ├── card/                          # Digital card builder
 │   ├── content/                       # Content management
 │   │   ├── new/                       # Multi-platform composer
 │   │   ├── article/new/               # LinkedIn article
@@ -93,6 +102,8 @@ app/
 │   │   └── enhance/[id]/              # Enhancement studio
 │   ├── messenger/                     # Messenger inbox
 │   ├── whatsapp/                      # WhatsApp Business (setup, profile, send, bot)
+│   ├── telegram/                      # Telegram bot/channel management
+│   ├── tiktok/                        # TikTok account & posting
 │   ├── brand/                         # Brand management
 │   │   ├── identity/                  # Brand identity
 │   │   ├── voice/                     # Voice & tone
@@ -109,7 +120,8 @@ app/
 │   ├── settings/                      # User settings
 │   │   ├── ai-providers/              # AI provider config
 │   │   ├── ai-providers/usage/        # AI usage stats
-│   │   └── audit-logs/                # Audit trail
+│   │   ├── audit-logs/                # Audit trail
+│   │   └── billing/                   # Plan, checkout, portal, Discount tab
 │   ├── mcp-stack/                    # MCP sidecar status
 │   ├── browser-login/                # Visual browser login
 │   └── onboarding/                   # 4-step wizard
@@ -145,6 +157,11 @@ app/
 | AI Providers | `/settings/ai-providers` | provider catalog | Browse, configure API keys, enable/disable, test, model browser |
 | AI Usage | `/settings/ai-providers/usage` | usage stats | Calls, cost, latency, provider breakdown, Cloudflare quota, circuit breaker |
 | Audit Logs | `/settings/audit-logs` | audit logs | Filter by action, paginated list, user/resource details |
+| Billing | `/settings/billing` | billing config, plans, subscription, checkout, portal, discount | Plan cards, hosted checkout, portal, cancel, sync, **Discount tab** (Polar code save/validate/remove) |
+| Inbox | `/inbox` | unified inbox | Cross-platform conversations (Page Messenger, personal Messenger, IG DMs, WhatsApp) |
+| Telegram | `/telegram` | telegram bot/channel | Bot config, channel posting, group watch |
+| TikTok | `/tiktok` | tiktok account/publish | Account status, video/photo posting, publish limits |
+| Digital Card | `/card` | digital card CRUD | Card builder, public share link |
 | MCP Stack | `/mcp-stack` | mcp stack | Sidecar status, capabilities, tools, screenshots, sessions |
 | Browser Login | `/browser-login` | browser bridge | Visual login for Instagram/TikTok, noVNC, cookie import |
 | Onboarding | `/onboarding` | auth, accounts | 4-step wizard: profile, connect, brand, first post |
@@ -183,20 +200,37 @@ app/
 | Features | `/features` | none | Feature grid, AI content, publishing, analytics |
 | Pricing | `/pricing` | none | Pricing tiers, FAQ |
 | API Docs | `/api-docs` | Swagger | Interactive API reference, JWT auth |
+| Contact | `/contact` | none | Support channel (MoR requirement) |
+| Terms | `/terms` | none | Terms of service |
+| Privacy | `/privacy` | none | Privacy policy |
+| Refund | `/refund` | none | Refund policy (MoR requirement) |
+| Acceptable Use | `/acceptable-use` | none | Acceptable use policy |
+| Data Deletion | `/data-deletion` | none | GDPR/Meta data-deletion instructions |
+| Digital Card | `/card/[token]` | digital card | Public card view by token |
 
 ### Frontend Services
 
 ```
 src/services/api.ts
-├── authApi          — login, register, refresh, forgot/reset, 2FA, profile
+├── authApi          — login (+ otp), register, refresh, forgot/reset, 2FA, profile
 ├── accountsApi      — list, connect, disconnect, sync, business accounts
+├── billingApi       — config, plans, subscription, checkout, portal, cancel, sync, discount
 ├── contentApi       — posts CRUD, schedule, publish, review, comments
 ├── mediaApi         — upload, list, delete, generate image
 ├── mediaEnhanceApi  — resize, upscale, remove-bg, smart-crop, alt text
 ├── aiApi            — generate content, hashtags, carousel, image, SEO
+├── aiProvidersApi   — provider catalog, config, test, usage
 ├── analyticsApi     — overview, platform, trends, export, sync
 ├── brandApi         — brand CRUD, voice, visual, guidelines, assets, health
 ├── messengerApi     — Page + personal, setup, send, conversations, auto-reply
+├── whatsappApi      — WhatsApp Cloud API, setup, profile, bot
+├── telegramApi      — Telegram bot/channel management
+├── tiktokApi        — TikTok account status, publish
+├── threadsApi       — Threads posting
+├── linkedinApi      — LinkedIn AI post, publish
+├── profileApi       — profile read/update across platforms
+├── inboxApi         — unified inbox across platforms
+├── digitalCardApi   — digital card CRUD, share links
 ├── workflowApi      — templates, generate, deploy, executions
 ├── teamsApi         — list, create, invite, members, roles, switch
 ├── publishingApi    — queue, schedule, publish now
@@ -219,46 +253,52 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (410 endpoints across 30 route files)
+### API Modules (491 endpoints across 35 route files)
 
 ```
 app/api/
-├── auth.py          (21) — login, register, refresh, 2FA, profile, password
+├── auth.py          (23) — login (+otp/lockout), register (+discount), refresh (jti rotation), 2FA, profile, password
 ├── accounts.py      (16) — connect, disconnect, sync, business accounts
+├── billing.py       (13) — config, plans, subscription, checkout, portal, cancel, sync, webhooks, discount get/set/clear
 ├── content.py       (24) — posts CRUD, schedule, publish, review, comments
 ├── media.py         (20) — upload, list, delete, generate, view
 ├── media_enhance.py (13) — resize, upscale, remove-bg, smart-crop, alt text
 ├── ai.py            (40) — generate content, hashtags, carousel, image, SEO
 ├── ai_providers.py  (8)  — provider catalog, config, test, usage
-├── analytics.py     (11) — overview, platform, trends, export, sync
-├── brand.py         (26) — brand, voice, visual, guidelines, assets, health
+├── analytics.py     (15) — overview, platform, trends, export, sync
+├── web_analytics.py (6)  — site/web analytics events
+├── brand.py         (28) — brand, voice, visual, guidelines, assets, health
+├── digital_cards.py (10) — digital card CRUD, public share view
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
-├── messenger.py     (29) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
+├── messenger.py     (34) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
-├── inbox.py         (4)  — unified inbox across platforms
-├── leads.py         (6)  — lead capture, webhook, CRM sync
+├── inbox.py         (1)  — unified inbox across platforms
+├── leads.py         (2)  — lead capture, webhook, CRM sync
+├── support.py       (1)  — support contact endpoint
 ├── profile.py       (29) — profile read/update across platforms
-├── linkedin.py      (13) — LinkedIn AI post, improve, hashtags, publish
-├── instagram.py     (7)  — Instagram private API, session, profile
-├── threads.py       (9)  — Threads post, reply, profile
+├── linkedin.py      (18) — LinkedIn AI post, improve, hashtags, publish
+├── instagram.py     (9)  — Instagram private API, session, profile
+├── threads.py       (16) — Threads post, reply, profile
 ├── twitter_tiktok.py (8) — Twitter/X and TikTok posting
-├── whatsapp.py      (10) — WhatsApp Cloud API, setup, profile, register
-├── whatsapp_flows.py (11) — WhatsApp Flows CRUD, validate, publish, send
+├── tiktok.py        (7)  — TikTok account status, publish limits, cancel
+├── whatsapp.py      (36) — WhatsApp Cloud API, setup, profile, register, bot
+├── whatsapp_flows.py (14) — WhatsApp Flows CRUD, validate, publish, send
+├── telegram.py      (23) — Telegram bot, channel posting, group watch, chatbot
 ├── workflows.py     (18) — templates, generate, deploy, executions
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
 ├── cf_db.py         (6)  — D1/KV/Vectorize health, sync, tables
-├── ops.py           (4)  — health, system info, browser orchestrator
+├── ops.py           (8)  — health, system info, browser orchestrator
 ├── audit.py         (1)  — audit logs
 ├── mcp.py           (5)  — MCP stack status, sessions, screenshots
 └── usage.py         (2)  — quota usage, history
 ```
 
-### Data Models (13 models)
+### Data Models (16 model files)
 
 ```
 app/models/
-├── user.py          — User, Team, TeamMember, AuditLog
+├── user.py          — User, Team (incl. polar_discount_code), TeamMember, AuditLog
 ├── social_account.py — SocialAccount (platform credentials, meta_data)
 ├── content.py       — Post, PostTarget, PostComment, MediaAsset,
 │                      MediaCollection, Pillar, ContentBrief
@@ -266,7 +306,11 @@ app/models/
 │                      BrandAsset
 ├── brand_monitoring.py — BrandMention, CompetitorSnapshot
 ├── analytics.py     — AnalyticsEvent, PostAnalyticsSnapshot, FollowerSnapshot
+├── web_analytics.py — Web analytics event models
 ├── queue.py         — PublishQueue
+├── billing.py       — BillingEvent (webhook idempotency)
+├── digital_card.py  — DigitalCard (public share cards)
+├── lead.py          — Lead (CRM captures)
 ├── workflow.py      — PromptTemplate, GeneratedWorkflow, ContentPromptTemplate
 ├── ai_provider.py   — AIProvider
 ├── ai_usage.py      — AIUsageLog
@@ -274,7 +318,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (74 services)
+### Service Layer (95 services)
 
 ```
 app/services/
@@ -290,8 +334,15 @@ app/services/
 │   ├── tiktok_api.py         — TikTok Content API client
 │   ├── tiktok_browser.py     — TikTok browser automation
 │   ├── tiktok_profile.py     — TikTok profile management
+│   ├── tiktok_bio_update.py  — TikTok bio update
+│   ├── tiktok_captcha*.py    — TikTok captcha solving (api, analyze, mobile, debug variants)
+│   ├── tiktok_xbogus.py      — TikTok X-Bogus signing
 │   ├── twitter_api.py        — Twitter/X API v2 client
 │   ├── twitter_profile.py    — Twitter profile management
+│   ├── telegram_api.py       — Telegram Bot API client
+│   ├── whatsapp_api.py       — WhatsApp Business helpers
+│   ├── whatsapp_cloud_client.py — WhatsApp Cloud API client
+│   ├── meta_graph.py         — Meta Graph URL builder
 │   └── hikerapi_client.py    — HikerAPI Instagram client
 │
 ├── ── Messenger ─────────────────────────────────────────────
@@ -304,6 +355,9 @@ app/services/
 │   │   ├── Redis DB 1 cooldowns (5 min/conversation)
 │   │   ├── Redis DB 1 per-thread pause (human handoff)
 │   │   └── Redis DB 1 per-thread config overrides
+│   ├── whatsapp_chatbot.py   — WhatsApp chatbot (DMR-first inference)
+│   ├── telegram_chatbot.py   — Telegram chatbot replies
+│   ├── telegram_group_watch.py — Telegram group keyword watch
 │   └── browser_bridge.py     — Personal Messenger (CDP + noVNC)
 │       ├── E2EE + regular thread support
 │       ├── ensure_session() — auto-recover + cookie extraction
@@ -311,8 +365,9 @@ app/services/
 │
 ├── ── Browser Automation ────────────────────────────────────
 │   ├── browser_profile.py    — Browser session management
+│   ├── browser_orchestrator.py — Redis-lock browser session scheduler
 │   ├── facebook_sidecar.py    — Facebook browser sidecar
-│   └── linkededin_sidecar.py  — LinkedIn browser sidecar
+│   └── linkedin_sidecar.py  — LinkedIn browser sidecar
 │
 ├── ── AI / Inference ────────────────────────────────────────
 │   ├── inference.py          — Multi-provider inference router
@@ -352,6 +407,14 @@ app/services/
 │   ├── brand_monitoring.py   — Brand mention monitoring
 │   └── trend_scout.py        — Trend scouting
 │
+├── ── Billing / MoR ─────────────────────────────────────────
+│   ├── polar_api.py          — Polar.sh client (checkouts, subs, portal, discounts)
+│   ├── polar_digest.py       — Polar billing digest
+│   ├── dodo_api.py           — Dodo Payments client (code-ready)
+│   ├── dodo_digest.py        — Dodo billing digest
+│   ├── paddle_api.py         — Paddle client (legacy provider)
+│   └── paddle_digest.py      — Paddle billing digest (provider dispatch)
+│
 ├── ── Database / Storage ────────────────────────────────────
 │   ├── db_router.py          — D1→PostgreSQL dual-write router
 │   ├── db_sync.py            — D1↔Postgres sync
@@ -367,7 +430,14 @@ app/services/
 │   ├── email_templates.py    — Transactional email
 │   ├── email_digest.py       — Email digest
 │   ├── slack_digest.py       — Slack digest
+│   ├── slack_notifications.py — Slack event notifications
 │   ├── analytics_sync.py     — Analytics synchronization
+│   ├── cf_analytics.py       — Cloudflare analytics client
+│   ├── web_analytics.py      — Web analytics aggregation
+│   ├── support_report.py     — Support report builder
+│   ├── leads.py              — Lead management
+│   ├── lead_capture.py       — Lead capture pipeline
+│   ├── whatsapp_flows.py     — WhatsApp Flows service
 │   └── publishing.py         — Publishing service
 ```
 
@@ -420,7 +490,7 @@ app/mcp/server.py
     └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
-### Celery Tasks (17 task modules, 15 beat schedules)
+### Celery Tasks (23 task modules, 17 beat schedules)
 
 ```
 app/worker/tasks/
@@ -496,7 +566,7 @@ Beat Schedule:
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
-## Docker Compose Stack (32 services)
+## Docker Compose Stack (34 services)
 
 ### Core Application
 
@@ -1110,6 +1180,24 @@ subscription (`AlreadyActiveSubscriptionError`) — upgrades/downgrades go
 through the customer portal, and `cancel_at_period_end` keeps the sub active
 until period end (immediate freeing requires a revoke).
 
+### Discount codes (Polar)
+
+Discount codes can be captured at registration (`POST /auth/register`
+accepts `discount_code` → stored uppercased on `teams.polar_discount_code`)
+or managed later from the **Discount tab** on `/settings/billing`:
+
+- `GET /billing/discount` — stored code + redemption state + curated
+  discount details (type, basis_points/amount, duration, windows, caps)
+- `PUT /billing/discount` — validate against `GET /discounts` and persist;
+  unrecognized codes are kept but reported `valid: false`
+- `DELETE /billing/discount` — clear the stored code
+- `POST /billing/checkout` accepts an optional `discount_code` override;
+  otherwise the team's stored code is resolved to a `discount_id` and
+  pre-applied on the hosted checkout. `get_discount_id_for_code` honours
+  `starts_at`/`ends_at` windows and `max_redemptions`, so expired or
+  exhausted codes are skipped and the hosted page's manual field still
+  works.
+
 ## Security Architecture
 
 ```
@@ -1118,9 +1206,13 @@ until period end (immediate freeing requires a revoke).
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  Authentication                                               │   │
-│  │  • JWT (access + refresh tokens)                            │   │
-│  │  • OAuth2 form login (admin)                                 │   │
-│  │  • 2FA (TOTP)                                                │   │
+│  │  • JWT (access + refresh tokens, typed claims)               │   │
+│  │  • Refresh-token rotation — jti burned on use, 60s grace    │   │
+│  │    replay returns the same pair (Redis)                      │   │
+│  │  • OAuth2 form login (+ TOTP otp field when 2FA enabled)     │   │
+│  │  • 2FA (TOTP — enforced at login, not just stored)           │   │
+│  │  • Per-account login lockout: 10 failures → 15 min (Redis,  │   │
+│  │    fail-open) + per-IP slowapi limits                        │   │
 │  │  • Team invite via JWT                                       │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
