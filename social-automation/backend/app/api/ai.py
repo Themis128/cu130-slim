@@ -1927,6 +1927,7 @@ Return JSON with:
 @router.post("/best-time-to-post", response_model=BestTimeResponse)
 async def best_time_to_post(
     request: BestTimeRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -1942,7 +1943,10 @@ async def best_time_to_post(
     from app.models.analytics import PostAnalyticsSnapshot
 
     result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == request.account_id)
+        select(SocialAccount).where(
+            SocialAccount.id == request.account_id,
+            SocialAccount.team_id == team_id,
+        )
     )
     account = result.scalar_one_or_none()
     if not account:
