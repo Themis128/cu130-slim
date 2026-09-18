@@ -312,6 +312,8 @@ def _has_vram_for_model(model: str) -> bool:
         return free_mb >= 4096  # vision models ~5GB
     if "8b" in model or "7b" in model:
         return free_mb >= 4096  # 7-8B Q4 ~5GB
+    if "4b" in model:
+        return free_mb >= 3072  # 4B Q4_K_M ~2.7GB incl. KV
     if "3.2" in model or "3b" in model:
         return free_mb >= 2048  # 3B Q4 ~2GB
     return free_mb >= 2048  # default conservative
@@ -578,10 +580,21 @@ async def warmup_models() -> None:
 # - think mode for qwen3: enables reasoning mode (qwen3 is a thinking model)
 
 _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
+    # 8B thinking model — long-form + schema. keep_alive 5m (not 30m): chatbots
+    # moved to the mid model, so pinning this would waste VRAM between bursts.
+    # ctx 6144 leaves headroom for the pinned 4B + KV on the 8GB card.
     "ai/qwen3:8b-q4_K_M": {
-        "context_size": 8192,
-        "keep_alive": "30m",
+        "context_size": 6144,
+        "keep_alive": "5m",
         "think": True,
+        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+    },
+    # 4B non-thinking instruct — short-form platform copy + ALL chatbots.
+    # Pinned warm (30m): chatbot replies are latency-critical and arrive at
+    # random intervals. ~2.7GB resident incl. KV at ctx 4096.
+    "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M": {
+        "context_size": 4096,
+        "keep_alive": "30m",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     "ai/llama3.2": {
