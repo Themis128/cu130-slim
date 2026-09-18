@@ -18,7 +18,7 @@ Usage in MCP config:
   }
 }
 
-Tools exposed (20):
+Tools exposed (25):
   Model management:
     - dmr_status: Check DMR health and list loaded models
     - dmr_list: List all local (pulled) models
@@ -46,6 +46,15 @@ Tools exposed (20):
     - dmr_bench: Benchmark a model's performance
     - dmr_logs: Fetch DMR logs
 
+  Runtime configuration (host-side, applies to live runner):
+    - dmr_configure: Set context-size/keep-alive/mode/think/flags (REPLACES config)
+    - dmr_configure_show: Show effective runtime config
+
+  SocialAuto helpers:
+    - dmr_vram: GPU VRAM/utilization via nvidia-smi
+    - dmr_validate: Check all app-expected models are pulled
+    - dmr_route: Preview platform-aware model routing decision
+
 References:
   - https://docs.docker.com/ai/model-runner/api-reference/
   - https://github.com/docker/model-runner
@@ -66,6 +75,23 @@ from typing import Any
 
 DMR_BASE = os.environ.get("DMR_BASE", "http://localhost:12435")
 DMR_TIMEOUT = int(os.environ.get("DMR_TIMEOUT", "120"))
+
+# Platform routing — mirrors LONG_FORM_PLATFORMS / SHORT_FORM_PLATFORMS in
+# social-automation/backend/app/services/dmr.py (_select_model_by_complexity).
+LONG_FORM_PLATFORMS = frozenset({"linkedin", "facebook", "blog", "article"})
+SHORT_FORM_PLATFORMS = frozenset({
+    "instagram", "tiktok", "twitter", "x", "threads", "youtube", "pinterest",
+})
+
+# Expected models — mirrors config.py defaults; env can override.
+EXPECTED_MODELS = {
+    "text": os.environ.get("DMR_TEXT_MODEL", "ai/qwen3:8b-q4_K_M"),
+    "mid": os.environ.get("DMR_MID_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"),
+    "tiny": os.environ.get("DMR_TINY_MODEL", "ai/smollm3"),
+    "chatbot": os.environ.get("DMR_CHATBOT_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"),
+    "vision": os.environ.get("DMR_VISION_MODEL", "ai/qwen3-vl"),
+    "embedding": os.environ.get("DMR_EMBEDDING_MODEL", "ai/qwen3-embedding"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +421,72 @@ TOOLS = [
             "properties": {
                 "no_engines": {"type": "boolean", "description": "Exclude inference engine logs", "default": False},
                 "lines": {"type": "integer", "description": "Number of lines to show (default 50)", "default": 50},
+            },
+            "required": [],
+        },
+    },
+    # --- Runtime configuration (host-side docker model configure) ---
+    {
+        "name": "dmr_configure",
+        "description": (
+            "Set runtime configuration for a model via `docker model configure`. "
+            "WARNING: configure REPLACES the model's whole config — every desired "
+            "flag must be passed in one call or the rest are wiped. hf.co GGUFs "
+            "MUST get an explicit context_size (native ctx can be 262k → OOM)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model reference (full ref for hf.co models)"},
+                "context_size": {"type": "integer", "description": "Context window size (e.g. 4096, 6144)"},
+                "keep_alive": {"type": "string", "description": "Keep-alive duration ('5m', '30m', '0' unload, '-1' forever)"},
+                "mode": {"type": "string", "description": "Runner mode (e.g. 'completion', 'embedding', 'reranking')"},
+                "think": {"type": "boolean", "description": "Enable thinking/reasoning mode"},
+                "speculative_draft_model": {"type": "string", "description": "Draft model for speculative decoding"},
+                "runtime_flags": {"type": "array", "items": {"type": "string"}, "description": "Extra backend flags after '--' (e.g. ['--reasoning-budget', '0'])"},
+            },
+            "required": ["model"],
+        },
+    },
+    {
+        "name": "dmr_configure_show",
+        "description": "Show the current runtime configuration for a model (or all models if omitted).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model reference; omit to show all"},
+            },
+            "required": [],
+        },
+    },
+    # --- GPU / platform-aware helpers ---
+    {
+        "name": "dmr_vram",
+        "description": "Show GPU VRAM usage (nvidia-smi): used/free/total MiB and utilization. Useful before loading large models on the 8GB card.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "dmr_validate",
+        "description": (
+            "Check that all models the SocialAuto app expects (DMR_TEXT_MODEL, "
+            "DMR_MID_MODEL, DMR_CHATBOT_MODEL, DMR_TINY_MODEL, vision, embedding) "
+            "are pulled. Returns present/missing lists."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "dmr_route",
+        "description": (
+            "Show which model the app's platform-aware router selects for a given "
+            "platform/task/prompt. Mirrors _select_model_by_complexity in "
+            "app/services/dmr.py — does NOT send a request."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "platform": {"type": "string", "description": "Social platform (linkedin, instagram, tiktok, twitter/x, threads, youtube, facebook, ...)"},
+                "prompt": {"type": "string", "description": "Sample prompt (length affects routing)", "default": ""},
+                "schema": {"type": "boolean", "description": "Whether the request carries a JSON schema", "default": False},
             },
             "required": [],
         },
@@ -753,6 +845,106 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
             if len(all_lines) > lines:
                 output = "\n".join(all_lines[-lines:])
         return _text_result(output)
+
+    # --- Runtime configuration ---
+
+    elif name == "dmr_configure":
+        model = args["model"]
+        cmd_args = ["configure"]
+        if "context_size" in args:
+            cmd_args.append(f"--context-size={args['context_size']}")
+        if args.get("keep_alive"):
+            cmd_args.append(f"--keep-alive={args['keep_alive']}")
+        if args.get("mode"):
+            cmd_args.append(f"--mode={args['mode']}")
+        if "think" in args:
+            cmd_args.append(f"--think={'true' if args['think'] else 'false'}")
+        if args.get("speculative_draft_model"):
+            cmd_args.append(f"--speculative-draft-model={args['speculative_draft_model']}")
+        cmd_args.append(model)
+        if args.get("runtime_flags"):
+            cmd_args.append("--")
+            cmd_args.extend(str(f) for f in args["runtime_flags"])
+        result = _docker_model(*cmd_args)
+        if "error" in result:
+            return _error_result(result["error"])
+        # Follow up with configure show so the caller sees the full effective
+        # config (configure replaces rather than merges).
+        show = _docker_model("configure", "show", model)
+        out = f"Configured {model}.\n{result.get('output', '')}"
+        if "error" not in show:
+            out += f"\nEffective config:\n{show.get('output', json.dumps(show, indent=2))}"
+        return _text_result(out)
+
+    elif name == "dmr_configure_show":
+        model = args.get("model")
+        cmd_args = ["configure", "show"] + ([model] if model else [])
+        result = _docker_model(*cmd_args)
+        if "error" in result:
+            return _error_result(result["error"])
+        return _text_result(json.dumps(result, indent=2) if "output" not in result else result["output"])
+
+    elif name == "dmr_vram":
+        try:
+            proc = subprocess.run(
+                ["nvidia-smi",
+                 "--query-gpu=name,utilization.gpu,memory.used,memory.free,memory.total,power.draw",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                return _error_result(proc.stderr.strip() or "nvidia-smi failed")
+            name, util, used, free, total, power = (p.strip() for p in proc.stdout.strip().split(","))
+            return _text_result(
+                f"GPU: {name}\n"
+                f"VRAM: {used} MiB used / {free} MiB free / {total} MiB total\n"
+                f"Utilization: {util}% | Power: {power} W"
+            )
+        except FileNotFoundError:
+            return _error_result("nvidia-smi not found")
+        except Exception as e:
+            return _error_result(str(e))
+
+    elif name == "dmr_validate":
+        models = _api_get("/engines/v1/models")
+        if "error" in models:
+            return _error_result(f"DMR API not reachable: {models['error']}")
+        present_ids = {m.get("id", "") for m in models.get("data", [])}
+
+        def _norm(ref: str) -> str:
+            # Runner reports hf.co refs as lowercase huggingface.co/...
+            return ref.lower().replace("hf.co/", "huggingface.co/")
+
+        norm_ids = {_norm(p) for p in present_ids}
+        lines = [f"DMR model validation ({len(present_ids)} models pulled):"]
+        missing = []
+        for role, ref in EXPECTED_MODELS.items():
+            n = _norm(ref)
+            ok = any(p.endswith(n.split("ai/")[-1]) or n in p for p in norm_ids)
+            lines.append(f"  {'OK ' if ok else 'MISSING'} {role:>9}: {ref}")
+            if not ok:
+                missing.append(ref)
+        lines.append(f"\nResult: {'all expected models present' if not missing else f'missing {len(missing)}: {missing}'}")
+        return _text_result("\n".join(lines))
+
+    elif name == "dmr_route":
+        platform = (args.get("platform") or "").strip().lower()
+        prompt = args.get("prompt") or ""
+        has_schema = bool(args.get("schema", False))
+
+        if platform in SHORT_FORM_PLATFORMS:
+            chosen, tier = EXPECTED_MODELS["mid"], "mid (4B instruct — short-form platform)"
+        elif has_schema or platform in LONG_FORM_PLATFORMS:
+            chosen, tier = EXPECTED_MODELS["text"], "text (8B — long-form/schema)"
+        elif len(prompt) < 200:
+            chosen, tier = EXPECTED_MODELS["tiny"], "tiny (smollm3 — short prompt)"
+        else:
+            chosen, tier = EXPECTED_MODELS["text"], "text (8B — default)"
+        return _text_result(
+            f"platform={platform or '(none)'} schema={has_schema} prompt_len={len(prompt)}\n"
+            f"→ {chosen}\n  tier: {tier}\n"
+            f"  (mirrors _select_model_by_complexity in app/services/dmr.py)"
+        )
 
     return _error_result(f"Unknown tool: {name}")
 
