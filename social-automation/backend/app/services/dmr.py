@@ -677,6 +677,7 @@ async def _call_dmr_chat_internal(
     tools: list[dict] | None = None,
     stream: bool = False,
     timeout: float = 180.0,
+    platform: str | None = None,
     _skip_health_check: bool = False,
 ) -> dict[str, Any]:
     """Internal DMR chat call with retry, CLI fallback, streaming, and tool calling.
@@ -687,8 +688,8 @@ async def _call_dmr_chat_internal(
         {"tool_calls": list} for tool-calling responses
         {"stream": async_generator} for streaming responses
     """
-    # Improvement #6: per-request model routing
-    model = _select_model_by_complexity(prompt, schema, model_override)
+    # Improvement #6: per-request model routing (platform-aware)
+    model = _select_model_by_complexity(prompt, schema, model_override, platform)
 
     # Improvement #2: pre-flight health check
     if not _skip_health_check and not await _check_dmr_health():
