@@ -2141,7 +2141,10 @@ Return JSON with:
         result = await db.execute(
             select(PromptTemplate).where(
                 PromptTemplate.id == request.template_id,
-                or_(PromptTemplate.team_id == team.id, PromptTemplate.is_public),
+                or_(
+                    PromptTemplate.team_id == (team.id if team else uuid.UUID(int=0)),
+                    PromptTemplate.is_public,
+                ),
             )
         )
         template = result.scalar_one_or_none()
@@ -2165,8 +2168,6 @@ Return JSON with:
             variables_used[var] = f"<{var}>"
 
     # Save generated workflow
-    team = await get_user_team(db, current_user)
-
     gen_workflow = GeneratedWorkflow(
         team_id=team.id if team else uuid.uuid4(),
         user_id=current_user.id,
