@@ -1351,8 +1351,31 @@ services:
     - -c
     - |
       fails=0
+      last_started=""
       echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
+
+      # Point the docker-model plugin at the engine-level GPU runner
+      docker-model context create gpu --host http://host.docker.internal:12435 2>/dev/null || true
+      docker-model context use gpu 2>/dev/null || true
+
+      apply_configs() {
+        echo "[dmr-watchdog] applying canonical model configs"
+        docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M || true
+        docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M || true
+        docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 || true
+      }
+
       while true; do
+        # Runner restart detection: model configs are in-memory only, so they
+        # must be reapplied every time StartedAt changes.
+        started=$$(docker inspect -f '{{.State.StartedAt}}' docker-model-runner 2>/dev/null)
+        if [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; then
+          if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
+            apply_configs
+            last_started=$$started
+          fi
+        fi
+
         if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
           fails=0
         else
@@ -1368,6 +1391,8 @@ services:
       done
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
+    # docker-model CLI plugin (resolves to the same path inside docker-desktop)
+    - /usr/local/lib/docker/cli-plugins/docker-model:/usr/bin/docker-model:ro
     extra_hosts:
     - host.docker.internal:host-gateway
     restart: unless-stopped

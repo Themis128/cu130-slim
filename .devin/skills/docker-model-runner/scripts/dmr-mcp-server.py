@@ -18,7 +18,7 @@ Usage in MCP config:
   }
 }
 
-Tools exposed (25):
+Tools exposed (26):
   Model management:
     - dmr_status: Check DMR health and list loaded models
     - dmr_list: List all local (pulled) models
