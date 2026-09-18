@@ -30,6 +30,7 @@ def mock_inference(monkeypatch):
         prompt, *,
         provider_name="cloudflare", db=None, team_id=None,
         schema=None, model_override=None, max_tokens=None, allow_fallback=True,
+        platform=None,
     ):
         calls.append({
             "prompt": prompt,
@@ -39,6 +40,7 @@ def mock_inference(monkeypatch):
             "schema": schema,
             "model_override": model_override,
             "max_tokens": max_tokens,
+            "platform": platform,
         })
         return {
             "content": "This is generated content.",

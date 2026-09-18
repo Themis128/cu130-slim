@@ -110,10 +110,11 @@ flowchart TB
 
 | Model | Backend | Role | VRAM | Runtime config |
 |-------|---------|------|------|----------------|
-| `ai/qwen3:8b-q4_K_M` | llama.cpp | Text + chatbot (`DMR_TEXT_MODEL` + `DMR_CHATBOT_MODEL`) | ~5.5 GB | `context-size 8192`, `keep-alive 30m` |
-| `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults |
+| `ai/qwen3:8b-q4_K_M` | llama.cpp | Long-form + schema (`DMR_TEXT_MODEL`) — LinkedIn/Facebook posts, carousel outlines, nested JSON | ~5.1 GB | `context-size 6144`, `keep-alive 5m`, thinking enabled |
+| `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | llama.cpp | Mid-tier (`DMR_MID_MODEL` + `DMR_CHATBOT_MODEL`) — short-form copy (Instagram/TikTok/X/Threads/YouTube) + all chatbots. Non-thinking instruct → direct content, ~2× faster than the 8B | ~2.7 GB | `context-size 4096`, `keep-alive 30m` (pinned warm — chatbots are latency-critical) |
+| `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults (load on demand only) |
 | `ai/qwen3-embedding` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 4096 dims | ~1 GB | defaults |
-| `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars | ~1.9 GB | `--reasoning-budget 0` (disables thinking → direct content) |
+| `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars, no platform hint | ~1.9 GB | `context-size 4096`, `keep-alive 5m`, `--reasoning-budget 0` |
 | `hf.co/Qwen/Qwen3-0.6B-GGUF` | llama.cpp | Speculative-draft candidate for qwen3:8b | ~0.6 GB | **Do not attach** — crashes llama.cpp (`vector::_M_range_check` on draft load, takes target offline) |
 | `ai/smollm2` | llama.cpp | Superseded by smollm3 | ~256 MB | kept pulled as rollback |
 | `ai/llama3.2` | llama.cpp | Legacy / spare | ~2 GB | defaults |
@@ -139,7 +140,9 @@ flowchart TB
 | `DMR_URL` | `http://host.docker.internal:12435/engines/llama.cpp/v1` | social-api, all 4 workers |
 | `DMR_VLLM_URL` | `http://host.docker.internal:12435/engines/vllm/v1` | social-api, workers (manual provider `dmr-vllm`) |
 | `DMR_BASE_URL` | `http://host.docker.internal:12435` | messenger-sidecar (no `/engines` suffix) |
-| `DMR_TEXT_MODEL` / `DMR_CHATBOT_MODEL` | `ai/qwen3:8b-q4_K_M` | content gen + Messenger/WhatsApp/Telegram bots |
+| `DMR_TEXT_MODEL` | `ai/qwen3:8b-q4_K_M` | long-form + schema/JSON routing |
+| `DMR_MID_MODEL` | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | short-form platform copy |
+| `DMR_CHATBOT_MODEL` | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | Messenger/WhatsApp/Telegram bots (model_override) |
 | `DMR_VISION_MODEL` | `ai/qwen3-vl` | image_enhance, media_ai |
 | `DMR_EMBEDDING_MODEL` | `ai/qwen3-embedding` | chroma_client |
 | `DMR_TINY_MODEL` | `ai/smollm3` | short-prompt routing in dmr.py |
@@ -147,8 +150,28 @@ flowchart TB
 
 `app/services/dmr.py` is the single client for all DMR traffic: shared httpx
 pool (loop-aware for Celery prefork), health-check cache, cold-start retry,
-model warm-up, per-request routing (short→smollm3, complex→qwen3), streaming,
-tool calling, VRAM-aware loading, and CLI fallback when HTTP is unreachable.
+model warm-up, platform-aware per-request routing, streaming, tool calling,
+VRAM-aware loading, and CLI fallback when HTTP is unreachable.
+
+### Platform-aware routing
+
+`_select_model_by_complexity(prompt, schema, model_override, platform)` picks
+the model per request. `platform` flows from `call_inference(..., platform=)`
+through `_do_call_inference` → `_call_dmr_chat` → `call_dmr_chat`; generation
+endpoints pass `request.platform`, LinkedIn services pass `"linkedin"`, and
+chatbots pin the mid model via `model_override=DMR_CHATBOT_MODEL`.
+
+| Request shape | Model | Why |
+|---|---|---|
+| `model_override` set | override | explicit wins |
+| short-form platform (instagram, tiktok, twitter/x, threads, youtube, pinterest) — with or without schema | `DMR_MID_MODEL` (4B) | non-thinking instruct is ~2× faster and stays warm; `json_object` mode constrains decode so the 4B cannot malform flat caption/hashtag schemas |
+| long-form platform (linkedin, facebook, blog) or any schema without a platform hint | `DMR_TEXT_MODEL` (8B) | thinking model for professional long copy + nested schemas (carousel outlines) |
+| prompt <200 chars, no platform | `DMR_TINY_MODEL` (smollm3) | cheapest route for classification-style tasks |
+| everything else | `DMR_TEXT_MODEL` (8B) | safe default |
+
+Chatbots (Messenger, WhatsApp, Telegram) bypass this table entirely — they
+always send `model_override=DMR_CHATBOT_MODEL` so the latency-critical reply
+path stays on the pinned 4B.
 
 ## Runtime configuration
 
@@ -156,21 +179,27 @@ tool calling, VRAM-aware loading, and CLI fallback when HTTP is unreachable.
 does not merge. Always pass every flag in one call:
 
 ```bash
-docker model configure --context-size 8192 --keep-alive 30m ai/qwen3:8b-q4_K_M
-docker model configure ai/smollm3 -- --reasoning-budget 0
+docker model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
+docker model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+docker model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0
 docker model configure show <model>   # verify
 ```
 
 Applied configs (verify with `configure show`):
 
-- `ai/qwen3:8b-q4_K_M` → `context-size 8192`, `keep-alive 30m`. The 30m
-  keep-alive removes chatbot cold-starts (~60s model load) after idle gaps.
-  Trade-off: pins ~5.5 GB VRAM during the window; other models evict/load on
-  demand as usual.
-- `ai/smollm3` → `--reasoning-budget 0`. SmolLM3 is a thinking model; without
-  this it burns tokens on `reasoning_content` and returns empty `content`.
-  (The app reads `reasoning_content` as a fallback, but disabling it keeps
-  the tiny route fast.)
+- `ai/qwen3:8b-q4_K_M` → `context-size 6144`, `keep-alive 5m`. Short
+  keep-alive now that chatbots moved to the 4B — pinning the 8B would waste
+  ~5 GB between content-gen bursts. ctx 6144 still covers the largest
+  carousel/schema prompts (~2-3k in, ~1.5k out) and frees KV headroom.
+- `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` → `context-size 4096`,
+  `keep-alive 30m`. Pinned warm for chatbots + short-form copy — the
+  latency-critical paths. **ctx must be set explicitly**: the GGUF advertises
+  262144 ctx, and llama.cpp would try to allocate a 36 GB KV cache → OOM.
+  Instruct-2507 is a non-thinking model — direct `content`, no reasoning
+  budget needed.
+- `ai/smollm3` → `context-size 4096`, `keep-alive 5m`, `--reasoning-budget 0`.
+  SmolLM3 is a thinking model; without the budget flag it burns tokens on
+  `reasoning_content` and returns empty `content`.
 
 Important gaps:
 
@@ -183,10 +212,16 @@ Important gaps:
   crashes llama.cpp b9879/72874f559 (`vector::_M_range_check` on draft load)
   and takes the target model offline until the draft config is removed.
   The draft model is pulled for a future retry after a runner update.
-- **VRAM budget**: qwen3:8b @ 8k ctx ≈ 5.5 GB + smollm3 ≈ 1.9 GB ≈ 7.4 GB
-  resident worst-case. local-diffusers needs ~2 GB — overlap is possible but
-  bounded (smollm3 auto-unloads ~5 min idle). Unload with
-  `docker model unload --all` if the diffusers path OOMs.
+- **VRAM budget**: pinned 4B ≈ 2.7 GB + 8B @ 6k ctx ≈ 5.1 GB ≈ **7.8 GB
+  resident worst-case** (measured 7.76 GB) — ~400 MB headroom on the 8 GB
+  card. The 8B unloads ~5 min after each content burst, so steady state is
+  just the ~2.7 GB 4B. Vision/embedding loads evict the unpinned 8B as needed.
+  local-diffusers needs ~2 GB — overlap with the 8B is bounded by its short
+  keep-alive. Unload with `docker model unload --all` if the diffusers path
+  OOMs.
+- **Model list normalization**: `validate_dmr_models()` matches expected refs
+  against `/engines/v1/models`, which reports `huggingface.co/...` lowercase
+  for `hf.co` refs — the matcher normalizes both sides before suffix-matching.
 
 ## Fallback & resilience
 

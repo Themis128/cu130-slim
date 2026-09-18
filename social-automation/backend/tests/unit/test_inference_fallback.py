@@ -771,3 +771,84 @@ class TestCarouselCopyEnforcement:
         assert calls[0]["allow_fallback"] is True, (
             "Carousel copy must allow fallback so DMR can take over if CF fails"
         )
+
+
+class TestDmrPlatformRouting:
+    """Platform-aware model selection for the 8GB card (RTX 3070).
+
+    Tiers:
+      long-form platforms → DMR_TEXT_MODEL (qwen3:8b)
+      short-form platforms → DMR_MID_MODEL (qwen3-4b-instruct, non-thinking)
+      short prompts / no platform → DMR_TINY_MODEL or text model
+      model_override always wins
+    """
+
+    def test_long_form_platforms_use_text_model(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        for p in ("linkedin", "facebook", "LinkedIn"):
+            assert _select_model_by_complexity("write a long post " * 20, platform=p) == settings.DMR_TEXT_MODEL
+
+    def test_short_form_platforms_use_mid_model(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        for p in ("instagram", "tiktok", "twitter", "x", "threads", "youtube"):
+            assert _select_model_by_complexity("write a post " * 20, platform=p) == settings.DMR_MID_MODEL
+
+    def test_short_form_platform_schema_uses_mid_model(self):
+        """Flat caption/hashtag schemas on short-form platforms route to the
+        4B — json_object mode constrains decode so malformed JSON is impossible."""
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        schema = {"type": "object", "properties": {"caption": {"type": "string"}}}
+        assert _select_model_by_complexity("caption", schema=schema, platform="instagram") == settings.DMR_MID_MODEL
+
+    def test_long_form_platform_schema_uses_text_model(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        schema = {"type": "object", "properties": {"slides": {"type": "array"}}}
+        assert _select_model_by_complexity("carousel", schema=schema, platform="linkedin") == settings.DMR_TEXT_MODEL
+
+    def test_schema_without_platform_uses_text_model(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        schema = {"type": "object", "properties": {"x": {"type": "string"}}}
+        assert _select_model_by_complexity("anything", schema=schema) == settings.DMR_TEXT_MODEL
+
+    def test_short_prompt_no_platform_uses_tiny_model(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        assert _select_model_by_complexity("hi") == settings.DMR_TINY_MODEL
+
+    def test_unknown_platform_falls_back_to_length_routing(self):
+        from app.core.config import settings
+        from app.services.dmr import _select_model_by_complexity
+        assert _select_model_by_complexity("hi", platform="myspace") == settings.DMR_TINY_MODEL
+        assert _select_model_by_complexity("long prompt " * 50, platform="myspace") == settings.DMR_TEXT_MODEL
+
+    def test_model_override_beats_platform(self):
+        from app.services.dmr import _select_model_by_complexity
+        assert _select_model_by_complexity("hi", model_override="ai/llama3.2", platform="instagram") == "ai/llama3.2"
+
+    @pytest.mark.asyncio
+    async def test_call_inference_threads_platform_to_dmr(self, monkeypatch):
+        """call_inference must forward platform= into the DMR call path."""
+        calls = []
+
+        async def fake_dmr(prompt, *, schema=None, model_override=None, max_tokens=None, platform=None):
+            calls.append({"platform": platform})
+            return {"text": "ok"}
+
+        import app.services.dmr as dmr_mod
+        import app.services.inference as inf
+        monkeypatch.setattr(dmr_mod, "call_dmr_chat", fake_dmr)
+        # call_inference imports call_dmr_chat lazily inside _call_dmr_chat
+        monkeypatch.setattr(inf, "_text_provider_chain", AsyncMock(return_value=["dmr"]))
+        monkeypatch.setattr(inf, "_circuit_is_open", lambda p: False)
+        monkeypatch.setattr(inf, "_circuit_record_success", lambda p: None)
+        monkeypatch.setattr(inf, "_circuit_record_failure", lambda p: None)
+        monkeypatch.setattr(inf.usage_tracker, "track_inference", AsyncMock())
+        monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=(None, None, None)))
+
+        await inf.call_inference("hello", provider_name="dmr", platform="tiktok")
+        assert calls and calls[0]["platform"] == "tiktok"

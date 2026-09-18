@@ -27,7 +27,8 @@ x-worker-env: &worker-env
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
   - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
-  - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-ai/qwen3:8b-q4_K_M}
+  - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+  - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
   - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
   - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
@@ -609,7 +610,8 @@ services:
     - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
     - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
     - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
-    - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-ai/qwen3:8b-q4_K_M}
+    - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+    - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
     - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
     - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
     - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
@@ -1320,7 +1322,8 @@ services:
     - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
     - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
-    - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-ai/qwen3:8b-q4_K_M}
+    - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+    - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
     - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
     - TZ=Europe/Athens
     extra_hosts:

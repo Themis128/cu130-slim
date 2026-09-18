@@ -53,6 +53,7 @@ async def _call_text(
             schema=schema,
             model_override=model or CF_TEXT_FREE,
             max_tokens=max_tokens,
+            platform="linkedin",
         )
     except HTTPException:
         raise

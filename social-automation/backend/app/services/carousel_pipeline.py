@@ -696,6 +696,7 @@ Return JSON only:
         schema=schema,
         model_override=text_model,
         allow_fallback=True,  # DMR first → CF fallback
+        platform="linkedin",
     )
 
 

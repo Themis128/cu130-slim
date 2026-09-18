@@ -550,7 +550,7 @@ Return JSON with:
     }
 
     try:
-        result = await call_inference(prompt, provider_name="dmr", schema=schema)
+        result = await call_inference(prompt, provider_name="dmr", schema=schema, platform=request.platform)
     except Exception:
         result = {
             "sentiment": "neutral",
@@ -1688,7 +1688,10 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
     }
 
     team_id_for_gen = team.id if team else None
-    result = await call_inference(prompt, provider_name=request.provider, db=db, team_id=team_id_for_gen, schema=schema, model_override=request.model)
+    result = await call_inference(
+        prompt, provider_name=request.provider, db=db, team_id=team_id_for_gen,
+        schema=schema, model_override=request.model, platform=request.platform,
+    )
     content = result.get("content", "")
     content = await rewrite_plain_english(
         content,
@@ -1811,7 +1814,7 @@ Return JSON with: hashtags (array of strings without #)"""
     # Use the full inference chain (DMR-first with CF fallback) instead of
     # a single provider, so hashtag suggestions benefit from the same
     # provider fallback as content generation.
-    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema, platform=request.platform)
 
     hashtags = [str(h).lstrip("#").strip() for h in result.get("hashtags") or [] if str(h).strip()]
     return SuggestHashtagsResponse(hashtags=hashtags[:count])
@@ -1906,7 +1909,7 @@ Return JSON with:
         "required": ["safe", "rising", "niche"],
     }
 
-    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", db=db, schema=schema, platform=platform)
 
     tiers: dict[str, list[HashtagTier]] = {"safe": [], "rising": [], "niche": []}
     flat: list[str] = []
@@ -2069,7 +2072,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
         "required": ["improved_content", "changes"],
     }
 
-    result = await call_inference(prompt, provider_name="dmr", schema=schema)
+    result = await call_inference(prompt, provider_name="dmr", schema=schema, platform=request.platform)
     improved = result.get("improved_content", request.content)
 
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
@@ -2372,7 +2375,10 @@ Return JSON with:
     import httpx as _httpx
     team_id = await get_team_id_for_user(current_user.id, db)
     try:
-        result = await call_inference(prompt, provider_name=request.provider, db=db, team_id=team_id, schema=schema, model_override=request.model)
+        result = await call_inference(
+            prompt, provider_name=request.provider, db=db, team_id=team_id,
+            schema=schema, model_override=request.model, platform=request.platform,
+        )
     except HTTPException:
         raise
     except _httpx.ReadTimeout:

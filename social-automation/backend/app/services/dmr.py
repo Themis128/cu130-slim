@@ -216,8 +216,16 @@ async def validate_dmr_models() -> dict[str, Any]:
             return {"online": False, "expected": sorted(expected), "present": [], "missing": sorted(expected)}
         data = resp.json()
         present_ids = {m.get("id", "") for m in data.get("data", [])}
-        # Runner reports full refs like "docker.io/ai/llama3.2:latest" — match on suffix
-        present = {e for e in expected if any(p.endswith(e.split("ai/")[-1]) or e in p for p in present_ids)}
+        # Runner reports full refs like "docker.io/ai/llama3.2:latest" and
+        # lowercases hf.co → huggingface.co — normalize before suffix-matching.
+        def _norm(ref: str) -> str:
+            return ref.lower().replace("hf.co/", "huggingface.co/")
+
+        norm_ids = {_norm(p) for p in present_ids}
+        present = {
+            e for e in expected
+            if any(p.endswith(_norm(e).split("ai/")[-1]) or _norm(e) in p for p in norm_ids)
+        }
         missing = expected - present
         return {
             "online": True,
