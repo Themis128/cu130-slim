@@ -71,12 +71,12 @@ describe('useAuth', () => {
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
 
-    let success = false
+    let res = ''
     await act(async () => {
-      success = await result.current.login({ email: 'test@test.com', password: 'password123' })
+      res = await result.current.login({ email: 'test@test.com', password: 'password123' })
     })
 
-    expect(success).toBe(true)
+    expect(res).toBe('success')
     expect(setTokens).toHaveBeenCalledWith('new-access', 'new-refresh')
     expect(authApi.me).toHaveBeenCalled()
     expect(result.current.isAuthenticated).toBe(true)
@@ -89,12 +89,12 @@ describe('useAuth', () => {
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
 
-    let success = true
+    let res = ''
     await act(async () => {
-      success = await result.current.login({ email: 'test@test.com', password: 'wrong' })
+      res = await result.current.login({ email: 'test@test.com', password: 'wrong' })
     })
 
-    expect(success).toBe(false)
+    expect(res).toBe('error')
     expect(result.current.isAuthenticated).toBe(false)
   })
 
