@@ -5,7 +5,7 @@ import type { User, AuthState, LoginCredentials, RegisterData, TokenResponse } f
 import toast from 'react-hot-toast'
 
 interface AuthContextType extends AuthState {
-  login: (credentials: LoginCredentials) => Promise<boolean>
+  login: (credentials: LoginCredentials) => Promise<'success' | '2fa_required' | 'error'>
   register: (data: RegisterData) => Promise<boolean>
   logout: () => void
   refreshUser: () => Promise<void>
@@ -61,18 +61,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchUser()
   }, [fetchUser])
 
-  const login = async (credentials: LoginCredentials): Promise<boolean> => {
+  const login = async (credentials: LoginCredentials): Promise<'success' | '2fa_required' | 'error'> => {
     try {
       const response = await authApi.login(credentials)
       const { access_token, refresh_token } = response.data
       setTokens(access_token, refresh_token)
       await fetchUser()
       toast.success('Welcome back!')
-      return true
+      return 'success'
     } catch (error: unknown) {
       const axiosError = error as { response?: { data?: { detail?: string } } }
-      toast.error(axiosError.response?.data?.detail || 'Invalid credentials')
-      return false
+      const detail = axiosError.response?.data?.detail
+      if (detail === 'two_factor_required') return '2fa_required'
+      toast.error(detail || 'Invalid credentials')
+      return 'error'
     }
   }
 
@@ -80,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await authApi.register(data)
       // Auto-login after registration
-      return await login({ email: data.email, password: data.password })
+      return (await login({ email: data.email, password: data.password })) === 'success'
     } catch (error: unknown) {
       const axiosError = error as { response?: { data?: { detail?: string } } }
       toast.error(axiosError.response?.data?.detail || 'Registration failed')

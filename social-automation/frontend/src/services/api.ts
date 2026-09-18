@@ -169,10 +169,13 @@ export const getRefreshToken = () => {
 export const authApi = {
   register: (data: { email: string; password: string; name: string; discount_code?: string }) =>
     api.post('/auth/register', data),
-  login: (data: { email: string; password: string }) =>
-    api.post('/auth/login', new URLSearchParams({ username: data.email, password: data.password }), {
+  login: (data: { email: string; password: string; otp?: string }) => {
+    const body = new URLSearchParams({ username: data.email, password: data.password })
+    if (data.otp) body.set('otp', data.otp)
+    return api.post('/auth/login', body, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    }),
+    })
+  },
   refresh: (refresh_token: string) =>
     api.post('/auth/refresh', { refresh_token }),
   me: () => api.get('/auth/me'),

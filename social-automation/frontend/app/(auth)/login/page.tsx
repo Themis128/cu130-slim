@@ -19,6 +19,8 @@ export default function LoginPage() {
   const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState('')
+  const [awaitingOtp, setAwaitingOtp] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
 
@@ -37,11 +39,16 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
+    if (awaitingOtp && otp.trim().length !== 6) return
 
     setIsLoading(true)
     try {
-      const ok = await login({ email, password })
-      if (!ok) return
+      const result = await login({ email, password, ...(awaitingOtp ? { otp: otp.trim() } : {}) })
+      if (result === '2fa_required') {
+        setAwaitingOtp(true)
+        return
+      }
+      if (result !== 'success') return
       router.push(callbackUrl)
       router.refresh()
     } catch (error) {
@@ -93,8 +100,28 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
+            {awaitingOtp && (
+              <div className="space-y-2">
+                <Label htmlFor="otp">Two-factor code</Label>
+                <Input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  disabled={isLoading}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  className="font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter the 6-digit code from your authenticator app
+                </p>
+              </div>
+            )}
             <Button type="submit" className="w-full" isLoading={isLoading}>
-              Sign in
+              {awaitingOtp ? 'Verify & sign in' : 'Sign in'}
             </Button>
           </form>
         </CardContent>

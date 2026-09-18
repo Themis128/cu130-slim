@@ -1,10 +1,10 @@
 import json
 import logging
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
 from httpx_oauth.clients.linkedin import LinkedInOAuth2
@@ -34,6 +34,100 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
+
+
+# ── Brute-force lockout + refresh-token rotation (Redis, fail-open) ──────────
+#
+# The lockout is keyed per-account (email) and complements the per-IP
+# slowapi limit: rotating IPs can't hammer one account. The counter expires
+# from the FIRST failure, so an attacker cannot keep a victim locked out
+# forever — the window always lapses.
+#
+# Refresh tokens carry a ``jti``. On use, the jti is burned for the token's
+# remaining lifetime; a 60s grace mapping returns the same replacement pair
+# for retries/races (the frontend single-flights refresh anyway).
+
+_LOGIN_MAX_FAILURES = 10
+_LOGIN_LOCKOUT_S = 900
+_REFRESH_GRACE_S = 60
+
+
+async def _redis_client():
+    import redis.asyncio as aioredis
+
+    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+def _login_fail_key(email: str) -> str:
+    return f"auth:login_fail:{email.strip().lower()}"
+
+
+async def _login_lockout_remaining(email: str) -> int:
+    """Seconds left on the account lockout; 0 when login may proceed."""
+    try:
+        r = await _redis_client()
+        key = _login_fail_key(email)
+        count = await r.get(key)
+        if not count or int(count) < _LOGIN_MAX_FAILURES:
+            return 0
+        ttl = await r.ttl(key)
+        return ttl if ttl and ttl > 0 else _LOGIN_LOCKOUT_S
+    except Exception:
+        return 0  # fail open — a Redis outage must not block every login
+
+
+async def _record_login_failure(email: str) -> None:
+    try:
+        r = await _redis_client()
+        key = _login_fail_key(email)
+        if await r.incr(key) == 1:
+            await r.expire(key, _LOGIN_LOCKOUT_S)
+    except Exception:
+        logger.warning("login-failure counter unavailable", exc_info=True)
+
+
+async def _clear_login_failures(email: str) -> None:
+    try:
+        r = await _redis_client()
+        await r.delete(_login_fail_key(email))
+    except Exception:
+        pass
+
+
+async def _replay_rotated_refresh(jti: str) -> "TokenResponse | None":
+    """Handle a previously-used refresh token.
+
+    Inside the grace window the stored replacement pair is returned so
+    racing/retried refreshes succeed; after it, a burned jti means token
+    theft or a stale client — reject with 401.
+    """
+    try:
+        r = await _redis_client()
+        cached = await r.get(f"auth:rt_rotated:{jti}")
+        if cached:
+            return TokenResponse(**json.loads(cached))
+        if await r.get(f"auth:rt_used:{jti}"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token already used",
+            )
+        return None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("refresh-rotation check unavailable", exc_info=True)
+        return None
+
+
+async def _record_refresh_rotation(jti: str, pair: "TokenResponse", token_exp: int) -> None:
+    """Burn ``jti`` for its remaining lifetime; keep the pair for the grace."""
+    try:
+        r = await _redis_client()
+        ttl = max(token_exp - int(datetime.now(UTC).timestamp()), _REFRESH_GRACE_S)
+        await r.set(f"auth:rt_rotated:{jti}", pair.model_dump_json(), ex=_REFRESH_GRACE_S)
+        await r.set(f"auth:rt_used:{jti}", "1", ex=ttl)
+    except Exception:
+        logger.warning("refresh-rotation store unavailable", exc_info=True)
 
 
 class TikTokOAuth2(BaseOAuth2):
@@ -415,12 +509,39 @@ async def register(request: Request, user_data: UserCreate, db: AsyncSession = D
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
-async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+async def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+    otp: str | None = Form(None),
+):
+    lockout = await _login_lockout_remaining(form_data.username)
+    if lockout:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts — try again in {lockout // 60 + 1} min",
+        )
+
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.password_hash):
+        await _record_login_failure(form_data.username)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if user.two_factor_enabled:
+        if not otp:
+            # Correct password but TOTP pending — the frontend shows the code
+            # step and resubmits with ``otp``. No token is issued yet.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="two_factor_required",
+            )
+        if not user.two_factor_secret or not _verify_totp(user.two_factor_secret, otp):
+            await _record_login_failure(form_data.username)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid 2FA code")
+
+    await _clear_login_failures(form_data.username)
 
     # Auto-resolve the user's team so the JWT is team-scoped on login.
     # Prefer teams the user owns, then higher plan tiers (enterprise > free).
@@ -459,6 +580,12 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
+    jti = payload.get("jti")
+    if jti:
+        replay = await _replay_rotated_refresh(jti)
+        if replay is not None:
+            return replay
+
     user_id = payload.get("sub")
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
@@ -493,7 +620,12 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token({"sub": str(user.id)})
 
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    response = TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    if jti:
+        # Burn the presented jti for the rest of its lifetime so a stolen
+        # refresh token dies after the first legitimate (or attacker) use.
+        await _record_refresh_rotation(jti, response, int(payload.get("exp", 0)))
+    return response
 
 
 @router.get("/me", response_model=UserResponse)
