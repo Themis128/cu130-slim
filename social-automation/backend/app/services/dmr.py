@@ -6,7 +6,7 @@ Consolidates all DMR interactions across the backend into a single module with:
   3. Connection pooling (shared httpx.AsyncClient with keep-alive)
   4. Retry on cold-start timeout (1 retry with backoff)
   5. Model warm-up on startup (pre-load models into VRAM)
-  6. Per-request model routing (short→smollm2, complex→qwen3)
+  6. Per-request model routing (short→smollm3, complex→qwen3)
   7. Streaming support for long generations
   8. Shared vision helper (replaces duplicates in image_enhance.py & media_ai.py)
   9. Tool calling support (OpenAI function-calling format)
@@ -304,6 +304,8 @@ def _has_vram_for_model(model: str) -> bool:
     # Rough VRAM estimates by model size
     if "smollm2" in model:
         return free_mb >= 512  # 360M model
+    if "smollm3" in model:
+        return free_mb >= 2048  # 3.1B model ~1.9GB
     if "embedding" in model:
         return free_mb >= 1024
     if "vl" in model or "vision" in model:
@@ -338,7 +340,7 @@ def _select_model_by_complexity(
 
     - Explicit model_override always wins.
     - JSON/schema requests → qwen3:8b (structured output needs a capable model).
-    - Short prompts (<200 chars) → smollm2 (360M, instant, 256MB VRAM).
+    - Short prompts (<200 chars) → DMR_TINY_MODEL (smollm3 3.1B, ~2GB VRAM, reasoning off).
     - Long/complex prompts → DMR_TEXT_MODEL (configured default, usually llama3.2).
     """
     if model_override:
@@ -427,12 +429,20 @@ _speculative_configured: set[str] = set()
 
 async def configure_speculative_decoding(
     model: str,
-    draft_model: str = "ai/smollm2",
+    draft_model: str = "hf.co/Qwen/Qwen3-0.6B-GGUF",
 ) -> None:
     """Configure speculative decoding: use a small draft model to speed up a larger one.
 
     This is a one-time per-model configuration.  The draft model proposes tokens
     that the target model verifies, giving 1.5-2x speedup on compatible hardware.
+
+    NOTE: as of llama.cpp b9879/72874f559 the Qwen3-0.6B GGUF draft crashes the
+    runner (``vector::_M_range_check`` during draft load), taking the target
+    model offline until the draft config is removed.  Verify on the host before
+    enabling in production.
+
+    NOTE: ``docker model configure`` REPLACES the model's whole runtime config —
+    re-apply context-size/keep-alive in the same call or they are lost.
     """
     key = f"{model}:{draft_model}"
     if key in _speculative_configured:
@@ -441,7 +451,7 @@ async def configure_speculative_decoding(
     try:
         result = await asyncio.to_thread(
             subprocess.run,
-            ["docker", "model", "configure", model, "--", "--draft-model", draft_model],
+            ["docker", "model", "configure", "--speculative-draft-model", draft_model, model],
             capture_output=True,
             text=True,
             timeout=30,
@@ -477,7 +487,7 @@ async def warmup_models() -> None:
     for the first real request.  Runs in background, non-blocking.
 
     VRAM-aware: on 8GB GPUs, only warm the text model (largest, most used).
-    The tiny model (smollm2, 256MB) loads near-instantly on first request.
+    The tiny model (smollm3, ~2GB) loads quickly on first request.
     Vision model is only warmed if there's enough VRAM headroom.
     """
     if _state.warmup_done:
@@ -542,7 +552,7 @@ async def warmup_models() -> None:
 _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "ai/qwen3:8b-q4_K_M": {
         "context_size": 8192,
-        "keep_alive": "5m",
+        "keep_alive": "30m",
         "think": True,
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
@@ -561,10 +571,10 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],
     },
-    "ai/smollm2": {
-        "context_size": 2048,
+    "ai/smollm3": {
+        "context_size": 4096,
         "keep_alive": "5m",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
+        "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
 }
 

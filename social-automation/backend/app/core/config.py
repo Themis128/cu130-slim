@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # shares loaded model with schema path (VRAM-friendly on 8GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
-    DMR_TINY_MODEL: str = "ai/smollm2"
+    DMR_TINY_MODEL: str = "ai/smollm3"
     # Chatbot model — needs strong instruction-following (pricing/recruiting/disclosure rules)
     DMR_CHATBOT_MODEL: str = "ai/qwen3:8b-q4_K_M"
     # Experimental vLLM backend on the same GPU runner (safetensors models only).

@@ -103,7 +103,7 @@ PROVIDER_CATALOG = [
         "requires_key": False,
         "in_fallback_chain": True,
         "description": "Local Docker Model Runner (llama.cpp) — no API key needed, GPU-accelerated. Primary text inference provider.",
-        "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm2"],
+        "model_examples": ["ai/qwen3:8b-q4_K_M", "ai/qwen3-vl", "ai/qwen3-embedding", "ai/smollm3"],
     },
     {
         "name": "dmr-vllm",
@@ -1796,7 +1796,7 @@ async def _call_dmr_chat(
     - CLI fallback when HTTP API is unreachable (WSL2/Docker Desktop)
     - Connection pooling (shared httpx.AsyncClient)
     - Retry on cold-start timeout
-    - Per-request model routing (short→smollm2, complex→qwen3)
+    - Per-request model routing (short→smollm3, complex→qwen3)
     - VRAM-aware routing
     - Keep-alive configuration
     - Streaming and tool calling support
