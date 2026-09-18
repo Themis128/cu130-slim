@@ -453,12 +453,12 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 body["target_account_ids"] = account_ids
             result = await _api_request("POST", "/api/v1/content/posts", json_body=body)
         elif name == "list_posts":
-            params: dict = {}
+            query: dict = {}
             if "status" in arguments:
-                params["status"] = arguments["status"]
+                query["status"] = arguments["status"]
             if "limit" in arguments:
-                params["page_size"] = arguments["limit"]
-            result = await _api_request("GET", "/api/v1/content/posts", params=params)
+                query["page_size"] = arguments["limit"]
+            result = await _api_request("GET", "/api/v1/content/posts", params=query)
         elif name == "publish_post":
             result = await _api_request("POST", f"/api/v1/content/posts/{arguments['post_id']}/publish-now")
         elif name == "generate_content":
@@ -483,13 +483,13 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
             }
             result = await _api_request("POST", "/api/v1/ai/score-content", json_body=body)
         elif name == "get_analytics":
-            params = {"days": arguments.get("days", 30)}
-            result = await _api_request("GET", "/api/v1/analytics/overview", params=params)
+            query = {"days": arguments.get("days", 30)}
+            result = await _api_request("GET", "/api/v1/analytics/overview", params=query)
         elif name == "list_media":
-            params = {"page_size": arguments.get("limit", 20)}
+            query = {"page_size": arguments.get("limit", 20)}
             if "type" in arguments:
-                params["type"] = arguments["type"]
-            result = await _api_request("GET", "/api/v1/media/assets", params=params)
+                query["type"] = arguments["type"]
+            result = await _api_request("GET", "/api/v1/media/assets", params=query)
         elif name == "get_profile":
             result = await _api_request("GET", f"/api/v1/profile/{arguments['account_id']}")
         elif name == "get_brand":
@@ -521,13 +521,13 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
             result = await _api_request("POST", f"/api/v1/messenger/{account_id}/send", json_body=body)
         elif name == "messenger_list_conversations":
             account_id = arguments["account_id"]
-            params = {"limit": arguments.get("limit", 25), "platform": arguments.get("platform", "messenger")}
-            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations", params=params)
+            query = {"limit": arguments.get("limit", 25), "platform": arguments.get("platform", "messenger")}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations", params=query)
         elif name == "messenger_get_messages":
             account_id = arguments["account_id"]
             conv_id = arguments["conversation_id"]
-            params = {"limit": arguments.get("limit", 20)}
-            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations/{conv_id}", params=params)
+            query = {"limit": arguments.get("limit", 20)}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations/{conv_id}", params=query)
         elif name == "messenger_get_auto_reply":
             account_id = arguments["account_id"]
             result = await _api_request("GET", f"/api/v1/messenger/{account_id}/auto-reply")

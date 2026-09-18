@@ -96,6 +96,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Free up disk space
+        if: matrix.service == 'comfyui'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -174,6 +180,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx /opt/hostedtoolcache/CodeQL
+          docker system prune -af
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

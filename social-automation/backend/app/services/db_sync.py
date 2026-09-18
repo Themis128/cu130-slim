@@ -320,6 +320,7 @@ class SyncService:
             new_hashes: dict[str, str] = {}
             old_hashes: dict[str, str] = {}
             if use_hash_diff:
+                assert r is not None  # implied by use_hash_diff
                 try:
                     old_hashes = await r.hgetall(hash_key)
                 except Exception:
