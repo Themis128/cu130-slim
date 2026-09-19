@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import shared_task
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
@@ -513,6 +513,21 @@ async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
         return {"success": True, "results": results}
 
 
+async def _cleanup_publish_queue_async(days: int = 3) -> dict:
+    async with _worker_db() as db:
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        result = await db.execute(
+            delete(PublishQueue).where(
+                PublishQueue.status.in_([QueueStatus.FAILED, QueueStatus.CANCELLED]),
+                PublishQueue.created_at < cutoff,
+            )
+        )
+        await db.commit()
+        deleted = result.rowcount or 0
+        logger.info("Publish queue cleanup: deleted %s terminal rows older than %sd", deleted, days)
+        return {"deleted": deleted, "older_than_days": days}
+
+
 # ── Celery tasks (sync wrappers) ─────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -534,4 +549,12 @@ def publish_post_now(post_id: str, account_ids: list[str]) -> dict:
     result = asyncio.run(_publish_post_now_async(post_id, account_ids))
     # Push worker writes (posts, post_targets, publish_queue) to D1 primary
     asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+    return result
+
+
+@shared_task
+def cleanup_publish_queue(days: int = 3) -> dict:
+    result = asyncio.run(_cleanup_publish_queue_async(days))
+    if result["deleted"]:
+        asyncio.run(sync_after_worker_task(["publish_queue"]))
     return result

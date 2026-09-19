@@ -150,6 +150,7 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
+        "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
@@ -202,6 +203,13 @@ celery_app.conf.update(
         "refresh-expiring-tokens": {
             "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
             "schedule": crontab(minute=15),  # at :15 past every hour
+        },
+        # Purge terminal publish_queue rows (failed/cancelled) older than 3
+        # days — keeps the queue bounded and the failed-count metric
+        # meaningful. Error details persist on posts/post_targets.
+        "cleanup-publish-queue": {
+            "task": "app.worker.tasks.publishing.cleanup_publish_queue",
+            "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 03:00
         },
         # Check for due recurring posts every 5 minutes — clones published
         # posts flagged as recurring into new scheduled posts.
