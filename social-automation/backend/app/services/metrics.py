@@ -229,7 +229,7 @@ def register_route_metrics(app) -> None:
 
     def _walk(routes, prefix=""):
         for route in routes:
-            if isinstance(route, (APIRoute, Route)):
+            if isinstance(route, APIRoute | Route):
                 yield prefix, route
             ctx = getattr(route, "include_context", None)
             nested = prefix + (getattr(ctx, "prefix", "") or "")
