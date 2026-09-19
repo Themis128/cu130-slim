@@ -59,6 +59,14 @@ REFRESH_TS = Gauge(
     "socialauto_business_metrics_timestamp_seconds",
     "Unix time of the last successful business-metric refresh",
 )
+HTTP_ROUTE = Gauge(
+    "socialauto_http_route",
+    "Registered HTTP route — lists every endpoint so dashboards can show zero-traffic routes",
+    ["method", "path"],
+)
+# endpoint handler → full route path (incl. include prefixes), filled by
+# register_route_metrics; used by the middleware for stable path labels.
+_ENDPOINT_PATHS: dict = {}
 APP_INFO = Info("socialauto_app", "Build info")
 
 _settings = get_settings()
@@ -89,10 +97,15 @@ class PrometheusMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
-            # After routing, scope["route"] holds the matched APIRoute/Mount;
-            # its .path is the template (/api/v1/posts/{id}) — bounded cardinality.
+            # After routing, scope["endpoint"] is the handler — map it to the
+            # full template path (/api/v1/posts/{id}) via _ENDPOINT_PATHS.
+            # Fallback: the matched route's own (leaf) path. Bounded either way.
             route = scope.get("route")
-            path = getattr(route, "path", None) or "unmatched"
+            path = (
+                _ENDPOINT_PATHS.get(scope.get("endpoint"))
+                or getattr(route, "path", None)
+                or "unmatched"
+            )
             elapsed = time.perf_counter() - start
             HTTP_REQUESTS.labels(method=method, path=path, status=status).inc()
             HTTP_LATENCY.labels(method=method, path=path).observe(elapsed)
@@ -207,6 +220,31 @@ async def refresh_business_metrics() -> None:
         logger.warning("business metrics refresh failed", error=str(exc))
 
 
+def register_route_metrics(app) -> None:
+    """Emit one gauge series per registered route (full path incl. include
+    prefixes) so dashboards can enumerate every endpoint even when it has
+    received no traffic yet. Also fills _ENDPOINT_PATHS for the middleware."""
+    from fastapi.routing import APIRoute
+    from starlette.routing import Route
+
+    def _walk(routes, prefix=""):
+        for route in routes:
+            if isinstance(route, (APIRoute, Route)):
+                yield prefix, route
+            ctx = getattr(route, "include_context", None)
+            nested = prefix + (getattr(ctx, "prefix", "") or "")
+            for attr in ("routes", "original_router"):
+                sub = getattr(route, attr, None)
+                if sub is not None:
+                    yield from _walk(getattr(sub, "routes", sub), nested)
+
+    for prefix, route in _walk(app.routes):
+        full_path = prefix + route.path
+        _ENDPOINT_PATHS[route.endpoint] = full_path
+        for method in sorted(route.methods or ()):
+            HTTP_ROUTE.labels(method=method, path=full_path).set(1)
+
+
 def metrics_response() -> bytes:
     return generate_latest()
 
@@ -217,4 +255,5 @@ __all__ = [
     "PrometheusMiddleware",
     "metrics_response",
     "refresh_business_metrics",
+    "register_route_metrics",
 ]

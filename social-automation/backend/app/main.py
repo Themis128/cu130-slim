@@ -14,7 +14,7 @@ from app.api import api_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import init_db
-from app.services.metrics import PrometheusMiddleware
+from app.services.metrics import PrometheusMiddleware, register_route_metrics
 
 settings = get_settings()
 
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
 
     celery_app.set_default()
     celery_app.set_current()
+    register_route_metrics(app)
     await init_db()
     # DMR model warm-up (improvement #5): pre-load frequently-used models
     # into VRAM on startup so the first real request is fast.  Runs in
