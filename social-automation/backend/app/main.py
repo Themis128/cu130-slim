@@ -14,6 +14,7 @@ from app.api import api_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import init_db
+from app.services.metrics import PrometheusMiddleware
 
 settings = get_settings()
 
@@ -50,6 +51,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(PrometheusMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,3 +81,14 @@ async def favicon():
 @app.get("/api/v1/health", include_in_schema=False)
 async def health_check():
     return {"status": "ok", "service": settings.APP_NAME, "version": settings.APP_VERSION}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    from app.services import metrics as svc_metrics
+
+    await svc_metrics.refresh_business_metrics()
+    return Response(
+        svc_metrics.metrics_response(),
+        media_type=svc_metrics.CONTENT_TYPE_LATEST,
+    )
