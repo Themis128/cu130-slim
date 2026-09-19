@@ -903,8 +903,12 @@ async def _fetch_threads_account_insights(
     across all posts in the default 30-day window the API returns.
     """
     url = f"https://graph.threads.net/v1.0/{user_id}/threads_insights"
-    params = {"metric": "views,likes,replies,reposts,quotes", "access_token": token}
-    resp = await client.get(url, params=params)
+    resp = await _meta_insights_get(
+        client,
+        url,
+        ["views", "likes", "replies", "reposts", "quotes", "followers_count"],
+        params={"access_token": token},
+    )
     if resp.status_code != 200:
         return {}
     data = resp.json() or {}
