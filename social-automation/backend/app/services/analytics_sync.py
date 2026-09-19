@@ -863,11 +863,17 @@ async def _fetch_threads_media_metrics(
 ) -> MetricBundle:
     """Fetch insights for a Threads media post via Threads API."""
     url = f"https://graph.threads.net/v1.0/{media_id}/insights"
-    params = {"metric": "views,likes,replies,reposts,quotes"}
     headers = {"Authorization": f"Bearer {token}"}
-    resp = await client.get(url, headers=headers, params=params)
+    resp = await _meta_insights_get(
+        client,
+        url,
+        ["views", "likes", "replies", "reposts", "quotes"],
+        headers=headers,
+    )
     if resp.status_code != 200:
-        return MetricBundle(notes=f"threads stats HTTP {resp.status_code}")
+        return MetricBundle(
+            notes=f"threads stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
+        )
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
