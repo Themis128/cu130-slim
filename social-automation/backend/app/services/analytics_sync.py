@@ -795,7 +795,8 @@ async def _fetch_instagram_media_metrics(
         impressions=impressions,
         likes=_val("likes"),
         comments=_val("comments"),
-        reach=impressions,
+        shares=_val("shares") or _val("replies"),
+        reach=_val("reach") or impressions,
         raw=data,
     )
 
