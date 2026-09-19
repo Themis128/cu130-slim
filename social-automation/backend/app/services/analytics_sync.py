@@ -138,6 +138,60 @@ def _is_hard_stats_failure(status: int, body: str) -> bool:
     return status >= 400
 
 
+async def _meta_insights_get(
+    client: httpx.AsyncClient,
+    url: str,
+    metrics: list[str],
+    *,
+    headers: dict[str, str] | None = None,
+    params: dict[str, Any] | None = None,
+) -> httpx.Response:
+    """GET a Meta insights endpoint, adaptively dropping rejected metrics.
+
+    Meta deprecates/renames insight metrics per API version and token type
+    (e.g. `post_impressions` deprecated June 2026, `saves` vs `saved`,
+    `views` only on newer versions). On a 400 whose body says
+    "metric[N] must be one of the following values", drop metric[N] and
+    retry. Returns the final response (200 or last error).
+    """
+    import re
+
+    remaining = list(metrics)
+    base = dict(params or {})
+    resp: httpx.Response | None = None
+    for _ in range(len(remaining)):
+        if not remaining:
+            break
+        req_params = {**base, "metric": ",".join(remaining)}
+        resp = await client.get(url, headers=headers, params=req_params)
+        if resp.status_code == 200:
+            return resp
+        if resp.status_code != 400:
+            return resp
+        try:
+            msg = (resp.json() or {}).get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        m = re.search(r"metric\[(\d+)\]", msg)
+        if not m or "must be one of" not in msg:
+            return resp
+        idx = int(m.group(1))
+        if idx >= len(remaining):
+            return resp
+        remaining.pop(idx)
+    return resp if resp is not None else await client.get(
+        url, headers=headers, params=base
+    )
+
+
+def _meta_error_message(resp: httpx.Response) -> str:
+    """Extract Meta's error.message for warning notes."""
+    try:
+        return (resp.json() or {}).get("error", {}).get("message", "") or resp.text[:200]
+    except Exception:
+        return resp.text[:200]
+
+
 async def _fetch_linkedin_org_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -525,6 +579,10 @@ async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id
     params = {"tweet.fields": "public_metrics,non_public_metrics"}
     headers = {"Authorization": f"Bearer {token}"}
     resp = await client.get(url, headers=headers, params=params)
+    if resp.status_code in (402, 403):
+        # non_public_metrics needs a paid X API tier; free tier gets 402.
+        params = {"tweet.fields": "public_metrics"}
+        resp = await client.get(url, headers=headers, params=params)
     if resp.status_code != 200:
         return MetricBundle(notes=f"twitter stats HTTP {resp.status_code}")
     data = (resp.json() or {}).get("data", {})
@@ -596,20 +654,19 @@ async def _fetch_facebook_post_metrics(
     post_media_view as the modern replacement for impressions.
     """
     url = facebook_graph_url(f"{post_id}/insights")
-    params = {
-        "metric": (
-            "post_impressions,post_media_view,post_clicks,"
-            "post_reactions_like_total,post_comments,post_shares"
-        ),
-        "access_token": page_token,
-    }
-    resp = await client.get(url, params=params)
+    resp = await _meta_insights_get(
+        client,
+        url,
+        [
+            "post_impressions", "post_media_view", "post_clicks",
+            "post_reactions_like_total", "post_comments", "post_shares",
+        ],
+        params={"access_token": page_token},
+    )
     if resp.status_code != 200:
-        # Fallback: try with only non-deprecated metrics
-        params["metric"] = "post_media_view,post_clicks,post_reactions_like_total,post_comments,post_shares"
-        resp = await client.get(url, params=params)
-        if resp.status_code != 200:
-            return MetricBundle(notes=f"facebook stats HTTP {resp.status_code}")
+        return MetricBundle(
+            notes=f"facebook stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
+        )
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -711,23 +768,18 @@ async def _fetch_instagram_media_metrics(
         url = f"https://graph.instagram.com/v26.0/{media_id}/insights"
     else:
         url = facebook_graph_url(f"{media_id}/insights")
-    # Try modern metrics first (views replaces impressions)
-    params = {
-        "metric": "views,likes,comments,saves,shares",
-        "access_token": token,
-    }
-    resp = await client.get(url, params=params)
+    # Modern metrics first; the helper drops whichever names this token's
+    # API version rejects (views vs impressions, saved vs saves, reach…).
+    resp = await _meta_insights_get(
+        client,
+        url,
+        ["views", "impressions", "reach", "likes", "comments", "shares", "saved", "saves", "replies"],
+        params={"access_token": token},
+    )
     if resp.status_code != 200:
-        # Fallback to legacy metrics for older API versions
-        params["metric"] = "impressions,reach,likes,comments,saves"
-        resp = await client.get(url, params=params)
-        if resp.status_code != 200:
-            try:
-                err_data = resp.json()
-                err_msg = err_data.get("error", {}).get("message", resp.text[:200])
-            except Exception:
-                err_msg = resp.text[:200]
-            return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {err_msg}")
+        return MetricBundle(
+            notes=f"instagram stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
+        )
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
