@@ -53,7 +53,13 @@ class TelegramAPIClient:
 
     def __init__(self, bot_token: str, *, timeout: float = 30.0):
         token = (bot_token or "").strip()
-        if not re.fullmatch(r"\d+:[A-Za-z0-9_-]+", token):
+        bot_id, sep, secret = token.partition(":")
+        if not (
+            sep
+            and bot_id.isdigit()
+            and secret
+            and all(c.isascii() and (c.isalnum() or c in "_-") for c in secret)
+        ):
             raise ValueError("Invalid Telegram bot token format")
         self.bot_token = token
         self.timeout = timeout

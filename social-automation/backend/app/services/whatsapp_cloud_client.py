@@ -397,8 +397,7 @@ class WhatsAppCloudClient:
         mapped = _map_upstream_status(resp.status_code)
         err = _extract_meta_error(resp)
         rate = _parse_rate_limit(resp)
-        safe_url = _sanitize_log_text(url)
-        logger.error("WhatsApp Cloud API error %s for %s", mapped, safe_url)
+        logger.error("WhatsApp Cloud API error %s", mapped)
         raise _classify_error(
             status_code=mapped,
             url=url,
@@ -427,8 +426,7 @@ class WhatsAppCloudClient:
         mapped = _map_upstream_status(resp.status_code)
         err = _extract_meta_error(resp)
         rate = _parse_rate_limit(resp)
-        safe_url = _sanitize_log_text(url)
-        logger.error("WhatsApp Cloud API error %s for %s", mapped, safe_url)
+        logger.error("WhatsApp Cloud API error %s", mapped)
         raise _classify_error(
             status_code=mapped,
             url=url,
