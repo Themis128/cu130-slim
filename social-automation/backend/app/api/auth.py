@@ -1640,7 +1640,7 @@ async def oauth_callback(
                 display_name = fb_info.get("name", "")
                 avatar_url = fb_info.get("picture", {}).get("data", {}).get("url")
                 access_token = long_lived_token
-            scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list"]
+            scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list"]
         elif platform == "tiktok":
             # TikTok token response includes open_id alongside access_token
             open_id = token.get("open_id", "")
@@ -1889,7 +1889,7 @@ async def instagram_onboarding_authorize(
     # Facebook Login for Business with IG API Onboarding
     # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-login-for-instagram/
     extras = _json.dumps({"setup": {"channel": "IG_API_ONBOARDING"}})
-    scope = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement"
+    scope = "instagram_basic,instagram_content_publish,instagram_manage_messages,pages_show_list,pages_read_engagement"
     redirect_uri = settings.FACEBOOK_REDIRECT_URI
 
     auth_url = (
