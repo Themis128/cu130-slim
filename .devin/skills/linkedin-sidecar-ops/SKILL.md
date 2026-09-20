@@ -207,6 +207,28 @@ The SocialAuto `ProfileUpdateRequest` schema supports:
 | "page.evaluate: Execution context destroyed"         | Navigation during evaluate               | Wrap in try/catch, wait for page settle     |
 | URL concatenation error (`?isSelfProfile=trueedit/`) | Query string not stripped                | Use `.split('?')[0]` before appending paths |
 | `edit/details/` returns "page doesn't exist"         | LinkedIn removed this URL                | Use profile page + scroll + click approach  |
+| Repeated "Execution context destroyed" on eval       | SPA re-navigates during hydration        | Retry the eval 3-4x with 2.5s waits         |
+| `ERR_ABORTED` on activity-page navigate              | Transient SPA redirect                   | Retry navigateAndCheck up to 3x             |
+| Member post stats missing (`member_stats_not_implemented`) | `ugcPosts` needs restricted `r_member_social` | `GET /profile/activity` scrapes the recent-activity page |
+
+## Member activity scrape (`GET /profile/activity`)
+
+Added for analytics discovery — member post stats have **no API** (the
+`ugcPosts` authors finder and versioned `rest/posts` both reject this app's
+scopes). Returns `{profile_url, followers, posts: [{urn, text, reactions,
+comments, impressions, posted}]}`. Resolves the vanity slug via
+`resolveProfileUrl()`, navigates `{slug}/recent-activity/all/`, scrolls for
+lazy items, retries extraction across SPA re-navigations.
+
+Used by `sync_linkedin_account` (member branch) in
+`app/services/analytics_sync.py` — scraped URNs join local targets on both
+full URN and numeric suffix (LinkedIn conflates `activity`/`share`/`ugcPost`
+urn types). Followers land in `FollowerSnapshot`; `_linkedin_follower_count`
+returns -1 for member accounts so the generic per-account snapshot does not
+overwrite the scrape with a false 0.
+
+Clear the in-memory 429 circuit without restarting:
+`POST /session/clear-rate-limit`.
 
 ## Credential login + 2FA (worked Sep 2026)
 

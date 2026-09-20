@@ -114,6 +114,21 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def get_profile_activity(self) -> dict[str, Any]:
+        """Scrape the logged-in member's recent-activity page.
+
+        Member post stats have no LinkedIn API equivalent (the ugcPosts
+        authors finder requires the restricted r_member_social scope), so
+        the browser sidecar is the only discovery path for personal
+        accounts. Returns {profile_url, followers, posts: [{urn, text,
+        reactions, comments, impressions, posted}]}.
+        """
+        async with self._client as c:
+            r = await c.get("/profile/activity")
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
     async def update_headline(self, headline: str) -> dict[str, Any]:
         async with self._client as c:
             r = await c.post("/profile/headline", json={"headline": headline})

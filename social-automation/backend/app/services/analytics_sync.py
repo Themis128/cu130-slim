@@ -535,9 +535,55 @@ async def sync_linkedin_account(
         else:
             stats_map = {}
             org_lifetime = MetricBundle(notes="member_account_no_org_stats")
+            # Member post stats have no LinkedIn API equivalent (ugcPosts
+            # FINDER needs the restricted r_member_social scope). The only
+            # discovery path is the browser sidecar's activity-page scrape.
+            # LinkedIn conflates urn types — a post may be stored locally as
+            # urn:li:share:{id} but scraped as urn:li:activity:{id} — so a
+            # numeric-suffix map joins them.
+            num_to_post_id: dict[str, uuid.UUID] = {}
+            for urn, pid in urn_to_post_id.items():
+                tail = urn.rsplit(":", 1)[-1]
+                if tail.isdigit():
+                    num_to_post_id[tail] = pid
+            try:
+                from app.services.linkedin_sidecar import LinkedInSidecarClient
+
+                activity = await LinkedInSidecarClient().get_profile_activity()
+                for item in activity.get("posts", []):
+                    urn = item.get("urn")
+                    if not urn:
+                        continue
+                    tail = urn.rsplit(":", 1)[-1]
+                    post_id = urn_to_post_id.get(urn) or num_to_post_id.get(tail)
+                    urn_to_post_id.setdefault(urn, post_id)
+                    stats_map[urn] = MetricBundle(
+                        impressions=int(item.get("impressions") or 0),
+                        likes=int(item.get("reactions") or 0),
+                        comments=int(item.get("comments") or 0),
+                        raw={
+                            "scrape": item,
+                            "profile_url": activity.get("profile_url"),
+                        },
+                    )
+                followers = activity.get("followers")
+                if followers is not None:
+                    db.add(FollowerSnapshot(
+                        team_id=account.team_id, social_account_id=account.id,
+                        platform="linkedin", followers=int(followers),
+                    ))
+            except Exception as exc:  # noqa: BLE001 — scrape is best-effort
+                stats_map.update({
+                    urn: MetricBundle(notes="member_stats_not_implemented")
+                    for urn in urn_to_post_id
+                    if urn not in stats_map
+                })
+                result.errors.append(f"linkedin member scrape: {exc}")
             all_urns = list(urn_to_post_id.keys())
             for urn in all_urns:
-                stats_map[urn] = MetricBundle(notes="member_stats_not_implemented")
+                stats_map.setdefault(
+                    urn, MetricBundle(notes="member_stats_not_implemented")
+                )
 
         for urn in all_urns:
             metrics = stats_map.get(urn) or MetricBundle(notes="missing_stats")
@@ -603,6 +649,70 @@ async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id
     )
 
 
+async def _scrape_twitter_timeline(username: str) -> dict[str, Any]:
+    """Scrape an X profile timeline via the shared browser bridge.
+
+    Fallback for when the free API tier has no read credits left. Returns
+    {posts: [{id, text, replies, reposts, likes, views, posted}], followers}.
+    """
+    from app.core.config import get_settings
+    from app.services.browser_bridge import BrowserBridgeClient
+    from app.services.browser_orchestrator import browser_session
+
+    bridge = BrowserBridgeClient(
+        get_settings().BROWSER_BRIDGE_URL, platform="twitter"
+    )
+    session = await bridge.ensure_session("twitter")
+    if session.get("status") != "active":
+        return {
+            "posts": [],
+            "followers": None,
+            "error": session.get("message", "browser session not active"),
+        }
+
+    extract_js = """(() => {
+      const num = s => { if (!s) return 0;
+        const m = String(s).replace(/,/g, '').match(/[\\d.]+/); if (!m) return 0;
+        let n = parseFloat(m[0]);
+        if (/k\\b/i.test(s)) n *= 1e3; if (/m\\b/i.test(s)) n *= 1e6;
+        return Math.round(n); };
+      const seen = new Set(); const posts = [];
+      document.querySelectorAll('article[data-testid="tweet"]').forEach(a => {
+        const link = [...a.querySelectorAll('a[href*="/status/"]')]
+          .map(x => x.href).find(h => /\\/status\\/\\d+/.test(h));
+        const id = link ? (link.match(/\\/status\\/(\\d+)/) || [])[1] : null;
+        if (!id || seen.has(id)) return; seen.add(id);
+        const pick = sel => { const e = a.querySelector(sel);
+          return e ? (e.innerText || e.getAttribute('aria-label') || '') : ''; };
+        const t = a.querySelector('time');
+        posts.push({
+          id,
+          text: (a.querySelector('[data-testid="tweetText"]') || {}).innerText
+            ? (a.querySelector('[data-testid="tweetText"]').innerText || '').slice(0, 280) : '',
+          replies: num(pick('[data-testid="reply"]')),
+          reposts: num(pick('[data-testid="retweet"]')),
+          likes: num(pick('[data-testid="like"]')),
+          views: num(pick('a[href*="/analytics"] [data-testid="app-text-transition-container"], [aria-label*="view"]')),
+          posted: t ? t.getAttribute('datetime') : null,
+        });
+      });
+      const fm = document.body.innerText.match(/([\\d,.]+[KkMm]?)\\s*Followers/);
+      return { posts, followers: fm ? num(fm[1]) : null };
+    })()"""
+
+    async with browser_session("twitter", bridge) as b:
+        await b.navigate(f"https://x.com/{username}")
+        for _ in range(4):
+            try:
+                await b.evaluate("window.scrollBy(0, 1400)")
+            except Exception:  # noqa: BLE001 — scroll is best-effort
+                pass
+            await asyncio.sleep(1)
+        result = await b.evaluate(extract_js)
+    data = result.get("result") if isinstance(result, dict) else result
+    return data if isinstance(data, dict) else {"posts": [], "followers": None}
+
+
 async def sync_twitter_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -654,6 +764,7 @@ async def sync_twitter_account(
             )
 
         # User timeline discovery — Free/Basic tiers reject with 402/403.
+        since_ts = since.timestamp()
         try:
             resp = await client.get(
                 f"https://api.x.com/2/users/{user_id}/tweets",
@@ -665,7 +776,6 @@ async def sync_twitter_account(
                 },
             )
             if resp.status_code == 200:
-                since_ts = since.timestamp()
                 for tw in (resp.json() or {}).get("data", []):
                     tid = tw.get("id")
                     if not tid or tid in covered:
@@ -706,6 +816,48 @@ async def sync_twitter_account(
                 )
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"twitter timeline discovery: {exc}")
+
+        # Browser-scrape fallback — the free X API tier has no timeline read
+        # credits, so discovery of native tweets goes through the shared
+        # browser bridge when the API refuses.
+        if not discovered:
+            try:
+                scraped = await _scrape_twitter_timeline(str(account.username or ""))
+                for tw in scraped.get("posts", []):
+                    tid = tw.get("id")
+                    if not tid or tid in covered:
+                        continue
+                    try:
+                        created = datetime.fromisoformat(
+                            tw["posted"].replace("Z", "+00:00")
+                        ).timestamp() if tw.get("posted") else None
+                    except (ValueError, AttributeError):
+                        created = None
+                    if created and created < since_ts:
+                        continue
+                    metrics = MetricBundle(
+                        impressions=int(tw.get("views") or 0),
+                        likes=int(tw.get("likes") or 0),
+                        comments=int(tw.get("replies") or 0),
+                        shares=int(tw.get("reposts") or 0),
+                        reach=int(tw.get("views") or 0),
+                        raw=tw,
+                    )
+                    await _persist_snapshot(
+                        db, account=account, post_id=id_to_post.get(tid),
+                        platform_post_id=tid, metrics=metrics,
+                        captured_at=captured_at, source="twitter_scrape",
+                        result=result, platform="twitter",
+                    )
+                    discovered[tid] = id_to_post.get(tid)
+                followers = scraped.get("followers")
+                if followers is not None:
+                    db.add(FollowerSnapshot(
+                        team_id=account.team_id, social_account_id=account.id,
+                        platform="twitter", followers=int(followers),
+                    ))
+            except Exception as exc:  # noqa: BLE001 — scrape is best-effort
+                result.errors.append(f"twitter timeline scrape: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)

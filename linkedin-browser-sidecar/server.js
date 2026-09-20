@@ -1332,6 +1332,154 @@ async function handleReadProfile(req, res) {
   }
 }
 
+// ── API: Personal recent activity (posts + counts) ─────────────────────────
+
+/**
+ * Scrape the logged-in member's recent-activity page for post URNs and
+ * per-post engagement counts. Member post stats have no LinkedIn API
+ * equivalent (ugcPosts FINDER requires the restricted r_member_social
+ * scope), so this is the only discovery path for personal accounts.
+ */
+async function handleProfileActivity(req, res) {
+  try {
+    await ensureBrowser();
+
+    let profileUrl = null;
+    try {
+      profileUrl = await resolveProfileUrl();
+    } catch (_) {}
+    if (!profileUrl) {
+      return res
+        .status(401)
+        .json({ error: "Not logged in to LinkedIn", url: page.url() });
+    }
+
+    const base = profileUrl.split("?")[0].replace(/\/+$/, "") + "/";
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      try {
+        ok = await navigateAndCheck(base + "recent-activity/all/");
+      } catch (err) {
+        // ERR_ABORTED is transient (SPA redirects / aborted beacons).
+        if (!String(err.message).includes("ERR_ABORTED")) throw err;
+        await page.waitForTimeout(2000);
+      }
+    }
+    if (!ok) {
+      return res
+        .status(401)
+        .json({ error: "Session expired or blank page", url: page.url() });
+    }
+    await page.waitForTimeout(3000);
+
+    // Scroll to trigger lazy-loaded feed items.
+    for (let i = 0; i < 8; i++) {
+      try {
+        await page.evaluate(() => window.scrollBy(0, 1400));
+      } catch (_) {}
+      await page.waitForTimeout(700);
+    }
+    try {
+      await page.evaluate(() => window.scrollTo(0, 0));
+    } catch (_) {}
+    await page.waitForTimeout(500);
+
+    // LinkedIn's SPA re-navigates during hydration — an in-flight evaluate
+    // dies with "Execution context was destroyed". Retry on that error.
+    const extract = async () => page.evaluate(() => {
+      const num = (s) => {
+        if (!s) return 0;
+        const m = String(s).replace(/,/g, "").match(/[\d.]+/);
+        if (!m) return 0;
+        let n = parseFloat(m[0]);
+        if (/k\b/i.test(s)) n *= 1000;
+        if (/m\b/i.test(s)) n *= 1e6;
+        return Math.round(n);
+      };
+      const seen = new Set();
+      const posts = [];
+      document
+        .querySelectorAll(
+          '[data-urn*="urn:li:activity"], [data-urn*="urn:li:ugcPost"], [data-urn*="urn:li:share"]',
+        )
+        .forEach((el) => {
+          const urn = el.getAttribute("data-urn");
+          if (!urn || seen.has(urn)) return;
+          seen.add(urn);
+          const pick = (sels) => {
+            for (const s of sels) {
+              const n = el.querySelector(s);
+              if (n) return n.innerText || n.getAttribute("aria-label") || "";
+            }
+            return "";
+          };
+          const time = el.querySelector(
+            ".update-components-actor__sub-description, .feed-shared-actor__sub-description",
+          );
+          posts.push({
+            urn,
+            text: (el.innerText || "").slice(0, 300),
+            reactions: num(
+              pick([
+                ".social-details-social-counts__reactions-count",
+                '[data-test-id="social-actions__reaction-count"]',
+                'button[aria-label*="reaction"]',
+              ]),
+            ),
+            comments: num(
+              pick([
+                ".social-details-social-counts__comments",
+                'button[aria-label*="comment"]',
+              ]),
+            ),
+            impressions: num(
+              pick([
+                ".analytics-entry-point .num-views",
+                '[aria-label*="impression"]',
+                '[aria-label*="view"]',
+              ]),
+            ),
+            posted: time ? time.innerText.trim().slice(0, 40) : null,
+          });
+        });
+      const txt = document.body.innerText || "";
+      // LinkedIn renders both "841 followers" and "Followers\n841".
+      const fm =
+        txt.match(/([\d,]+)\s*(followers|connections)/i) ||
+        txt.match(/(followers|connections)\s*[\n:]+?\s*([\d,]+)/i);
+      const fval = fm ? fm[1].match(/\d/) ? fm[1] : fm[2] : null;
+      return {
+        posts,
+        followers: fval ? parseInt(fval.replace(/,/g, ""), 10) : null,
+      };
+    });
+
+    let data = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        data = await extract();
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (!String(err.message).includes("context was destroyed")) throw err;
+        await page.waitForTimeout(2500);
+      }
+    }
+    if (!data) throw lastErr;
+
+    res.json({
+      status: "ok",
+      profile_url: profileUrl,
+      followers: data.followers,
+      posts: data.posts,
+    });
+  } catch (err) {
+    const code = err.code === "RATE_LIMITED" ? 429 : 500;
+    res.status(code).json({ error: err.message, code: err.code || "ERROR" });
+  }
+}
+
 // ── API: Personal headline ─────────────────────────────────────────────────
 
 async function handleUpdateHeadline(req, res) {
@@ -3023,6 +3171,7 @@ app.post("/login", authLimiter, handleLogin);
 
 // Personal profile
 app.get("/profile", handleReadProfile);
+app.get("/profile/activity", handleProfileActivity);
 app.post("/profile/headline", handleUpdateHeadline);
 app.post("/profile/about", handleUpdateAbout);
 app.post("/profile/cover", handleUploadCover);

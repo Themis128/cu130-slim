@@ -92,7 +92,9 @@ def _org_urn(account: SocialAccount) -> str:
 async def _linkedin_follower_count(account: SocialAccount) -> int:
     """Fetch live follower count for a LinkedIn Company Page account.
 
-    Member accounts have no follower-statistics endpoint — skip them.
+    Member accounts have no follower-statistics endpoint — return -1 so
+    the caller skips the snapshot and the browser-sidecar scrape (in
+    sync_linkedin_account) remains the authoritative row.
     Falls back to organizationalEntityFollowerStatistics when the
     networkSizes edge returns nothing.
     """
@@ -100,7 +102,7 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
         return 0
     org_urn = _org_urn(account)
     if "organization:" not in org_urn or not org_urn.rsplit(":", 1)[-1].isdigit():
-        return 0
+        return -1
     try:
         token = decrypt_token(account.access_token_enc)
         client = LinkedInAPIClient(access_token=token)
@@ -136,7 +138,12 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
 
 
 async def _twitter_follower_count(account: SocialAccount) -> int:
-    """Fetch follower count for a Twitter/X account via API v2."""
+    """Fetch follower count for a Twitter/X account via API v2.
+
+    Returns -1 on API failure (e.g. free-tier credits depleted) so the
+    caller skips the snapshot — a false 0 would otherwise overwrite the
+    browser-scrape count written during sync.
+    """
     if account.platform != "twitter":
         return 0
     try:
@@ -156,7 +163,7 @@ async def _twitter_follower_count(account: SocialAccount) -> int:
                 return int((data.get("public_metrics") or {}).get("followers_count", 0) or 0)
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _facebook_follower_count(account: SocialAccount) -> int:
@@ -515,7 +522,8 @@ async def get_overview(
     accounts = accounts_result.scalars().all()
     total_followers = 0
     for account in accounts:
-        total_followers += await _follower_count(account)
+        # -1 means "fetch failed" — don't subtract it from the total.
+        total_followers += max(0, await _follower_count(account))
 
     # Prefer latest snapshots when present; else event counters (with meta_data.count)
     snap_eng = await db.execute(
@@ -664,8 +672,8 @@ async def get_account_metrics(
     impressions = event_counts.get("impression", 0)
     engagement = _engagement_sum(event_counts)
 
-    # Fetch live follower count for this account
-    followers = await _follower_count(account)
+    # Fetch live follower count for this account (-1 = fetch failed)
+    followers = max(0, await _follower_count(account))
 
     return AccountMetrics(
         account_id=account_id,
@@ -899,8 +907,11 @@ async def get_follower_counts(
         snaps = snap_rows.all()
 
         # Live count (always fetch so "current" is accurate even if sync
-        # hasn't run recently)
+        # hasn't run recently). -1 = fetch failed — fall back to the last
+        # known snapshot instead of reporting a bogus -1.
         live = await _follower_count(account)
+        if live < 0:
+            live = snaps[-1][1] if snaps else 0
 
         if snaps:
             series = [
