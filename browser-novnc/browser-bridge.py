@@ -1350,22 +1350,25 @@ async def _run_browser(platform: str):
             await page.goto(site["url"], wait_until="domcontentloaded")
             _state["message"] = f"Browser open at {site['url']} — log in via noVNC"
 
-            # Wait for success URL (up to 10 minutes)
+            # Wait for a success URL (up to 10 minutes). Poll page.url rather
+            # than wait_for_url: the latter only fires on navigation events and
+            # misses redirects that complete before the wait attaches (e.g. a
+            # session whose persistent-profile cookies auto-authenticate the
+            # login page instantly).
             success = False
-            for pattern in site["success_patterns"]:
+            deadline = asyncio.get_event_loop().time() + 600
+            while asyncio.get_event_loop().time() < deadline:
                 try:
-                    await page.wait_for_url(f"{pattern}**", timeout=600000)
-                    success = True
-                    break
+                    current_url = page.url
                 except Exception:
-                    continue
-
-            if not success:
-                current_url = page.url
+                    break
                 for pattern in site["success_patterns"]:
                     if pattern in current_url:
                         success = True
                         break
+                if success:
+                    break
+                await asyncio.sleep(2)
 
             if success:
                 _state["status"] = "extracting"
