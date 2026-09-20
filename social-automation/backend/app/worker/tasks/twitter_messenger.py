@@ -166,12 +166,11 @@ async def _process_account(
 
     # 0. Check browser bridge session
     try:
-        status = await bridge.session_status()
-        if not status.get("logged_in") and not status.get("has_session"):
+        session = await bridge.ensure_session("twitter")
+        if session.get("status") != "active":
             logger.info(
-                "Twitter DM: browser bridge session not active for account %s — "
-                "login via noVNC (port 6080) to x.com first. Skipping.",
-                account.id,
+                "Twitter DM: browser bridge session not active for account %s — %s",
+                account.id, session.get("message", "?"),
             )
             return 0
     except Exception as exc:
