@@ -151,6 +151,28 @@ Gotchas (learned the hard way):
   logged in, later `ensure_session("tiktok")` cycles re-authenticate on their
   own (the `/foryou` success pattern triggers extract again).
 
+## Analytics scraping (yt-dlp, not DOM)
+
+Post analytics use **yt-dlp** (`sync_tiktok_account` in
+`social-automation/backend/app/services/analytics_sync.py`), not the sidecar
+grid DOM — TikTok's signed item-list API rejects headless Chromium ("Something
+went wrong" on the grid even when profile stats render).
+
+- `yt-dlp` (`extract_flat`) on `https://www.tiktok.com/@<user>` returns
+  view/like/comment/share/**save** counts per video in one pass — richer than
+  Display API `video/query` and covers MEDIA_UPLOAD inbox posts + phone posts.
+- Cookies required (empty listing without them): the session cookie map is
+  persisted on `SocialAccount.meta_data['tiktok_web_cookies']`, written to a
+  temp Netscape file per sync. Refresh by re-running the QR login + extract.
+- Snapshots land as `source="tiktok_scrape"`; videos with no local PostTarget
+  get `post_id=None` (still visible in analytics).
+- yt-dlp flat extraction does **not** return follower count — sidecar
+  `GET /profile/videos` stats (followers/following/likes render reliably)
+  fill `FollowerSnapshot`.
+- Evaluated alternatives: TikTok-Api (davidteather) — public data only,
+  heavier (own Playwright pool); Douyin_TikTok_Download_API — full self-hosted
+  REST service, overkill for now; drawrowfly/tiktok-scraper — dead since 2023.
+
 ## TikTok DMs (web drawer UI — no per-thread URLs)
 
 tiktok.com/messages is a single-page drawer — clicking a conversation does
