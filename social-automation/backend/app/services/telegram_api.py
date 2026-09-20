@@ -60,6 +60,8 @@ class TelegramAPIClient:
         self._base = f"{TELEGRAM_API_BASE}/bot{token}"
 
     async def _call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", method):
+            raise TelegramAPIError(400, "Invalid API method name", method="<invalid>")
         url = f"{self._base}/{method}"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload or {})

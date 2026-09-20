@@ -197,7 +197,7 @@ export function detectPhishing(rawEmail: string, subject: string, from: string):
   ];
   const fromDomain = from.split("@")[1]?.toLowerCase() ?? "";
   const isMailProvider = mailProviderDomains.some((d) => fromDomain.endsWith(d));
-  const subjectHasMailKeywords = /webmail|mailbox|quarantine|encrypted message|secure.*message/i.test(subject);
+  const subjectHasMailKeywords = /webmail|mailbox|quarantine|encrypted message|secure.{0,64}message/i.test(subject);
   if (subjectHasMailKeywords && !isMailProvider) {
     score += 4;
     reasons.push(`fake_mail_notice_from:${fromDomain}`);

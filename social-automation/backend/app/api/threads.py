@@ -657,8 +657,8 @@ async def threads_dm_session_status(
                 "browser_session": status,
                 "threads_session": {"logged_in": False, "error": "Could not check Threads session"},
             }
-    except Exception as exc:
+    except Exception:
         return {
-            "browser_session": {"error": str(exc)[:200]},
+            "browser_session": {"error": "session check failed"},
             "threads_session": {"logged_in": False},
         }

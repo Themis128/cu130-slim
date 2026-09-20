@@ -1018,7 +1018,7 @@ async def receive_webhook(
         except Exception as exc:
             logger.warning(
                 "Telegram membership handler failed account=%s: %s",
-                account_id,
+                _sanitize(str(account_id)),
                 _sanitize(str(exc)),
             )
             response["membership_error"] = True
@@ -1039,7 +1039,7 @@ async def receive_webhook(
     except Exception as exc:
         logger.warning(
             "Telegram botfather redirect failed account=%s: %s",
-            account_id,
+            _sanitize(str(account_id)),
             _sanitize(str(exc)),
         )
 
@@ -1061,7 +1061,7 @@ async def receive_webhook(
     except Exception as exc:
         logger.warning(
             "Telegram owner link failed account=%s: %s",
-            account_id,
+            _sanitize(str(account_id)),
             _sanitize(str(exc)),
         )
 
@@ -1093,7 +1093,7 @@ async def receive_webhook(
         except Exception as exc:
             logger.warning(
                 "Telegram group watch failed account=%s: %s",
-                account_id,
+                _sanitize(str(account_id)),
                 _sanitize(str(exc)),
             )
             response["group_watch_error"] = True
@@ -1142,7 +1142,7 @@ async def receive_webhook(
     except Exception as exc:
         logger.error(
             "Telegram webhook auto-reply failed account=%s: %s",
-            account_id,
+            _sanitize(str(account_id)),
             _sanitize(str(exc)),
         )
         response.update({"auto_reply": True, "error": True})

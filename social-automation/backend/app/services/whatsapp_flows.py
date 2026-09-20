@@ -24,7 +24,12 @@ from typing import Any, TypedDict
 
 import httpx
 
-from app.services.facebook_api import FacebookAPIError, _sanitize_log_text, _validate_id
+from app.services.facebook_api import (
+    FacebookAPIError,
+    _mask_sensitive,
+    _sanitize_log_text,
+    _validate_id,
+)
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE
 from app.services.whatsapp_api import DEFAULT_API_VERSION, DEFAULT_TIMEOUT, _validate_phone
 
@@ -91,7 +96,7 @@ class WhatsAppFlowsClient:
     def _raise_for_status(self, resp: httpx.Response, url: str) -> None:
         if resp.status_code < 400:
             return
-        text = _sanitize_log_text(resp.text)
+        text = _mask_sensitive(resp.text)
         safe_url = _sanitize_log_text(url)
         logger.error("WhatsApp Flows API error %s for %s: %s", resp.status_code, safe_url, text)
         err = FacebookAPIError.from_response(resp, url)

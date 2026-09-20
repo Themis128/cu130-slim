@@ -21,7 +21,7 @@ from typing import Any, TypedDict
 
 import httpx
 
-from app.services.facebook_api import _sanitize_log_text
+from app.services.facebook_api import _mask_sensitive, _sanitize_log_text
 from app.services.meta_graph import FACEBOOK_GRAPH_VERSION, facebook_graph_url
 
 logger = logging.getLogger(__name__)
@@ -398,7 +398,7 @@ class WhatsAppCloudClient:
         err = _extract_meta_error(resp)
         rate = _parse_rate_limit(resp)
         safe_url = _sanitize_log_text(url)
-        safe_text = _sanitize_log_text(resp.text)
+        safe_text = _mask_sensitive(resp.text)
         logger.error("WhatsApp Cloud API error %s for %s: %s", mapped, safe_url, safe_text)
         raise _classify_error(
             status_code=mapped,
@@ -429,7 +429,7 @@ class WhatsAppCloudClient:
         err = _extract_meta_error(resp)
         rate = _parse_rate_limit(resp)
         safe_url = _sanitize_log_text(url)
-        safe_text = _sanitize_log_text(resp.text)
+        safe_text = _mask_sensitive(resp.text)
         logger.error("WhatsApp Cloud API error %s for %s: %s", mapped, safe_url, safe_text)
         raise _classify_error(
             status_code=mapped,

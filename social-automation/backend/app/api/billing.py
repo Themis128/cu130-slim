@@ -26,6 +26,11 @@ from app.models.user import Team, User
 from app.services import dodo_api, paddle_api, polar_api
 
 logger = logging.getLogger(__name__)
+
+
+def _logsafe(value: object) -> str:
+    """Strip CR/LF from webhook-sourced values before logging (log-injection)."""
+    return str(value).replace("\r", " ").replace("\n", " ")[:200]
 router = APIRouter()
 
 # Tiers that may be purchased through checkout.
@@ -589,7 +594,7 @@ async def _notify_team_owner(db: AsyncSession, team: Team, subject: str, text: s
 
         await send_email(subject=subject, text_body=text, to_addrs=[owner.email])
     except Exception as exc:  # noqa: BLE001
-        logger.warning("billing email '%s' failed for team %s: %s", template, team.id, exc)
+        logger.warning("billing email '%s' failed for team %s: %s", _logsafe(template), team.id, exc)
 
 
 async def _find_team_for_event(db: AsyncSession, data: dict) -> Team | None:
@@ -655,7 +660,7 @@ async def paddle_webhook(request: Request, db: DbSession):
     except Exception as exc:  # noqa: BLE001
         row.error = str(exc)[:2000]
         await db.commit()
-        logger.exception("billing webhook %s (%s) failed", event_type, event_id)
+        logger.exception("billing webhook %s (%s) failed", _logsafe(event_type), _logsafe(event_id))
         raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
 
     return {"status": "processed", "event_type": event_type}
@@ -665,7 +670,7 @@ async def _handle_subscription_event(
     db: AsyncSession, team: Team | None, event_type: str, data: dict
 ) -> None:
     if not team:
-        logger.warning("billing webhook %s: no team resolved", event_type)
+        logger.warning("billing webhook %s: no team resolved", _logsafe(event_type))
         return
 
     if data.get("customer_id"):
@@ -816,7 +821,7 @@ async def polar_webhook(request: Request, db: DbSession):
     except Exception as exc:  # noqa: BLE001
         row.error = str(exc)[:2000]
         await db.commit()
-        logger.exception("polar webhook %s (%s) failed", event_type, event_id)
+        logger.exception("polar webhook %s (%s) failed", _logsafe(event_type), _logsafe(event_id))
         raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
 
     return {"status": "processed", "event_type": event_type}
@@ -826,7 +831,7 @@ async def _handle_polar_subscription_event(
     db: AsyncSession, team: Team | None, event_type: str, data: dict
 ) -> None:
     if not team:
-        logger.warning("polar webhook %s: no team resolved", event_type)
+        logger.warning("polar webhook %s: no team resolved", _logsafe(event_type))
         return
 
     # Ignore lifecycle events for a different subscription than the one the
@@ -850,7 +855,7 @@ async def _handle_polar_subscription_event(
     ):
         logger.info(
             "polar webhook %s: ignoring event for non-current subscription %s",
-            event_type, sub_id,
+            _logsafe(event_type), _logsafe(sub_id),
         )
         return
 
@@ -982,7 +987,7 @@ async def dodo_webhook(request: Request, db: DbSession):
     except Exception as exc:  # noqa: BLE001
         row.error = str(exc)[:2000]
         await db.commit()
-        logger.exception("dodo webhook %s (%s) failed", event_type, event_id)
+        logger.exception("dodo webhook %s (%s) failed", _logsafe(event_type), _logsafe(event_id))
         raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
 
     return {"status": "processed", "event_type": event_type}
@@ -992,7 +997,7 @@ async def _handle_dodo_subscription_event(
     db: AsyncSession, team: Team | None, event_type: str, data: dict
 ) -> None:
     if not team:
-        logger.warning("dodo webhook %s: no team resolved", event_type)
+        logger.warning("dodo webhook %s: no team resolved", _logsafe(event_type))
         return
 
     # Ignore lifecycle events for a different subscription than the one the
@@ -1017,7 +1022,7 @@ async def _handle_dodo_subscription_event(
     ):
         logger.info(
             "dodo webhook %s: ignoring event for non-current subscription %s",
-            event_type, sub_id,
+            _logsafe(event_type), _logsafe(sub_id),
         )
         return
 

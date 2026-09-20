@@ -524,8 +524,7 @@ Reply with only the category name, nothing else."""
 
 # ── Brand voice injection ────────────────────────────────────────────
 
-_brand_voice_cache: dict = {}
-_brand_voice_cache_ts: float = 0
+_brand_voice_cache: dict = {"block": "", "ts": 0.0}
 _BRAND_VOICE_TTL = 300  # 5 minutes
 
 
@@ -538,10 +537,9 @@ async def _get_brand_voice_block() -> str:
     """
     import time
 
-    global _brand_voice_cache, _brand_voice_cache_ts
     now = time.time()
-    if _brand_voice_cache and (now - _brand_voice_cache_ts) < _BRAND_VOICE_TTL:
-        return _brand_voice_cache.get("block", "")
+    if _brand_voice_cache["block"] and (now - _brand_voice_cache["ts"]) < _BRAND_VOICE_TTL:
+        return _brand_voice_cache["block"]
 
     try:
         import os
@@ -596,8 +594,8 @@ async def _get_brand_voice_block() -> str:
         lines.append("- Be warm, direct, confident. Keep it 1-3 sentences.")
 
         block = "\n".join(lines)
-        _brand_voice_cache = {"block": block}
-        _brand_voice_cache_ts = now
+        _brand_voice_cache["block"] = block
+        _brand_voice_cache["ts"] = now
         return block
     except Exception:
         return ""

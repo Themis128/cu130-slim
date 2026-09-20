@@ -33,6 +33,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
+from app.services.facebook_api import _mask_sensitive
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ async def _check_and_request() -> dict[str, Any]:
                 await db.commit()
                 logger.info(
                     "WhatsApp verification code sent for account %s (phone %s)",
-                    account.id, status.get("display_phone_number"),
+                    account.id, _mask_sensitive(str(status.get("display_phone_number") or "")),
                 )
             else:
                 error_code = code_resp.get("error", {}).get("code", 0)

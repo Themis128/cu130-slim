@@ -59,6 +59,20 @@ def _sanitize_log_text(text: str, max_len: int = 400) -> str:
     return cleaned[:max_len]
 
 
+def _mask_sensitive(text: str, max_len: int = 400) -> str:
+    """Like _sanitize_log_text but also masks phone numbers and token echoes."""
+    cleaned = _sanitize_log_text(text, max_len)
+    # E.164 / long digit runs (phone numbers, phone_number_id, waba_id)
+    cleaned = re.sub(r"\+?\d[\d\s().-]{6,}\d", lambda m: m.group(0)[:3] + "***", cleaned)
+    # access_token / token=… key-value echoes in upstream error bodies
+    cleaned = re.sub(
+        r"(?i)(access_token|token|secret|password)([\"'=:\s]+)[^&\"'\s,}]+",
+        r"\1\2***",
+        cleaned,
+    )
+    return cleaned
+
+
 class FacebookAPIError(Exception):
     """Raised when a Facebook Graph API call fails with a non-success status.
 

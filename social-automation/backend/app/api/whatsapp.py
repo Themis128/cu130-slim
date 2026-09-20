@@ -32,7 +32,7 @@ from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
-from app.services.facebook_api import _sanitize_log_text
+from app.services.facebook_api import _mask_sensitive, _sanitize_log_text
 from app.services.whatsapp_api import (
     WhatsAppAPIClient,
     parse_webhook_event,
@@ -253,7 +253,7 @@ async def setup_whatsapp(
             })
         except Exception as e:
             logger.warning("Business profile update failed: %s", _sanitize_log_text(str(e)))
-            profile_result = {"result": "error", "detail": str(e)}
+            profile_result = {"result": "error", "detail": "profile update failed"}
 
     # Update account meta_data
     meta = account.meta_data or {}
@@ -325,7 +325,7 @@ async def update_whatsapp_credentials(
             logger.warning(
                 "WABA webhook subscription failed: %s", _sanitize_log_text(str(e))
             )
-            webhook_result = {"success": False, "error": str(e)}
+            webhook_result = {"success": False, "error": "subscription request failed"}
 
     return {
         "status": "ok",
@@ -887,7 +887,7 @@ async def receive_webhook(
         from app.api.whatsapp_flows import process_flow_responses
         flow_responses = await process_flow_responses(body, db)
     except Exception as e:
-        logger.debug("Flow response parsing skipped: %s", e)
+        logger.debug("Flow response parsing skipped: %s", _sanitize_log_text(str(e)))
 
     processed = 0
     for event in events:
@@ -961,14 +961,14 @@ def _process_waba_level_events(body: dict) -> int:
                     logger.warning(
                         "WhatsApp WABA %s ban: state=%s date=%s",
                         _sanitize_log_text(waba_id),
-                        ban_info.get("waba_ban_state"),
-                        ban_info.get("waba_ban_date"),
+                        _sanitize_log_text(str(ban_info.get("waba_ban_state", ""))),
+                        _sanitize_log_text(str(ban_info.get("waba_ban_date", ""))),
                     )
             elif field == "account_review_update":
                 decision = value.get("decision", "UNKNOWN")
                 logger.info(
                     "WhatsApp WABA %s account_review_update: decision=%s",
-                    _sanitize_log_text(waba_id), decision,
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(decision)),
                 )
             elif field == "account_alerts":
                 logger.info(
@@ -987,14 +987,14 @@ def _process_waba_level_events(body: dict) -> int:
                 name = value.get("requested_verified_name", "")
                 logger.info(
                     "WhatsApp WABA %s phone_number_name_update: decision=%s name=%s",
-                    _sanitize_log_text(waba_id), decision, _sanitize_log_text(name),
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(decision)), _sanitize_log_text(name),
                 )
             elif field == "phone_number_quality_update":
                 event = value.get("event", "UNKNOWN")
                 limit = value.get("current_limit", "")
                 logger.info(
                     "WhatsApp WABA %s phone_number_quality_update: event=%s limit=%s",
-                    _sanitize_log_text(waba_id), event, limit,
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(event)), _sanitize_log_text(str(limit)),
                 )
             elif field in (
                 "message_template_status_update",
@@ -1006,7 +1006,7 @@ def _process_waba_level_events(body: dict) -> int:
                 template_name = value.get("message_template_name", "")
                 logger.info(
                     "WhatsApp WABA %s %s: event=%s template=%s",
-                    _sanitize_log_text(waba_id), field, event, _sanitize_log_text(template_name),
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(field)), _sanitize_log_text(str(event)), _sanitize_log_text(template_name),
                 )
             elif field == "security":
                 logger.info(
@@ -1017,7 +1017,7 @@ def _process_waba_level_events(body: dict) -> int:
             else:
                 logger.info(
                     "WhatsApp WABA %s unhandled webhook field: %s",
-                    _sanitize_log_text(waba_id), field,
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(field)),
                 )
 
     return count
@@ -1041,7 +1041,7 @@ async def _process_inline(
     )
     account = result.scalar_one_or_none()
     if not account:
-        logger.warning("No WhatsApp account found for phone_number_id=%s", _sanitize_log_text(str(phone_number_id or "")))
+        logger.warning("No WhatsApp account found for phone_number_id=%s", _mask_sensitive(str(phone_number_id or "")))
         return
 
     meta = account.meta_data or {}
@@ -1075,7 +1075,7 @@ async def _process_inline(
             logger.info(
                 "WhatsApp reply skipped for %s: %s",
                 _sanitize_log_text(sender_phone),
-                bot_result.get("reason", "unknown"),
+                _sanitize_log_text(str(bot_result.get("reason", "unknown"))),
             )
             return
 
@@ -1090,8 +1090,8 @@ async def _process_inline(
     except Exception as e:
         logger.error(
             "WhatsApp auto-reply failed for phone_number_id=%s: %s",
-            _sanitize_log_text(str(phone_number_id or "")),
-            _sanitize_log_text(str(e)),
+            _mask_sensitive(str(phone_number_id or "")),
+            _mask_sensitive(str(e)),
         )
 
 
@@ -1217,7 +1217,7 @@ async def create_bot(
         profile_result = await client.update_business_profile({"about": about_text[:139]})
     except Exception as e:
         logger.warning("WhatsApp profile update failed: %s", _sanitize_log_text(str(e)))
-        profile_result = {"result": "error", "detail": str(e)}
+        profile_result = {"result": "error", "detail": "profile update failed"}
 
     # Store bot config in account meta_data
     meta = account.meta_data or {}

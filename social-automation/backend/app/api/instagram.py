@@ -429,9 +429,9 @@ async def get_app_review_status(
                     else:
                         status["permission_status"] = "error"
                         status["error"] = f"HTTP {resp.status_code}"
-            except Exception as exc:
+            except Exception:
                 status["permission_status"] = "error"
-                status["error"] = str(exc)[:200]
+                status["error"] = "permission check failed"
 
         statuses.append(status)
 

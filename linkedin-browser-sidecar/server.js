@@ -185,41 +185,10 @@ async function dismissDialogs() {
   }
 }
 
-/** Append one NDJSON debug line (session ce3429). */
+/** Debug instrumentation hook — no-op in production.
+ * Kept so call sites stay valid without a live debug ingest endpoint. */
 function agentLog(hypothesisId, location, message, data = {}) {
-  // #region agent log
-  try {
-    const payload = JSON.stringify({
-      sessionId: 'ce3429',
-      runId: 'post-fix',
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    });
-    fs.appendFileSync('/tmp/debug-ce3429.log', payload + '\n');
-    // Best-effort HTTP ingest to host debugger
-    try {
-      const http = require('http');
-      const req = http.request({
-        hostname: 'host.docker.internal',
-        port: 7498,
-        path: '/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': 'ce3429',
-          'Content-Length': Buffer.byteLength(payload),
-        },
-        timeout: 1000,
-      }, () => {});
-      req.on('error', () => {});
-      req.write(payload);
-      req.end();
-    } catch (_) {}
-  } catch (_) {}
-  // #endregion
+  void hypothesisId; void location; void message; void data;
 }
 
 
@@ -307,7 +276,7 @@ async function navigate(url, timeout = 60000) {
         waitUntil: opts.waitUntil,
       });
       if (status === 429) {
-        tripRateLimit(`HTTP 429 on ${url}`);
+        tripRateLimit('http_429');
         const err = new Error(`LinkedIn rate-limited (HTTP 429) navigating to ${url}`);
         err.code = 'RATE_LIMITED';
         err.status = 429;
@@ -328,7 +297,7 @@ async function navigate(url, timeout = 60000) {
       const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
       agentLog('H-A', 'navigate', 'document sizes', { url: page.url(), htmlLen, textLen, status });
       if (htmlLen < 200 && textLen === 0) {
-        tripRateLimit(`empty document on ${url}`);
+        tripRateLimit('empty_document');
         const err = new Error(`Empty LinkedIn document (htmlLen=${htmlLen}) — likely rate-limited or blocked`);
         err.code = 'RATE_LIMITED';
         err.status = status || 429;
@@ -356,7 +325,7 @@ async function navigate(url, timeout = 60000) {
   }
   // LinkedIn often answers rate-limits / soft blocks with redirect loops.
   if (lastErr && lastErr.message && lastErr.message.includes('ERR_TOO_MANY_REDIRECTS')) {
-    tripRateLimit(`redirect loop on ${url}`);
+    tripRateLimit('redirect_loop');
     const err = new Error(`LinkedIn redirect loop (likely rate-limited) navigating to ${url}`);
     err.code = 'RATE_LIMITED';
     err.status = 429;

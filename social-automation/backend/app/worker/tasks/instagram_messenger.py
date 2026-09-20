@@ -279,8 +279,6 @@ async def _process_account(
                 sender_key = "is_sent_by_viewer"
                 sender_field = None
                 text_field = "text"
-            else:
-                continue
 
             if not messages:
                 continue
