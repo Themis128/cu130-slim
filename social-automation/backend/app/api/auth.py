@@ -377,7 +377,7 @@ instagram_client = BaseOAuth2(
     authorize_endpoint="https://www.facebook.com/dialog/oauth",
     access_token_endpoint=facebook_graph_url("oauth/access_token"),
     refresh_token_endpoint=facebook_graph_url("oauth/access_token"),
-    base_scopes=["instagram_basic", "instagram_content_publish", "pages_show_list"],
+    base_scopes=["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list"],
     name="instagram",
 )
 # TikTok OAuth 2.0 — uses client_key (not client_id) and custom token endpoint
@@ -1135,12 +1135,13 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         "facebook": [
             "public_profile",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-            "pages_manage_engagement", "pages_manage_metadata",
+            "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
             "read_insights",
             "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+            "instagram_manage_messages",
         ],
         "instagram": [
-            "instagram_basic", "instagram_content_publish",
+            "instagram_basic", "instagram_content_publish", "instagram_manage_messages",
             "pages_show_list", "pages_read_engagement", "pages_manage_posts",
         ],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
@@ -1387,7 +1388,7 @@ async def oauth_callback(
                     avatar_url = ig_account.get("profile_picture_url")
                     access_token = page_token or long_lived_token
                     platform = "instagram"
-                    scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement"]
+                    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list", "pages_read_engagement"]
                     fb_pages = []
                     fb_info = {"id": user_info["id"]}
                 else:
@@ -1440,6 +1441,7 @@ async def oauth_callback(
                         "pages_read_user_content", "read_insights",
                         "ads_management", "ads_read", "business_management",
                         "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+                        "instagram_manage_messages",
                     ]
 
             # If this was a WhatsApp connect, fetch WABA and phone numbers
