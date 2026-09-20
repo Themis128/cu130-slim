@@ -1852,33 +1852,40 @@ class BrowserBridgeClient:
             const conversations = [];
             const seen = new Set();
 
-            // TikTok DM conversation items
+            // Current TikTok inbox: drawer list — conversation rows carry
+            // data-e2e="dm-new-conversation-item" and the thread id in
+            // data-conv-id (e.g. "0:1:<uid>:<conv>"). No per-thread href —
+            // clicking a row opens the chat drawer.
             const items = document.querySelectorAll(
+                'div[data-e2e="dm-new-conversation-item"], ' +
                 'a[href*="/messages/"], ' +
                 'div[class*="conversation"], ' +
-                'div[class*="chat-item"], ' +
-                'div[data-e2e="chat-item"]'
+                'div[class*="chat-item"]'
             );
 
             items.forEach(item => {
                 const href = item.getAttribute('href') || '';
                 if (href.includes('/messages/compose') || href === '/messages') return;
-                if (seen.has(href || item.innerText)) return;
-                seen.add(href || item.innerText);
+
+                const convId = item.getAttribute('data-conv-id') || '';
+                const nickEl = item.querySelector('[data-e2e="dm-new-conversation-nickname"]');
+                const dedup = convId || href || item.innerText;
+                if (seen.has(dedup)) return;
+                seen.add(dedup);
 
                 const text = item.innerText || '';
                 const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
                 if (lines.length === 0) return;
 
-                // Extract conversation ID from URL or data attribute
+                // Extract conversation ID from data-conv-id, URL, or attr
                 const match = href.match(/messages\\/([0-9a-zA-Z_-]+)/);
-                const threadId = match ? match[1] : (item.getAttribute('data-conversation-id') || '');
+                const threadId = convId || (match ? match[1] : (item.getAttribute('data-conversation-id') || ''));
 
-                const name = lines[0] || 'Unknown';
+                const name = (nickEl ? nickEl.innerText : lines[0]) || 'Unknown';
                 let preview = '';
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i];
-                    if (line === 'Active now' || line === '\\u00a0') continue;
+                    if (line === 'Active now' || line === '\\u00a0' || line === name) continue;
                     preview = line;
                     break;
                 }
@@ -1904,46 +1911,50 @@ class BrowserBridgeClient:
     async def get_tiktok_dm_messages(self, thread_id: str) -> dict[str, Any]:
         """Read messages in a TikTok DM thread.
 
-        Navigates to the specific DM thread and extracts all visible messages
-        with sender names, text, and timestamps.
+        TikTok DMs are a drawer UI — there are no per-thread URLs. We open the
+        inbox, click the conversation row matching ``data-conv-id``, and scrape
+        the visible ``dm-new-chat-item`` bubbles. ``thread_id`` is the
+        ``data-conv-id`` value (e.g. ``0:1:<uid>:<conv>``).
         """
-        await self.navigate(f"https://www.tiktok.com/messages/{thread_id}")
+        await self.navigate("https://www.tiktok.com/messages")
         await asyncio.sleep(4)
 
-        # Scroll up to load older messages
-        await self.evaluate("""() => {
-            const container = document.querySelector(
-                '[class*="message-list"], [class*="chat-container"], [role="log"]'
-            );
-            if (container) container.scrollTop = 0;
-        }""")
-        await asyncio.sleep(1)
+        import json as _json
+        conv_id = _json.dumps(thread_id)
+        opened = await self.evaluate(f"""() => {{
+            const row = document.querySelector('[data-e2e="dm-new-conversation-item"][data-conv-id={conv_id}]');
+            if (!row) return {{ found: false }};
+            row.click();
+            return {{ found: true }};
+        }}""")
+        opened_res = opened.get("result", opened) if isinstance(opened, dict) else opened
+        if isinstance(opened_res, dict) and not opened_res.get("found"):
+            return {"messages": [], "count": 0, "thread_id": thread_id, "error": "conversation not found"}
+        await asyncio.sleep(3)
 
         response = await self.evaluate("""() => {
             const messages = [];
+            const list = document.querySelector('[data-e2e="dm-new-message-list"]');
+            if (!list) return { messages: [], count: 0 };
 
-            // TikTok DM messages are in various container patterns
-            const msgEls = document.querySelectorAll(
-                '[class*="message-item"], ' +
-                '[class*="msg-item"], ' +
-                '[data-e2e="message-item"], ' +
-                'div[role="article"]'
-            );
-
-            let currentSender = '';
-            msgEls.forEach(el => {
-                const senderEl = el.querySelector('[class*="sender"], [class*="author"], [class*="name"], [data-e2e="sender"]');
-                const sender = senderEl ? senderEl.innerText.trim() : currentSender;
-                if (sender) currentSender = sender;
-
-                const textEl = el.querySelector('[class*="message-text"], [data-e2e="message-text"], p, [class*="content"]');
+            let currentTime = '';
+            list.querySelectorAll('[data-e2e="dm-new-time-separator"], [data-e2e="dm-new-chat-item"]').forEach(el => {
+                if (el.getAttribute('data-e2e') === 'dm-new-time-separator') {
+                    currentTime = el.innerText.trim();
+                    return;
+                }
+                // Own messages right-align (flex-end) inside the vertical container
+                const wrap = el.closest('[class*="DivMessageVerticalContainer"]') || el;
+                const selfMsg = getComputedStyle(wrap).alignItems === 'flex-end'
+                    || !el.querySelector('[data-e2e="chat-avatar"]');
+                const textEl = el.querySelector('[class*="DivTextContainer"], [data-e2e="message-text"], p');
                 const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
-
-                const timeEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
-                const time = timeEl ? timeEl.innerText.trim() : '';
-
                 if (text && text.length < 2000) {
-                    messages.push({ sender: sender || 'unknown', text: text, time: time });
+                    messages.push({
+                        sender: selfMsg ? 'me' : 'them',
+                        text: text,
+                        time: currentTime,
+                    });
                 }
             });
 
