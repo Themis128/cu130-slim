@@ -1012,13 +1012,22 @@ async def get_instagram_profile():
             await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
             await page.wait_for_timeout(3000)
 
-        # Get username from the page (header section)
+        # Get username — the nav "Profile" link (avatar img inside an <a>)
+        # is reliable; the first <h2> on the feed is a promo banner, not
+        # the username.
         result = await page.evaluate("""() => {
-            const h2 = document.querySelector('h2');
-            const header = document.querySelector('header');
+            let username = '';
+            const profImg = document.querySelector('img[alt*="profile picture"], img[alt*="profile photo"]');
+            const link = profImg && profImg.closest('a[href]');
+            if (link) {
+                username = link.getAttribute('href').replace(/\\//g, '');
+            }
+            if (!username) {
+                const navProfile = [...document.querySelectorAll('a[role="link"]')]
+                    .find(a => /Profile/i.test(a.innerText || '') && /^\\/[^/]+\\/$/.test(a.getAttribute('href') || ''));
+                if (navProfile) username = navProfile.getAttribute('href').replace(/\\//g, '');
+            }
             const body = document.body.innerText;
-            const username = h2 ? h2.textContent.trim() : '';
-            // Extract from body text
             const lines = body.split('\\n').filter(l => l.trim());
             return { username, body_lines: lines.slice(0, 30) };
         }""")
@@ -1062,12 +1071,12 @@ async def get_instagram_profile():
                     if (v) { fullName = v; break; }
                 }
                 let bio = '';
-                for (const sel of ['textarea[name="biography"]', 'textarea[aria-label="Bio"]', 'textarea']) {
+                for (const sel of ['textarea[name="biography"]', 'textarea#pepBio', 'textarea[placeholder="Bio"]', 'textarea[aria-label="Bio"]', 'textarea']) {
                     const el = document.querySelector(sel);
                     if (el && el.tagName === 'TEXTAREA') { bio = el.value || ''; break; }
                 }
                 let url = '';
-                for (const sel of ['input[name="external_url"]', 'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']) {
+                for (const sel of ['input[name="external_url"]', 'input[placeholder="Website"]', 'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']) {
                     const v = getVal(sel);
                     if (v) { url = v; break; }
                 }
@@ -1101,9 +1110,9 @@ async def get_instagram_profile():
                 if (v) { fullName = v; break; }
             }
             let bio = '';
-            const ta = document.querySelector('textarea[name="biography"]') || document.querySelector('textarea');
+            const ta = document.querySelector('textarea[name="biography"]') || document.querySelector('textarea#pepBio') || document.querySelector('textarea[placeholder="Bio"]') || document.querySelector('textarea');
             if (ta) bio = ta.value || '';
-            let url = getVal('input[name="external_url"]') || getVal('input[aria-label="Website"]');
+            let url = getVal('input[name="external_url"]') || getVal('input[placeholder="Website"]') || getVal('input[aria-label="Website"]');
             let picUrl = '';
             const img = document.querySelector('img[alt*="profile"]') || document.querySelector('header img');
             if (img) picUrl = img.src || '';

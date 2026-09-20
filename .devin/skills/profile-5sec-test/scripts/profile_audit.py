@@ -145,7 +145,7 @@ def audit_account(acc: dict, brand: str) -> dict:
         "handle_typeable": bool(HANDLE_OK.match(handle)),
         "handle_brand": is_personal or brand.lower() in handle.lower(),
         "bio_present": bool(bio.strip()),
-        "bio_links_site": "cloudless.gr" in bio or "cloudless.gr" in site,
+        "bio_links_site": bool(site.strip()) or "http" in bio or brand.lower() in bio,
         "website_set": bool(site.strip()),
         "avatar_present": bool(avatar),
     }
