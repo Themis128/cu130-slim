@@ -607,21 +607,40 @@ async def extract_cookies_now():
     _state["status"] = "extracting"
     _state["message"] = "Extracting cookies from running browser..."
 
+    # Platform domain for disambiguation — e.g. instagram.com and
+    # tiktok.com both set a "sessionid"; flattening by name alone picks
+    # whichever cookie happened to come last and can poison the session.
+    from urllib.parse import urlparse
+    plat_domain = urlparse(site["url"]).hostname or ""
+
     try:
         cookies = await _state["context"].cookies()
         all_cookies = {c["name"]: c["value"] for c in cookies}
+        # Domain-scoped view for the target platform
+        scoped = {
+            c["name"]: c["value"]
+            for c in cookies
+            if plat_domain and plat_domain.split(".", 1)[-1] in c.get("domain", "")
+            or any(
+                c.get("domain", "").endswith("." + ".".join(plat_domain.split(".")[-2:]))
+                for _ in [0]
+            )
+        }
+        if not scoped:
+            scoped = {}
 
         # Save all cookies
         all_file = _cookie_file(f"{_state['platform']}_all_cookies.json")
         all_file.write_text(json.dumps(all_cookies, indent=2))
 
-        # Extract target cookies
+        # Extract target cookies — prefer the platform-domain value
         found = {}
         for name in site["cookies"]:
-            if name in all_cookies:
-                found[name] = all_cookies[name]
+            value = scoped.get(name) or all_cookies.get(name)
+            if value:
+                found[name] = value
                 cookie_file = _cookie_file(f"{_state['platform']}_{name}.txt")
-                cookie_file.write_text(all_cookies[name])
+                cookie_file.write_text(value)
 
         # Save storage state
         state_file = _cookie_file(f"{_state['platform']}_storage_state.json")
