@@ -10,12 +10,19 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
-from app.db.session import engine
+from app.core.config import get_settings
 from app.models.ai_usage import AIUsageLog
 
-_usage_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# Dedicated unpooled engine: Celery tasks run each job on a fresh event loop,
+# and pooled asyncpg connections are loop-bound — reusing the shared engine's
+# pool raises "Future attached to a different loop" when a connection created
+# by a previous task is checked out under the new loop. NullPool opens and
+# closes a connection per call, which is fine for this low-rate telemetry path.
+_usage_engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
+_usage_session = async_sessionmaker(_usage_engine, class_=AsyncSession, expire_on_commit=False)
 
 logger = logging.getLogger(__name__)
 
