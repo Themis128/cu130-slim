@@ -1970,19 +1970,32 @@ class BrowserBridgeClient:
     async def send_tiktok_dm_message(self, thread_id: str, text: str) -> dict[str, Any]:
         """Send a message in a TikTok DM thread.
 
-        Navigates to the thread, types the message, and sends it.
+        Opens the inbox, clicks the row matching ``data-conv-id`` (TikTok uses
+        a drawer UI, no per-thread URLs), types into the Draft.js editor, and
+        sends.
         """
-        await self.navigate(f"https://www.tiktok.com/messages/{thread_id}")
+        await self.navigate("https://www.tiktok.com/messages")
         await asyncio.sleep(4)
 
         import json as _json
+        conv_id = _json.dumps(thread_id)
+        opened = await self.evaluate(f"""() => {{
+            const row = document.querySelector('[data-e2e="dm-new-conversation-item"][data-conv-id={conv_id}]');
+            if (!row) return {{ found: false }};
+            row.click();
+            return {{ found: true }};
+        }}""")
+        opened_res = opened.get("result", opened) if isinstance(opened, dict) else opened
+        if isinstance(opened_res, dict) and not opened_res.get("found"):
+            return {"error": "conversation not found", "thread_id": thread_id}
+        await asyncio.sleep(3)
+
         escaped_text = _json.dumps(text)
         type_response = await self.evaluate(f"""() => {{
             const editor = document.querySelector(
+                '[data-e2e="dm-new-input-editor"] div[contenteditable="true"], ' +
                 'div[contenteditable="true"][role="textbox"], ' +
-                'textarea[class*="message"], ' +
-                'textarea[placeholder*="essage"], ' +
-                'textarea[placeholder*="Send a message"], ' +
+                '[data-e2e="message-input-area"] div[contenteditable="true"], ' +
                 '[data-e2e="message-input"]'
             );
             if (!editor) return {{ error: 'Could not find the message input box' }};
