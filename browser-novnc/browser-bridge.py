@@ -88,7 +88,7 @@ SITES = {
         "cookies": ["auth_token", "ct0", "twid", "kdt", "guest_id"],
     },
     "threads": {
-        "url": "https://www.threads.net/login",
+        "url": "https://www.threads.com/login",
         "success_patterns": ["threads.net/@", "threads.net/home", "threads.com/@", "threads.com/home"],
         "cookies": ["sessionid", "csrftoken", "ds_user_id", "ig_did"],
     },
