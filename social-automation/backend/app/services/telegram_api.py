@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -63,7 +64,9 @@ class TelegramAPIClient:
             raise ValueError("Invalid Telegram bot token format")
         self.bot_token = token
         self.timeout = timeout
-        self._base = f"{TELEGRAM_API_BASE}/bot{token}"
+        # quote() is identity for the validated charset; it also makes the
+        # host/path boundary explicit to static taint analysis (SSRF guard).
+        self._base = f"{TELEGRAM_API_BASE}/bot{quote(token, safe=':')}"
 
     async def _call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", method):
