@@ -612,22 +612,17 @@ async def extract_cookies_now():
     # whichever cookie happened to come last and can poison the session.
     from urllib.parse import urlparse
     plat_domain = urlparse(site["url"]).hostname or ""
+    plat_base = ".".join(plat_domain.split(".")[-2:])  # e.g. tiktok.com
 
     try:
         cookies = await _state["context"].cookies()
         all_cookies = {c["name"]: c["value"] for c in cookies}
-        # Domain-scoped view for the target platform
+        # Domain-scoped view: only cookies set on the platform's domain
         scoped = {
             c["name"]: c["value"]
             for c in cookies
-            if plat_domain and plat_domain.split(".", 1)[-1] in c.get("domain", "")
-            or any(
-                c.get("domain", "").endswith("." + ".".join(plat_domain.split(".")[-2:]))
-                for _ in [0]
-            )
+            if c.get("domain", "").lstrip(".").endswith(plat_base)
         }
-        if not scoped:
-            scoped = {}
 
         # Save all cookies
         all_file = _cookie_file(f"{_state['platform']}_all_cookies.json")
@@ -1379,18 +1374,28 @@ async def _run_browser(platform: str):
 
                 cookies = await context.cookies()
                 all_cookies = {c["name"]: c["value"] for c in cookies}
+                from urllib.parse import urlparse
+                plat_base = ".".join(
+                    (urlparse(site["url"]).hostname or "").split(".")[-2:]
+                )
+                scoped = {
+                    c["name"]: c["value"]
+                    for c in cookies
+                    if c.get("domain", "").lstrip(".").endswith(plat_base)
+                }
 
                 # Save all cookies
                 all_file = _cookie_file(f"{platform}_all_cookies.json")
                 all_file.write_text(json.dumps(all_cookies, indent=2))
 
-                # Extract target cookies
+                # Extract target cookies — prefer the platform-domain value
                 found = {}
                 for name in site["cookies"]:
-                    if name in all_cookies:
-                        found[name] = all_cookies[name]
+                    value = scoped.get(name) or all_cookies.get(name)
+                    if value:
+                        found[name] = value
                         cookie_file = _cookie_file(f"{platform}_{name}.txt")
-                        cookie_file.write_text(all_cookies[name])
+                        cookie_file.write_text(value)
 
                 # Save storage state
                 state_file = _cookie_file(f"{platform}_storage_state.json")
