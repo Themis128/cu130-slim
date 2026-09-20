@@ -140,11 +140,13 @@ POST /api/v1/profile/{account_id}/cover     — Upload cover photo
 ```
 
 ### LinkedIn personal account ID
+
 ```
 2de16fca-90e6-4d2f-abf9-b02678df8eda
 ```
 
 ### LinkedIn company page account ID
+
 ```
 9c4451bb-e820-489f-8676-76ddbc788ffe
 ```
@@ -153,18 +155,18 @@ POST /api/v1/profile/{account_id}/cover     — Upload cover photo
 
 The SocialAuto `ProfileUpdateRequest` schema supports:
 
-| Field | LinkedIn Personal | LinkedIn Company |
-|-------|-------------------|-----------------|
-| headline | ✅ | ❌ |
-| about | ✅ | ✅ (as about) |
-| website | ✅ | ✅ |
-| location | ✅ | ❌ |
-| work | ✅ (array of WorkEntry) | ❌ |
-| education | ✅ (array of EducationEntry) | ❌ |
-| full_name | ❌ (ignored) | ❌ |
-| biography | ❌ (ignored) | ❌ |
-| phone | ❌ (ignored) | ❌ |
-| email | ❌ (ignored) | ❌ |
+| Field     | LinkedIn Personal            | LinkedIn Company |
+| --------- | ---------------------------- | ---------------- |
+| headline  | ✅                           | ❌               |
+| about     | ✅                           | ✅ (as about)    |
+| website   | ✅                           | ✅               |
+| location  | ✅                           | ❌               |
+| work      | ✅ (array of WorkEntry)      | ❌               |
+| education | ✅ (array of EducationEntry) | ❌               |
+| full_name | ❌ (ignored)                 | ❌               |
+| biography | ❌ (ignored)                 | ❌               |
+| phone     | ❌ (ignored)                 | ❌               |
+| email     | ❌ (ignored)                 | ❌               |
 
 ## Fixed handlers (commit 37ccde47)
 
@@ -197,14 +199,45 @@ The SocialAuto `ProfileUpdateRequest` schema supports:
 
 ## Common issues
 
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| "LinkedIn browser session not found" | No `browser_storage_state` in meta_data | Inject session (see above) |
-| Profile page only 1080px tall | LinkedIn anti-bot or session degradation | Re-login via noVNC, re-capture session |
-| "Could not locate Edit about button" | About section not loaded (lazy-load) | Scroll page before reading |
-| "page.evaluate: Execution context destroyed" | Navigation during evaluate | Wrap in try/catch, wait for page settle |
-| URL concatenation error (`?isSelfProfile=trueedit/`) | Query string not stripped | Use `.split('?')[0]` before appending paths |
-| `edit/details/` returns "page doesn't exist" | LinkedIn removed this URL | Use profile page + scroll + click approach |
+| Issue                                                | Cause                                    | Fix                                         |
+| ---------------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| "LinkedIn browser session not found"                 | No `browser_storage_state` in meta_data  | Inject session (see above)                  |
+| Profile page only 1080px tall                        | LinkedIn anti-bot or session degradation | Re-login via noVNC, re-capture session      |
+| "Could not locate Edit about button"                 | About section not loaded (lazy-load)     | Scroll page before reading                  |
+| "page.evaluate: Execution context destroyed"         | Navigation during evaluate               | Wrap in try/catch, wait for page settle     |
+| URL concatenation error (`?isSelfProfile=trueedit/`) | Query string not stripped                | Use `.split('?')[0]` before appending paths |
+| `edit/details/` returns "page doesn't exist"         | LinkedIn removed this URL                | Use profile page + scroll + click approach  |
+
+## Credential login + 2FA (worked Sep 2026)
+
+`POST /login {username, password}` with `LINKEDIN_EMAIL`/`LINKEDIN_PASSWORD`
+from `.env` reaches the checkpoint. LinkedIn offers **SMS to the account
+phone** or email — choose SMS (the email is an unreadable external mailbox).
+
+**The handler's 2FA fill is broken** — a second `POST /login` with
+`verification_code` returns "2FA required but no code input found" because it
+restarts the flow and lands back on the method chooser. Drive it manually:
+
+```bash
+# 1. On the chooser page: SMS radio is preselected → click "Αποστολή κωδικού"
+#    (Send code) — page moves to secondaryHandleBridgeSubmit with a PIN input
+# 2. Fill + submit via /debug/eval (React needs real setter + input event):
+curl -X POST localhost:9225/debug/eval -d '{"script":"(()=>{
+  const i=document.getElementById(\"input__verification_pin\");
+  const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,\"value\").set;
+  s.call(i,\"CODE\"); i.dispatchEvent(new Event(\"input\",{bubbles:true}));
+  [...document.querySelectorAll(\"button\")].find(b=>b.type===\"submit\").click();
+  return \"submitted\"})()"}'
+# 3. Success → lands on /feed/. Verify: GET /session → logged_in:true
+# 4. Persist: GET /debug/all-cookies → save as browser_storage_state in
+#    meta_data of BOTH linkedin accounts (company + personal share the login)
+```
+
+Each `/login` retry **sends a new SMS** — only the latest code is valid.
+WARP egress is broadly 429'd by LinkedIn — keep `proxy: false` (direct
+residential IP). Playwright must be ≥1.62 — 1.48's Chromium fingerprint gets
+redirect-looped by LinkedIn bot detection. `ensureBrowser` needs
+`fresh=true` on login or it reloads the flagged session cookies.
 
 ## Source files
 

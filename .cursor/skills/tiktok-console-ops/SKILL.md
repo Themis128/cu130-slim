@@ -21,15 +21,15 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 
 ## Cloudless defaults
 
-| Field | Expected |
-|-------|----------|
-| App name / ID | Cloudless / `7630494700880906241` |
-| Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
-| Website URL (audit) | `https://cloudless.gr` (public site — not `social.cloudless.gr`) |
-| Web / media domain | `cloudless.gr` (covers `social.cloudless.gr`) |
-| Connected account | sandbox `user3113682023385` / brand cloudless.gr |
-| Publish mode (pre-audit) | `MEDIA_UPLOAD` |
-| Sidecar | `http://127.0.0.1:9224` |
+| Field                    | Expected                                                         |
+| ------------------------ | ---------------------------------------------------------------- |
+| App name / ID            | Cloudless / `7630494700880906241`                                |
+| Redirect URI             | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback`  |
+| Website URL (audit)      | `https://cloudless.gr` (public site — not `social.cloudless.gr`) |
+| Web / media domain       | `cloudless.gr` (covers `social.cloudless.gr`)                    |
+| Connected account        | sandbox `user3113682023385` / brand cloudless.gr                 |
+| Publish mode (pre-audit) | `MEDIA_UPLOAD`                                                   |
+| Sidecar                  | `http://127.0.0.1:9224`                                          |
 
 **Drift to fix if seen in console:** `social.cloudless.jp` web URL or redirect — replace with `.gr` SocialAuto paths above.
 
@@ -59,7 +59,7 @@ Audit-fix helpers (Playwright Docker, under `scripts/lib/`):
 
 ## MCP server
 
-`tiktok-console` in `.devin/mcp_config.json` →  
+`tiktok-console` in `.devin/mcp_config.json` →
 `.cursor/skills/tiktok-console-ops/scripts/tiktok-console-mcp-server.py`
 
 Tools: `tiktok_check_config`, `tiktok_sidecar_status`, `tiktok_sidecar_ensure_session`,
@@ -102,6 +102,29 @@ log in once via noVNC / Playwright MCP interactively.
 4. Do **not** submit app audit unless user explicitly asks; report readiness only
 5. Prefer Playwright Docker (`mcr.microsoft.com/playwright:v1.62.1`) for console; dismiss cookie banner before clicks
 6. After console URL/redirect edits, re-run SocialAuto OAuth reconnect if scopes/URI changed
+
+## Sidecar login via QR (no password needed)
+
+When `TIKTOK_DEV_PASSWORD` doesn't match tiktok.com (it is the **developer
+portal** password) and no live session exists anywhere:
+
+1. Playwright Docker MCP → `browser_navigate` to
+   `https://www.tiktok.com/login/qrcode`
+2. `browser_take_screenshot` — show the QR to the user; they scan with the
+   TikTok phone app (profile → ⋯ → scan) and confirm
+3. On success the page navigates off `/login` — export cookies:
+   `browser_run_code_unsafe` with
+   `async (page) => JSON.stringify(await page.context().cookies(['https://www.tiktok.com']))`
+4. POST the cookies to the sidecar: `POST localhost:9224/session`
+
+Gotchas:
+
+- **Do not navigate the QR tab** — every navigation regenerates the code and
+  invalidates the one the user is scanning. Work in `context().newPage()` tabs.
+- "Continue with Facebook" on tiktok.com/login is a JS handler that silently
+  no-ops in headless Chromium (no popup, no navigation) — don't rely on it.
+- Password logins hit "maximum number of attempts" per-IP quickly; the QR path
+  avoids the captcha/rate-limit wall entirely.
 
 ## Related
 
