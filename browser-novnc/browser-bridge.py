@@ -1407,8 +1407,20 @@ async def _run_browser(platform: str):
                 _state["cookies"] = found
                 _state["status"] = "done"
                 _state["message"] = f"Extracted {len(found)}/{len(site['cookies'])} cookies"
-                # Keep the browser context open so profile reads/navigations work
-                # The context is closed when a new session starts or session/stop is called
+                # Keep the browser context open so profile reads/navigations work.
+                # Exiting this coroutine's `async with async_playwright()` kills
+                # Chromium — stay alive while this session is still current.
+                # A new /session/start replaces _state["context"]; /session/stop
+                # sets status away from done — either ends the hold.
+                while (
+                    _state.get("status") in ("done", "active")
+                    and _state.get("context") is context
+                ):
+                    await asyncio.sleep(5)
+                    try:
+                        _ = context.pages  # raises once the context is closed
+                    except Exception:
+                        break
             else:
                 _state["status"] = "error"
                 _state["message"] = f"Timeout waiting for login. Current URL: {page.url}"
