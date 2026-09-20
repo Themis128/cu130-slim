@@ -64,6 +64,15 @@ Practical rules:
 - Facebook bio limit is 101 chars; React controlled inputs need real key
   events or `execCommand('insertText')` — programmatic `.value` sets are
   ignored.
+- **FB profile picker ("Continue as X") is a soft logout** — the sidecar
+  reports `logged_in: false, profile_picker: true`. Synthetic JS clicks
+  (`el.click()`, dispatched MouseEvents) are ignored — the picker needs a
+  trusted click (noVNC) or a credential login. Easier path: transplant
+  fresh `c_user`/`xs` cookies from the MCP browser if it's logged in.
+- **MCP cookie export**: `browser_run_code_unsafe` takes `async (page) => …`
+  (single `page` arg, NOT `{page}`), runs as an expression, and has no
+  `require` — return `JSON.stringify(await page.context().cookies([...]))`
+  and save the result host-side.
 
 ## Threads bootstrap via live Instagram session
 
