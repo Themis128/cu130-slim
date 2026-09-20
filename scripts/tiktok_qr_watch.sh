@@ -21,13 +21,12 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
       -H 'Content-Type: application/json' -H 'X-Platform: tiktok' -d '{}' 2>/dev/null)
     echo "[$(date +%H:%M:%S)] extract: $(echo "$EXT" | head -c 200)"
     if echo "$EXT" | grep -qE '"sessionid"|"sid_tt"'; then
-      echo "REAL LOGIN — injecting full cookie set into sidecar"
-      # full cookie dump lives in the bridge container
-      docker compose exec -T browser-novnc cat /app/cookies/tiktok_all_cookies.json > /tmp/tk_all.json 2>/dev/null || true
+      echo "REAL LOGIN — injecting cookies into sidecar"
+      echo "$EXT" > /tmp/tk_extract.json
       python3 - <<'PY'
 import json, urllib.request
-cks = json.load(open('/tmp/tk_all.json'))
-# drop obviously unrelated domains if present (keys are flat name->value; keep all)
+d = json.load(open('/tmp/tk_extract.json'))
+cks = d.get('cookies', {})
 body = json.dumps({'session_id': cks.get('sessionid',''), 'cookies': cks}).encode()
 req = urllib.request.Request('http://localhost:9224/session', data=body,
                              headers={'Content-Type':'application/json'})
