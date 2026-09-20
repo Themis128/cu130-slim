@@ -197,6 +197,24 @@ class BrowserBridgeClient:
             await self.start_session(platform, contention_retries=8)
         except BrowserBridgeError:
             pass
+        else:
+            # The persistent profile may already hold valid cookies — the
+            # bridge's detection loop then flips the session to done/active
+            # within seconds. Give it a short window before declaring the
+            # platform logged out, otherwise every force-start reports
+            # "waiting" and pollers skip a whole cycle for no reason.
+            for _ in range(20):
+                await asyncio.sleep(2)
+                try:
+                    status = await self.session_status()
+                except Exception:
+                    break
+                if status.get("platform") != platform:
+                    break
+                if status.get("status") in ("active", "done") and status.get("cookies_found"):
+                    return {"status": "active", "message": "Session active"}
+                if status.get("status") == "error":
+                    break
 
         return {
             "status": "waiting",
