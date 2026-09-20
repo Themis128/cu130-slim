@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.services.facebook_api import _sanitize_log_text
 from app.services.messenger_chatbot import (
     _PRICING_RESPONSES,
     _is_greek_message,
@@ -81,7 +82,7 @@ async def check_cooldown(account_id: str, phone: str, cooldown_seconds: int = DE
         key = _COOLDOWN_KEY.format(account_id=account_id, phone=phone)
         ttl = await r.ttl(key)
         if ttl > 0:
-            logger.debug("Cooldown active for %s/%s: %ds remaining", account_id, phone, ttl)
+            logger.debug("Cooldown active for %s/%s: %ds remaining", _sanitize_log_text(str(account_id)), _sanitize_log_text(str(phone)), ttl)
             return False
         return True
     except Exception:

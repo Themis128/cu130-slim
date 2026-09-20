@@ -860,12 +860,13 @@ class TikTokAPIClient:
         """
         if not conversation_id:
             raise ValueError("conversation_id is required")
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", str(conversation_id)):
+        cid = str(conversation_id)
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", cid):
             raise ValueError("conversation_id contains invalid characters")
         if not content:
             raise ValueError("content is required")
 
-        url = f"{self._base_url}/business/messages/conversations/{conversation_id}/send"
+        url = f"{self._base_url}/business/messages/conversations/{cid}/send"
         payload = {
             "open_id": self.open_id,
             "content_type": content_type,

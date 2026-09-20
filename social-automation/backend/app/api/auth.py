@@ -26,6 +26,7 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
+from app.services.facebook_api import _sanitize_log_text
 from app.services.meta_graph import facebook_graph_url
 
 settings = get_settings()
@@ -2359,8 +2360,8 @@ async def meta_data_deletion_callback(request: Request):
             logger.info(
                 "Data deletion callback: deleted %d accounts for user_id=%s page_id=%s",
                 len(accounts),
-                user_id,
-                page_id,
+                _sanitize_log_text(str(user_id)),
+                _sanitize_log_text(str(page_id)),
             )
 
     asyncio.create_task(_delete_user_data())

@@ -32,7 +32,7 @@ from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
-from app.services.facebook_api import _mask_sensitive, _sanitize_log_text
+from app.services.facebook_api import _sanitize_log_text
 from app.services.whatsapp_api import (
     WhatsAppAPIClient,
     parse_webhook_event,
@@ -902,7 +902,7 @@ async def receive_webhook(
             await _process_inline(db, phone_number_id, sender_phone, sender_name, message_text, message_type, message_id)
             processed += 1
         elif message_type == "status":
-            logger.debug("WhatsApp status: %s for message %s", event.get("status"), _sanitize_log_text(message_id))
+            logger.debug("WhatsApp status: %s for message %s", _sanitize_log_text(str(event.get("status"))), _sanitize_log_text(message_id))
 
     return {
         "status": "ok",
@@ -953,7 +953,7 @@ def _process_waba_level_events(body: dict) -> int:
                 event = value.get("event", "UNKNOWN")
                 logger.info(
                     "WhatsApp WABA %s account_update: event=%s",
-                    _sanitize_log_text(waba_id), event,
+                    _sanitize_log_text(waba_id), _sanitize_log_text(str(event)),
                 )
                 # Log ban info if present
                 ban_info = value.get("ban_info")
@@ -1041,7 +1041,7 @@ async def _process_inline(
     )
     account = result.scalar_one_or_none()
     if not account:
-        logger.warning("No WhatsApp account found for phone_number_id=%s", _mask_sensitive(str(phone_number_id or "")))
+        logger.warning("No WhatsApp account found for inbound phone_number_id")
         return
 
     meta = account.meta_data or {}
@@ -1089,9 +1089,8 @@ async def _process_inline(
 
     except Exception as e:
         logger.error(
-            "WhatsApp auto-reply failed for phone_number_id=%s: %s",
-            _mask_sensitive(str(phone_number_id or "")),
-            _mask_sensitive(str(e)),
+            "WhatsApp auto-reply failed: %s",
+            _sanitize_log_text(type(e).__name__),
         )
 
 

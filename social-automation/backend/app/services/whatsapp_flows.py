@@ -26,7 +26,6 @@ import httpx
 
 from app.services.facebook_api import (
     FacebookAPIError,
-    _mask_sensitive,
     _sanitize_log_text,
     _validate_id,
 )
@@ -96,9 +95,8 @@ class WhatsAppFlowsClient:
     def _raise_for_status(self, resp: httpx.Response, url: str) -> None:
         if resp.status_code < 400:
             return
-        text = _mask_sensitive(resp.text)
         safe_url = _sanitize_log_text(url)
-        logger.error("WhatsApp Flows API error %s for %s: %s", resp.status_code, safe_url, text)
+        logger.error("WhatsApp Flows API error %s for %s", resp.status_code, safe_url)
         err = FacebookAPIError.from_response(resp, url)
         if resp.status_code >= 500:
             err.status_code = 503 if resp.status_code in (503, 504) else 502
