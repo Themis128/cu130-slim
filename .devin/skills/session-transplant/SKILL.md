@@ -65,6 +65,34 @@ Practical rules:
   events or `execCommand('insertText')` — programmatic `.value` sets are
   ignored.
 
+## Threads bootstrap via live Instagram session
+
+Threads auth delegates to Instagram SSO — if the bridge has a live IG
+session, no password is needed. Verified working 2026-09-20:
+
+1. **Claim the browser first**: `POST /session/start {"platform":"threads",
+"force":true}` with `X-Platform: threads` — a start whose header matches
+   the platform takes an immediate 180s hold; each subsequent call renews it
+   and pollers get 409. Without this, pollers hijack the page mid-flow.
+2. `POST /session/navigate` →
+   `https://www.threads.com/login/?show_toa_choice_screen=false&variant=toa_ig`
+   (the "Use your Instagram account" variant — skips the chooser).
+3. Accept the cookie banner if present (`Allow all cookies` role=button).
+4. Click **"Continue with Instagram"** — MUST use `POST /session/click`
+   (`div[role=button]` + `text`), not JS `.click()`: the div's React handler
+   ignores synthetic JS clicks but Playwright's locator click works.
+5. Land on `instagram.com/threads/sso/?waterfall_id=…` showing
+   "Continue to Threads / <user> / <user>". "Continue to Threads" is a
+   heading — the clickable is the **account card**:
+   `POST /session/click {"selector":"div[role=button]","text":"<username>"}`.
+6. Lands on `threads.com/` logged in (nav shows New thread/Messages/
+   Profile/Insights). `POST /session/extract` persists 4 cookies
+   (`sessionid`,`csrftoken`,`ds_user_id`,`ig_did` — note the threads
+   `sessionid` differs from the IG one).
+
+The IG SSO path does NOT clobber the IG session (unlike the Facebook OIDC
+route) — verified: instagram.com still `loginForm:false` afterwards.
+
 ## Related
 
 - `session-health-ops` — triage which layer failed before transplanting
