@@ -184,12 +184,24 @@ async def _process_account(
 
     # Try Graph API first (business/creator accounts with App Review)
     client = None
+    graph_igsid = ""
     try:
         token = decrypt_token(account.access_token_enc)
-        graph_client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+        graph_client = InstagramAPIClient(
+            access_token=token,
+            ig_user_id=ig_user_id,
+            use_business_login_api=meta.get("login_type") == "business_login",
+        )
         # Probe with a 1-conversation fetch to detect capability errors
         await graph_client.get_conversations(limit=1)
         client = graph_client
+        # Participants and message `from` ids are IGSIDs, not the app-scoped
+        # account_id — resolve ours so outbound detection works.
+        try:
+            me = await graph_client.get_me()
+            graph_igsid = str(me.get("user_id") or "")
+        except Exception:
+            pass
     except Exception as exc:
         logger.info(
             "Instagram Graph API unavailable for %s: %s — trying web API fallback",
@@ -254,10 +266,14 @@ async def _process_account(
         if not convo_id:
             continue
 
-        # Get participant info
+        # Get participant info — pick the participant that isn't us.
+        # Graph returns `username` (not `name`) and `id` is the IGSID.
+        my_ids = {str(i) for i in (graph_igsid, ig_user_id, meta.get("private_api_ds_user_id")) if i}
         participants = convo.get("participants", {}).get("data", [])
-        convo_name = participants[0].get("name", "Unknown") if participants else "Unknown"
-        recipient_id = participants[0].get("id", "") if participants else ""
+        others = [p for p in participants if str(p.get("id", "")) not in my_ids]
+        other = others[0] if others else (participants[0] if participants else {})
+        convo_name = other.get("username") or other.get("name") or "Unknown"
+        recipient_id = str(other.get("id") or "")
 
         if not recipient_id:
             continue
@@ -284,7 +300,6 @@ async def _process_account(
                 continue
 
             # 3. Find ALL unread inbound messages (not from us)
-            my_id = ig_user_id or meta.get("private_api_ds_user_id", "")
             seen_key = str(convo_id)
             last_seen_text = seen.get(seen_key, "")
 
@@ -294,12 +309,12 @@ async def _process_account(
                 if sender_field:
                     sender = msg.get(sender_key, {})
                     sender_id = sender.get(sender_field, "") if isinstance(sender, dict) else str(sender)
-                    is_outbound = sender_id == my_id
+                    is_outbound = str(sender_id) in my_ids
                 elif sender_key == "is_sent_by_viewer":
                     is_outbound = bool(msg.get(sender_key, False))
                 else:
                     sender_id = msg.get(sender_key, "")
-                    is_outbound = sender_id == my_id
+                    is_outbound = str(sender_id) in my_ids
                 if not is_outbound and msg.get(text_field):
                     msg_text = (msg.get(text_field) or "").strip()
                     if msg_text:

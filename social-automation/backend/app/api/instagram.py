@@ -49,7 +49,11 @@ async def _get_ig_client(
     if not acct:
         raise HTTPException(status_code=404, detail="Instagram account not found")
     token = decrypt_token(acct.access_token_enc)
-    return InstagramAPIClient(access_token=token, ig_user_id=acct.account_id)
+    return InstagramAPIClient(
+        access_token=token,
+        ig_user_id=acct.account_id,
+        use_business_login_api=(acct.meta_data or {}).get("login_type") == "business_login",
+    )
 
 
 # ── Response models ───────────────────────────────────────────────────────────

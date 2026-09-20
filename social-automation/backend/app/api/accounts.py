@@ -503,7 +503,11 @@ async def test_account(
             await client.validate_token()
             valid = True
         elif platform == "instagram":
-            client = InstagramAPIClient(access_token=token, ig_user_id=account.account_id)
+            client = InstagramAPIClient(
+                access_token=token,
+                ig_user_id=account.account_id,
+                use_business_login_api=(account.meta_data or {}).get("login_type") == "business_login",
+            )
             await client.validate_token()
             valid = True
         elif platform == "threads":
@@ -679,7 +683,11 @@ async def validate_account(
             client = FacebookAPIClient(access_token=token, page_id=account.account_id)
             await client.validate_token()
         elif platform == "instagram":
-            client = InstagramAPIClient(access_token=token, ig_user_id=account.account_id)
+            client = InstagramAPIClient(
+                access_token=token,
+                ig_user_id=account.account_id,
+                use_business_login_api=(account.meta_data or {}).get("login_type") == "business_login",
+            )
             await client.validate_token()
         elif platform == "threads":
             client = ThreadsAPIClient(access_token=token, user_id=account.account_id)

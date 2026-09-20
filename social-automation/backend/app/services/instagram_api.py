@@ -140,6 +140,20 @@ class InstagramAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def get_me(self) -> dict[str, Any]:
+        """GET /me with identity fields.
+
+        On the Instagram Business Login host (graph.instagram.com) the
+        ``user_id`` field is the IGSID used in conversation participants
+        and message ``from`` — distinct from the app-scoped ``id``.
+        """
+        url = f"{self.base_url}/me"
+        fields = "id,user_id,username,account_type"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=self._params({"fields": fields}))
+            self._raise_for_status(resp, url)
+            return resp.json()
+
     async def get_profile(self) -> dict[str, Any]:
         """Fetch the Instagram Business/Creator account profile."""
         fields = "id,username,followers_count,media_count,follows_count,profile_picture_url,biography,name"
