@@ -20,6 +20,7 @@ from urllib.parse import quote, unquote
 import httpx
 
 from app.core.config import get_settings
+from app.services.content_renderer import sanitize_generated_text
 
 LINKEDIN_VERSION = "202608"
 LINKEDIN_REST_BASE = "https://api.linkedin.com/rest"
@@ -155,7 +156,7 @@ class LinkedInAPIClient:
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "author": author_urn,
-            "commentary": commentary[:MAX_COMMENTARY_CHARS],
+            "commentary": sanitize_generated_text(commentary)[:MAX_COMMENTARY_CHARS],
             "visibility": visibility,
             "distribution": {
                 "feedDistribution": "MAIN_FEED",

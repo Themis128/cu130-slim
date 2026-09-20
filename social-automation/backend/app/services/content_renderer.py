@@ -7,6 +7,8 @@ Uses the platform hints already defined in ``app.services.seo``.
 """
 from __future__ import annotations
 
+import re
+
 from app.models.content import Post
 from app.services.seo import _PLATFORM_HINTS
 
@@ -18,6 +20,29 @@ _LINK_IN_BODY = {"linkedin", "facebook"}
 # Platforms where hashtags are appended to the body text (vs. omitted or
 # placed in a separate field).
 _HASHTAG_IN_BODY = {"twitter", "instagram", "tiktok", "facebook", "linkedin"}
+
+
+# Model artifact patterns seen in generated drafts — normalise before publish.
+# {hashtag|\#|cloudless} → #cloudless ; [link to X] placeholder → dropped
+_HASHTAG_MARKUP_RE = re.compile(r"\{hashtag\|\\#\|([^}]+)\}")
+_PLACEHOLDER_LINK_RE = re.compile(r"\[link to [^\]]*\]", re.IGNORECASE)
+_URN_ONLY_RE = re.compile(r"^urn:li:\w+:\d+$")
+
+
+def sanitize_generated_text(text: str) -> str:
+    """Strip model markup artifacts and placeholder links from generated text."""
+    if not text:
+        return text
+    text = _HASHTAG_MARKUP_RE.sub(lambda m: f"#{m.group(1).strip()}", text)
+    text = _PLACEHOLDER_LINK_RE.sub("", text)
+    # Collapse horizontal whitespace runs left behind by removals
+    text = re.sub(r"[^\S\n]+", " ", text)
+    # Drop spaces before punctuation/newlines introduced by removals
+    text = re.sub(r" +([,.!?;:\n])", r"\1", text)
+    # Trim spaces after newlines; collapse 3+ newlines to a paragraph break
+    text = re.sub(r"\n +", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _ideal_hashtag_count(platform: str) -> tuple[int, int]:
@@ -47,9 +72,9 @@ def render_post_text(post: Post, platform: str) -> str:
     # Per-platform text override takes priority
     override = (post.platform_specific or {}).get(platform, {})
     if override.get("content_text"):
-        parts.append(override["content_text"])
+        parts.append(sanitize_generated_text(override["content_text"]))
     elif post.content_text:
-        parts.append(post.content_text)
+        parts.append(sanitize_generated_text(post.content_text))
 
     # Hashtags
     if post.hashtags and platform in _HASHTAG_IN_BODY:

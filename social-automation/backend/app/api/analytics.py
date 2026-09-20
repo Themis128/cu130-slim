@@ -643,7 +643,7 @@ async def get_top_posts(
                 post_id=snap.post_id or snap.id,
                 content_text=content_text
                 or ((snap.raw or {}).get("discovery") or {}).get("commentary")
-                or snap.platform_post_id,
+                or "",
                 platform=snap.platform,
                 impressions=snap.impressions,
                 engagement=snap.engagement,
