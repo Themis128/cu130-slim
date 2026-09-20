@@ -11,13 +11,13 @@ logged in and another is dead, copy the cookies — no password, no noVNC, no
 
 ## Cookie sources
 
-| Source | How to export |
-|---|---|
-| FB sidecar :9226 | `GET /debug/all-cookies` → `{cookies: {name: value}}` (includes httpOnly `c_user`, `xs`) |
-| LinkedIn sidecar :9225 | same endpoint shape |
-| TikTok sidecar :9224 | same endpoint shape |
+| Source                 | How to export                                                                                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FB sidecar :9226       | `GET /debug/all-cookies` → `{cookies: {name: value}}` (includes httpOnly `c_user`, `xs`)                                                                                           |
+| LinkedIn sidecar :9225 | same endpoint shape                                                                                                                                                                |
+| TikTok sidecar :9224   | same endpoint shape                                                                                                                                                                |
 | Playwright MCP browser | `browser_run_code_unsafe`: `async (page) => JSON.stringify(await page.context().cookies('https://www.instagram.com'))` — returns Playwright-format list incl. httpOnly `sessionid` |
-| Bridge itself | `GET /session/cookies` or `POST /session/extract` output |
+| Bridge itself          | `GET /session/cookies` or `POST /session/extract` output                                                                                                                           |
 
 ## Inject into the bridge (:9223)
 
@@ -57,6 +57,10 @@ Practical rules:
   across hosts/proxies may trigger checkpoints.
 - FB/IG cookie values are already percent-encoded — do NOT re-encode them
   when injecting (Playwright wants the stored value verbatim).
+- **Cross-domain OAuth bootstraps clobber transplanted sessions.** Driving
+  threads.com login through "Log in with Facebook" on a transplanted IG
+  session invalidated the IG `sessionid` (had to re-inject). Keep exported
+  cookie JSONs so a session can be restored after a failed bootstrap.
 - Facebook bio limit is 101 chars; React controlled inputs need real key
   events or `execCommand('insertText')` — programmatic `.value` sets are
   ignored.
