@@ -718,11 +718,17 @@ class InstagramAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def mark_dm_read(self, conversation_id: str) -> dict[str, Any]:
+    async def mark_dm_read(self, conversation_id: str, recipient_id: str = "") -> dict[str, Any]:
         """Mark an Instagram DM conversation as read."""
         url = f"{self.base_url}/{self.ig_user_id}/messages"
+        # graph.instagram.com rejects recipient.thread_key — use recipient.id.
+        recipient = (
+            {"id": recipient_id}
+            if recipient_id
+            else {"thread_key": conversation_id}
+        )
         payload = {
-            "recipient": {"thread_key": conversation_id},
+            "recipient": recipient,
             "sender_action": "mark_seen",
         }
         async with httpx.AsyncClient(timeout=30.0) as client:

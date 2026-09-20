@@ -378,7 +378,7 @@ async def _process_account(
                         await bridge.send_instagram_dm_message(recipient_id, lead_reply.text)
                     try:
                         if client is not None:
-                            await client.mark_dm_read(convo_id)
+                            await client.mark_dm_read(convo_id, recipient_id=recipient_id)
                     except Exception:
                         pass
 
@@ -452,7 +452,7 @@ async def _process_account(
             # 10. Mark conversation as read
             try:
                 if client is not None:
-                    await client.mark_dm_read(convo_id)
+                    await client.mark_dm_read(convo_id, recipient_id=recipient_id)
             except Exception:
                 pass  # Non-fatal
 
