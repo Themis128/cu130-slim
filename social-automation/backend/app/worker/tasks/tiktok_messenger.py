@@ -204,13 +204,17 @@ async def _process_account(
             if not messages:
                 continue
 
-            # 3. Find last inbound message
+            # 3. Find last inbound message (bridge marks sender 'me'/'them';
+            # messages without a sender field are treated as inbound)
             last_inbound = None
             for msg in reversed(messages):
                 text = msg.get("text", "")
-                if text and text.strip():
-                    last_inbound = msg
+                if not text or not text.strip():
+                    continue
+                if msg.get("sender") == "me":
                     break
+                last_inbound = msg
+                break
 
             if not last_inbound:
                 continue
