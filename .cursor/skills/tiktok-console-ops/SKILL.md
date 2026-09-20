@@ -151,6 +151,27 @@ Gotchas (learned the hard way):
   logged in, later `ensure_session("tiktok")` cycles re-authenticate on their
   own (the `/foryou` success pattern triggers extract again).
 
+## TikTok DMs (web drawer UI — no per-thread URLs)
+
+tiktok.com/messages is a single-page drawer — clicking a conversation does
+**not** change the URL (`/messages/<id>` routes don't exist). Current DOM:
+
+- Conversation rows: `div[data-e2e="dm-new-conversation-item"]` — thread id in
+  `data-conv-id` (e.g. `0:1:<uid>:<conv>`), nickname in
+  `[data-e2e="dm-new-conversation-nickname"]`
+- Open chat: message list `[data-e2e="dm-new-message-list"]`, bubbles
+  `[data-e2e="dm-new-chat-item"]`, time separators
+  `[data-e2e="dm-new-time-separator"]`, composer
+  `[data-e2e="dm-new-input-editor"]` (Draft.js contenteditable)
+- Own messages: `DivChatItemWrapper` without `chat-avatar` child /
+  `align-items: flex-end` on the vertical container
+- To read/send a thread: navigate to `/messages`, **click** the row matching
+  `data-conv-id`, wait ~3s for the drawer — implemented in
+  `BrowserBridgeClient.get_tiktok_dm_messages` / `send_tiktok_dm_message`
+- Some message types (videos, stickers, shares) render on web as
+  `[This message type isn't supported. Download TikTok app…]` — expected, the
+  phone app shows them
+
 ## Related
 
 - `.devin/skills/tiktok-dev-console/` — app/org/audit reference
