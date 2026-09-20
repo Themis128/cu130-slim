@@ -108,23 +108,48 @@ log in once via noVNC / Playwright MCP interactively.
 When `TIKTOK_DEV_PASSWORD` doesn't match tiktok.com (it is the **developer
 portal** password) and no live session exists anywhere:
 
-1. Playwright Docker MCP → `browser_navigate` to
-   `https://www.tiktok.com/login/qrcode`
-2. `browser_take_screenshot` — show the QR to the user; they scan with the
-   TikTok phone app (profile → ⋯ → scan) and confirm
-3. On success the page navigates off `/login` — export cookies:
-   `browser_run_code_unsafe` with
-   `async (page) => JSON.stringify(await page.context().cookies(['https://www.tiktok.com']))`
-4. POST the cookies to the sidecar: `POST localhost:9224/session`
+**Do NOT use the headless MCP playwright browser or the headless sidecar for
+QR login — TikTok rejects QR authorization from headless Chromium.** Use the
+headed `browser-novnc` bridge (port 9223, Xvfb):
 
-Gotchas:
+1. `POST localhost:9223/session/start` `{platform:"tiktok", force:true}` with
+   `X-Platform: tiktok`
+2. `POST /session/navigate` → `https://www.tiktok.com/login/qrcode`
+3. Show the QR — extract via `/session/evaluate`:
+   `document.querySelector("canvas").toDataURL()` → decode → display, or point
+   the user at the live view `http://localhost:6080/vnc.html?autoconnect=1`
+   (the PNG expires in ~2 min; noVNC always shows the current code)
+4. User scans in TikTok app (profile → ⋯ → scan) → **Confirm login** on phone
+   → page navigates to `/foryou`
+5. `POST /session/extract` → real `.tiktok.com` cookies (`sessionid`,
+   `sid_tt`, `uid_tt`, `ttwid`, `msToken`)
+6. `POST localhost:9224/session` `{session_id, cookies}` → verify
+   `GET /session` returns `logged_in: true`
 
-- **Do not navigate the QR tab** — every navigation regenerates the code and
-  invalidates the one the user is scanning. Work in `context().newPage()` tabs.
+Automated: `scripts/tiktok_qr_watch.sh` does steps 4–6 — polls `/session/evaluate`
+(tagged, keeps the busy-hold warm), extracts on `/foryou` navigation, verifies
+`sessionid`/`sid_tt` are present, injects into the sidecar.
+
+Gotchas (learned the hard way):
+
+- **Poller preemption**: `social-worker-messenger` tasks (facebook/threads/
+  personal) force-start the bridge and will kill the QR page mid-scan. For a
+  clean window: `docker compose stop social-worker-messenger`, restart after.
+- **Cookie name collision**: `sessionid` exists on both `instagram.com` and
+  `tiktok.com` — the bridge extract used to flatten by name only and could
+  inject Instagram's sessionid into the TikTok sidecar. Extract is now
+  domain-scoped (2026-09); never hand-copy `sessionid` without checking the
+  source domain.
+- **False login detection**: a URL change alone is not login — a preempting
+  poller navigates the page too. Only trust `sessionid`/`sid_tt` present on
+  `.tiktok.com` cookies.
 - "Continue with Facebook" on tiktok.com/login is a JS handler that silently
   no-ops in headless Chromium (no popup, no navigation) — don't rely on it.
 - Password logins hit "maximum number of attempts" per-IP quickly; the QR path
   avoids the captcha/rate-limit wall entirely.
+- The bridge's persistent profile keeps tiktok cookies across restarts — once
+  logged in, later `ensure_session("tiktok")` cycles re-authenticate on their
+  own (the `/foryou` success pattern triggers extract again).
 
 ## Related
 
