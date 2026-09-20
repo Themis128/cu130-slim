@@ -55,12 +55,23 @@ def cmd_list() -> None:
         print(f"{a['id']}  {a.get('domain','')!r:60}  {a.get('name')}  [{decisions}]")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_no_redirect = urllib.request.build_opener(_NoRedirect)
+
+
 def cmd_probe(paths: list[str]) -> None:
     for p in paths:
         url = f"https://social.cloudless.gr{p}"
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) cf-access-probe"},
+        )
         try:
-            urllib.request.urlopen(req, timeout=15)
+            _no_redirect.open(req, timeout=15)
             code = 200
             loc = ""
         except urllib.error.HTTPError as e:
@@ -69,7 +80,12 @@ def cmd_probe(paths: list[str]) -> None:
         except Exception as e:
             print(f"ERR   {p}  {e}")
             continue
-        state = "ACCESS-GATED" if code == 302 and "cloudflareaccess" in loc else "origin" if code != 302 else "redirect?"
+        if code == 302 and "cloudflareaccess" in loc:
+            state = "ACCESS-GATED"
+        elif code == 302:
+            state = "redirect?"
+        else:
+            state = "origin"
         print(f"{code}  {state:14}  {p}")
 
 
