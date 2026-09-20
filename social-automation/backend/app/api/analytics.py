@@ -90,15 +90,49 @@ def _org_urn(account: SocialAccount) -> str:
 
 
 async def _linkedin_follower_count(account: SocialAccount) -> int:
-    """Fetch live follower count for a LinkedIn Company Page account."""
+    """Fetch live follower count for a LinkedIn Company Page account.
+
+    Member accounts have no follower-statistics endpoint — skip them.
+    Falls back to organizationalEntityFollowerStatistics when the
+    networkSizes edge returns nothing.
+    """
     if account.platform != "linkedin":
+        return 0
+    org_urn = _org_urn(account)
+    if "organization:" not in org_urn or not org_urn.rsplit(":", 1)[-1].isdigit():
         return 0
     try:
         token = decrypt_token(account.access_token_enc)
         client = LinkedInAPIClient(access_token=token)
-        return await client.get_follower_count(_org_urn(account))
+        count = await client.get_follower_count(org_urn)
+        if count:
+            return count
     except Exception:
-        return 0
+        pass
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://api.linkedin.com/v2/organizationalEntityFollowerStatistics",
+                headers={"Authorization": f"Bearer {token}"},
+                params={
+                    "q": "organizationalEntity",
+                    "organizationalEntity": org_urn,
+                },
+            )
+            if resp.status_code == 200:
+                for el in (resp.json() or {}).get("elements", []):
+                    for by_fn in el.get("followerCountsByFunction", []):
+                        fc = by_fn.get("followerCounts", {})
+                        if fc.get("organicFollowerCount") is not None:
+                            return int(fc["organicFollowerCount"])
+                    fc = el.get("followerCounts", {})
+                    if fc.get("organicFollowerCount") is not None:
+                        return int(fc["organicFollowerCount"])
+    except Exception:
+        pass
+    return 0
 
 
 async def _twitter_follower_count(account: SocialAccount) -> int:
@@ -131,7 +165,8 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
         return 0
     try:
         import httpx
-        token = decrypt_token(account.access_token_enc)
+        meta = account.meta_data or {}
+        token = meta.get("page_token") or decrypt_token(account.access_token_enc)
         page_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -147,16 +182,25 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
 
 
 async def _instagram_follower_count(account: SocialAccount) -> int:
-    """Fetch follower count for an Instagram Business/Creator account."""
+    """Fetch follower count for an Instagram Business/Creator account.
+
+    Instagram Login tokens (IGAAU* prefix) must call graph.instagram.com;
+    Facebook Login tokens use graph.facebook.com.
+    """
     if account.platform != "instagram":
         return 0
     try:
         import httpx
         token = decrypt_token(account.access_token_enc)
         ig_user_id = account.account_id
+        url = (
+            f"https://graph.instagram.com/v26.0/{ig_user_id}"
+            if token.startswith("IGAAU")
+            else facebook_graph_url(str(ig_user_id))
+        )
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                facebook_graph_url(str(ig_user_id)),
+                url,
                 params={"fields": "followers_count", "access_token": token},
             )
             if resp.status_code == 200:
@@ -201,7 +245,12 @@ async def _threads_follower_count(account: SocialAccount) -> int:
 
 
 async def _tiktok_follower_count(account: SocialAccount) -> int:
-    """Fetch follower count for a TikTok account via Display API."""
+    """Fetch follower count for a TikTok account.
+
+    Tries the Display API first; if that fails or returns nothing (e.g.
+    missing user.info.basic scope), falls back to the browser sidecar's
+    profile-page stats which render fine even in headless mode.
+    """
     if account.platform != "tiktok":
         return 0
     try:
@@ -215,7 +264,29 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
             )
             if resp.status_code == 200:
                 data = (resp.json() or {}).get("data", {})
-                return int((data.get("user") or {}).get("follower_count", 0) or 0)
+                followers = (data.get("user") or {}).get("follower_count")
+                if followers is not None:
+                    return int(followers)
+    except Exception:
+        pass
+    # Sidecar fallback — profile page renders followers without API scope.
+    try:
+        import httpx
+
+        from app.core.config import get_settings
+
+        username = (account.username or "").lstrip("@")
+        if not username:
+            return 0
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.get(
+                f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
+                params={"username": username},
+            )
+        if resp.status_code == 200:
+            followers = (resp.json().get("stats") or {}).get("followers")
+            if followers is not None:
+                return int(followers)
     except Exception:
         pass
     return 0

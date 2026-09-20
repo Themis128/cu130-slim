@@ -566,6 +566,8 @@ async def sync_linkedin_account(
                 result=result,
             )
 
+
+
     if result.synced == 0:
         result.skipped = len(targets)
 
@@ -627,17 +629,83 @@ async def sync_twitter_account(
     targets = (await db.execute(targets_q)).scalars().all()
     targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
 
+    # Discover tweets SocialAuto didn't publish (native X posts) via the
+    # authenticated user's timeline — same backfill pattern as TikTok.
+    user_id = account.account_id
+    discovered: dict[str, uuid.UUID | None] = {}
+    id_to_post: dict[str, uuid.UUID] = {}
+    for t in targets:
+        tid = (t.platform_post_id or "").split("/")[-1]
+        if tid:
+            id_to_post[tid] = t.post_id
+
     async with httpx.AsyncClient(timeout=30.0) as client:
+        covered: set[str] = set()
         for t in targets:
             tweet_id = (t.platform_post_id or "").split("/")[-1]
             if not tweet_id:
                 continue
+            covered.add(tweet_id)
             metrics = await _fetch_twitter_metrics(client, token, tweet_id)
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
                 metrics=metrics, captured_at=captured_at, source="twitter_api",
                 result=result, platform="twitter",
             )
+
+        # User timeline discovery — Free/Basic tiers reject with 402/403.
+        try:
+            resp = await client.get(
+                f"https://api.x.com/2/users/{user_id}/tweets",
+                headers={"Authorization": f"Bearer {token}"},
+                params={
+                    "tweet.fields": "public_metrics,created_at",
+                    "max_results": "50",
+                    "exclude": "replies,retweets",
+                },
+            )
+            if resp.status_code == 200:
+                since_ts = since.timestamp()
+                for tw in (resp.json() or {}).get("data", []):
+                    tid = tw.get("id")
+                    if not tid or tid in covered:
+                        continue
+                    try:
+                        created = datetime.fromisoformat(
+                            tw["created_at"].replace("Z", "+00:00")
+                        ).timestamp() if tw.get("created_at") else None
+                    except ValueError:
+                        created = None
+                    if created and created < since_ts:
+                        continue
+                    pm = tw.get("public_metrics", {}) or {}
+                    metrics = MetricBundle(
+                        impressions=int(pm.get("impression_count", 0) or 0),
+                        likes=int(pm.get("like_count", 0) or 0),
+                        comments=int(pm.get("reply_count", 0) or 0),
+                        shares=int(pm.get("retweet_count", 0) or 0)
+                        + int(pm.get("quote_count", 0) or 0),
+                        reach=int(pm.get("impression_count", 0) or 0),
+                        raw=tw,
+                    )
+                    await _persist_snapshot(
+                        db, account=account, post_id=id_to_post.get(tid),
+                        platform_post_id=tid, metrics=metrics,
+                        captured_at=captured_at, source="twitter_api",
+                        result=result, platform="twitter",
+                    )
+                    discovered[tid] = id_to_post.get(tid)
+            elif resp.status_code in (401, 402, 403, 429):
+                result.errors.append(
+                    f"twitter timeline discovery HTTP {resp.status_code} "
+                    "(needs paid tier for read access)"
+                )
+            else:
+                result.errors.append(
+                    f"twitter timeline discovery HTTP {resp.status_code}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"twitter timeline discovery: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -734,17 +802,62 @@ async def sync_facebook_account(
         )
         targets = (await db.execute(targets_q)).scalars().all()
         targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+        id_to_post = {t.platform_post_id: t.post_id for t in targets if t.platform_post_id}
 
+        covered: set[str] = set()
         for t in targets:
             fb_post_id = t.platform_post_id or ""
             if not fb_post_id:
                 continue
+            covered.add(fb_post_id)
             metrics = await _fetch_facebook_post_metrics(client, page_token, fb_post_id)
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=fb_post_id,
                 metrics=metrics, captured_at=captured_at, source="facebook_api",
                 result=result, platform="facebook",
             )
+
+        # Discover posts SocialAuto didn't publish. `published_posts` is a
+        # Page-only edge — personal (user) accounts must use `feed`.
+        discovery_edge = (
+            "published_posts" if account.account_type == "page" else "feed"
+        )
+        try:
+            resp = await client.get(
+                facebook_graph_url(f"{page_id}/{discovery_edge}"),
+                params={
+                    "access_token": page_token,
+                    "fields": "id,created_time,message",
+                    "limit": "50",
+                },
+            )
+            if resp.status_code == 200:
+                for item in (resp.json() or {}).get("data", []):
+                    pid = item.get("id")
+                    if not pid or pid in covered:
+                        continue
+                    try:
+                        created = datetime.fromisoformat(
+                            item["created_time"].replace("Z", "+00:00")
+                        ) if item.get("created_time") else None
+                    except ValueError:
+                        created = None
+                    if created and created < since:
+                        continue
+                    metrics = await _fetch_facebook_post_metrics(client, page_token, pid)
+                    metrics.raw = {**(metrics.raw or {}), "discovery": item}
+                    await _persist_snapshot(
+                        db, account=account, post_id=id_to_post.get(pid),
+                        platform_post_id=pid, metrics=metrics,
+                        captured_at=captured_at, source="facebook_api",
+                        result=result, platform="facebook",
+                    )
+            else:
+                result.errors.append(
+                    f"facebook {discovery_edge} HTTP {resp.status_code}: {_meta_error_message(resp)}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"facebook post discovery: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -839,18 +952,67 @@ async def sync_instagram_account(
     )
     targets = (await db.execute(targets_q)).scalars().all()
     targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+    id_to_post = {t.platform_post_id: t.post_id for t in targets if t.platform_post_id}
+
+    ig_host = "https://graph.instagram.com/v26.0" if token.startswith("IGAAU") else None
 
     async with httpx.AsyncClient(timeout=30.0) as client:
+        covered: set[str] = set()
         for t in targets:
             media_id = t.platform_post_id or ""
             if not media_id:
                 continue
+            covered.add(media_id)
             metrics = await _fetch_instagram_media_metrics(client, token, ig_user_id, media_id)
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=media_id,
                 metrics=metrics, captured_at=captured_at, source="instagram_api",
                 result=result, platform="instagram",
             )
+
+        # Discover IG media SocialAuto didn't publish (native app posts).
+        try:
+            media_url = (
+                f"{ig_host}/{ig_user_id}/media" if ig_host
+                else facebook_graph_url(f"{ig_user_id}/media")
+            )
+            resp = await client.get(
+                media_url,
+                params={
+                    "access_token": token,
+                    "fields": "id,timestamp,caption,media_type,permalink",
+                    "limit": "50",
+                },
+            )
+            if resp.status_code == 200:
+                for item in (resp.json() or {}).get("data", []):
+                    mid = item.get("id")
+                    if not mid or mid in covered:
+                        continue
+                    try:
+                        created = datetime.fromisoformat(
+                            item["timestamp"].replace("Z", "+00:00")
+                        ) if item.get("timestamp") else None
+                    except ValueError:
+                        created = None
+                    if created and created < since:
+                        continue
+                    metrics = await _fetch_instagram_media_metrics(
+                        client, token, ig_user_id, mid
+                    )
+                    metrics.raw = {**(metrics.raw or {}), "discovery": item}
+                    await _persist_snapshot(
+                        db, account=account, post_id=id_to_post.get(mid),
+                        platform_post_id=mid, metrics=metrics,
+                        captured_at=captured_at, source="instagram_api",
+                        result=result, platform="instagram",
+                    )
+            else:
+                result.errors.append(
+                    f"instagram media discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"instagram media discovery: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -968,19 +1130,62 @@ async def sync_threads_account(
     )
     targets = (await db.execute(targets_q)).scalars().all()
     targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
+    id_to_post = {t.platform_post_id: t.post_id for t in targets if t.platform_post_id}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Per-post media metrics
+        covered: set[str] = set()
         for t in targets:
             media_id = t.platform_post_id or ""
             if not media_id:
                 continue
+            covered.add(media_id)
             metrics = await _fetch_threads_media_metrics(client, token, media_id)
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=media_id,
                 metrics=metrics, captured_at=captured_at, source="threads_api",
                 result=result, platform="threads",
             )
+
+        # Discover threads SocialAuto didn't publish (native Threads posts).
+        try:
+            resp = await client.get(
+                f"https://graph.threads.net/v1.0/{account.account_id}/threads",
+                params={
+                    "access_token": token,
+                    "fields": "id,timestamp,text,media_type,permalink",
+                    "limit": "50",
+                },
+            )
+            if resp.status_code == 200:
+                for item in (resp.json() or {}).get("data", []):
+                    mid = item.get("id")
+                    if not mid or mid in covered:
+                        continue
+                    ts = item.get("timestamp")
+                    try:
+                        created = (
+                            datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                            if ts else None
+                        )
+                    except (ValueError, TypeError):
+                        created = None
+                    if created and created < since:
+                        continue
+                    metrics = await _fetch_threads_media_metrics(client, token, mid)
+                    metrics.raw = {**(metrics.raw or {}), "discovery": item}
+                    await _persist_snapshot(
+                        db, account=account, post_id=id_to_post.get(mid),
+                        platform_post_id=mid, metrics=metrics,
+                        captured_at=captured_at, source="threads_api",
+                        result=result, platform="threads",
+                    )
+            else:
+                result.errors.append(
+                    f"threads discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"threads post discovery: {exc}")
 
         # Account-level insights (aggregated views, likes, replies, reposts, quotes)
         try:
@@ -1267,35 +1472,6 @@ async def sync_tiktok_account(
                     metrics=metrics, captured_at=captured_at,
                     source="tiktok_scrape", result=result, platform="tiktok",
                 )
-            followers = scraped.get("followers")
-            if followers:
-                db.add(FollowerSnapshot(
-                    team_id=account.team_id, social_account_id=account.id,
-                    platform="tiktok", followers=int(followers),
-                ))
-            else:
-                # yt-dlp flat extraction doesn't expose follower count — the
-                # sidecar's profile page stats do (grid items may be empty in
-                # headless, but followers/following/likes render fine).
-                try:
-                    from app.core.config import get_settings
-
-                    async with httpx.AsyncClient(timeout=90.0) as sc:
-                        r = await sc.get(
-                            f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
-                            params={"username": username},
-                        )
-                    if r.status_code == 200:
-                        sc_followers = (r.json().get("stats") or {}).get("followers")
-                        if sc_followers is not None:
-                            db.add(FollowerSnapshot(
-                                team_id=account.team_id,
-                                social_account_id=account.id,
-                                platform="tiktok", followers=int(sc_followers),
-                            ))
-                except Exception:  # noqa: BLE001 — follower scrape is best-effort
-                    pass
-
             if not scraped["videos"]:
                 # 0 scraped videos with cookies present could mean a dead
                 # web session rather than an empty profile — ask the sidecar.
