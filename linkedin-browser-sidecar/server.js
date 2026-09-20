@@ -46,11 +46,11 @@
  * /data/li-session.json and restored on container restart.
  */
 
-import express from 'express';
-import rateLimit from 'express-rate-limit';
-import { chromium } from 'playwright';
-import fs from 'fs';
-import path from 'path';
+import express from "express";
+import rateLimit from "express-rate-limit";
+import { chromium } from "playwright";
+import fs from "fs";
+import path from "path";
 
 const PORT = process.env.LINKEDIN_SIDECAR_PORT || 9225;
 
@@ -64,71 +64,74 @@ let storageState = null;
 /** Coerce cookie values to strings; quote JSESSIONID ajax: values LinkedIn expects. */
 function sanitizeCookieValue(name, value) {
   let v = value;
-  if (v && typeof v === 'object') {
+  if (v && typeof v === "object") {
     // Common mistake: nested {value: '...'} from flattened exports
-    if (typeof v.value === 'string') v = v.value;
+    if (typeof v.value === "string") v = v.value;
     else v = JSON.stringify(v);
   }
-  v = String(v ?? '');
-  if (name === 'JSESSIONID' && v.startsWith('ajax:') && !v.startsWith('"')) {
+  v = String(v ?? "");
+  if (name === "JSESSIONID" && v.startsWith("ajax:") && !v.startsWith('"')) {
     v = `"${v}"`;
   }
   return v;
 }
 
 function sanitizeStorageState(state) {
-  if (!state || typeof state !== 'object') return state;
+  if (!state || typeof state !== "object") return state;
   const cookies = Array.isArray(state.cookies) ? state.cookies : [];
   return {
     ...state,
     cookies: cookies
-      .filter((c) => c && typeof c.name === 'string')
+      .filter((c) => c && typeof c.name === "string")
       .map((c) => ({
         ...c,
         value: sanitizeCookieValue(c.name, c.value),
-        domain: c.domain || '.linkedin.com',
-        path: c.path || '/',
+        domain: c.domain || ".linkedin.com",
+        path: c.path || "/",
       })),
   };
 }
 
-
-async function ensureBrowser() {
+async function ensureBrowser(fresh = false) {
   if (browser && browser.isConnected()) return;
 
-  // Try to load a saved session if we don't have one in memory
-  if (!storageState) {
+  // Try to load a saved session if we don't have one in memory.
+  // `fresh` skips this — handleLogin needs a cookie-free context or the
+  // flagged session's li_at makes /login redirect to /feed/ and loop.
+  if (!storageState && !fresh) {
     await loadSavedSession();
   }
 
-  const proxyServer = process.env.LINKEDIN_PROXY || process.env.PROXY_URL || '';
+  const proxyServer = process.env.LINKEDIN_PROXY || process.env.PROXY_URL || "";
   const launchOpts = {
     headless: true,
     args: [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-site-isolation-trials',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-infobars',
-      '--window-size=1920,1080',
+      "--disable-blink-features=AutomationControlled",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--disable-site-isolation-trials",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-infobars",
+      "--window-size=1920,1080",
     ],
   };
   if (proxyServer) {
     launchOpts.proxy = { server: proxyServer };
-    agentLog('H-H', 'ensureBrowser', 'launching with proxy', { proxy: proxyServer.replace(/:\/\/.*/, '://***') });
+    agentLog("H-H", "ensureBrowser", "launching with proxy", {
+      proxy: proxyServer.replace(/:\/\/.*/, "://***"),
+    });
   }
   browser = await chromium.launch(launchOpts);
 
   const ctxOptions = {
     viewport: { width: 1920, height: 1080 },
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    locale: 'en-US',
-    timezoneId: 'Europe/Athens',
-    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
-    permissions: ['notifications'],
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    locale: "en-US",
+    timezoneId: "Europe/Athens",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+    permissions: ["notifications"],
   };
 
   if (storageState) {
@@ -138,7 +141,7 @@ async function ensureBrowser() {
 
   context = await browser.newContext(ctxOptions);
   await context.addInitScript(
-    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
   );
   page = await context.newPage();
 }
@@ -155,7 +158,7 @@ async function closeBrowser() {
 /** Best-effort wait for page to settle (LinkedIn has long-polling). */
 async function settle(timeout = 20000) {
   try {
-    await page.waitForLoadState('networkidle', { timeout });
+    await page.waitForLoadState("networkidle", { timeout });
   } catch (_) {}
   await page.waitForTimeout(1500);
 }
@@ -164,7 +167,7 @@ async function settle(timeout = 20000) {
 async function dismissDialogs() {
   // LinkedIn cookie consent dialog
   for (const sel of [
-    'button#artdeco-global-toast-action-primary',
+    "button#artdeco-global-toast-action-primary",
     'button[data-tracking-control-name="public_profile_contextual-sign-in"]',
     'button:has-text("Accept")',
     'button:has-text("Reject")',
@@ -188,18 +191,25 @@ async function dismissDialogs() {
 /** Debug instrumentation hook — no-op in production.
  * Kept so call sites stay valid without a live debug ingest endpoint. */
 function agentLog(hypothesisId, location, message, data = {}) {
-  void hypothesisId; void location; void message; void data;
+  void hypothesisId;
+  void location;
+  void message;
+  void data;
 }
 
-
 /** Global LinkedIn rate-limit circuit breaker (persisted under /data). */
-const RATE_LIMIT_FILE = path.join(path.dirname(process.env.SESSION_FILE || '/data/li-session.json'), 'rate-limit.json');
-const RATE_LIMIT_COOLDOWN_MS = Number(process.env.LINKEDIN_RATE_LIMIT_COOLDOWN_MS || 6 * 60 * 60 * 1000);
+const RATE_LIMIT_FILE = path.join(
+  path.dirname(process.env.SESSION_FILE || "/data/li-session.json"),
+  "rate-limit.json",
+);
+const RATE_LIMIT_COOLDOWN_MS = Number(
+  process.env.LINKEDIN_RATE_LIMIT_COOLDOWN_MS || 6 * 60 * 60 * 1000,
+);
 
 function readRateLimitState() {
   try {
     if (!fs.existsSync(RATE_LIMIT_FILE)) return null;
-    return JSON.parse(fs.readFileSync(RATE_LIMIT_FILE, 'utf-8'));
+    return JSON.parse(fs.readFileSync(RATE_LIMIT_FILE, "utf-8"));
   } catch (_) {
     return null;
   }
@@ -207,17 +217,27 @@ function readRateLimitState() {
 
 function tripRateLimit(reason) {
   const until = Date.now() + RATE_LIMIT_COOLDOWN_MS;
-  const state = { until, reason: String(reason || '').slice(0, 300), trippedAt: Date.now() };
+  const state = {
+    until,
+    reason: String(reason || "").slice(0, 300),
+    trippedAt: Date.now(),
+  };
   try {
     fs.writeFileSync(RATE_LIMIT_FILE, JSON.stringify(state));
   } catch (_) {}
-  agentLog('H-F', 'tripRateLimit', 'circuit opened', { until, reason: state.reason, cooldownMs: RATE_LIMIT_COOLDOWN_MS });
+  agentLog("H-F", "tripRateLimit", "circuit opened", {
+    until,
+    reason: state.reason,
+    cooldownMs: RATE_LIMIT_COOLDOWN_MS,
+  });
   return state;
 }
 
 function clearRateLimit() {
-  try { fs.unlinkSync(RATE_LIMIT_FILE); } catch (_) {}
-  agentLog('H-F', 'clearRateLimit', 'circuit closed', {});
+  try {
+    fs.unlinkSync(RATE_LIMIT_FILE);
+  } catch (_) {}
+  agentLog("H-F", "clearRateLimit", "circuit closed", {});
 }
 
 function assertNotRateLimited(action) {
@@ -228,9 +248,9 @@ function assertNotRateLimited(action) {
     return;
   }
   const err = new Error(
-    `LinkedIn circuit open until ${new Date(state.until).toISOString()} (${state.reason || 'rate-limited'}); skipped ${action}`
+    `LinkedIn circuit open until ${new Date(state.until).toISOString()} (${state.reason || "rate-limited"}); skipped ${action}`,
   );
-  err.code = 'RATE_LIMITED';
+  err.code = "RATE_LIMITED";
   err.status = 429;
   err.until = state.until;
   throw err;
@@ -240,7 +260,7 @@ function assertNotRateLimited(action) {
 function isBlankDocument() {
   try {
     const url = page.url();
-    if (url.startsWith('chrome-error://') || url === 'about:blank') return true;
+    if (url.startsWith("chrome-error://") || url === "about:blank") return true;
   } catch (_) {
     return true;
   }
@@ -257,82 +277,118 @@ async function navigate(url, timeout = 60000) {
   // Serialize all navigations — concurrent page.goto races cause
   // "Navigation is interrupted by another navigation".
   const run = async () => {
-  assertNotRateLimited(`navigate ${url}`);
-  await ensureBrowser();
-  let lastErr = null;
-  const attempts = [
-    { waitUntil: 'domcontentloaded', timeout },
-    { waitUntil: 'commit', timeout: Math.min(timeout, 30000) },
-  ];
+    assertNotRateLimited(`navigate ${url}`);
+    await ensureBrowser();
+    let lastErr = null;
+    const attempts = [
+      { waitUntil: "domcontentloaded", timeout },
+      { waitUntil: "commit", timeout: Math.min(timeout, 30000) },
+    ];
 
-  for (const opts of attempts) {
-    try {
-      const resp = await page.goto(url, opts);
-      const status = resp ? resp.status() : 0;
-      agentLog('H-A', 'navigate', 'goto result', {
-        url,
-        finalUrl: page.url(),
-        status,
-        waitUntil: opts.waitUntil,
-      });
-      if (status === 429) {
-        tripRateLimit('http_429');
-        const err = new Error(`LinkedIn rate-limited (HTTP 429) navigating to ${url}`);
-        err.code = 'RATE_LIMITED';
-        err.status = 429;
+    for (const opts of attempts) {
+      try {
+        const resp = await page.goto(url, opts);
+        const status = resp ? resp.status() : 0;
+        agentLog("H-A", "navigate", "goto result", {
+          url,
+          finalUrl: page.url(),
+          status,
+          waitUntil: opts.waitUntil,
+        });
+        if (status === 429) {
+          tripRateLimit("http_429");
+          const err = new Error(
+            `LinkedIn rate-limited (HTTP 429) navigating to ${url}`,
+          );
+          err.code = "RATE_LIMITED";
+          err.status = 429;
+          throw err;
+        }
+        if (status >= 400 && status !== 0) {
+          agentLog("H-A", "navigate", "HTTP error status", { url, status });
+        }
+        await settle();
+        await dismissDialogs();
+        if (isBlankDocument()) {
+          const err = new Error(
+            `Blank/error document after navigate to ${url}`,
+          );
+          err.code = "BLANK_PAGE";
+          throw err;
+        }
+        // Detect empty LinkedIn shells (429 often returns empty HTML with 200/opaque)
+        const htmlLen = await page
+          .evaluate(() => document.documentElement.outerHTML.length)
+          .catch(() => 0);
+        const textLen = await page
+          .evaluate(
+            () =>
+              ((document.body && document.body.innerText) || "").trim().length,
+          )
+          .catch(() => 0);
+        agentLog("H-A", "navigate", "document sizes", {
+          url: page.url(),
+          htmlLen,
+          textLen,
+          status,
+        });
+        if (htmlLen < 200 && textLen === 0) {
+          tripRateLimit("empty_document");
+          const err = new Error(
+            `Empty LinkedIn document (htmlLen=${htmlLen}) — likely rate-limited or blocked`,
+          );
+          err.code = "RATE_LIMITED";
+          err.status = status || 429;
+          throw err;
+        }
+        return resp;
+      } catch (err) {
+        lastErr = err;
+        if (err.code === "RATE_LIMITED" || err.status === 429) throw err;
+        if (err.message && err.message.includes("ERR_TOO_MANY_REDIRECTS")) {
+          agentLog("H-B", "navigate", "redirect loop; trying recovery", {
+            url,
+            attempt: opts.waitUntil,
+          });
+          try {
+            await page.goto("https://www.linkedin.com/feed/", {
+              waitUntil: "commit",
+              timeout: 20000,
+            });
+            await page.waitForTimeout(1500);
+          } catch (_) {}
+          continue;
+        }
+        if (
+          err.message &&
+          err.message.includes("interrupted by another navigation")
+        ) {
+          agentLog("H-E", "navigate", "interrupted; retrying", {
+            url,
+            attempt: opts.waitUntil,
+          });
+          await page.waitForTimeout(1000);
+          continue;
+        }
         throw err;
       }
-      if (status >= 400 && status !== 0) {
-        agentLog('H-A', 'navigate', 'HTTP error status', { url, status });
-      }
-      await settle();
-      await dismissDialogs();
-      if (isBlankDocument()) {
-        const err = new Error(`Blank/error document after navigate to ${url}`);
-        err.code = 'BLANK_PAGE';
-        throw err;
-      }
-      // Detect empty LinkedIn shells (429 often returns empty HTML with 200/opaque)
-      const htmlLen = await page.evaluate(() => document.documentElement.outerHTML.length).catch(() => 0);
-      const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
-      agentLog('H-A', 'navigate', 'document sizes', { url: page.url(), htmlLen, textLen, status });
-      if (htmlLen < 200 && textLen === 0) {
-        tripRateLimit('empty_document');
-        const err = new Error(`Empty LinkedIn document (htmlLen=${htmlLen}) — likely rate-limited or blocked`);
-        err.code = 'RATE_LIMITED';
-        err.status = status || 429;
-        throw err;
-      }
-      return resp;
-    } catch (err) {
-      lastErr = err;
-      if (err.code === 'RATE_LIMITED' || err.status === 429) throw err;
-      if (err.message && err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
-        agentLog('H-B', 'navigate', 'redirect loop; trying recovery', { url, attempt: opts.waitUntil });
-        try {
-          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'commit', timeout: 20000 });
-          await page.waitForTimeout(1500);
-        } catch (_) {}
-        continue;
-      }
-      if (err.message && err.message.includes('interrupted by another navigation')) {
-        agentLog('H-E', 'navigate', 'interrupted; retrying', { url, attempt: opts.waitUntil });
-        await page.waitForTimeout(1000);
-        continue;
-      }
+    }
+    // LinkedIn often answers rate-limits / soft blocks with redirect loops.
+    if (
+      lastErr &&
+      lastErr.message &&
+      lastErr.message.includes("ERR_TOO_MANY_REDIRECTS")
+    ) {
+      tripRateLimit("redirect_loop");
+      const err = new Error(
+        `LinkedIn redirect loop (likely rate-limited) navigating to ${url}`,
+      );
+      err.code = "RATE_LIMITED";
+      err.status = 429;
+      err.cause = lastErr;
       throw err;
     }
-  }
-  // LinkedIn often answers rate-limits / soft blocks with redirect loops.
-  if (lastErr && lastErr.message && lastErr.message.includes('ERR_TOO_MANY_REDIRECTS')) {
-    tripRateLimit('redirect_loop');
-    const err = new Error(`LinkedIn redirect loop (likely rate-limited) navigating to ${url}`);
-    err.code = 'RATE_LIMITED';
-    err.status = 429;
-    err.cause = lastErr;
-    throw err;
-  }
-  throw lastErr || new Error(`Failed to navigate to ${url}`);
+    throw lastErr || new Error(`Failed to navigate to ${url}`);
   };
 
   const next = _navChain.then(run, run);
@@ -341,22 +397,25 @@ async function navigate(url, timeout = 60000) {
 }
 
 const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
-const TEMP_ROOT = path.join(path.dirname(process.env.SESSION_FILE || '/data/li-session.json'), 'tmp');
+const TEMP_ROOT = path.join(
+  path.dirname(process.env.SESSION_FILE || "/data/li-session.json"),
+  "tmp",
+);
 
 /** Save a Buffer to a private temp file under /data (mkdtemp + mode 0o600). */
 function bufferToTempFile(buffer, filename) {
   if (!Buffer.isBuffer(buffer)) {
-    throw new Error('Expected a Buffer');
+    throw new Error("Expected a Buffer");
   }
   if (buffer.length > MAX_TEMP_FILE_BYTES) {
-    throw new Error('Upload exceeds maximum allowed size');
+    throw new Error("Upload exceeds maximum allowed size");
   }
-  let ext = path.extname(filename || '') || '.jpg';
+  let ext = path.extname(filename || "") || ".jpg";
   if (!/^\.[A-Za-z0-9]{1,8}$/.test(ext)) {
-    ext = '.bin';
+    ext = ".bin";
   }
   fs.mkdirSync(TEMP_ROOT, { recursive: true, mode: 0o700 });
-  const dir = fs.mkdtempSync(path.join(TEMP_ROOT, 'li-sidecar-'));
+  const dir = fs.mkdtempSync(path.join(TEMP_ROOT, "li-sidecar-"));
   fs.chmodSync(dir, 0o700);
   const tmp = path.join(dir, `upload${ext}`);
   // Copy into a fresh buffer so only length-validated bytes are written.
@@ -369,10 +428,12 @@ function bufferToTempFile(buffer, filename) {
 /** Remove a temp file created by bufferToTempFile and its private directory. */
 function cleanupTempFile(tmpPath) {
   if (!tmpPath) return;
-  try { fs.unlinkSync(tmpPath); } catch (_) {}
+  try {
+    fs.unlinkSync(tmpPath);
+  } catch (_) {}
   try {
     const dir = path.dirname(tmpPath);
-    if (path.basename(dir).startsWith('li-sidecar-')) {
+    if (path.basename(dir).startsWith("li-sidecar-")) {
       fs.rmdirSync(dir);
     }
   } catch (_) {}
@@ -381,7 +442,7 @@ function cleanupTempFile(tmpPath) {
 /** Click the first visible element matching a selector. */
 async function clickFirst(selector, timeout = 10000) {
   const loc = page.locator(selector).first();
-  await loc.waitFor({ state: 'visible', timeout });
+  await loc.waitFor({ state: "visible", timeout });
   await loc.click();
   return loc;
 }
@@ -451,8 +512,8 @@ async function findAndClick(selectors, opts = {}) {
  * Find a textarea or contenteditable input inside a dialog or page.
  */
 async function findTextInput(opts = {}) {
-  const { scope = 'any', label = null } = opts;
-  const dialogScope = scope === 'dialog' ? 'div[role="dialog"] ' : '';
+  const { scope = "any", label = null } = opts;
+  const dialogScope = scope === "dialog" ? 'div[role="dialog"] ' : "";
   const strategies = [];
   if (label) {
     strategies.push(
@@ -483,15 +544,15 @@ async function navigateAndCheck(url) {
 /** True only for linkedin.com or a subdomain (not evillinkedin.com). */
 function isLinkedInCookieDomain(domain) {
   if (!domain) return false;
-  const d = String(domain).replace(/^\./, '').toLowerCase();
-  return d === 'linkedin.com' || d.endsWith('.linkedin.com');
+  const d = String(domain).replace(/^\./, "").toLowerCase();
+  return d === "linkedin.com" || d.endsWith(".linkedin.com");
 }
 
 /** True only when the page URL host is linkedin.com or a subdomain. */
 function isLinkedInPageUrl(urlStr) {
   try {
     const host = new URL(urlStr).hostname.toLowerCase();
-    return host === 'linkedin.com' || host.endsWith('.linkedin.com');
+    return host === "linkedin.com" || host.endsWith(".linkedin.com");
   } catch (_) {
     return false;
   }
@@ -501,17 +562,32 @@ function isLinkedInPageUrl(urlStr) {
 function isLoggedIn() {
   const url = page.url();
   if (!isLinkedInPageUrl(url)) return false;
-  if (url.includes('/login') || url.includes('/checkpoint') || url.includes('authwall')) return false;
-  if (url.startsWith('chrome-error://') || url === 'about:blank') return false;
+  if (
+    url.includes("/login") ||
+    url.includes("/checkpoint") ||
+    url.includes("authwall")
+  )
+    return false;
+  if (url.startsWith("chrome-error://") || url === "about:blank") return false;
   return true;
 }
 
 /** Async login check that also rejects blank/rate-limited shells. */
 async function isLoggedInStrict() {
   if (!isLoggedIn()) return false;
-  const htmlLen = await page.evaluate(() => document.documentElement.outerHTML.length).catch(() => 0);
-  const textLen = await page.evaluate(() => (document.body && document.body.innerText || '').trim().length).catch(() => 0);
-  agentLog('H-C', 'isLoggedInStrict', 'content check', { url: page.url(), htmlLen, textLen });
+  const htmlLen = await page
+    .evaluate(() => document.documentElement.outerHTML.length)
+    .catch(() => 0);
+  const textLen = await page
+    .evaluate(
+      () => ((document.body && document.body.innerText) || "").trim().length,
+    )
+    .catch(() => 0);
+  agentLog("H-C", "isLoggedInStrict", "content check", {
+    url: page.url(),
+    htmlLen,
+    textLen,
+  });
   return htmlLen >= 200 || textLen > 0;
 }
 
@@ -523,10 +599,16 @@ async function resolveProfileUrl() {
   await ensureBrowser();
   // Navigate to feed first
   try {
-    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto("https://www.linkedin.com/feed/", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
   } catch (err) {
-    if (err.message.includes('ERR_TOO_MANY_REDIRECTS')) {
-      await page.goto('https://www.linkedin.com/', { waitUntil: 'commit', timeout: 30000 });
+    if (err.message.includes("ERR_TOO_MANY_REDIRECTS")) {
+      await page.goto("https://www.linkedin.com/", {
+        waitUntil: "commit",
+        timeout: 30000,
+      });
     } else {
       throw err;
     }
@@ -537,20 +619,25 @@ async function resolveProfileUrl() {
 
   // Method 1: Click the "View Profile" link or the profile avatar
   try {
-    const profileLink = await findElement([
-      'a[href*="/in/"]',
-      'button[aria-label*="View Profile"]',
-      'a:has-text("View Profile")',
-    ], { timeout: 5000 });
+    const profileLink = await findElement(
+      [
+        'a[href*="/in/"]',
+        'button[aria-label*="View Profile"]',
+        'a:has-text("View Profile")',
+      ],
+      { timeout: 5000 },
+    );
     if (profileLink) {
-      const href = await profileLink.getAttribute('href').catch(() => null);
-      if (href && href.includes('/in/')) {
-        return href.startsWith('http') ? href : 'https://www.linkedin.com' + href;
+      const href = await profileLink.getAttribute("href").catch(() => null);
+      if (href && href.includes("/in/")) {
+        return href.startsWith("http")
+          ? href
+          : "https://www.linkedin.com" + href;
       }
       // Click it and read the URL
       await profileLink.click().catch(() => {});
       await page.waitForTimeout(3000);
-      if (page.url().includes('/in/')) {
+      if (page.url().includes("/in/")) {
         return page.url();
       }
     }
@@ -558,25 +645,31 @@ async function resolveProfileUrl() {
 
   // Method 2: Navigate to /in/me/ with redirect handling
   try {
-    await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'commit', timeout: 30000 });
+    await page.goto("https://www.linkedin.com/in/me/", {
+      waitUntil: "commit",
+      timeout: 30000,
+    });
     await page.waitForTimeout(5000);
     await settle();
-    if (page.url().includes('/in/') && !page.url().includes('/in/me')) {
+    if (page.url().includes("/in/") && !page.url().includes("/in/me")) {
       return page.url();
     }
   } catch (_) {}
 
   // Method 3: Use the global nav profile dropdown
   try {
-    const navProfile = await findElement([
-      'button[aria-label*="Profile"]',
-      'a[aria-label*="Profile"]',
-      'button[data-control-name="nav.settings_profile"]',
-    ], { timeout: 3000 });
+    const navProfile = await findElement(
+      [
+        'button[aria-label*="Profile"]',
+        'a[aria-label*="Profile"]',
+        'button[data-control-name="nav.settings_profile"]',
+      ],
+      { timeout: 3000 },
+    );
     if (navProfile) {
       await navProfile.click().catch(() => {});
       await page.waitForTimeout(3000);
-      if (page.url().includes('/in/')) {
+      if (page.url().includes("/in/")) {
         return page.url();
       }
     }
@@ -589,27 +682,33 @@ async function resolveProfileUrl() {
  * Extract text from the page body, split into trimmed lines.
  */
 async function getPageLines() {
-  const text = await page.innerText('body').catch(() => '');
-  return text.split('\n').map(l => l.trim()).filter(l => l);
+  const text = await page.innerText("body").catch(() => "");
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l);
 }
 
 // ── Session persistence ────────────────────────────────────────────────────
 
-const SESSION_FILE = process.env.SESSION_FILE || '/data/li-session.json';
+const SESSION_FILE = process.env.SESSION_FILE || "/data/li-session.json";
 
 async function saveSession() {
   try {
     if (!context) return;
     const state = await context.storageState();
     const cookies = await context.cookies();
-    fs.writeFileSync(SESSION_FILE, JSON.stringify({ storageState: state, cookies, savedAt: Date.now() }));
+    fs.writeFileSync(
+      SESSION_FILE,
+      JSON.stringify({ storageState: state, cookies, savedAt: Date.now() }),
+    );
   } catch (_) {}
 }
 
 async function loadSavedSession() {
   try {
     if (!fs.existsSync(SESSION_FILE)) return false;
-    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
     if (data.storageState) {
       storageState = sanitizeStorageState(data.storageState);
       return true;
@@ -635,21 +734,23 @@ async function exportCookies() {
 async function handleSetSession(req, res) {
   const { storage_state, cookies, verify } = req.body;
   if (!storage_state && !cookies) {
-    return res.status(400).json({ error: 'storage_state or cookies is required' });
+    return res
+      .status(400)
+      .json({ error: "storage_state or cookies is required" });
   }
   // If cookies dict is provided, build a storage_state from it
   if (cookies && !storage_state) {
     const cookieList = Object.entries(cookies).map(([name, value]) => ({
       name,
       value: sanitizeCookieValue(name, value),
-      domain: '.linkedin.com',
-      path: '/',
+      domain: ".linkedin.com",
+      path: "/",
     }));
     storageState = { cookies: cookieList, origins: [] };
   } else {
     storageState = sanitizeStorageState(storage_state);
   }
-  agentLog('H-D', 'handleSetSession', 'session applied', {
+  agentLog("H-D", "handleSetSession", "session applied", {
     cookieCount: (storageState.cookies || []).length,
     verify: verify !== false,
   });
@@ -658,28 +759,51 @@ async function handleSetSession(req, res) {
   // verify=false: inject cookies only (for cooldown / offline restore). Default verifies via feed.
   if (verify === false) {
     await saveSession();
-    return res.json({ status: 'ok', logged_in: null, verified: false, url: null });
+    return res.json({
+      status: "ok",
+      logged_in: null,
+      verified: false,
+      url: null,
+    });
   }
   try {
-    await navigateAndCheck('https://www.linkedin.com/feed/');
+    await navigateAndCheck("https://www.linkedin.com/feed/");
     const loggedIn = await isLoggedInStrict();
     if (loggedIn) await saveSession();
-    res.json({ status: 'ok', logged_in: loggedIn, verified: true, url: page.url() });
+    res.json({
+      status: "ok",
+      logged_in: loggedIn,
+      verified: true,
+      url: page.url(),
+    });
   } catch (err) {
-    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
-    res.status(status).json({ error: err.message, code: err.code || 'SESSION_ERROR', logged_in: false });
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res.status(status).json({
+      error: err.message,
+      code: err.code || "SESSION_ERROR",
+      logged_in: false,
+    });
   }
 }
 
 async function handleCheckSession(req, res) {
   try {
     await ensureBrowser();
-    const loggedIn = await navigateAndCheck('https://www.linkedin.com/feed/');
-    res.json({ status: 'ok', logged_in: loggedIn, url: page.url() });
+    const loggedIn = await navigateAndCheck("https://www.linkedin.com/feed/");
+    res.json({ status: "ok", logged_in: loggedIn, url: page.url() });
   } catch (err) {
-    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
-    agentLog('H-A', 'handleCheckSession', 'error', { error: String(err.message || err).slice(0, 300), code: err.code || null });
-    res.status(status).json({ error: err.message, code: err.code || 'SESSION_ERROR', logged_in: false });
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    agentLog("H-A", "handleCheckSession", "error", {
+      error: String(err.message || err).slice(0, 300),
+      code: err.code || null,
+    });
+    res.status(status).json({
+      error: err.message,
+      code: err.code || "SESSION_ERROR",
+      logged_in: false,
+    });
   }
 }
 
@@ -688,7 +812,9 @@ async function handleCheckSession(req, res) {
 async function handleLogin(req, res) {
   const { username, password, verification_code } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ error: 'username and password are required' });
+    return res
+      .status(400)
+      .json({ error: "username and password are required" });
   }
   try {
     // Login is allowed even while the feed/messaging circuit is open —
@@ -697,15 +823,23 @@ async function handleLogin(req, res) {
     await closeBrowser();
     // Start clean (no flagged cookies) for a fresh login.
     storageState = null;
-    await ensureBrowser();
-    await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await ensureBrowser(true);
+    await page.goto("https://www.linkedin.com/login", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
     await settle();
     await dismissDialogs();
-    agentLog('H-G', 'handleLogin', 'login page loaded', { url: page.url(), status: 0 });
+    agentLog("H-G", "handleLogin", "login page loaded", {
+      url: page.url(),
+      status: 0,
+    });
 
     // Wait for the login form to render (LinkedIn uses JS to render inputs)
     try {
-      await page.waitForSelector('input#username, input[name="session_key"]', { timeout: 15000 });
+      await page.waitForSelector('input#username, input[name="session_key"]', {
+        timeout: 15000,
+      });
     } catch (_) {
       // Try alternative selectors
       await page.waitForTimeout(3000);
@@ -715,9 +849,12 @@ async function handleLogin(req, res) {
     // The visible inputs are always the second set, so use nth(1)
     const emailInputs = page.locator('input[type="email"]');
     const emailCount = await emailInputs.count();
-    const emailInput = emailCount >= 2 ? emailInputs.nth(1) : emailInputs.first();
+    const emailInput =
+      emailCount >= 2 ? emailInputs.nth(1) : emailInputs.first();
     if (emailCount === 0) {
-      return res.status(404).json({ error: 'Could not find email input on LinkedIn login page' });
+      return res
+        .status(404)
+        .json({ error: "Could not find email input on LinkedIn login page" });
     }
     await emailInput.click({ timeout: 5000 });
     await emailInput.fill(username, { timeout: 5000 });
@@ -726,23 +863,28 @@ async function handleLogin(req, res) {
     const passCount = await passInputs.count();
     const passInput = passCount >= 2 ? passInputs.nth(1) : passInputs.first();
     if (passCount === 0) {
-      return res.status(404).json({ error: 'Could not find password input on LinkedIn login page' });
+      return res.status(404).json({
+        error: "Could not find password input on LinkedIn login page",
+      });
     }
     await passInput.click({ timeout: 5000 });
     await passInput.fill(password, { timeout: 5000 });
 
     // Submit — find the visible "Sign in" button (LinkedIn renders duplicates)
-    const submitBtns = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion")');
+    const submitBtns = page.locator(
+      'button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion")',
+    );
     const submitCount = await submitBtns.count();
-    const submitBtn = submitCount >= 2 ? submitBtns.nth(submitCount - 1) : submitBtns.first();
+    const submitBtn =
+      submitCount >= 2 ? submitBtns.nth(submitCount - 1) : submitBtns.first();
     if (submitCount > 0) {
       try {
         await submitBtn.click({ timeout: 5000 });
       } catch (_) {
-        await passInput.press('Enter');
+        await passInput.press("Enter");
       }
     } else {
-      await passInput.press('Enter');
+      await passInput.press("Enter");
     }
 
     // Wait for navigation
@@ -751,48 +893,91 @@ async function handleLogin(req, res) {
     const currentUrl = page.url();
 
     // Check for 2FA / checkpoint
-    if (currentUrl.includes('/checkpoint') || currentUrl.includes('/two-factor')) {
+    if (
+      currentUrl.includes("/checkpoint") ||
+      currentUrl.includes("/two-factor")
+    ) {
       if (verification_code) {
-        const codeInput = page.locator('input#pin, input[name="pin"], input[autocomplete="one-time-code"]').first();
-        if (await codeInput.count() > 0) {
+        const codeInput = page
+          .locator(
+            'input#pin, input[name="pin"], input[autocomplete="one-time-code"]',
+          )
+          .first();
+        if ((await codeInput.count()) > 0) {
           await codeInput.fill(verification_code);
-          const verifyBtn = page.locator('button#reset-password-submit-button, button:has-text("Verify")').first();
-          if (await verifyBtn.count() > 0) {
+          const verifyBtn = page
+            .locator(
+              'button#reset-password-submit-button, button:has-text("Verify")',
+            )
+            .first();
+          if ((await verifyBtn.count()) > 0) {
             await verifyBtn.click();
           } else {
-            await codeInput.press('Enter');
+            await codeInput.press("Enter");
           }
           await page.waitForTimeout(5000);
-          if (!page.url().includes('/login') && !page.url().includes('/checkpoint')) {
+          if (
+            !page.url().includes("/login") &&
+            !page.url().includes("/checkpoint")
+          ) {
             storageState = await context.storageState();
             await saveSession();
-            res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+            res.json({
+              status: "ok",
+              logged_in: true,
+              storage_state: storageState,
+            });
           } else {
-            res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA code rejected' });
+            res.json({
+              status: "ok",
+              logged_in: false,
+              two_factor_required: true,
+              message: "2FA code rejected",
+            });
           }
         } else {
-          res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: '2FA required but no code input found' });
+          res.json({
+            status: "ok",
+            logged_in: false,
+            two_factor_required: true,
+            message: "2FA required but no code input found",
+          });
         }
       } else {
-        res.json({ status: 'ok', logged_in: false, two_factor_required: true, message: 'LinkedIn 2FA / verification required. Provide verification_code and retry.' });
+        res.json({
+          status: "ok",
+          logged_in: false,
+          two_factor_required: true,
+          message:
+            "LinkedIn 2FA / verification required. Provide verification_code and retry.",
+        });
       }
       return;
     }
 
     // Check if login succeeded
-    if (!currentUrl.includes('/login') && !currentUrl.includes('/checkpoint')) {
+    if (!currentUrl.includes("/login") && !currentUrl.includes("/checkpoint")) {
       storageState = await context.storageState();
       await saveSession();
-      res.json({ status: 'ok', logged_in: true, storage_state: storageState });
+      res.json({ status: "ok", logged_in: true, storage_state: storageState });
     } else {
-      let errorMsg = 'LinkedIn login failed';
+      let errorMsg = "LinkedIn login failed";
       try {
-        const errorEl = page.locator("div[role='alert'], .form-error, #error-for-username, #error-for-password").first();
-        if (await errorEl.count() > 0) {
+        const errorEl = page
+          .locator(
+            "div[role='alert'], .form-error, #error-for-username, #error-for-password",
+          )
+          .first();
+        if ((await errorEl.count()) > 0) {
           errorMsg = await errorEl.innerText();
         }
       } catch (_) {}
-      res.json({ status: 'ok', logged_in: false, message: errorMsg, url: currentUrl });
+      res.json({
+        status: "ok",
+        logged_in: false,
+        message: errorMsg,
+        url: currentUrl,
+      });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -814,17 +999,24 @@ async function handleReadProfile(req, res) {
     if (!profileUrl) {
       // Fallback: try /in/me/ directly with redirect handling
       try {
-        await page.goto('https://www.linkedin.com/in/me/', { waitUntil: 'commit', timeout: 30000 });
+        await page.goto("https://www.linkedin.com/in/me/", {
+          waitUntil: "commit",
+          timeout: 30000,
+        });
         await page.waitForTimeout(5000);
         await settle();
         profileUrl = page.url();
       } catch (err) {
-        return res.status(500).json({ error: `Could not resolve profile URL: ${err.message}` });
+        return res
+          .status(500)
+          .json({ error: `Could not resolve profile URL: ${err.message}` });
       }
     }
 
     if (!isLoggedIn()) {
-      return res.status(401).json({ error: 'Not logged in to LinkedIn', url: page.url() });
+      return res
+        .status(401)
+        .json({ error: "Not logged in to LinkedIn", url: page.url() });
     }
 
     // Navigate to the profile page (already there from resolveProfileUrl)
@@ -860,16 +1052,23 @@ async function handleReadProfile(req, res) {
     // Name: LinkedIn profile pages use <a> tags, not <h1>, for the name
     let nameFound = false;
     // Try CSS selectors first
-    const nameEl = await findElement([
-      'h1.text-heading-xlarge',
-      'h1',
-      'section[class*="profile"] h1',
-      'div.ph5 h1',
-    ], { timeout: 3000 });
+    const nameEl = await findElement(
+      [
+        "h1.text-heading-xlarge",
+        "h1",
+        'section[class*="profile"] h1',
+        "div.ph5 h1",
+      ],
+      { timeout: 3000 },
+    );
     if (nameEl) {
       const nameText = (await nameEl.innerText()).trim();
-      if (!nameText.match(/^\d+ notifications?$/) && nameText.length < 100 && !nameText.includes('Skip to')) {
-        result.name = nameText.split('\n')[0].trim();
+      if (
+        !nameText.match(/^\d+ notifications?$/) &&
+        nameText.length < 100 &&
+        !nameText.includes("Skip to")
+      ) {
+        result.name = nameText.split("\n")[0].trim();
         nameFound = true;
       }
     }
@@ -877,12 +1076,22 @@ async function handleReadProfile(req, res) {
     if (!nameFound) {
       try {
         const nameFromEval = await page.evaluate(() => {
-          const a = document.querySelector('a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])');
+          const a = document.querySelector(
+            'a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])',
+          );
           if (a) {
-            const lines = a.innerText.trim().split('\n').filter(l => l.trim());
+            const lines = a.innerText
+              .trim()
+              .split("\n")
+              .filter((l) => l.trim());
             if (lines.length > 0) {
               const name = lines[0].trim();
-              if (name && !name.includes('Skip to') && name.length < 100 && !name.match(/^\d+ notifications?$/)) {
+              if (
+                name &&
+                !name.includes("Skip to") &&
+                name.length < 100 &&
+                !name.match(/^\d+ notifications?$/)
+              ) {
                 return name;
               }
             }
@@ -896,38 +1105,61 @@ async function handleReadProfile(req, res) {
     }
 
     // Headline — try CSS selectors, then fallback to eval
-    const headlineEl = await findElement([
-      'div.text-body-medium',
-      'h2.text-body-medium',
-      'div.text-body-medium.break-words',
-    ], { timeout: 3000 });
+    const headlineEl = await findElement(
+      [
+        "div.text-body-medium",
+        "h2.text-body-medium",
+        "div.text-body-medium.break-words",
+      ],
+      { timeout: 3000 },
+    );
     if (headlineEl) {
       const headlineText = (await headlineEl.innerText()).trim();
-      if (headlineText && !headlineText.includes('Skip to') && headlineText.length < 300) {
+      if (
+        headlineText &&
+        !headlineText.includes("Skip to") &&
+        headlineText.length < 300
+      ) {
         result.headline = headlineText;
       }
     } else {
       // Fallback: extract headline from the same <a> tag or adjacent element
       try {
         const headlineFromEval = await page.evaluate(() => {
-          const a = document.querySelector('a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])');
+          const a = document.querySelector(
+            'a[href*="/in/"]:not([href*="/overlay/"]):not([href*="/mynetwork"])',
+          );
           if (a) {
-            const lines = a.innerText.trim().split('\n').filter(l => l.trim());
+            const lines = a.innerText
+              .trim()
+              .split("\n")
+              .filter((l) => l.trim());
             // The headline is usually the second line in the <a> tag
             if (lines.length >= 2) {
               const headline = lines[1].trim();
-              if (headline && !headline.includes('Skip to') && headline.length < 300) {
+              if (
+                headline &&
+                !headline.includes("Skip to") &&
+                headline.length < 300
+              ) {
                 return headline;
               }
             }
           }
           // Also try finding a div with the headline text
-          const divs = document.querySelectorAll('div');
+          const divs = document.querySelectorAll("div");
           for (const d of divs) {
             const t = d.innerText.trim();
-            if (t.includes('Founder @') || t.includes('| Serverless') || (t.includes('@') && t.includes('|') && t.length < 300 && t.length > 20)) {
-              if (!t.includes('Skip to') && !t.includes('notifications')) {
-                return t.split('\n')[0].trim();
+            if (
+              t.includes("Founder @") ||
+              t.includes("| Serverless") ||
+              (t.includes("@") &&
+                t.includes("|") &&
+                t.length < 300 &&
+                t.length > 20)
+            ) {
+              if (!t.includes("Skip to") && !t.includes("notifications")) {
+                return t.split("\n")[0].trim();
               }
             }
           }
@@ -940,38 +1172,58 @@ async function handleReadProfile(req, res) {
     }
 
     // Location
-    const locEl = await findElement([
-      '.text-body-small.inline.t-black--light.break-words',
-      '.text-body-small.t-black--light.break-words',
-      'span.text-body-small',
-    ], { timeout: 3000 });
+    const locEl = await findElement(
+      [
+        ".text-body-small.inline.t-black--light.break-words",
+        ".text-body-small.t-black--light.break-words",
+        "span.text-body-small",
+      ],
+      { timeout: 3000 },
+    );
     if (locEl) {
       result.location = (await locEl.innerText()).trim();
     }
 
     // About section
-    const aboutSection = page.locator("section:has(h2:has-text('About'))").first();
-    if (await aboutSection.count() > 0) {
+    const aboutSection = page
+      .locator("section:has(h2:has-text('About'))")
+      .first();
+    if ((await aboutSection.count()) > 0) {
       const text = await aboutSection.innerText();
-      const lines = text.split('\n');
-      const start = lines.indexOf('About') + 1;
+      const lines = text.split("\n");
+      const start = lines.indexOf("About") + 1;
       let end = lines.length;
-      for (const marker of ['Featured', 'Activity', 'Experience', 'Education', 'Skills']) {
+      for (const marker of [
+        "Featured",
+        "Activity",
+        "Experience",
+        "Education",
+        "Skills",
+      ]) {
         const idx = lines.indexOf(marker);
         if (idx > start) end = Math.min(end, idx);
       }
-      result.about = lines.slice(start, end).join('\n').trim() || null;
+      result.about = lines.slice(start, end).join("\n").trim() || null;
     }
 
     // Experience section
     try {
-      const expSection = page.locator("section:has(h2:has-text('Experience'))").first();
-      if (await expSection.count() > 0) {
-        const expItems = await expSection.locator('div.display-flex.flex-column.full-width, li, [data-field="experience_item"]').all();
+      const expSection = page
+        .locator("section:has(h2:has-text('Experience'))")
+        .first();
+      if ((await expSection.count()) > 0) {
+        const expItems = await expSection
+          .locator(
+            'div.display-flex.flex-column.full-width, li, [data-field="experience_item"]',
+          )
+          .all();
         for (const item of expItems) {
-          const itemText = (await item.innerText().catch(() => '')).trim();
-          if (!itemText || itemText === 'Experience') continue;
-          const lines = itemText.split('\n').map(l => l.trim()).filter(Boolean);
+          const itemText = (await item.innerText().catch(() => "")).trim();
+          if (!itemText || itemText === "Experience") continue;
+          const lines = itemText
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean);
           if (lines.length < 2) continue;
           // First line is usually the job title, second is the company
           const exp = {
@@ -989,7 +1241,7 @@ async function handleReadProfile(req, res) {
           }
           // Description is usually the last multi-line block
           if (lines.length > 3) {
-            exp.description = lines.slice(3).join(' ');
+            exp.description = lines.slice(3).join(" ");
           }
           result.experience.push(exp);
         }
@@ -998,13 +1250,22 @@ async function handleReadProfile(req, res) {
 
     // Education section
     try {
-      const eduSection = page.locator("section:has(h2:has-text('Education'))").first();
-      if (await eduSection.count() > 0) {
-        const eduItems = await eduSection.locator('div.display-flex.flex-column.full-width, li, [data-field="education_item"]').all();
+      const eduSection = page
+        .locator("section:has(h2:has-text('Education'))")
+        .first();
+      if ((await eduSection.count()) > 0) {
+        const eduItems = await eduSection
+          .locator(
+            'div.display-flex.flex-column.full-width, li, [data-field="education_item"]',
+          )
+          .all();
         for (const item of eduItems) {
-          const itemText = (await item.innerText().catch(() => '')).trim();
-          if (!itemText || itemText === 'Education') continue;
-          const lines = itemText.split('\n').map(l => l.trim()).filter(Boolean);
+          const itemText = (await item.innerText().catch(() => "")).trim();
+          if (!itemText || itemText === "Education") continue;
+          const lines = itemText
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean);
           if (lines.length < 2) continue;
           const edu = {
             school: lines[0],
@@ -1027,12 +1288,18 @@ async function handleReadProfile(req, res) {
 
     // Skills section
     try {
-      const skillSection = page.locator("section:has(h2:has-text('Skills'))").first();
-      if (await skillSection.count() > 0) {
-        const skillItems = await skillSection.locator('span[aria-hidden="true"], .pv-skill-category-entity__name-text, div.display-flex.align-items-center span').all();
+      const skillSection = page
+        .locator("section:has(h2:has-text('Skills'))")
+        .first();
+      if ((await skillSection.count()) > 0) {
+        const skillItems = await skillSection
+          .locator(
+            'span[aria-hidden="true"], .pv-skill-category-entity__name-text, div.display-flex.align-items-center span',
+          )
+          .all();
         for (const item of skillItems) {
-          const skillText = (await item.innerText().catch(() => '')).trim();
-          if (skillText && skillText.length < 80 && skillText !== 'Skills') {
+          const skillText = (await item.innerText().catch(() => "")).trim();
+          if (skillText && skillText.length < 80 && skillText !== "Skills") {
             result.skills.push(skillText);
           }
         }
@@ -1041,23 +1308,25 @@ async function handleReadProfile(req, res) {
 
     // Website (from contact info)
     try {
-      const contactBtn = await findElement([
-        'a:has-text("Contact info")',
-        'button:has-text("Contact info")',
-      ], { timeout: 3000 });
+      const contactBtn = await findElement(
+        ['a:has-text("Contact info")', 'button:has-text("Contact info")'],
+        { timeout: 3000 },
+      );
       if (contactBtn) {
         await contactBtn.click();
         await page.waitForTimeout(2000);
-        const websiteEl = page.locator('div[role="dialog"] a[href^="http"]').first();
+        const websiteEl = page
+          .locator('div[role="dialog"] a[href^="http"]')
+          .first();
         if (await websiteEl.isVisible().catch(() => false)) {
-          result.website = await websiteEl.getAttribute('href');
+          result.website = await websiteEl.getAttribute("href");
         }
-        await page.keyboard.press('Escape');
+        await page.keyboard.press("Escape");
         await page.waitForTimeout(500);
       }
     } catch (_) {}
 
-    res.json({ status: 'ok', profile: result });
+    res.json({ status: "ok", profile: result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1067,61 +1336,78 @@ async function handleReadProfile(req, res) {
 
 async function handleUpdateHeadline(req, res) {
   const { headline } = req.body;
-  if (!headline) return res.status(400).json({ error: 'headline is required' });
+  if (!headline) return res.status(400).json({ error: "headline is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
 
     // Navigate directly to the intro edit page (more reliable than clicking edit button)
-    await navigate(`${_profileUrl.split('?')[0]}edit/intro`);
+    await navigate(`${_profileUrl.split("?")[0]}edit/intro`);
     await page.waitForTimeout(3000);
 
     // Find the headline contenteditable div (role=textbox)
     let editor = page.locator('div[role="textbox"]').first();
-    if (await editor.count() === 0) {
+    if ((await editor.count()) === 0) {
       // Fallback: try textarea/input
-      editor = page.locator('textarea:visible, input:visible').first();
+      editor = page.locator("textarea:visible, input:visible").first();
     }
 
-    if (await editor.count() === 0) {
+    if ((await editor.count()) === 0) {
       // Last resort: navigate to profile and try the old approach
       await navigateAndCheck(_profileUrl);
       await page.waitForTimeout(2000);
-      const updatePrompt = page.getByText('Update headline', { exact: true }).first();
-      const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();
-      if (await updatePrompt.count() > 0) {
+      const updatePrompt = page
+        .getByText("Update headline", { exact: true })
+        .first();
+      const editPencil = page
+        .locator(
+          'button[aria-label*="Edit intro"], button[aria-label*="edit intro"]',
+        )
+        .first();
+      if ((await updatePrompt.count()) > 0) {
         const handle = await updatePrompt.evaluateHandle(
-          "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement"
+          "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement",
         );
-        await page.evaluate('el => el.click()', handle);
-      } else if (await editPencil.count() > 0) {
+        await page.evaluate("el => el.click()", handle);
+      } else if ((await editPencil.count()) > 0) {
         await editPencil.click();
       } else {
-        return res.status(404).json({ error: 'Could not locate the LinkedIn headline/intro editor' });
+        return res.status(404).json({
+          error: "Could not locate the LinkedIn headline/intro editor",
+        });
       }
       await page.waitForTimeout(4000);
       editor = page.locator('div[role="textbox"]').first();
-      if (await editor.count() === 0) {
-        editor = page.locator("div[role='dialog'] textarea:visible, textarea:visible, [contenteditable='true']:visible").first();
+      if ((await editor.count()) === 0) {
+        editor = page
+          .locator(
+            "div[role='dialog'] textarea:visible, textarea:visible, [contenteditable='true']:visible",
+          )
+          .first();
       }
     }
 
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the headline input field' });
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the headline input field" });
     }
 
     await editor.click();
     await page.waitForTimeout(200);
     // Clear existing content
-    await page.keyboard.press('Control+a');
-    await page.keyboard.press('Delete');
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Delete");
     await page.waitForTimeout(200);
     await page.keyboard.type(headline);
     await page.waitForTimeout(500);
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['headline'] });
+    res.json({ status: "ok", updated: ["headline"] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1131,13 +1417,16 @@ async function handleUpdateHeadline(req, res) {
 
 async function handleUpdateAbout(req, res) {
   const { about } = req.body;
-  if (!about) return res.status(400).json({ error: 'about is required' });
+  if (!about) return res.status(400).json({ error: "about is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
     // Navigate directly to the profile page and wait for it to settle
-    const cleanUrl = _profileUrl.split('?')[0];
+    const cleanUrl = _profileUrl.split("?")[0];
     await navigate(cleanUrl);
     await page.waitForTimeout(5000);
 
@@ -1151,18 +1440,24 @@ async function handleUpdateAbout(req, res) {
     await page.waitForTimeout(1000);
 
     // Try multiple strategies to find the About edit button
-    let aboutBtn = page.locator('button[aria-label="Edit about"], a[aria-label="Edit about"]').first();
+    let aboutBtn = page
+      .locator('button[aria-label="Edit about"], a[aria-label="Edit about"]')
+      .first();
     let found = false;
-    if (await aboutBtn.count() > 0) {
+    if ((await aboutBtn.count()) > 0) {
       await aboutBtn.click();
       found = true;
     }
     if (!found) {
       // Try: pencil icon in the About section
-      const aboutSection = page.locator("section:has(h2:has-text('About'))").first();
-      if (await aboutSection.count() > 0) {
-        const pencil = aboutSection.locator('button[aria-label*="Edit"], button:has(svg[type="icon"])').first();
-        if (await pencil.count() > 0) {
+      const aboutSection = page
+        .locator("section:has(h2:has-text('About'))")
+        .first();
+      if ((await aboutSection.count()) > 0) {
+        const pencil = aboutSection
+          .locator('button[aria-label*="Edit"], button:has(svg[type="icon"])')
+          .first();
+        if ((await pencil.count()) > 0) {
           await pencil.click();
           found = true;
         }
@@ -1174,45 +1469,49 @@ async function handleUpdateAbout(req, res) {
       await navigate(`${cleanUrl}edit/details/`);
       await page.waitForTimeout(5000);
       // Look for the About textarea in the edit details page
-      const aboutTextarea = page.locator('textarea').first();
-      if (await aboutTextarea.count() > 0) {
+      const aboutTextarea = page.locator("textarea").first();
+      if ((await aboutTextarea.count()) > 0) {
         await aboutTextarea.fill(about);
         await clickSave();
-        return res.json({ status: 'ok', updated: ['about'] });
+        return res.json({ status: "ok", updated: ["about"] });
       }
       // Try contenteditable
       const editor = page.locator('[contenteditable="true"]').first();
-      if (await editor.count() > 0) {
+      if ((await editor.count()) > 0) {
         await editor.click();
-        await page.keyboard.press('Control+a');
-        await page.keyboard.press('Delete');
+        await page.keyboard.press("Control+a");
+        await page.keyboard.press("Delete");
         await page.keyboard.type(about);
         await clickSave();
-        return res.json({ status: 'ok', updated: ['about'] });
+        return res.json({ status: "ok", updated: ["about"] });
       }
-      return res.status(404).json({ error: 'Could not locate the About editor' });
+      return res
+        .status(404)
+        .json({ error: "Could not locate the About editor" });
     }
 
     await page.waitForTimeout(3000);
 
     const editor = page.locator('[contenteditable="true"]').first();
-    if (await editor.count() === 0) {
+    if ((await editor.count()) === 0) {
       // Fallback: textarea
-      const ta = page.locator('textarea:visible').first();
-      if (await ta.count() === 0) {
-        return res.status(404).json({ error: 'Could not locate the About editor' });
+      const ta = page.locator("textarea:visible").first();
+      if ((await ta.count()) === 0) {
+        return res
+          .status(404)
+          .json({ error: "Could not locate the About editor" });
       }
       await ta.fill(about);
     } else {
       await editor.click();
       // Clear existing content
-      await page.keyboard.press('Control+a');
-      await page.keyboard.press('Delete');
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Delete");
       await page.keyboard.type(about);
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['about'] });
+    res.json({ status: "ok", updated: ["about"] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1222,47 +1521,61 @@ async function handleUpdateAbout(req, res) {
 
 async function handleUploadCover(req, res) {
   const { image_base64, filename } = req.body;
-  if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
+  if (!image_base64)
+    return res.status(400).json({ error: "image_base64 is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
     await navigateAndCheck(_profileUrl);
 
     // Click the "Edit cover photo" or camera icon on the cover area
-    const coverEdit = page.locator(
-      'button[aria-label*="cover"], button[aria-label*="Cover"], ' +
-      'a[aria-label*="cover"], a[aria-label*="Cover"], ' +
-      '.profile-background-editing-container button, ' +
-      'button:has-text("Add cover photo"), button:has-text("Edit cover photo")'
-    ).first();
+    const coverEdit = page
+      .locator(
+        'button[aria-label*="cover"], button[aria-label*="Cover"], ' +
+          'a[aria-label*="cover"], a[aria-label*="Cover"], ' +
+          ".profile-background-editing-container button, " +
+          'button:has-text("Add cover photo"), button:has-text("Edit cover photo")',
+      )
+      .first();
 
-    if (await coverEdit.count() === 0) {
+    if ((await coverEdit.count()) === 0) {
       // Hover over the cover area to reveal the edit button
-      const coverArea = page.locator('.profile-topcard-background-image, .pv-profile-background, [class*="cover"]').first();
-      if (await coverArea.count() > 0) {
+      const coverArea = page
+        .locator(
+          '.profile-topcard-background-image, .pv-profile-background, [class*="cover"]',
+        )
+        .first();
+      if ((await coverArea.count()) > 0) {
         await coverArea.hover();
         await page.waitForTimeout(1000);
       }
     }
 
-    if (await coverEdit.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the cover photo edit button' });
+    if ((await coverEdit.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the cover photo edit button" });
     }
     await coverEdit.click();
     await page.waitForTimeout(2000);
 
     // Upload the file
-    const buffer = Buffer.from(image_base64, 'base64');
-    const tmpPath = bufferToTempFile(buffer, filename || 'cover.jpg');
+    const buffer = Buffer.from(image_base64, "base64");
+    const tmpPath = bufferToTempFile(buffer, filename || "cover.jpg");
 
     try {
-      const fileInput = page.locator('input[type="file"][accept*="image"]').first();
+      const fileInput = page
+        .locator('input[type="file"][accept*="image"]')
+        .first();
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000);
 
       // Handle crop/adjust step — click "Apply" or "Save"
-      for (const btnText of ['Apply', 'Save', 'Done', 'Next']) {
+      for (const btnText of ["Apply", "Save", "Done", "Next"]) {
         const btn = page.locator(`button:has-text("${btnText}")`).first();
         if (await btn.isVisible().catch(() => false)) {
           await btn.click();
@@ -1273,7 +1586,7 @@ async function handleUploadCover(req, res) {
 
       // Final save
       await clickSave();
-      res.json({ status: 'ok', updated: ['cover'] });
+      res.json({ status: "ok", updated: ["cover"] });
     } finally {
       cleanupTempFile(tmpPath);
     }
@@ -1286,61 +1599,83 @@ async function handleUploadCover(req, res) {
 
 async function handleUploadPicture(req, res) {
   const { image_base64, filename } = req.body;
-  if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
+  if (!image_base64)
+    return res.status(400).json({ error: "image_base64 is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
     await navigateAndCheck(_profileUrl);
 
     // Click the profile photo edit button (camera icon / "Edit photo")
-    const picEdit = page.locator(
-      'button[aria-label*="profile photo"], button[aria-label*="Edit photo"], ' +
-      'button[aria-label*="Change photo"], a[aria-label*="profile photo"], ' +
-      '.pv-top-card-profile-picture__edit-btn, ' +
-      'button:has-text("Add photo"), button:has-text("Edit photo"), button:has-text("Change photo")'
-    ).first();
+    const picEdit = page
+      .locator(
+        'button[aria-label*="profile photo"], button[aria-label*="Edit photo"], ' +
+          'button[aria-label*="Change photo"], a[aria-label*="profile photo"], ' +
+          ".pv-top-card-profile-picture__edit-btn, " +
+          'button:has-text("Add photo"), button:has-text("Edit photo"), button:has-text("Change photo")',
+      )
+      .first();
 
-    if (await picEdit.count() === 0) {
+    if ((await picEdit.count()) === 0) {
       // Hover over the profile picture area
-      const picArea = page.locator('.pv-top-card-profile-picture, [class*="profile-photo"], .profile-photo-edit').first();
-      if (await picArea.count() > 0) {
+      const picArea = page
+        .locator(
+          '.pv-top-card-profile-picture, [class*="profile-photo"], .profile-photo-edit',
+        )
+        .first();
+      if ((await picArea.count()) > 0) {
         await picArea.hover();
         await page.waitForTimeout(1000);
       }
     }
 
-    if (await picEdit.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the profile photo edit button' });
+    if ((await picEdit.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the profile photo edit button" });
     }
     await picEdit.click();
     await page.waitForTimeout(2000);
 
     // Click "Upload" or "Frame" if a submenu appears
-    const uploadOption = page.locator('button:has-text("Upload"), button:has-text("Frame"), [data-control-name="upload_photo"]').first();
+    const uploadOption = page
+      .locator(
+        'button:has-text("Upload"), button:has-text("Frame"), [data-control-name="upload_photo"]',
+      )
+      .first();
     if (await uploadOption.isVisible().catch(() => false)) {
       await uploadOption.click();
       await page.waitForTimeout(1000);
     }
 
-    const buffer = Buffer.from(image_base64, 'base64');
-    const tmpPath = bufferToTempFile(buffer, filename || 'profile.jpg');
+    const buffer = Buffer.from(image_base64, "base64");
+    const tmpPath = bufferToTempFile(buffer, filename || "profile.jpg");
 
     try {
-      const fileInput = page.locator('input[type="file"][accept*="image"]').first();
+      const fileInput = page
+        .locator('input[type="file"][accept*="image"]')
+        .first();
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000);
 
       // Handle crop step — LinkedIn shows a crop dialog with "Apply" then "Save"
-      for (const btnText of ['Apply', 'Save', 'Done']) {
-        const btn = page.locator(`div[role="dialog"] button:has-text("${btnText}"), button:has-text("${btnText}")`).first();
+      for (const btnText of ["Apply", "Save", "Done"]) {
+        const btn = page
+          .locator(
+            `div[role="dialog"] button:has-text("${btnText}"), button:has-text("${btnText}")`,
+          )
+          .first();
         if (await btn.isVisible().catch(() => false)) {
           await btn.click();
           await page.waitForTimeout(2000);
         }
       }
 
-      res.json({ status: 'ok', updated: ['profile_picture'] });
+      res.json({ status: "ok", updated: ["profile_picture"] });
     } finally {
       cleanupTempFile(tmpPath);
     }
@@ -1353,47 +1688,72 @@ async function handleUploadPicture(req, res) {
 
 async function handleUpdateWebsite(req, res) {
   const { website } = req.body;
-  if (!website) return res.status(400).json({ error: 'website is required' });
+  if (!website) return res.status(400).json({ error: "website is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
     await navigateAndCheck(_profileUrl);
 
     // Open contact info dialog
-    const contactBtn = page.locator('a:has-text("Contact info"), button:has-text("Contact info")').first();
-    if (await contactBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Contact info" button' });
+    const contactBtn = page
+      .locator('a:has-text("Contact info"), button:has-text("Contact info")')
+      .first();
+    if ((await contactBtn.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Contact info" button' });
     }
     await contactBtn.click();
     await page.waitForTimeout(2000);
 
     // Click "Edit" or "Add website" in the dialog
-    const editBtn = page.locator('div[role="dialog"] button:has-text("Edit"), div[role="dialog"] a:has-text("Edit")').first();
+    const editBtn = page
+      .locator(
+        'div[role="dialog"] button:has-text("Edit"), div[role="dialog"] a:has-text("Edit")',
+      )
+      .first();
     if (await editBtn.isVisible().catch(() => false)) {
       await editBtn.click();
       await page.waitForTimeout(2000);
     }
 
     // Find the website input — it may be an input with a URL placeholder
-    const websiteInput = page.locator('div[role="dialog"] input[type="url"], div[role="dialog"] input[placeholder*="Website"], div[role="dialog"] input[placeholder*="website"], div[role="dialog"] input[placeholder*="http"]').first();
-    if (await websiteInput.count() === 0) {
+    const websiteInput = page
+      .locator(
+        'div[role="dialog"] input[type="url"], div[role="dialog"] input[placeholder*="Website"], div[role="dialog"] input[placeholder*="website"], div[role="dialog"] input[placeholder*="http"]',
+      )
+      .first();
+    if ((await websiteInput.count()) === 0) {
       // Fallback: look for any input in the dialog that's not the name
-      const inputs = await page.locator('div[role="dialog"] input:visible').all();
+      const inputs = await page
+        .locator('div[role="dialog"] input:visible')
+        .all();
       for (const inp of inputs) {
-        const ph = await inp.getAttribute('placeholder').catch(() => '');
-        if (ph && (ph.includes('http') || ph.includes('url') || ph.includes('Website') || ph.includes('website'))) {
+        const ph = await inp.getAttribute("placeholder").catch(() => "");
+        if (
+          ph &&
+          (ph.includes("http") ||
+            ph.includes("url") ||
+            ph.includes("Website") ||
+            ph.includes("website"))
+        ) {
           await inp.fill(website);
           await clickSave();
-          res.json({ status: 'ok', updated: ['website'] });
+          res.json({ status: "ok", updated: ["website"] });
           return;
         }
       }
-      return res.status(404).json({ error: 'Could not locate the website input in contact info' });
+      return res
+        .status(404)
+        .json({ error: "Could not locate the website input in contact info" });
     }
     await websiteInput.fill(website);
     await clickSave();
-    res.json({ status: 'ok', updated: ['website'] });
+    res.json({ status: "ok", updated: ["website"] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1403,36 +1763,51 @@ async function handleUpdateWebsite(req, res) {
 
 async function handleUpdateLocation(req, res) {
   const { location } = req.body;
-  if (!location) return res.status(400).json({ error: 'location is required' });
+  if (!location) return res.status(400).json({ error: "location is required" });
   try {
     await ensureBrowser();
     const _profileUrl = await resolveProfileUrl();
-    if (!_profileUrl) return res.status(500).json({ error: 'Could not resolve LinkedIn profile URL (redirect loop)' });
+    if (!_profileUrl)
+      return res.status(500).json({
+        error: "Could not resolve LinkedIn profile URL (redirect loop)",
+      });
     await navigateAndCheck(_profileUrl);
 
     // Open the intro editor (same as headline)
-    const editPencil = page.locator('button[aria-label*="Edit intro"], button[aria-label*="edit intro"]').first();
-    const updatePrompt = page.getByText('Update headline', { exact: true }).first();
+    const editPencil = page
+      .locator(
+        'button[aria-label*="Edit intro"], button[aria-label*="edit intro"]',
+      )
+      .first();
+    const updatePrompt = page
+      .getByText("Update headline", { exact: true })
+      .first();
 
-    if (await editPencil.count() > 0) {
+    if ((await editPencil.count()) > 0) {
       await editPencil.click();
-    } else if (await updatePrompt.count() > 0) {
+    } else if ((await updatePrompt.count()) > 0) {
       const handle = await updatePrompt.evaluateHandle(
-        "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement"
+        "el => el.closest('button, a, [role=\\'button\\']') || el.parentElement",
       );
-      await page.evaluate('el => el.click()', handle);
+      await page.evaluate("el => el.click()", handle);
     } else {
-      return res.status(404).json({ error: 'Could not locate the intro editor' });
+      return res
+        .status(404)
+        .json({ error: "Could not locate the intro editor" });
     }
     await page.waitForTimeout(4000);
 
     // The location field is typically the last input in the intro dialog
     // It may have aria-label containing "location" or "Location"
-    const allInputs = await page.locator("div[role='dialog'] input:visible, div[role='dialog'] textarea:visible").all();
+    const allInputs = await page
+      .locator(
+        "div[role='dialog'] input:visible, div[role='dialog'] textarea:visible",
+      )
+      .all();
     let locationInput = null;
     for (const inp of allInputs) {
-      const label = await inp.getAttribute('aria-label').catch(() => null);
-      if (label && label.toLowerCase().includes('location')) {
+      const label = await inp.getAttribute("aria-label").catch(() => null);
+      if (label && label.toLowerCase().includes("location")) {
         locationInput = inp;
         break;
       }
@@ -1442,11 +1817,13 @@ async function handleUpdateLocation(req, res) {
       locationInput = allInputs[allInputs.length - 1];
     }
     if (!locationInput) {
-      return res.status(404).json({ error: 'Could not locate the location input' });
+      return res
+        .status(404)
+        .json({ error: "Could not locate the location input" });
     }
     await locationInput.fill(location);
     await clickSave();
-    res.json({ status: 'ok', updated: ['location'] });
+    res.json({ status: "ok", updated: ["location"] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1455,34 +1832,53 @@ async function handleUpdateLocation(req, res) {
 // ── API: Add experience entry ──────────────────────────────────────────────
 
 async function handleAddExperience(req, res) {
-  const { title, company, start_date, end_date, description, current } = req.body;
+  const { title, company, start_date, end_date, description, current } =
+    req.body;
   if (!title || !company) {
-    return res.status(400).json({ error: 'title and company are required' });
+    return res.status(400).json({ error: "title and company are required" });
   }
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/edit/experience/');
+    await navigate("https://www.linkedin.com/in/me/edit/experience/");
 
     // Click "Add experience" button
-    const addBtn = page.locator('button:has-text("Add experience"), button[aria-label*="Add experience"]').first();
-    if (await addBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Add experience" button' });
+    const addBtn = page
+      .locator(
+        'button:has-text("Add experience"), button[aria-label*="Add experience"]',
+      )
+      .first();
+    if ((await addBtn.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Add experience" button' });
     }
     await addBtn.click();
     await page.waitForTimeout(2000);
 
     // Fill the form
-    const titleInput = page.locator('input[aria-label*="Title"], input[id*="title"], input[name*="title"]').first();
-    if (await titleInput.count() > 0) {
+    const titleInput = page
+      .locator(
+        'input[aria-label*="Title"], input[id*="title"], input[name*="title"]',
+      )
+      .first();
+    if ((await titleInput.count()) > 0) {
       await titleInput.fill(title);
     }
 
-    const companyInput = page.locator('input[aria-label*="Company"], input[aria-label*="company"], input[id*="company"], input[name*="company"]').first();
-    if (await companyInput.count() > 0) {
+    const companyInput = page
+      .locator(
+        'input[aria-label*="Company"], input[aria-label*="company"], input[id*="company"], input[name*="company"]',
+      )
+      .first();
+    if ((await companyInput.count()) > 0) {
       await companyInput.fill(company);
       await page.waitForTimeout(1000);
       // Click the first dropdown suggestion if available
-      const suggestion = page.locator('[role="option"], [role="listbox"] div, .basic-typeahead__triggered-content div').first();
+      const suggestion = page
+        .locator(
+          '[role="option"], [role="listbox"] div, .basic-typeahead__triggered-content div',
+        )
+        .first();
       if (await suggestion.isVisible().catch(() => false)) {
         await suggestion.click();
         await page.waitForTimeout(500);
@@ -1490,36 +1886,56 @@ async function handleAddExperience(req, res) {
     }
 
     if (current) {
-      const currentCheckbox = page.locator('input[type="checkbox"][id*="current"], input[type="checkbox"][aria-label*="current"], input[type="checkbox"][aria-label*="Current"]').first();
-      if (await currentCheckbox.count() > 0) {
+      const currentCheckbox = page
+        .locator(
+          'input[type="checkbox"][id*="current"], input[type="checkbox"][aria-label*="current"], input[type="checkbox"][aria-label*="Current"]',
+        )
+        .first();
+      if ((await currentCheckbox.count()) > 0) {
         const isChecked = await currentCheckbox.isChecked();
         if (!isChecked) await currentCheckbox.click();
       }
     }
 
     if (start_date) {
-      const startInput = page.locator('input[aria-label*="Start"], input[id*="start"], input[name*="start"]').first();
-      if (await startInput.count() > 0) {
+      const startInput = page
+        .locator(
+          'input[aria-label*="Start"], input[id*="start"], input[name*="start"]',
+        )
+        .first();
+      if ((await startInput.count()) > 0) {
         await startInput.fill(start_date);
       }
     }
 
     if (end_date && !current) {
-      const endInput = page.locator('input[aria-label*="End"], input[id*="end"], input[name*="end"]').first();
-      if (await endInput.count() > 0) {
+      const endInput = page
+        .locator(
+          'input[aria-label*="End"], input[id*="end"], input[name*="end"]',
+        )
+        .first();
+      if ((await endInput.count()) > 0) {
         await endInput.fill(end_date);
       }
     }
 
     if (description) {
-      const descInput = page.locator('textarea[aria-label*="Description"], textarea[id*="description"], textarea[name*="description"]').first();
-      if (await descInput.count() > 0) {
+      const descInput = page
+        .locator(
+          'textarea[aria-label*="Description"], textarea[id*="description"], textarea[name*="description"]',
+        )
+        .first();
+      if ((await descInput.count()) > 0) {
         await descInput.fill(description);
       }
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['experience'], entry: { title, company, start_date, end_date, current } });
+    res.json({
+      status: "ok",
+      updated: ["experience"],
+      entry: { title, company, start_date, end_date, current },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1528,26 +1944,39 @@ async function handleAddExperience(req, res) {
 // ── API: Add education entry ───────────────────────────────────────────────
 
 async function handleAddEducation(req, res) {
-  const { school, degree, field_of_study, start_date, end_date, description } = req.body;
+  const { school, degree, field_of_study, start_date, end_date, description } =
+    req.body;
   if (!school) {
-    return res.status(400).json({ error: 'school is required' });
+    return res.status(400).json({ error: "school is required" });
   }
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/edit/education/');
+    await navigate("https://www.linkedin.com/in/me/edit/education/");
 
-    const addBtn = page.locator('button:has-text("Add education"), button[aria-label*="Add education"]').first();
-    if (await addBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Add education" button' });
+    const addBtn = page
+      .locator(
+        'button:has-text("Add education"), button[aria-label*="Add education"]',
+      )
+      .first();
+    if ((await addBtn.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Add education" button' });
     }
     await addBtn.click();
     await page.waitForTimeout(2000);
 
-    const schoolInput = page.locator('input[aria-label*="School"], input[aria-label*="school"], input[id*="school"], input[name*="school"]').first();
-    if (await schoolInput.count() > 0) {
+    const schoolInput = page
+      .locator(
+        'input[aria-label*="School"], input[aria-label*="school"], input[id*="school"], input[name*="school"]',
+      )
+      .first();
+    if ((await schoolInput.count()) > 0) {
       await schoolInput.fill(school);
       await page.waitForTimeout(1000);
-      const suggestion = page.locator('[role="option"], .basic-typeahead__triggered-content div').first();
+      const suggestion = page
+        .locator('[role="option"], .basic-typeahead__triggered-content div')
+        .first();
       if (await suggestion.isVisible().catch(() => false)) {
         await suggestion.click();
         await page.waitForTimeout(500);
@@ -1555,32 +1984,51 @@ async function handleAddEducation(req, res) {
     }
 
     if (degree) {
-      const degreeInput = page.locator('input[aria-label*="Degree"], input[id*="degree"]').first();
-      if (await degreeInput.count() > 0) await degreeInput.fill(degree);
+      const degreeInput = page
+        .locator('input[aria-label*="Degree"], input[id*="degree"]')
+        .first();
+      if ((await degreeInput.count()) > 0) await degreeInput.fill(degree);
     }
 
     if (field_of_study) {
-      const fosInput = page.locator('input[aria-label*="field"], input[aria-label*="Field"], input[id*="field"]').first();
-      if (await fosInput.count() > 0) await fosInput.fill(field_of_study);
+      const fosInput = page
+        .locator(
+          'input[aria-label*="field"], input[aria-label*="Field"], input[id*="field"]',
+        )
+        .first();
+      if ((await fosInput.count()) > 0) await fosInput.fill(field_of_study);
     }
 
     if (start_date) {
-      const startInput = page.locator('select[aria-label*="Start"], select[id*="start"]').first();
-      if (await startInput.count() > 0) await startInput.selectOption(start_date);
+      const startInput = page
+        .locator('select[aria-label*="Start"], select[id*="start"]')
+        .first();
+      if ((await startInput.count()) > 0)
+        await startInput.selectOption(start_date);
     }
 
     if (end_date) {
-      const endInput = page.locator('select[aria-label*="End"], select[id*="end"]').first();
-      if (await endInput.count() > 0) await endInput.selectOption(end_date);
+      const endInput = page
+        .locator('select[aria-label*="End"], select[id*="end"]')
+        .first();
+      if ((await endInput.count()) > 0) await endInput.selectOption(end_date);
     }
 
     if (description) {
-      const descInput = page.locator('textarea[aria-label*="Description"], textarea[id*="description"]').first();
-      if (await descInput.count() > 0) await descInput.fill(description);
+      const descInput = page
+        .locator(
+          'textarea[aria-label*="Description"], textarea[id*="description"]',
+        )
+        .first();
+      if ((await descInput.count()) > 0) await descInput.fill(description);
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['education'], entry: { school, degree, field_of_study } });
+    res.json({
+      status: "ok",
+      updated: ["education"],
+      entry: { school, degree, field_of_study },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1590,35 +2038,51 @@ async function handleAddEducation(req, res) {
 
 async function handleAddSkill(req, res) {
   const { skill } = req.body;
-  if (!skill) return res.status(400).json({ error: 'skill is required' });
+  if (!skill) return res.status(400).json({ error: "skill is required" });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/in/me/edit/skills/');
+    await navigate("https://www.linkedin.com/in/me/edit/skills/");
 
     // Click "Add a new skill" button
-    const addBtn = page.locator('button:has-text("Add a new skill"), button[aria-label*="Add skill"], button:has-text("Add skill")').first();
-    if (await addBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Add skill" button' });
+    const addBtn = page
+      .locator(
+        'button:has-text("Add a new skill"), button[aria-label*="Add skill"], button:has-text("Add skill")',
+      )
+      .first();
+    if ((await addBtn.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Add skill" button' });
     }
     await addBtn.click();
     await page.waitForTimeout(2000);
 
-    const skillInput = page.locator('input[aria-label*="skill"], input[aria-label*="Skill"], input[placeholder*="skill"], input[placeholder*="Skill"]').first();
-    if (await skillInput.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the skill input' });
+    const skillInput = page
+      .locator(
+        'input[aria-label*="skill"], input[aria-label*="Skill"], input[placeholder*="skill"], input[placeholder*="Skill"]',
+      )
+      .first();
+    if ((await skillInput.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the skill input" });
     }
     await skillInput.fill(skill);
     await page.waitForTimeout(1000);
 
     // Click the first suggestion if available
-    const suggestion = page.locator('[role="option"], .basic-typeahead__triggered-content div, [data-test-skill-option]').first();
+    const suggestion = page
+      .locator(
+        '[role="option"], .basic-typeahead__triggered-content div, [data-test-skill-option]',
+      )
+      .first();
     if (await suggestion.isVisible().catch(() => false)) {
       await suggestion.click();
       await page.waitForTimeout(500);
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['skills'], skill });
+    res.json({ status: "ok", updated: ["skills"], skill });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1637,9 +2101,19 @@ async function handleReadCompany(req, res) {
     await settle();
 
     const currentUrl = page.url();
-    const isAdminRedirect = currentUrl.includes('/admin/');
+    const isAdminRedirect = currentUrl.includes("/admin/");
 
-    const result = { vanity, url: currentUrl, name: null, about: null, website: null, industry: null, specialties: null, logo_url: null, cover_url: null };
+    const result = {
+      vanity,
+      url: currentUrl,
+      name: null,
+      about: null,
+      website: null,
+      industry: null,
+      specialties: null,
+      logo_url: null,
+      cover_url: null,
+    };
 
     if (isAdminRedirect) {
       // Extract company numeric ID from the redirect URL
@@ -1653,76 +2127,93 @@ async function handleReadCompany(req, res) {
       await settle();
 
       // Name
-      const nameInput = page.locator('#organization-name-field');
-      if (await nameInput.count() > 0) {
+      const nameInput = page.locator("#organization-name-field");
+      if ((await nameInput.count()) > 0) {
         result.name = (await nameInput.inputValue()).trim();
       }
 
       // Tagline as headline
-      const taglineInput = page.locator('#organization-tagline-field');
-      if (await taglineInput.count() > 0) {
+      const taglineInput = page.locator("#organization-tagline-field");
+      if ((await taglineInput.count()) > 0) {
         result.tagline = (await taglineInput.inputValue()).trim();
       }
 
       // About / description
-      const descInput = page.locator('#organization-description-field');
-      if (await descInput.count() > 0) {
+      const descInput = page.locator("#organization-description-field");
+      if ((await descInput.count()) > 0) {
         result.about = (await descInput.inputValue()).trim();
       }
 
       // Website
-      const websiteInput = page.locator('#organization-website-field');
-      if (await websiteInput.count() > 0) {
+      const websiteInput = page.locator("#organization-website-field");
+      if ((await websiteInput.count()) > 0) {
         result.website = (await websiteInput.inputValue()).trim();
       }
 
       // Industry
-      const industryInput = page.locator('#organization-industry-typeahead');
-      if (await industryInput.count() > 0) {
+      const industryInput = page.locator("#organization-industry-typeahead");
+      if ((await industryInput.count()) > 0) {
         result.industry = (await industryInput.inputValue()).trim();
       }
     } else {
       // Public page parsing
       // Name
-      const nameEl = page.locator('h1, h2.org-top-card-summary__title').first();
-      if (await nameEl.count() > 0) {
+      const nameEl = page.locator("h1, h2.org-top-card-summary__title").first();
+      if ((await nameEl.count()) > 0) {
         result.name = (await nameEl.innerText()).trim();
       }
 
       // About / description
-      const aboutEl = page.locator('p.org-about-us-organization-description__text, section:has(h2:has-text("About")) p, div[class*="organization-description"]').first();
-      if (await aboutEl.count() > 0) {
+      const aboutEl = page
+        .locator(
+          'p.org-about-us-organization-description__text, section:has(h2:has-text("About")) p, div[class*="organization-description"]',
+        )
+        .first();
+      if ((await aboutEl.count()) > 0) {
         result.about = (await aboutEl.innerText()).trim();
       }
 
       // Website, industry, specialties from the details section
-      const detailsDl = page.locator('dl.org-page-details__definition-list').first();
-      if (await detailsDl.count() > 0) {
-        const dtElements = await detailsDl.locator('dt').all();
-        const ddElements = await detailsDl.locator('dd').all();
-        for (let i = 0; i < Math.min(dtElements.length, ddElements.length); i++) {
+      const detailsDl = page
+        .locator("dl.org-page-details__definition-list")
+        .first();
+      if ((await detailsDl.count()) > 0) {
+        const dtElements = await detailsDl.locator("dt").all();
+        const ddElements = await detailsDl.locator("dd").all();
+        for (
+          let i = 0;
+          i < Math.min(dtElements.length, ddElements.length);
+          i++
+        ) {
           const label = (await dtElements[i].innerText()).trim().toLowerCase();
           const value = (await ddElements[i].innerText()).trim();
-          if (label.includes('website')) result.website = value;
-          if (label.includes('industry')) result.industry = value;
-          if (label.includes('specialties')) result.specialties = value.split(',').map((s) => s.trim());
+          if (label.includes("website")) result.website = value;
+          if (label.includes("industry")) result.industry = value;
+          if (label.includes("specialties"))
+            result.specialties = value.split(",").map((s) => s.trim());
         }
       }
 
       // Logo
-      const logoImg = page.locator('img.org-top-card-primary-content__logo, img[class*="company-logo"]').first();
-      if (await logoImg.count() > 0) {
-        result.logo_url = await logoImg.getAttribute('src');
+      const logoImg = page
+        .locator(
+          'img.org-top-card-primary-content__logo, img[class*="company-logo"]',
+        )
+        .first();
+      if ((await logoImg.count()) > 0) {
+        result.logo_url = await logoImg.getAttribute("src");
       }
 
       // Cover
-      const coverImg = page.locator('img.org-top-card-background-image, img[class*="cover"]').first();
-      if (await coverImg.count() > 0) {
-        result.cover_url = await coverImg.getAttribute('src');
+      const coverImg = page
+        .locator('img.org-top-card-background-image, img[class*="cover"]')
+        .first();
+      if ((await coverImg.count()) > 0) {
+        result.cover_url = await coverImg.getAttribute("src");
       }
     }
 
-    res.json({ status: 'ok', company: result });
+    res.json({ status: "ok", company: result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1733,7 +2224,7 @@ async function handleReadCompany(req, res) {
 async function handleUpdateCompanyAbout(req, res) {
   const { vanity } = req.params;
   const { about } = req.body;
-  if (!about) return res.status(400).json({ error: 'about is required' });
+  if (!about) return res.status(400).json({ error: "about is required" });
   try {
     await ensureBrowser();
     // Navigate to the public about page first
@@ -1742,9 +2233,11 @@ async function handleUpdateCompanyAbout(req, res) {
 
     // Check if we got redirected to admin dashboard (happens for page admins)
     const currentUrl = page.url();
-    if (currentUrl.includes('/admin/')) {
+    if (currentUrl.includes("/admin/")) {
       // Navigate to the admin "Edit Page" overview section
-      await navigate(`https://www.linkedin.com/company/${vanity}/admin/overview/`);
+      await navigate(
+        `https://www.linkedin.com/company/${vanity}/admin/overview/`,
+      );
       await page.waitForTimeout(3000);
     }
 
@@ -1767,7 +2260,10 @@ async function handleUpdateCompanyAbout(req, res) {
     let editBtn = null;
     for (const sel of editSelectors) {
       const loc = page.locator(sel).first();
-      if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+      if (
+        (await loc.count()) > 0 &&
+        (await loc.isVisible().catch(() => false))
+      ) {
         editBtn = loc;
         break;
       }
@@ -1775,14 +2271,19 @@ async function handleUpdateCompanyAbout(req, res) {
 
     // If no edit button found, try clicking "Edit Page" in the admin nav first
     if (!editBtn) {
-      const editPageLink = page.locator('a:has-text("Edit Page"), button:has-text("Edit Page")').first();
-      if (await editPageLink.count() > 0) {
+      const editPageLink = page
+        .locator('a:has-text("Edit Page"), button:has-text("Edit Page")')
+        .first();
+      if ((await editPageLink.count()) > 0) {
         await editPageLink.click();
         await page.waitForTimeout(3000);
         // Now look for the about/description edit button
         for (const sel of editSelectors.slice(0, 6)) {
           const loc = page.locator(sel).first();
-          if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+          if (
+            (await loc.count()) > 0 &&
+            (await loc.isVisible().catch(() => false))
+          ) {
             editBtn = loc;
             break;
           }
@@ -1792,30 +2293,39 @@ async function handleUpdateCompanyAbout(req, res) {
 
     if (!editBtn) {
       // Take a screenshot for debugging
-      await page.screenshot({ path: '/tmp/li-edit-debug.png' });
-      return res.status(404).json({ error: 'Could not locate the company "Edit about" button', url: page.url() });
+      await page.screenshot({ path: "/tmp/li-edit-debug.png" });
+      return res.status(404).json({
+        error: 'Could not locate the company "Edit about" button',
+        url: page.url(),
+      });
     }
     await editBtn.click();
     await page.waitForTimeout(3000);
 
     // Find the contenteditable or textarea editor
-    const editor = page.locator('[contenteditable="true"], textarea:visible').first();
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the company About editor' });
+    const editor = page
+      .locator('[contenteditable="true"], textarea:visible')
+      .first();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the company About editor" });
     }
 
-    const isContentEditable = await editor.getAttribute('contenteditable').catch(() => null);
-    if (isContentEditable === 'true') {
+    const isContentEditable = await editor
+      .getAttribute("contenteditable")
+      .catch(() => null);
+    if (isContentEditable === "true") {
       await editor.click();
-      await page.keyboard.press('Control+a');
-      await page.keyboard.press('Delete');
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Delete");
       await page.keyboard.type(about);
     } else {
       await editor.fill(about);
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['about'], vanity });
+    res.json({ status: "ok", updated: ["about"], vanity });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1826,21 +2336,31 @@ async function handleUpdateCompanyAbout(req, res) {
 async function handleUpdateCompanyWebsite(req, res) {
   const { vanity } = req.params;
   const { website } = req.body;
-  if (!website) return res.status(400).json({ error: 'website is required' });
+  if (!website) return res.status(400).json({ error: "website is required" });
   try {
     await ensureBrowser();
     await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     // Click "Edit" in the details section
-    const editBtn = page.locator('button[aria-label*="Edit details"], button:has-text("Edit details"), button[aria-label*="Edit info"]').first();
-    if (await editBtn.count() === 0) {
+    const editBtn = page
+      .locator(
+        'button[aria-label*="Edit details"], button:has-text("Edit details"), button[aria-label*="Edit info"]',
+      )
+      .first();
+    if ((await editBtn.count()) === 0) {
       // Try the overview edit
-      const overviewEdit = page.locator('button:has-text("Edit overview"), a:has-text("Edit overview")').first();
-      if (await overviewEdit.count() > 0) {
+      const overviewEdit = page
+        .locator(
+          'button:has-text("Edit overview"), a:has-text("Edit overview")',
+        )
+        .first();
+      if ((await overviewEdit.count()) > 0) {
         await overviewEdit.click();
         await page.waitForTimeout(3000);
       } else {
-        return res.status(404).json({ error: 'Could not locate the company edit button' });
+        return res
+          .status(404)
+          .json({ error: "Could not locate the company edit button" });
       }
     } else {
       await editBtn.click();
@@ -1848,13 +2368,19 @@ async function handleUpdateCompanyWebsite(req, res) {
     }
 
     // Find the website input
-    const websiteInput = page.locator('input[aria-label*="Website"], input[aria-label*="website"], input[placeholder*="Website"], input[placeholder*="website"], input[type="url"]').first();
-    if (await websiteInput.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the website input' });
+    const websiteInput = page
+      .locator(
+        'input[aria-label*="Website"], input[aria-label*="website"], input[placeholder*="Website"], input[placeholder*="website"], input[type="url"]',
+      )
+      .first();
+    if ((await websiteInput.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the website input" });
     }
     await websiteInput.fill(website);
     await clickSave();
-    res.json({ status: 'ok', updated: ['website'], vanity });
+    res.json({ status: "ok", updated: ["website"], vanity });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1866,7 +2392,9 @@ async function handleUpdateCompanySpecialties(req, res) {
   const { vanity } = req.params;
   const { specialties } = req.body;
   if (!specialties || !Array.isArray(specialties)) {
-    return res.status(400).json({ error: 'specialties must be an array of strings' });
+    return res
+      .status(400)
+      .json({ error: "specialties must be an array of strings" });
   }
   try {
     await ensureBrowser();
@@ -1876,8 +2404,10 @@ async function handleUpdateCompanySpecialties(req, res) {
 
     // Find the specialties section by looking for the h4 heading
     const specHeading = page.locator('h4:has-text("Specialties")').first();
-    if (await specHeading.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the Specialties section on the edit page' });
+    if ((await specHeading.count()) === 0) {
+      return res.status(404).json({
+        error: "Could not locate the Specialties section on the edit page",
+      });
     }
 
     // Scroll to the specialties section
@@ -1885,14 +2415,18 @@ async function handleUpdateCompanySpecialties(req, res) {
     await page.waitForTimeout(1000);
 
     // Find the pill input within the specialties section
-    const specInput = page.locator('input.artdeco-pill__input').first();
-    if (await specInput.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the specialties input' });
+    const specInput = page.locator("input.artdeco-pill__input").first();
+    if ((await specInput.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the specialties input" });
     }
 
     // Click the "Add a specialty" ghost to activate the input if needed
-    const ghost = page.locator('.artdeco-pill__ghost:has-text("Add a specialty")').first();
-    if (await ghost.count() > 0) {
+    const ghost = page
+      .locator('.artdeco-pill__ghost:has-text("Add a specialty")')
+      .first();
+    if ((await ghost.count()) > 0) {
       await ghost.click();
       await page.waitForTimeout(500);
     }
@@ -1900,60 +2434,72 @@ async function handleUpdateCompanySpecialties(req, res) {
     for (const s of specialties) {
       await specInput.click();
       await specInput.fill(s);
-      await page.keyboard.press('Enter');
+      await page.keyboard.press("Enter");
       await page.waitForTimeout(800);
     }
 
     await clickSave();
-    res.json({ status: 'ok', updated: ['specialties'], vanity, specialties });
+    res.json({ status: "ok", updated: ["specialties"], vanity, specialties });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
-
 
 // ── API: Company logo ──────────────────────────────────────────────────────
 
 async function handleUploadCompanyLogo(req, res) {
   const { vanity } = req.params;
   const { image_base64, filename } = req.body;
-  if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
+  if (!image_base64)
+    return res.status(400).json({ error: "image_base64 is required" });
   try {
     await ensureBrowser();
     await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
     // Click the logo edit button
-    const logoEdit = page.locator('button[aria-label*="logo"], button[aria-label*="Logo"], button[aria-label*="Edit logo"], .org-top-card-primary-content__logo button, button:has-text("Edit logo")').first();
-    if (await logoEdit.count() === 0) {
+    const logoEdit = page
+      .locator(
+        'button[aria-label*="logo"], button[aria-label*="Logo"], button[aria-label*="Edit logo"], .org-top-card-primary-content__logo button, button:has-text("Edit logo")',
+      )
+      .first();
+    if ((await logoEdit.count()) === 0) {
       // Hover over the logo area
-      const logoArea = page.locator('.org-top-card-primary-content__logo, img[class*="company-logo"]').first();
-      if (await logoArea.count() > 0) {
+      const logoArea = page
+        .locator(
+          '.org-top-card-primary-content__logo, img[class*="company-logo"]',
+        )
+        .first();
+      if ((await logoArea.count()) > 0) {
         await logoArea.hover();
         await page.waitForTimeout(1000);
       }
     }
-    if (await logoEdit.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the logo edit button' });
+    if ((await logoEdit.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the logo edit button" });
     }
     await logoEdit.click();
     await page.waitForTimeout(2000);
 
-    const buffer = Buffer.from(image_base64, 'base64');
-    const tmpPath = bufferToTempFile(buffer, filename || 'logo.jpg');
+    const buffer = Buffer.from(image_base64, "base64");
+    const tmpPath = bufferToTempFile(buffer, filename || "logo.jpg");
     try {
-      const fileInput = page.locator('input[type="file"][accept*="image"]').first();
+      const fileInput = page
+        .locator('input[type="file"][accept*="image"]')
+        .first();
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000);
 
       // Handle crop
-      for (const btnText of ['Apply', 'Save', 'Done']) {
+      for (const btnText of ["Apply", "Save", "Done"]) {
         const btn = page.locator(`button:has-text("${btnText}")`).first();
         if (await btn.isVisible().catch(() => false)) {
           await btn.click();
           await page.waitForTimeout(2000);
         }
       }
-      res.json({ status: 'ok', updated: ['logo'], vanity });
+      res.json({ status: "ok", updated: ["logo"], vanity });
     } finally {
       cleanupTempFile(tmpPath);
     }
@@ -1967,33 +2513,44 @@ async function handleUploadCompanyLogo(req, res) {
 async function handleUploadCompanyCover(req, res) {
   const { vanity } = req.params;
   const { image_base64, filename } = req.body;
-  if (!image_base64) return res.status(400).json({ error: 'image_base64 is required' });
+  if (!image_base64)
+    return res.status(400).json({ error: "image_base64 is required" });
   try {
     await ensureBrowser();
     await navigate(`https://www.linkedin.com/company/${vanity}/about/`);
 
-    const coverEdit = page.locator('button[aria-label*="cover"], button[aria-label*="Cover"], button[aria-label*="background"], button:has-text("Edit cover")').first();
-    if (await coverEdit.count() === 0) {
-      const coverArea = page.locator('.org-top-card-background, [class*="cover"]').first();
-      if (await coverArea.count() > 0) {
+    const coverEdit = page
+      .locator(
+        'button[aria-label*="cover"], button[aria-label*="Cover"], button[aria-label*="background"], button:has-text("Edit cover")',
+      )
+      .first();
+    if ((await coverEdit.count()) === 0) {
+      const coverArea = page
+        .locator('.org-top-card-background, [class*="cover"]')
+        .first();
+      if ((await coverArea.count()) > 0) {
         await coverArea.hover();
         await page.waitForTimeout(1000);
       }
     }
-    if (await coverEdit.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the cover edit button' });
+    if ((await coverEdit.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the cover edit button" });
     }
     await coverEdit.click();
     await page.waitForTimeout(2000);
 
-    const buffer = Buffer.from(image_base64, 'base64');
-    const tmpPath = bufferToTempFile(buffer, filename || 'cover.jpg');
+    const buffer = Buffer.from(image_base64, "base64");
+    const tmpPath = bufferToTempFile(buffer, filename || "cover.jpg");
     try {
-      const fileInput = page.locator('input[type="file"][accept*="image"]').first();
+      const fileInput = page
+        .locator('input[type="file"][accept*="image"]')
+        .first();
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000);
 
-      for (const btnText of ['Apply', 'Save', 'Done', 'Next']) {
+      for (const btnText of ["Apply", "Save", "Done", "Next"]) {
         const btn = page.locator(`button:has-text("${btnText}")`).first();
         if (await btn.isVisible().catch(() => false)) {
           await btn.click();
@@ -2002,7 +2559,7 @@ async function handleUploadCompanyCover(req, res) {
         }
       }
       await clickSave();
-      res.json({ status: 'ok', updated: ['cover'], vanity });
+      res.json({ status: "ok", updated: ["cover"], vanity });
     } finally {
       cleanupTempFile(tmpPath);
     }
@@ -2015,23 +2572,33 @@ async function handleUploadCompanyCover(req, res) {
 
 async function handlePostText(req, res) {
   const { message, visibility } = req.body;
-  if (!message) return res.status(400).json({ error: 'message is required' });
+  if (!message) return res.status(400).json({ error: "message is required" });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/feed/');
+    await navigate("https://www.linkedin.com/feed/");
 
     // Click the "Start a post" button
-    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
-    if (await startPost.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    const startPost = page
+      .locator(
+        'button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]',
+      )
+      .first();
+    if ((await startPost.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Start a post" button' });
     }
     await startPost.click();
     await page.waitForTimeout(3000);
 
     // Find the contenteditable editor in the dialog
-    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the post editor' });
+    const editor = page
+      .locator('div[role="dialog"] [contenteditable="true"]')
+      .first();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the post editor" });
     }
     await editor.click();
     await page.keyboard.type(message);
@@ -2039,11 +2606,19 @@ async function handlePostText(req, res) {
 
     // Set visibility if specified (public/connections)
     if (visibility) {
-      const visBtn = page.locator('div[role="dialog"] button[aria-label*="Share with"], div[role="dialog"] button:has-text("Anyone"), div[role="dialog"] button:has-text("Connections only")').first();
+      const visBtn = page
+        .locator(
+          'div[role="dialog"] button[aria-label*="Share with"], div[role="dialog"] button:has-text("Anyone"), div[role="dialog"] button:has-text("Connections only")',
+        )
+        .first();
       if (await visBtn.isVisible().catch(() => false)) {
         await visBtn.click();
         await page.waitForTimeout(1000);
-        const option = page.locator(`div[role="menu"] div:has-text("${visibility === 'public' ? 'Anyone' : 'Connections only'}")`).first();
+        const option = page
+          .locator(
+            `div[role="menu"] div:has-text("${visibility === "public" ? "Anyone" : "Connections only"}")`,
+          )
+          .first();
         if (await option.isVisible().catch(() => false)) {
           await option.click();
           await page.waitForTimeout(500);
@@ -2052,9 +2627,11 @@ async function handlePostText(req, res) {
     }
 
     // Click Post button
-    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
-    if (await postBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find the Post button' });
+    const postBtn = page
+      .locator('div[role="dialog"] button:has-text("Post")')
+      .first();
+    if ((await postBtn.count()) === 0) {
+      return res.status(404).json({ error: "Could not find the Post button" });
     }
     await postBtn.click();
     await settle();
@@ -2064,15 +2641,15 @@ async function handlePostText(req, res) {
     try {
       await page.waitForTimeout(3000);
       const postLink = page.locator('a[href*="/feed/update/"]').first();
-      if (await postLink.count() > 0) {
-        postUrl = await postLink.getAttribute('href');
-        if (postUrl && !postUrl.startsWith('http')) {
-          postUrl = 'https://www.linkedin.com' + postUrl;
+      if ((await postLink.count()) > 0) {
+        postUrl = await postLink.getAttribute("href");
+        if (postUrl && !postUrl.startsWith("http")) {
+          postUrl = "https://www.linkedin.com" + postUrl;
         }
       }
     } catch (_) {}
 
-    res.json({ status: 'ok', posted: true, url: postUrl });
+    res.json({ status: "ok", posted: true, url: postUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2083,15 +2660,21 @@ async function handlePostText(req, res) {
 async function handlePostImage(req, res) {
   const { message, images, visibility } = req.body;
   if (!images || !Array.isArray(images) || images.length === 0) {
-    return res.status(400).json({ error: 'images must be a non-empty array' });
+    return res.status(400).json({ error: "images must be a non-empty array" });
   }
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/feed/');
+    await navigate("https://www.linkedin.com/feed/");
 
-    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
-    if (await startPost.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    const startPost = page
+      .locator(
+        'button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]',
+      )
+      .first();
+    if ((await startPost.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Start a post" button' });
     }
     await startPost.click();
     await page.waitForTimeout(3000);
@@ -2099,17 +2682,23 @@ async function handlePostImage(req, res) {
     // Upload images via file input
     const tmpPaths = [];
     for (const img of images) {
-      const buffer = Buffer.from(img.image_base64, 'base64');
-      const tmp = bufferToTempFile(buffer, img.filename || 'image.jpg');
+      const buffer = Buffer.from(img.image_base64, "base64");
+      const tmp = bufferToTempFile(buffer, img.filename || "image.jpg");
       tmpPaths.push(tmp);
     }
 
     try {
-      const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
-      if (await fileInput.count() === 0) {
+      const fileInput = page
+        .locator('div[role="dialog"] input[type="file"]')
+        .first();
+      if ((await fileInput.count()) === 0) {
         // Try the media icon button
-        const mediaBtn = page.locator('div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]').first();
-        if (await mediaBtn.count() > 0) {
+        const mediaBtn = page
+          .locator(
+            'div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]',
+          )
+          .first();
+        if ((await mediaBtn.count()) > 0) {
           await mediaBtn.click();
           await page.waitForTimeout(1000);
         }
@@ -2119,8 +2708,10 @@ async function handlePostImage(req, res) {
 
       // Add caption
       if (message) {
-        const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
-        if (await editor.count() > 0) {
+        const editor = page
+          .locator('div[role="dialog"] [contenteditable="true"]')
+          .first();
+        if ((await editor.count()) > 0) {
           await editor.click();
           await page.keyboard.type(message);
           await page.waitForTimeout(1000);
@@ -2128,9 +2719,13 @@ async function handlePostImage(req, res) {
       }
 
       // Click Post
-      const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
-      if (await postBtn.count() === 0) {
-        return res.status(404).json({ error: 'Could not find the Post button' });
+      const postBtn = page
+        .locator('div[role="dialog"] button:has-text("Post")')
+        .first();
+      if ((await postBtn.count()) === 0) {
+        return res
+          .status(404)
+          .json({ error: "Could not find the Post button" });
       }
       await postBtn.click();
       await settle();
@@ -2139,15 +2734,15 @@ async function handlePostImage(req, res) {
       try {
         await page.waitForTimeout(3000);
         const postLink = page.locator('a[href*="/feed/update/"]').first();
-        if (await postLink.count() > 0) {
-          postUrl = await postLink.getAttribute('href');
-          if (postUrl && !postUrl.startsWith('http')) {
-            postUrl = 'https://www.linkedin.com' + postUrl;
+        if ((await postLink.count()) > 0) {
+          postUrl = await postLink.getAttribute("href");
+          if (postUrl && !postUrl.startsWith("http")) {
+            postUrl = "https://www.linkedin.com" + postUrl;
           }
         }
       } catch (_) {}
 
-      res.json({ status: 'ok', posted: true, url: postUrl });
+      res.json({ status: "ok", posted: true, url: postUrl });
     } finally {
       for (const p of tmpPaths) {
         cleanupTempFile(p);
@@ -2162,26 +2757,36 @@ async function handlePostImage(req, res) {
 
 async function handlePostLink(req, res) {
   const { url, message, visibility } = req.body;
-  if (!url) return res.status(400).json({ error: 'url is required' });
+  if (!url) return res.status(400).json({ error: "url is required" });
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/feed/');
+    await navigate("https://www.linkedin.com/feed/");
 
-    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]').first();
-    if (await startPost.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Start a post" button' });
+    const startPost = page
+      .locator(
+        'button:has-text("Start a post"), button[aria-label*="Start a post"], [data-control-name="start_post"]',
+      )
+      .first();
+    if ((await startPost.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Could not find "Start a post" button' });
     }
     await startPost.click();
     await page.waitForTimeout(3000);
 
-    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the post editor' });
+    const editor = page
+      .locator('div[role="dialog"] [contenteditable="true"]')
+      .first();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the post editor" });
     }
     await editor.click();
 
     if (message) {
-      await page.keyboard.type(message + '\n');
+      await page.keyboard.type(message + "\n");
     }
     await page.keyboard.type(url);
     await page.waitForTimeout(3000);
@@ -2189,9 +2794,11 @@ async function handlePostLink(req, res) {
     // Wait for link preview to generate
     await page.waitForTimeout(3000);
 
-    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
-    if (await postBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find the Post button' });
+    const postBtn = page
+      .locator('div[role="dialog"] button:has-text("Post")')
+      .first();
+    if ((await postBtn.count()) === 0) {
+      return res.status(404).json({ error: "Could not find the Post button" });
     }
     await postBtn.click();
     await settle();
@@ -2200,15 +2807,15 @@ async function handlePostLink(req, res) {
     try {
       await page.waitForTimeout(3000);
       const postLink = page.locator('a[href*="/feed/update/"]').first();
-      if (await postLink.count() > 0) {
-        postUrl = await postLink.getAttribute('href');
-        if (postUrl && !postUrl.startsWith('http')) {
-          postUrl = 'https://www.linkedin.com' + postUrl;
+      if ((await postLink.count()) > 0) {
+        postUrl = await postLink.getAttribute("href");
+        if (postUrl && !postUrl.startsWith("http")) {
+          postUrl = "https://www.linkedin.com" + postUrl;
         }
       }
     } catch (_) {}
 
-    res.json({ status: 'ok', posted: true, url: postUrl });
+    res.json({ status: "ok", posted: true, url: postUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2219,29 +2826,41 @@ async function handlePostLink(req, res) {
 async function handleCompanyPostText(req, res) {
   const { vanity } = req.params;
   const { message } = req.body;
-  if (!message) return res.status(400).json({ error: 'message is required' });
+  if (!message) return res.status(400).json({ error: "message is required" });
   try {
     await ensureBrowser();
     await navigate(`https://www.linkedin.com/company/${vanity}/feed/`);
 
-    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
-    if (await startPost.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Start a post" button on company page' });
+    const startPost = page
+      .locator(
+        'button:has-text("Start a post"), button[aria-label*="Start a post"]',
+      )
+      .first();
+    if ((await startPost.count()) === 0) {
+      return res.status(404).json({
+        error: 'Could not find "Start a post" button on company page',
+      });
     }
     await startPost.click();
     await page.waitForTimeout(3000);
 
-    const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not locate the post editor' });
+    const editor = page
+      .locator('div[role="dialog"] [contenteditable="true"]')
+      .first();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not locate the post editor" });
     }
     await editor.click();
     await page.keyboard.type(message);
     await page.waitForTimeout(1000);
 
-    const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
-    if (await postBtn.count() === 0) {
-      return res.status(404).json({ error: 'Could not find the Post button' });
+    const postBtn = page
+      .locator('div[role="dialog"] button:has-text("Post")')
+      .first();
+    if ((await postBtn.count()) === 0) {
+      return res.status(404).json({ error: "Could not find the Post button" });
     }
     await postBtn.click();
     await settle();
@@ -2250,15 +2869,15 @@ async function handleCompanyPostText(req, res) {
     try {
       await page.waitForTimeout(3000);
       const postLink = page.locator('a[href*="/feed/update/"]').first();
-      if (await postLink.count() > 0) {
-        postUrl = await postLink.getAttribute('href');
-        if (postUrl && !postUrl.startsWith('http')) {
-          postUrl = 'https://www.linkedin.com' + postUrl;
+      if ((await postLink.count()) > 0) {
+        postUrl = await postLink.getAttribute("href");
+        if (postUrl && !postUrl.startsWith("http")) {
+          postUrl = "https://www.linkedin.com" + postUrl;
         }
       }
     } catch (_) {}
 
-    res.json({ status: 'ok', posted: true, vanity, url: postUrl });
+    res.json({ status: "ok", posted: true, vanity, url: postUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2268,31 +2887,43 @@ async function handleCompanyPostImage(req, res) {
   const { vanity } = req.params;
   const { message, images } = req.body;
   if (!images || !Array.isArray(images) || images.length === 0) {
-    return res.status(400).json({ error: 'images must be a non-empty array' });
+    return res.status(400).json({ error: "images must be a non-empty array" });
   }
   try {
     await ensureBrowser();
     await navigate(`https://www.linkedin.com/company/${vanity}/feed/`);
 
-    const startPost = page.locator('button:has-text("Start a post"), button[aria-label*="Start a post"]').first();
-    if (await startPost.count() === 0) {
-      return res.status(404).json({ error: 'Could not find "Start a post" button on company page' });
+    const startPost = page
+      .locator(
+        'button:has-text("Start a post"), button[aria-label*="Start a post"]',
+      )
+      .first();
+    if ((await startPost.count()) === 0) {
+      return res.status(404).json({
+        error: 'Could not find "Start a post" button on company page',
+      });
     }
     await startPost.click();
     await page.waitForTimeout(3000);
 
     const tmpPaths = [];
     for (const img of images) {
-      const buffer = Buffer.from(img.image_base64, 'base64');
-      const tmp = bufferToTempFile(buffer, img.filename || 'image.jpg');
+      const buffer = Buffer.from(img.image_base64, "base64");
+      const tmp = bufferToTempFile(buffer, img.filename || "image.jpg");
       tmpPaths.push(tmp);
     }
 
     try {
-      const fileInput = page.locator('div[role="dialog"] input[type="file"]').first();
-      if (await fileInput.count() === 0) {
-        const mediaBtn = page.locator('div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]').first();
-        if (await mediaBtn.count() > 0) {
+      const fileInput = page
+        .locator('div[role="dialog"] input[type="file"]')
+        .first();
+      if ((await fileInput.count()) === 0) {
+        const mediaBtn = page
+          .locator(
+            'div[role="dialog"] button[aria-label*="Add a photo"], div[role="dialog"] button[aria-label*="media"], div[role="dialog"] button[aria-label*="Image"]',
+          )
+          .first();
+        if ((await mediaBtn.count()) > 0) {
           await mediaBtn.click();
           await page.waitForTimeout(1000);
         }
@@ -2301,17 +2932,23 @@ async function handleCompanyPostImage(req, res) {
       await page.waitForTimeout(5000);
 
       if (message) {
-        const editor = page.locator('div[role="dialog"] [contenteditable="true"]').first();
-        if (await editor.count() > 0) {
+        const editor = page
+          .locator('div[role="dialog"] [contenteditable="true"]')
+          .first();
+        if ((await editor.count()) > 0) {
           await editor.click();
           await page.keyboard.type(message);
           await page.waitForTimeout(1000);
         }
       }
 
-      const postBtn = page.locator('div[role="dialog"] button:has-text("Post")').first();
-      if (await postBtn.count() === 0) {
-        return res.status(404).json({ error: 'Could not find the Post button' });
+      const postBtn = page
+        .locator('div[role="dialog"] button:has-text("Post")')
+        .first();
+      if ((await postBtn.count()) === 0) {
+        return res
+          .status(404)
+          .json({ error: "Could not find the Post button" });
       }
       await postBtn.click();
       await settle();
@@ -2320,15 +2957,15 @@ async function handleCompanyPostImage(req, res) {
       try {
         await page.waitForTimeout(3000);
         const postLink = page.locator('a[href*="/feed/update/"]').first();
-        if (await postLink.count() > 0) {
-          postUrl = await postLink.getAttribute('href');
-          if (postUrl && !postUrl.startsWith('http')) {
-            postUrl = 'https://www.linkedin.com' + postUrl;
+        if ((await postLink.count()) > 0) {
+          postUrl = await postLink.getAttribute("href");
+          if (postUrl && !postUrl.startsWith("http")) {
+            postUrl = "https://www.linkedin.com" + postUrl;
           }
         }
       } catch (_) {}
 
-      res.json({ status: 'ok', posted: true, vanity, url: postUrl });
+      res.json({ status: "ok", posted: true, vanity, url: postUrl });
     } finally {
       for (const p of tmpPaths) {
         cleanupTempFile(p);
@@ -2342,31 +2979,31 @@ async function handleCompanyPostImage(req, res) {
 // ── Server setup ───────────────────────────────────────────────────────────
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: "50mb" }));
 
 const apiLimiter = rateLimit({
   windowMs: 60_000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === '/health',
+  skip: (req) => req.path === "/health",
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60_000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests' },
+  message: { error: "Too many requests" },
 });
 app.use(apiLimiter);
 
 // Health check
-app.get('/health', (req, res) => {
+app.get("/health", (req, res) => {
   const rl = readRateLimitState();
   const cooling = !!(rl && rl.until && Date.now() < rl.until);
   res.json({
-    status: 'ok',
-    service: 'linkedin-browser-sidecar',
+    status: "ok",
+    service: "linkedin-browser-sidecar",
     has_session: !!storageState || fs.existsSync(SESSION_FILE),
     rate_limited: cooling,
     rate_limit_until: cooling ? rl.until : null,
@@ -2374,56 +3011,55 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.post('/session/clear-rate-limit', (req, res) => {
+app.post("/session/clear-rate-limit", (req, res) => {
   clearRateLimit();
-  res.json({ status: 'ok', cleared: true });
+  res.json({ status: "ok", cleared: true });
 });
 
-
 // Session
-app.post('/session', authLimiter, handleSetSession);
-app.get('/session', handleCheckSession);
-app.post('/login', authLimiter, handleLogin);
+app.post("/session", authLimiter, handleSetSession);
+app.get("/session", handleCheckSession);
+app.post("/login", authLimiter, handleLogin);
 
 // Personal profile
-app.get('/profile', handleReadProfile);
-app.post('/profile/headline', handleUpdateHeadline);
-app.post('/profile/about', handleUpdateAbout);
-app.post('/profile/cover', handleUploadCover);
-app.post('/profile/picture', handleUploadPicture);
-app.post('/profile/website', handleUpdateWebsite);
-app.post('/profile/location', handleUpdateLocation);
-app.post('/profile/experience', handleAddExperience);
-app.post('/profile/education', handleAddEducation);
-app.post('/profile/skills', handleAddSkill);
+app.get("/profile", handleReadProfile);
+app.post("/profile/headline", handleUpdateHeadline);
+app.post("/profile/about", handleUpdateAbout);
+app.post("/profile/cover", handleUploadCover);
+app.post("/profile/picture", handleUploadPicture);
+app.post("/profile/website", handleUpdateWebsite);
+app.post("/profile/location", handleUpdateLocation);
+app.post("/profile/experience", handleAddExperience);
+app.post("/profile/education", handleAddEducation);
+app.post("/profile/skills", handleAddSkill);
 
 // Company page
-app.get('/company/:vanity', handleReadCompany);
-app.post('/company/:vanity/about', handleUpdateCompanyAbout);
-app.post('/company/:vanity/website', handleUpdateCompanyWebsite);
-app.post('/company/:vanity/specialties', handleUpdateCompanySpecialties);
-app.post('/company/:vanity/logo', handleUploadCompanyLogo);
-app.post('/company/:vanity/cover', handleUploadCompanyCover);
+app.get("/company/:vanity", handleReadCompany);
+app.post("/company/:vanity/about", handleUpdateCompanyAbout);
+app.post("/company/:vanity/website", handleUpdateCompanyWebsite);
+app.post("/company/:vanity/specialties", handleUpdateCompanySpecialties);
+app.post("/company/:vanity/logo", handleUploadCompanyLogo);
+app.post("/company/:vanity/cover", handleUploadCompanyCover);
 
 // Posting — personal feed
-app.post('/post/text', handlePostText);
-app.post('/post/image', handlePostImage);
-app.post('/post/link', handlePostLink);
+app.post("/post/text", handlePostText);
+app.post("/post/image", handlePostImage);
+app.post("/post/link", handlePostLink);
 
-app.get('/messages', handleListMessages);
-app.get('/messages/:thread_id', handleReadThread);
-app.post('/messages/:thread_id/send', handleSendMessage);
+app.get("/messages", handleListMessages);
+app.get("/messages/:thread_id", handleReadThread);
+app.post("/messages/:thread_id/send", handleSendMessage);
 
 // Posting — company page
-app.post('/company/:vanity/post/text', handleCompanyPostText);
-app.post('/company/:vanity/post/image', handleCompanyPostImage);
+app.post("/company/:vanity/post/text", handleCompanyPostText);
+app.post("/company/:vanity/post/image", handleCompanyPostImage);
 
 // Debug: screenshot
-app.get('/screenshot', async (req, res) => {
+app.get("/screenshot", async (req, res) => {
   try {
     await ensureBrowser();
-    const buf = await page.screenshot({ type: 'png' });
-    res.set('Content-Type', 'image/png');
+    const buf = await page.screenshot({ type: "png" });
+    res.set("Content-Type", "image/png");
     res.send(buf);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2431,10 +3067,10 @@ app.get('/screenshot', async (req, res) => {
 });
 
 // Debug: page text
-app.get('/debug/page-text', async (req, res) => {
+app.get("/debug/page-text", async (req, res) => {
   try {
     await ensureBrowser();
-    const text = await page.innerText('body');
+    const text = await page.innerText("body");
     const url = page.url();
     res.json({ url, text: text.substring(0, 2000) });
   } catch (err) {
@@ -2443,23 +3079,25 @@ app.get('/debug/page-text', async (req, res) => {
 });
 
 // Debug: form HTML
-app.get('/debug/form-html', async (req, res) => {
+app.get("/debug/form-html", async (req, res) => {
   try {
     await ensureBrowser();
     const html = await page.evaluate(() => {
       // Get ALL inputs on the page, not just inside forms
-      const inputs = Array.from(document.querySelectorAll('input, button[type="submit"], button')).map(el => ({
+      const inputs = Array.from(
+        document.querySelectorAll('input, button[type="submit"], button'),
+      ).map((el) => ({
         tag: el.tagName,
-        type: el.type || '',
-        id: el.id || '',
-        name: el.name || '',
-        value: el.value ? el.value.substring(0, 20) : '',
+        type: el.type || "",
+        id: el.id || "",
+        name: el.name || "",
+        value: el.value ? el.value.substring(0, 20) : "",
         visible: el.offsetParent !== null,
         display: window.getComputedStyle(el).display,
-        className: (el.className || '').substring(0, 50),
-        autocomplete: el.autocomplete || '',
-        ariaLabel: el.getAttribute('aria-label') || '',
-        text: el.innerText ? el.innerText.substring(0, 30) : '',
+        className: (el.className || "").substring(0, 50),
+        autocomplete: el.autocomplete || "",
+        ariaLabel: el.getAttribute("aria-label") || "",
+        text: el.innerText ? el.innerText.substring(0, 30) : "",
       }));
       return JSON.stringify(inputs, null, 2);
     });
@@ -2471,57 +3109,64 @@ app.get('/debug/form-html', async (req, res) => {
 });
 
 // ── Debug helpers (for admin dashboard navigation) ────────────────────────
-app.post('/debug/navigate', async (req, res) => {
+app.post("/debug/navigate", async (req, res) => {
   try {
     const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'url is required' });
+    if (!url) return res.status(400).json({ error: "url is required" });
     await ensureBrowser();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(2000);
-    res.json({ status: 'ok', url: page.url() });
+    res.json({ status: "ok", url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/debug/eval', async (req, res) => {
+app.post("/debug/eval", async (req, res) => {
   try {
     const { script } = req.body;
-    if (!script) return res.status(400).json({ error: 'script is required' });
+    if (!script) return res.status(400).json({ error: "script is required" });
     await ensureBrowser();
     const result = await page.evaluate(script);
-    res.json({ status: 'ok', result });
+    res.json({ status: "ok", result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/debug/buttons', async (req, res) => {
+app.get("/debug/buttons", async (req, res) => {
   try {
     await ensureBrowser();
     const buttons = await page.evaluate(() => {
-      const els = document.querySelectorAll('button, a, div[role="button"], span[role="button"]');
+      const els = document.querySelectorAll(
+        'button, a, div[role="button"], span[role="button"]',
+      );
       const results = [];
       for (const e of els) {
-        const text = (e.textContent || '').trim().substring(0, 80);
-        const aria = e.getAttribute('aria-label');
+        const text = (e.textContent || "").trim().substring(0, 80);
+        const aria = e.getAttribute("aria-label");
         if (text || aria) {
-          results.push({ tag: e.tagName, text, ariaLabel: aria, href: e.href || null });
+          results.push({
+            tag: e.tagName,
+            text,
+            ariaLabel: aria,
+            href: e.href || null,
+          });
         }
       }
       return results.slice(0, 50);
     });
-    res.json({ status: 'ok', buttons });
+    res.json({ status: "ok", buttons });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/debug/screenshot', async (req, res) => {
+app.get("/debug/screenshot", async (req, res) => {
   try {
     await ensureBrowser();
     const buf = await page.screenshot({ fullPage: false });
-    res.set('Content-Type', 'image/png');
+    res.set("Content-Type", "image/png");
     res.send(buf);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2529,147 +3174,207 @@ app.get('/debug/screenshot', async (req, res) => {
 });
 
 // Export ALL context cookies (including httpOnly, cross-domain).
-app.get('/debug/all-cookies', async (req, res) => {
+app.get("/debug/all-cookies", async (req, res) => {
   try {
-    if (!context) return res.status(500).json({ error: 'no context' });
+    if (!context) return res.status(500).json({ error: "no context" });
     const domainFilter = req.query.domain;
     const cookies = await context.cookies();
     const result = {};
     for (const c of cookies) {
-      if (domainFilter && c.domain && !c.domain.includes(domainFilter)) continue;
+      if (domainFilter && c.domain && !c.domain.includes(domainFilter))
+        continue;
       result[c.name] = c.value;
     }
-    res.json({ status: 'ok', count: Object.keys(result).length, cookies: result });
+    res.json({
+      status: "ok",
+      count: Object.keys(result).length,
+      cookies: result,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-
 async function handleListMessages(req, res) {
   try {
     await ensureBrowser();
-    await navigate('https://www.linkedin.com/messaging/', 30000);
+    await navigate("https://www.linkedin.com/messaging/", 30000);
     await page.waitForTimeout(3000);
 
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => {
-        const list = document.querySelector('[role="list"], .msg-conversations-container, .msg-list');
+        const list = document.querySelector(
+          '[role="list"], .msg-conversations-container, .msg-list',
+        );
         if (list) list.scrollBy(0, 500);
       });
       await page.waitForTimeout(500);
     }
 
     const conversations = await page.evaluate(() => {
-      const items = document.querySelectorAll('[role="listitem"], .msg-conversation-listitem, li[class*="conversation"]');
+      const items = document.querySelectorAll(
+        '[role="listitem"], .msg-conversation-listitem, li[class*="conversation"]',
+      );
       const results = [];
       for (const item of items) {
-        const nameEl = item.querySelector('a[href*="/messaging/thread"], .msg-conversation-listitem__link, h3, [class*="participant-name"]');
-        const name = nameEl ? nameEl.innerText.trim() : '';
-        const previewEl = item.querySelector('.msg-conversation-card__message-snippet, p, [class*="snippet"]');
-        const preview = previewEl ? previewEl.innerText.trim() : '';
+        const nameEl = item.querySelector(
+          'a[href*="/messaging/thread"], .msg-conversation-listitem__link, h3, [class*="participant-name"]',
+        );
+        const name = nameEl ? nameEl.innerText.trim() : "";
+        const previewEl = item.querySelector(
+          '.msg-conversation-card__message-snippet, p, [class*="snippet"]',
+        );
+        const preview = previewEl ? previewEl.innerText.trim() : "";
         const linkEl = item.querySelector('a[href*="/messaging/thread"]');
-        const threadUrl = linkEl ? linkEl.getAttribute('href') : '';
-        const threadId = threadUrl ? (threadUrl.match(/thread:(\d+)/) || [])[1] || threadUrl : '';
-        const unreadEl = item.querySelector('[class*="unread"], .msg-conversation-listitem__unread-count');
-        const unread = unreadEl ? unreadEl.innerText.trim() : '';
+        const threadUrl = linkEl ? linkEl.getAttribute("href") : "";
+        const threadId = threadUrl
+          ? (threadUrl.match(/thread:(\d+)/) || [])[1] || threadUrl
+          : "";
+        const unreadEl = item.querySelector(
+          '[class*="unread"], .msg-conversation-listitem__unread-count',
+        );
+        const unread = unreadEl ? unreadEl.innerText.trim() : "";
         const timeEl = item.querySelector('time, [class*="time"]');
-        const time = timeEl ? timeEl.innerText.trim() : '';
+        const time = timeEl ? timeEl.innerText.trim() : "";
         if (name) {
-          results.push({ name, preview, thread_id: threadId, thread_url: threadUrl, unread, time });
+          results.push({
+            name,
+            preview,
+            thread_id: threadId,
+            thread_url: threadUrl,
+            unread,
+            time,
+          });
         }
       }
       return results;
     });
 
-    agentLog('H-B', 'handleListMessages', 'listed conversations', { count: conversations.length, url: page.url() });
-    res.json({ status: 'ok', conversations, count: conversations.length });
+    agentLog("H-B", "handleListMessages", "listed conversations", {
+      count: conversations.length,
+      url: page.url(),
+    });
+    res.json({ status: "ok", conversations, count: conversations.length });
   } catch (err) {
-    agentLog('H-B', 'handleListMessages', 'error', { error: String(err.message || err).slice(0, 300), code: err.code || null });
-    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
-    res.status(status).json({ error: err.message, code: err.code || 'MESSAGES_ERROR' });
+    agentLog("H-B", "handleListMessages", "error", {
+      error: String(err.message || err).slice(0, 300),
+      code: err.code || null,
+    });
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "MESSAGES_ERROR" });
   }
 }
 
 async function handleReadThread(req, res) {
   const { thread_id } = req.params;
-  if (!thread_id) return res.status(400).json({ error: 'thread_id is required' });
+  if (!thread_id)
+    return res.status(400).json({ error: "thread_id is required" });
   try {
     await ensureBrowser();
     const url = `https://www.linkedin.com/messaging/thread/${thread_id}/`;
     await navigate(url, 30000);
     await page.waitForTimeout(3000);
 
-    const msgContainer = await page.$('[class*="msg-s-message-list"], [role="log"], .msg-s-message-list');
+    const msgContainer = await page.$(
+      '[class*="msg-s-message-list"], [role="log"], .msg-s-message-list',
+    );
     if (msgContainer) {
       for (let i = 0; i < 3; i++) {
-        await msgContainer.evaluate(el => { el.scrollTop = 0; });
+        await msgContainer.evaluate((el) => {
+          el.scrollTop = 0;
+        });
         await page.waitForTimeout(500);
       }
     }
 
     const messages = await page.evaluate(() => {
-      const msgEls = document.querySelectorAll('[class*="msg-s-message"], [class*="message-item"], li[class*="msg-s-message-list__event"]');
+      const msgEls = document.querySelectorAll(
+        '[class*="msg-s-message"], [class*="message-item"], li[class*="msg-s-message-list__event"]',
+      );
       const results = [];
-      let currentSender = '';
+      let currentSender = "";
       for (const el of msgEls) {
-        const senderEl = el.querySelector('[class*="msg-s-message-group__name"], [class*="actor-name"], h3, h4');
+        const senderEl = el.querySelector(
+          '[class*="msg-s-message-group__name"], [class*="actor-name"], h3, h4',
+        );
         const sender = senderEl ? senderEl.innerText.trim() : currentSender;
         if (sender) currentSender = sender;
-        const textEl = el.querySelector('[class*="msg-s-message-list__event-message"], p, [class*="message-text"]');
+        const textEl = el.querySelector(
+          '[class*="msg-s-message-list__event-message"], p, [class*="message-text"]',
+        );
         const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
         const timeEl = el.querySelector('time, [class*="time"]');
-        const time = timeEl ? timeEl.innerText.trim() : '';
+        const time = timeEl ? timeEl.innerText.trim() : "";
         if (text) {
-          results.push({ sender: sender || 'unknown', text, time });
+          results.push({ sender: sender || "unknown", text, time });
         }
       }
       return results;
     });
 
-    res.json({ status: 'ok', thread_id, messages, count: messages.length });
+    res.json({ status: "ok", thread_id, messages, count: messages.length });
   } catch (err) {
-    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
-    res.status(status).json({ error: err.message, code: err.code || 'THREAD_ERROR' });
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "THREAD_ERROR" });
   }
 }
 
 async function handleSendMessage(req, res) {
   const { thread_id } = req.params;
   const { text } = req.body;
-  if (!thread_id) return res.status(400).json({ error: 'thread_id is required' });
-  if (!text) return res.status(400).json({ error: 'text is required' });
+  if (!thread_id)
+    return res.status(400).json({ error: "thread_id is required" });
+  if (!text) return res.status(400).json({ error: "text is required" });
   try {
     await ensureBrowser();
     const url = `https://www.linkedin.com/messaging/thread/${thread_id}/`;
     await navigate(url, 30000);
     await page.waitForTimeout(3000);
 
-    const editor = page.locator('div[contenteditable="true"][role="textbox"], textarea[class*="msg-form"], [data-control-name="message_text"]').first();
-    if (await editor.count() === 0) {
-      return res.status(404).json({ error: 'Could not find the message input box' });
+    const editor = page
+      .locator(
+        'div[contenteditable="true"][role="textbox"], textarea[class*="msg-form"], [data-control-name="message_text"]',
+      )
+      .first();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not find the message input box" });
     }
     await editor.click();
     await page.keyboard.type(text);
     await page.waitForTimeout(500);
 
-    const sendBtn = page.locator('button[type="submit"], button:has-text("Send"), button[aria-label*="Send"]').first();
-    if (await sendBtn.count() === 0) {
-      await page.keyboard.press('Enter');
+    const sendBtn = page
+      .locator(
+        'button[type="submit"], button:has-text("Send"), button[aria-label*="Send"]',
+      )
+      .first();
+    if ((await sendBtn.count()) === 0) {
+      await page.keyboard.press("Enter");
     } else {
       await sendBtn.click();
     }
     await page.waitForTimeout(2000);
 
-    res.json({ status: 'ok', sent: true, thread_id, text });
+    res.json({ status: "ok", sent: true, thread_id, text });
   } catch (err) {
-    const status = err.code === 'RATE_LIMITED' || err.status === 429 ? 429 : 500;
-    res.status(status).json({ error: err.message, code: err.code || 'SEND_ERROR' });
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "SEND_ERROR" });
   }
 }
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
+process.on("SIGTERM", async () => {
   await closeBrowser();
   process.exit(0);
 });
