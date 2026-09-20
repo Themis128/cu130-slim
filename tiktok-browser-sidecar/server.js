@@ -933,11 +933,28 @@ async function handleProfileVideos(req, res) {
         .json({ error: "Not logged in — POST /session first" });
     }
 
+    // The grid's signed item-list API intermittently fails in headless —
+    // TikTok renders "Something went wrong / Refresh". Retry once.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const gridFailed = await page.evaluate(() =>
+        document.body.innerText.includes("went wrong"),
+      );
+      if (!gridFailed) break;
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll("button")].find(
+          (x) => x.innerText.trim() === "Refresh",
+        );
+        if (b) b.click();
+      });
+      await page.waitForTimeout(4000);
+    }
+
     // Scroll the grid until we have `limit` items or it stops growing.
-    let prevCount = 0;
+    // Require at least one loaded round before giving up on an empty grid.
+    let prevCount = -1;
     for (let i = 0; i < 15; i++) {
       const count = await page.locator('a[href*="/video/"]').count();
-      if (count >= limit || count === prevCount) break;
+      if (count >= limit || (count === prevCount && i > 0)) break;
       prevCount = count;
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.waitForTimeout(1200);

@@ -1296,6 +1296,24 @@ async def sync_tiktok_account(
                 except Exception:  # noqa: BLE001 — follower scrape is best-effort
                     pass
 
+            if not scraped["videos"]:
+                # 0 scraped videos with cookies present could mean a dead
+                # web session rather than an empty profile — ask the sidecar.
+                try:
+                    from app.core.config import get_settings
+
+                    async with httpx.AsyncClient(timeout=30.0) as sc:
+                        sess = await sc.get(
+                            f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/session"
+                        )
+                    if sess.status_code == 200 and not sess.json().get("logged_in"):
+                        result.errors.append(
+                            f"tiktok scrape @{username}: web session expired — "
+                            f"re-run QR login (see tiktok-console-ops skill)"
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+
     if result.synced == 0 and result.skipped == 0:
         result.skipped = len(targets)
     await db.commit()

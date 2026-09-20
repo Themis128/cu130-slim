@@ -23,6 +23,7 @@ celery_app = Celery(
         "app.worker.tasks.threads_messenger",
         "app.worker.tasks.twitter_messenger",
         "app.worker.tasks.tiktok_messenger",
+        "app.worker.tasks.tiktok_inbox_reconcile",
         "app.worker.tasks.instagram_messenger",
         "app.worker.tasks.instagram_token_refresh",
         "app.worker.tasks.linkedin_session_refresh",
@@ -154,6 +155,7 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
+        "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -228,6 +230,13 @@ celery_app.conf.update(
         "check-linkedin-sessions": {
             "task": "app.worker.tasks.linkedin_session_check.check_linkedin_sessions",
             "schedule": crontab(minute=45, hour="*/12"),  # every 12h at :45
+        },
+        # Reconcile TikTok MEDIA_UPLOAD inbox drafts — upgrade publish_ids to
+        # real video ids when the draft is finished in-app, flag stale drafts
+        # (>24h) with an actionable error_message.
+        "reconcile-tiktok-inbox": {
+            "task": "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox",
+            "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
         },
         # Poll personal Messenger conversations for new messages and send
         # AI auto-replies via browser bridge. Personal Messenger has no
