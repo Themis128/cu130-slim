@@ -1206,7 +1206,7 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
         updated = []
 
         if req.full_name is not None:
-            for sel in ['input[name="first_name"]', 'input[aria-label="Name"]', 'input[aria-label="Όνομα"]']:
+            for sel in ['input[name="first_name"]', 'input[placeholder="Name"]', 'input[aria-label="Name"]', 'input[aria-label="Όνομα"]']:
                 try:
                     el = page.locator(sel).first
                     if await el.count() > 0:
@@ -1218,7 +1218,7 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
                     continue
 
         if req.biography is not None:
-            for sel in ['textarea[name="biography"]', 'textarea[aria-label="Bio"]', 'textarea']:
+            for sel in ['textarea[name="biography"]', 'textarea#pepBio', 'textarea[placeholder="Bio"]', 'textarea[aria-label="Bio"]', 'textarea']:
                 try:
                     el = page.locator(sel).first
                     if await el.count() > 0 and await el.evaluate("e => e.tagName") == "TEXTAREA":
@@ -1230,7 +1230,7 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
                     continue
 
         if req.external_url is not None:
-            for sel in ['input[name="external_url"]', 'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']:
+            for sel in ['input[name="external_url"]', 'input[placeholder="Website"]', 'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']:
                 try:
                     el = page.locator(sel).first
                     if await el.count() > 0:
