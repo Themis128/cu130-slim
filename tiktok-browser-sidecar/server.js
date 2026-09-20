@@ -9,15 +9,17 @@
  * those require human interaction with TikTok's slider captcha.
  */
 
-import express from 'express';
-import { chromium } from 'playwright';
+import express from "express";
+import { chromium } from "playwright";
 
 const PORT = process.env.TIKTOK_SIDECAR_PORT || 9224;
-const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || 'cloudless.gr';
+const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || "cloudless.gr";
 const TIKTOK_PROFILE_URL =
-  process.env.TIKTOK_PROFILE_URL || `https://www.tiktok.com/@${TIKTOK_USERNAME}`;
-const TIKTOK_SETTINGS_URL = 'https://www.tiktok.com/setting?lang=en';
-const TIKTOK_BIZ_REG_URL = 'https://www.tiktok.com/business-suite/business-registration/verify?source=onboarding';
+  process.env.TIKTOK_PROFILE_URL ||
+  `https://www.tiktok.com/@${TIKTOK_USERNAME}`;
+const TIKTOK_SETTINGS_URL = "https://www.tiktok.com/setting?lang=en";
+const TIKTOK_BIZ_REG_URL =
+  "https://www.tiktok.com/business-suite/business-registration/verify?source=onboarding";
 
 // ── Browser lifecycle ─────────────────────────────────────────────────────
 
@@ -34,24 +36,25 @@ async function ensureBrowser() {
   browser = await chromium.launch({
     headless: true,
     args: [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-site-isolation-trials',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-infobars',
-      '--window-size=1920,1080',
+      "--disable-blink-features=AutomationControlled",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--disable-site-isolation-trials",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-infobars",
+      "--window-size=1920,1080",
     ],
   });
 
   context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    locale: 'en-US',
-    timezoneId: 'Europe/Athens',
-    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
-    permissions: ['notifications'],
+    userAgent:
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    locale: "en-US",
+    timezoneId: "Europe/Athens",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+    permissions: ["notifications"],
   });
 
   page = await context.newPage();
@@ -62,12 +65,13 @@ async function ensureBrowser() {
     const cookies = Object.entries({ sessionid: sessionId, ...extraCookies })
       .filter(([, v]) => v)
       .map(([name, value]) => ({
-        name, value,
-        domain: '.tiktok.com',
-        path: '/',
+        name,
+        value,
+        domain: ".tiktok.com",
+        path: "/",
         httpOnly: true,
         secure: true,
-        sameSite: 'Lax',
+        sameSite: "Lax",
       }));
     await context.addCookies(cookies);
   }
@@ -86,12 +90,17 @@ async function closeBrowser() {
 
 async function gotoSettings() {
   await ensureBrowser();
-  await page.goto(TIKTOK_SETTINGS_URL, { waitUntil: 'networkidle', timeout: 60000 });
+  await page.goto(TIKTOK_SETTINGS_URL, {
+    waitUntil: "networkidle",
+    timeout: 60000,
+  });
   await page.waitForTimeout(3000);
   // Settings pages require auth — fail fast instead of timing out on
   // elements that never render for logged-out visitors.
   if (!(await checkLoggedIn())) {
-    const err = new Error('Not logged in — log into tiktok.com via POST /session or noVNC first');
+    const err = new Error(
+      "Not logged in — log into tiktok.com via POST /session or noVNC first",
+    );
     err.status = 401;
     throw err;
   }
@@ -99,7 +108,10 @@ async function gotoSettings() {
 
 async function gotoProfile() {
   await ensureBrowser();
-  await page.goto(TIKTOK_PROFILE_URL, { waitUntil: 'networkidle', timeout: 60000 });
+  await page.goto(TIKTOK_PROFILE_URL, {
+    waitUntil: "networkidle",
+    timeout: 60000,
+  });
   await page.waitForTimeout(3000);
 }
 
@@ -108,48 +120,62 @@ async function clickSwitch(labelText) {
   // The label text is in a sibling/parent element, not on the switch itself.
   // Find the text element, then navigate to the switch in the same row.
   const textEl = page.locator(`text=${labelText}`).first();
-  await textEl.waitFor({ state: 'visible', timeout: 10000 });
+  await textEl.waitFor({ state: "visible", timeout: 10000 });
   // Go up to find the row container, then find the switch inside it
-  const row = textEl.locator('xpath=ancestor::div[contains(@class,"row") or contains(@class,"cell") or contains(@class,"container")][1]').first();
+  const row = textEl
+    .locator(
+      'xpath=ancestor::div[contains(@class,"row") or contains(@class,"cell") or contains(@class,"container")][1]',
+    )
+    .first();
   let sw = row.locator('[role="switch"]').first();
   // Fallback: try going up multiple levels
   if (!(await sw.isVisible().catch(() => false))) {
-    sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
+    sw = textEl
+      .locator('xpath=ancestor::*[.//*[@role="switch"]][1]')
+      .first()
+      .locator('[role="switch"]')
+      .first();
   }
   if (!(await sw.isVisible().catch(() => false))) {
     // Last resort: find the nearest switch in the DOM after the text
     sw = textEl.locator('xpath=following::*[@role="switch"][1]').first();
   }
-  await sw.waitFor({ state: 'visible', timeout: 10000 });
-  const wasChecked = await sw.getAttribute('aria-checked');
+  await sw.waitFor({ state: "visible", timeout: 10000 });
+  const wasChecked = await sw.getAttribute("aria-checked");
   await sw.click();
   await page.waitForTimeout(1500);
-  const nowChecked = await sw.getAttribute('aria-checked');
-  return { label: labelText, before: wasChecked === 'true', after: nowChecked === 'true' };
+  const nowChecked = await sw.getAttribute("aria-checked");
+  return {
+    label: labelText,
+    before: wasChecked === "true",
+    after: nowChecked === "true",
+  };
 }
 
 /** Click a switch by its ref position in the settings page (for unlabeled switches). */
 async function clickSwitchByIndex(index) {
   const switches = page.locator('[role="switch"]');
   const sw = switches.nth(index);
-  await sw.waitFor({ state: 'visible', timeout: 10000 });
-  const wasChecked = await sw.getAttribute('aria-checked');
+  await sw.waitFor({ state: "visible", timeout: 10000 });
+  const wasChecked = await sw.getAttribute("aria-checked");
   await sw.click();
   await page.waitForTimeout(1500);
-  const nowChecked = await sw.getAttribute('aria-checked');
-  return { index, before: wasChecked === 'true', after: nowChecked === 'true' };
+  const nowChecked = await sw.getAttribute("aria-checked");
+  return { index, before: wasChecked === "true", after: nowChecked === "true" };
 }
 
 /** Check if a captcha dialog is present. */
 async function hasCaptcha() {
   const dialogs = await page.locator('[role="dialog"]').allTextContents();
-  return dialogs.some(t => t.includes('Drag the slider') || t.includes('fit the puzzle'));
+  return dialogs.some(
+    (t) => t.includes("Drag the slider") || t.includes("fit the puzzle"),
+  );
 }
 
 /** Close all dialogs by pressing Escape. */
 async function closeDialogs() {
   for (let i = 0; i < 5; i++) {
-    await page.keyboard.press('Escape');
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(500);
   }
 }
@@ -164,11 +190,13 @@ async function closeDialogs() {
 async function checkLoggedIn() {
   const title = await page.title();
   const url = page.url();
-  if (title.includes('Log in') || url.includes('login')) return false;
+  if (title.includes("Log in") || url.includes("login")) return false;
   if (title.includes("Couldn't find")) return false;
   try {
-    const loginBtn = page.locator('button:has-text("Log in"), a:has-text("Log in")');
-    if (await loginBtn.count() > 0) return false;
+    const loginBtn = page.locator(
+      'button:has-text("Log in"), a:has-text("Log in")',
+    );
+    if ((await loginBtn.count()) > 0) return false;
   } catch {
     // DOM query failures are non-fatal — fall through to the title result
   }
@@ -179,20 +207,28 @@ async function checkLoggedIn() {
 async function handleSetSession(req, res) {
   const { session_id, user_id, cookies } = req.body;
   if (!session_id && !cookies) {
-    return res.status(400).json({ error: 'session_id or cookies is required' });
+    return res.status(400).json({ error: "session_id or cookies is required" });
   }
   sessionId = session_id || null;
   userId = user_id || null;
   // Optional name→value map for the full cookie set (sid_tt, uid_tt, msToken…)
-  extraCookies = cookies && typeof cookies === 'object' ? cookies : {};
+  extraCookies = cookies && typeof cookies === "object" ? cookies : {};
   await closeBrowser();
   await ensureBrowser();
   try {
-    await page.goto(TIKTOK_PROFILE_URL, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(TIKTOK_PROFILE_URL, {
+      waitUntil: "networkidle",
+      timeout: 60000,
+    });
     await page.waitForTimeout(3000);
     const title = await page.title();
     const isLoggedIn = await checkLoggedIn();
-    res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
+    res.json({
+      status: "ok",
+      logged_in: isLoggedIn,
+      profile_url: page.url(),
+      title,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -204,7 +240,12 @@ async function handleCheckSession(req, res) {
     await gotoProfile();
     const title = await page.title();
     const isLoggedIn = await checkLoggedIn();
-    res.json({ status: 'ok', logged_in: isLoggedIn, profile_url: page.url(), title });
+    res.json({
+      status: "ok",
+      logged_in: isLoggedIn,
+      profile_url: page.url(),
+      title,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -218,7 +259,7 @@ async function handleReadProfile(req, res) {
     // Wait for the profile title to appear — this ensures the profile
     // header has loaded and avoids capturing navigation/inbox text.
     const nameEl = page.locator('[data-e2e="user-title"]').first();
-    await nameEl.waitFor({ state: 'visible', timeout: 15000 });
+    await nameEl.waitFor({ state: "visible", timeout: 15000 });
     const name = await nameEl.textContent().catch(() => null);
 
     // Username is in h2[data-e2e="user-subtitle"]
@@ -230,11 +271,14 @@ async function handleReadProfile(req, res) {
     const bio = await bioEl.textContent().catch(() => null);
 
     // Avatar image inside the [data-e2e="user-avatar"] container
-    const avatarSrc = await page.locator('[data-e2e="user-avatar"] img').first()
-      .getAttribute('src').catch(() => null);
+    const avatarSrc = await page
+      .locator('[data-e2e="user-avatar"] img')
+      .first()
+      .getAttribute("src")
+      .catch(() => null);
 
     res.json({
-      status: 'ok',
+      status: "ok",
       profile: {
         name: name?.trim() || null,
         username: username?.trim() || null,
@@ -254,19 +298,27 @@ async function handleSetPrivateAccount(req, res) {
   try {
     await gotoSettings();
     // Find the "Private account" text and navigate to its row's switch
-    const textEl = page.locator('text=Private account').first();
-    await textEl.waitFor({ state: 'visible', timeout: 10000 });
+    const textEl = page.locator("text=Private account").first();
+    await textEl.waitFor({ state: "visible", timeout: 10000 });
     // Try multiple ancestor levels to find the switch
-    const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
-    await sw.waitFor({ state: 'visible', timeout: 10000 });
-    const current = await sw.getAttribute('aria-checked');
-    const wantOn = enabled === true || enabled === 'true';
-    if ((current === 'true') !== wantOn) {
+    const sw = textEl
+      .locator('xpath=ancestor::*[.//*[@role="switch"]][1]')
+      .first()
+      .locator('[role="switch"]')
+      .first();
+    await sw.waitFor({ state: "visible", timeout: 10000 });
+    const current = await sw.getAttribute("aria-checked");
+    const wantOn = enabled === true || enabled === "true";
+    if ((current === "true") !== wantOn) {
       await sw.click();
       await page.waitForTimeout(1500);
     }
-    const after = await sw.getAttribute('aria-checked');
-    res.json({ status: 'ok', setting: 'private_account', enabled: after === 'true' });
+    const after = await sw.getAttribute("aria-checked");
+    res.json({
+      status: "ok",
+      setting: "private_account",
+      enabled: after === "true",
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -274,8 +326,10 @@ async function handleSetPrivateAccount(req, res) {
 
 async function handleSetComments(req, res) {
   const { permission } = req.body; // "Everyone" or "Friends"
-  if (!['Everyone', 'Friends'].includes(permission)) {
-    return res.status(400).json({ error: 'permission must be "Everyone" or "Friends"' });
+  if (!["Everyone", "Friends"].includes(permission)) {
+    return res
+      .status(400)
+      .json({ error: 'permission must be "Everyone" or "Friends"' });
   }
   try {
     await gotoSettings();
@@ -285,7 +339,7 @@ async function handleSetComments(req, res) {
     const clicked = await page.evaluate(() => {
       const cells = document.querySelectorAll('[class*="tux-list-cell"]');
       for (const cell of cells) {
-        if (cell.innerText.includes('Who can comment on your posts')) {
+        if (cell.innerText.includes("Who can comment on your posts")) {
           cell.click();
           return true;
         }
@@ -293,7 +347,7 @@ async function handleSetComments(req, res) {
       return false;
     });
     if (!clicked) {
-      return res.status(404).json({ error: 'Comments settings row not found' });
+      return res.status(404).json({ error: "Comments settings row not found" });
     }
     await page.waitForTimeout(2000);
     // TikTok radios are <input type="radio"> with class tux-radio__input
@@ -302,17 +356,25 @@ async function handleSetComments(req, res) {
       const dialogs = document.querySelectorAll('[role="dialog"]');
       let dialog = null;
       for (const d of dialogs) {
-        if (d.innerText.includes('Who can comment')) { dialog = d; break; }
+        if (d.innerText.includes("Who can comment")) {
+          dialog = d;
+          break;
+        }
       }
-      if (!dialog) return { found: false, reason: 'no comments dialog' };
+      if (!dialog) return { found: false, reason: "no comments dialog" };
       const radios = dialog.querySelectorAll('input[type="radio"]');
       for (const radio of radios) {
         // Walk up ancestors to find the label text
-        let label = '';
+        let label = "";
         let n = radio;
         for (let i = 0; i < 6 && n; i++) {
           n = n.parentElement;
-          if (n && n.innerText && n.innerText.trim().length > 0 && n.innerText.trim().length < 50) {
+          if (
+            n &&
+            n.innerText &&
+            n.innerText.trim().length > 0 &&
+            n.innerText.trim().length < 50
+          ) {
             label = n.innerText.trim();
             break;
           }
@@ -322,20 +384,26 @@ async function handleSetComments(req, res) {
           if (!isChecked) {
             radio.click();
           }
-          return { found: true, wasChecked: isChecked, clicked: !isChecked, label, name: radio.name };
+          return {
+            found: true,
+            wasChecked: isChecked,
+            clicked: !isChecked,
+            label,
+            name: radio.name,
+          };
         }
       }
       return {
         found: false,
-        reason: 'option not found',
+        reason: "option not found",
         radioCount: radios.length,
-        radioNames: Array.from(radios).map(r => r.name),
+        radioNames: Array.from(radios).map((r) => r.name),
       };
     }, permission);
     await page.waitForTimeout(1000);
-    await page.keyboard.press('Escape');
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(500);
-    res.json({ status: 'ok', setting: 'comments', permission, ...result });
+    res.json({ status: "ok", setting: "comments", permission, ...result });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -344,10 +412,17 @@ async function handleSetComments(req, res) {
 async function handleSetDirectMessages(req, res) {
   const { potential_connections, others } = req.body;
   // Valid DM options per TikTok's dialog
-  const validOptions = ['Requests', "Don't receive", 'Dont receive', 'Everyone', 'Friends'];
+  const validOptions = [
+    "Requests",
+    "Don't receive",
+    "Dont receive",
+    "Everyone",
+    "Friends",
+  ];
   try {
-    await page.goto('https://www.tiktok.com/setting/privacy/direct-messages', {
-      waitUntil: 'networkidle', timeout: 60000,
+    await page.goto("https://www.tiktok.com/setting/privacy/direct-messages", {
+      waitUntil: "networkidle",
+      timeout: 60000,
     });
     await page.waitForTimeout(3000);
 
@@ -357,14 +432,18 @@ async function handleSetDirectMessages(req, res) {
     async function selectDMOption(rowText, desiredLabel) {
       if (!desiredLabel) return null;
       // Normalize "Don't receive" variants
-      const normalize = (s) => s.replace(/['’]/g, '').toLowerCase().trim();
+      const normalize = (s) => s.replace(/['’]/g, "").toLowerCase().trim();
       const desiredNorm = normalize(desiredLabel);
 
       // Click the trailing cell of the target row to open its dialog
       const opened = await page.evaluate((rowTxt) => {
-        const trailingCells = document.querySelectorAll('.tux-list-cell__trailing__eeUVA7_v1_8_0');
+        const trailingCells = document.querySelectorAll(
+          ".tux-list-cell__trailing__eeUVA7_v1_8_0",
+        );
         for (const cell of trailingCells) {
-          const row = cell.closest('[class*="tux-list-cell__main"]') || cell.parentElement;
+          const row =
+            cell.closest('[class*="tux-list-cell__main"]') ||
+            cell.parentElement;
           if (row && row.innerText.includes(rowTxt)) {
             cell.click();
             return true;
@@ -380,17 +459,25 @@ async function handleSetDirectMessages(req, res) {
         const dialogs = document.querySelectorAll('[role="dialog"]');
         let dialog = null;
         for (const d of dialogs) {
-          if (d.innerText.includes('Receive message')) { dialog = d; break; }
+          if (d.innerText.includes("Receive message")) {
+            dialog = d;
+            break;
+          }
         }
-        if (!dialog) return { found: false, reason: 'no DM dialog open' };
+        if (!dialog) return { found: false, reason: "no DM dialog open" };
         const radios = dialog.querySelectorAll('input[type="radio"]');
-        const norm = (s) => s.replace(/['’]/g, '').toLowerCase().trim();
+        const norm = (s) => s.replace(/['’]/g, "").toLowerCase().trim();
         for (const radio of radios) {
-          let label = '';
+          let label = "";
           let n = radio;
           for (let i = 0; i < 6 && n; i++) {
             n = n.parentElement;
-            if (n && n.innerText && n.innerText.trim().length > 0 && n.innerText.trim().length < 50) {
+            if (
+              n &&
+              n.innerText &&
+              n.innerText.trim().length > 0 &&
+              n.innerText.trim().length < 50
+            ) {
               label = n.innerText.trim();
               break;
             }
@@ -398,29 +485,38 @@ async function handleSetDirectMessages(req, res) {
           if (norm(label) === desiredNormStr) {
             const isChecked = radio.checked;
             if (!isChecked) radio.click();
-            return { found: true, wasChecked: isChecked, clicked: !isChecked, label, name: radio.name };
+            return {
+              found: true,
+              wasChecked: isChecked,
+              clicked: !isChecked,
+              label,
+              name: radio.name,
+            };
           }
         }
         return {
           found: false,
-          reason: 'option not found in dialog',
+          reason: "option not found in dialog",
           radioCount: radios.length,
-          radioNames: Array.from(radios).map(r => r.name),
+          radioNames: Array.from(radios).map((r) => r.name),
         };
       }, desiredNorm);
       await page.waitForTimeout(1000);
       // Close the dialog before moving to the next row
-      await page.keyboard.press('Escape');
+      await page.keyboard.press("Escape");
       await page.waitForTimeout(800);
       return result;
     }
 
-    const pcResult = await selectDMOption('Potential connection', potential_connections);
-    const othersResult = await selectDMOption('Others on TikTok', others);
+    const pcResult = await selectDMOption(
+      "Potential connection",
+      potential_connections,
+    );
+    const othersResult = await selectDMOption("Others on TikTok", others);
 
     res.json({
-      status: 'ok',
-      setting: 'direct_messages',
+      status: "ok",
+      setting: "direct_messages",
       potential_connections: pcResult?.found ? potential_connections : null,
       potential_connections_result: pcResult,
       others: othersResult?.found ? others : null,
@@ -437,8 +533,12 @@ async function handleSetDesktopNotifications(req, res) {
   const { enabled } = req.body;
   try {
     await gotoSettings();
-    const result = await clickSwitch('Allow in browser');
-    res.json({ status: 'ok', setting: 'desktop_notifications', enabled: result.after });
+    const result = await clickSwitch("Allow in browser");
+    res.json({
+      status: "ok",
+      setting: "desktop_notifications",
+      enabled: result.after,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -449,31 +549,39 @@ async function handleSetInteractionNotifications(req, res) {
   try {
     await gotoSettings();
     // Click the "Interactions" button to expand the panel
-    const interactionsBtn = page.getByRole('button', { name: 'Interactions' }).first();
+    const interactionsBtn = page
+      .getByRole("button", { name: "Interactions" })
+      .first();
     await interactionsBtn.click();
     await page.waitForTimeout(1500);
 
     const settings = {};
     const toggles = { likes, comments, new_followers, mentions_and_tags };
     const labels = {
-      likes: 'Likes', comments: 'Comments',
-      new_followers: 'New followers', mentions_and_tags: 'Mentions and tags',
+      likes: "Likes",
+      comments: "Comments",
+      new_followers: "New followers",
+      mentions_and_tags: "Mentions and tags",
     };
 
     for (const [key, desired] of Object.entries(toggles)) {
       if (desired === undefined || desired === null) continue;
-      const wantOn = desired === true || desired === 'true';
+      const wantOn = desired === true || desired === "true";
       const textEl = page.locator(`text=${labels[key]}`).first();
       if (await textEl.isVisible().catch(() => false)) {
-        const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
+        const sw = textEl
+          .locator('xpath=ancestor::*[.//*[@role="switch"]][1]')
+          .first()
+          .locator('[role="switch"]')
+          .first();
         if (await sw.isVisible().catch(() => false)) {
-          const current = await sw.getAttribute('aria-checked');
-          if ((current === 'true') !== wantOn) {
+          const current = await sw.getAttribute("aria-checked");
+          if ((current === "true") !== wantOn) {
             await sw.click();
             await page.waitForTimeout(800);
           }
-          const after = await sw.getAttribute('aria-checked');
-          settings[key] = after === 'true';
+          const after = await sw.getAttribute("aria-checked");
+          settings[key] = after === "true";
         }
       }
     }
@@ -481,7 +589,11 @@ async function handleSetInteractionNotifications(req, res) {
     // Close the panel
     await interactionsBtn.click();
     await page.waitForTimeout(500);
-    res.json({ status: 'ok', setting: 'interaction_notifications', ...settings });
+    res.json({
+      status: "ok",
+      setting: "interaction_notifications",
+      ...settings,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -493,18 +605,26 @@ async function handleSetPersonalizedAds(req, res) {
   const { enabled } = req.body;
   try {
     await gotoSettings();
-    const textEl = page.locator('text=Personalized ads').first();
-    await textEl.waitFor({ state: 'visible', timeout: 10000 });
-    const sw = textEl.locator('xpath=ancestor::*[.//*[@role="switch"]][1]').first().locator('[role="switch"]').first();
-    await sw.waitFor({ state: 'visible', timeout: 10000 });
-    const current = await sw.getAttribute('aria-checked');
-    const wantOn = enabled === true || enabled === 'true';
-    if ((current === 'true') !== wantOn) {
+    const textEl = page.locator("text=Personalized ads").first();
+    await textEl.waitFor({ state: "visible", timeout: 10000 });
+    const sw = textEl
+      .locator('xpath=ancestor::*[.//*[@role="switch"]][1]')
+      .first()
+      .locator('[role="switch"]')
+      .first();
+    await sw.waitFor({ state: "visible", timeout: 10000 });
+    const current = await sw.getAttribute("aria-checked");
+    const wantOn = enabled === true || enabled === "true";
+    if ((current === "true") !== wantOn) {
       await sw.click();
       await page.waitForTimeout(1500);
     }
-    const after = await sw.getAttribute('aria-checked');
-    res.json({ status: 'ok', setting: 'personalized_ads', enabled: after === 'true' });
+    const after = await sw.getAttribute("aria-checked");
+    res.json({
+      status: "ok",
+      setting: "personalized_ads",
+      enabled: after === "true",
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -516,8 +636,12 @@ async function handleSetColorContrast(req, res) {
   const { enabled } = req.body;
   try {
     await gotoSettings();
-    const result = await clickSwitch('Increase color contrast');
-    res.json({ status: 'ok', setting: 'color_contrast', enabled: result.after });
+    const result = await clickSwitch("Increase color contrast");
+    res.json({
+      status: "ok",
+      setting: "color_contrast",
+      enabled: result.after,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -527,12 +651,19 @@ async function handleSetColorContrast(req, res) {
 
 async function handleBusinessVerificationFill(req, res) {
   const {
-    company_name, website, country, address, industry,
+    company_name,
+    website,
+    country,
+    address,
+    industry,
     business_license_number,
   } = req.body;
   try {
     await ensureBrowser();
-    await page.goto(TIKTOK_BIZ_REG_URL, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(TIKTOK_BIZ_REG_URL, {
+      waitUntil: "networkidle",
+      timeout: 60000,
+    });
     await page.waitForTimeout(3000);
 
     // Accept terms if checkbox is present
@@ -541,7 +672,7 @@ async function handleBusinessVerificationFill(req, res) {
       await checkbox.click();
       await page.waitForTimeout(500);
       // Click "Get started" if present
-      const getStarted = page.getByRole('button', { name: 'Get started' });
+      const getStarted = page.getByRole("button", { name: "Get started" });
       if (await getStarted.isVisible().catch(() => false)) {
         await getStarted.click();
         await page.waitForTimeout(3000);
@@ -552,7 +683,7 @@ async function handleBusinessVerificationFill(req, res) {
 
     // Company name
     if (company_name) {
-      const nameInput = page.getByTestId('field-companyName');
+      const nameInput = page.getByTestId("field-companyName");
       if (await nameInput.isVisible().catch(() => false)) {
         await nameInput.fill(company_name);
         filled.company_name = company_name;
@@ -561,7 +692,7 @@ async function handleBusinessVerificationFill(req, res) {
 
     // Website
     if (website) {
-      const webInput = page.getByTestId('field-webSite');
+      const webInput = page.getByTestId("field-webSite");
       if (await webInput.isVisible().catch(() => false)) {
         await webInput.fill(website);
         filled.website = website;
@@ -574,7 +705,9 @@ async function handleBusinessVerificationFill(req, res) {
       if (await countryCombo.isVisible().catch(() => false)) {
         await countryCombo.click();
         await page.waitForTimeout(1000);
-        const opt = page.locator(`[role="option"]`, { hasText: country }).first();
+        const opt = page
+          .locator(`[role="option"]`, { hasText: country })
+          .first();
         if (await opt.isVisible().catch(() => false)) {
           await opt.click();
           filled.country = country;
@@ -594,11 +727,13 @@ async function handleBusinessVerificationFill(req, res) {
 
     // Industry (combobox — restricted industries)
     if (industry) {
-      const industryCombo = page.getByTestId('field-industryCode.code');
+      const industryCombo = page.getByTestId("field-industryCode.code");
       if (await industryCombo.isVisible().catch(() => false)) {
         await industryCombo.click();
         await page.waitForTimeout(1000);
-        const opt = page.locator(`[role="option"]`, { hasText: industry }).first();
+        const opt = page
+          .locator(`[role="option"]`, { hasText: industry })
+          .first();
         if (await opt.isVisible().catch(() => false)) {
           await opt.click();
           filled.industry = industry;
@@ -609,7 +744,7 @@ async function handleBusinessVerificationFill(req, res) {
 
     // Business license number
     if (business_license_number) {
-      const licenseInput = page.getByTestId('field-businessLicenseNo');
+      const licenseInput = page.getByTestId("field-businessLicenseNo");
       if (await licenseInput.isVisible().catch(() => false)) {
         await licenseInput.fill(business_license_number);
         filled.business_license_number = business_license_number;
@@ -617,10 +752,11 @@ async function handleBusinessVerificationFill(req, res) {
     }
 
     res.json({
-      status: 'ok',
-      message: 'Form filled. Company certification document upload and submit require manual action.',
+      status: "ok",
+      message:
+        "Form filled. Company certification document upload and submit require manual action.",
       filled_fields: filled,
-      requires_manual: ['company_certification_document', 'submit'],
+      requires_manual: ["company_certification_document", "submit"],
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -631,13 +767,20 @@ async function handleBusinessVerificationStatus(req, res) {
   try {
     await gotoSettings();
     // Check the Business verification switch state
-    const bvSection = page.locator('text=Business verification').locator('..').locator('..');
+    const bvSection = page
+      .locator("text=Business verification")
+      .locator("..")
+      .locator("..");
     const sw = bvSection.locator('[role="switch"]').first();
     if (await sw.isVisible().catch(() => false)) {
-      const checked = await sw.getAttribute('aria-checked');
-      res.json({ status: 'ok', verified: checked === 'true' });
+      const checked = await sw.getAttribute("aria-checked");
+      res.json({ status: "ok", verified: checked === "true" });
     } else {
-      res.json({ status: 'ok', verified: false, note: 'Business verification section not found' });
+      res.json({
+        status: "ok",
+        verified: false,
+        note: "Business verification section not found",
+      });
     }
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -656,21 +799,36 @@ async function handleReadAllSettings(req, res) {
     const switchStates = [];
     for (let i = 0; i < switches.length; i++) {
       const sw = switches[i];
-      const label = await sw.getAttribute('aria-label') ||
-                    await sw.locator('..').textContent().catch(() => `switch_${i}`);
-      const checked = await sw.getAttribute('aria-checked');
-      switchStates.push({ index: i, label: label?.substring(0, 60), checked: checked === 'true' });
+      const label =
+        (await sw.getAttribute("aria-label")) ||
+        (await sw
+          .locator("..")
+          .textContent()
+          .catch(() => `switch_${i}`));
+      const checked = await sw.getAttribute("aria-checked");
+      switchStates.push({
+        index: i,
+        label: label?.substring(0, 60),
+        checked: checked === "true",
+      });
     }
 
     // Read text values
-    const commentsValue = await page.locator('text=Who can comment on your posts')
-      .locator('..').locator('..').textContent().catch(() => null);
+    const commentsValue = await page
+      .locator("text=Who can comment on your posts")
+      .locator("..")
+      .locator("..")
+      .textContent()
+      .catch(() => null);
 
     res.json({
-      status: 'ok',
+      status: "ok",
       switches: switchStates,
-      comments: commentsValue?.includes('Everyone') ? 'Everyone' :
-                commentsValue?.includes('Friends') ? 'Friends' : 'unknown',
+      comments: commentsValue?.includes("Everyone")
+        ? "Everyone"
+        : commentsValue?.includes("Friends")
+          ? "Friends"
+          : "unknown",
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -681,24 +839,37 @@ async function handleReadAllSettings(req, res) {
 
 /** Navigate the logged-in Playwright page and return a text snapshot. */
 async function handleBrowse(req, res) {
-  const url = String(req.body?.url || '').trim();
-  if (!url || !url.startsWith('https://www.tiktok.com/')) {
-    return res.status(400).json({ error: 'url must be an https://www.tiktok.com/ URL' });
+  const url = String(req.body?.url || "").trim();
+  if (!url || !url.startsWith("https://www.tiktok.com/")) {
+    return res
+      .status(400)
+      .json({ error: "url must be an https://www.tiktok.com/ URL" });
   }
   try {
     await ensureBrowser();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(3000);
     await page
-      .getByRole('button', { name: /accept all|allow all|agree/i })
+      .getByRole("button", { name: /accept all|allow all|agree/i })
       .first()
       .click({ timeout: 2000 })
       .catch(() => {});
     const title = await page.title();
     const finalUrl = page.url();
-    const text = (await page.locator('body').innerText().catch(() => '')).slice(0, 6000);
+    const text = (
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    ).slice(0, 6000);
     const logged_in = await checkLoggedIn();
-    res.json({ status: 'ok', logged_in, url: finalUrl, title, text_preview: text.slice(0, 1500) });
+    res.json({
+      status: "ok",
+      logged_in,
+      url: finalUrl,
+      title,
+      text_preview: text.slice(0, 1500),
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -708,61 +879,188 @@ async function handleBrowse(req, res) {
 async function handleScreenshot(req, res) {
   try {
     await ensureBrowser();
-    const buf = await page.screenshot({ type: 'png', fullPage: false });
+    const buf = await page.screenshot({ type: "png", fullPage: false });
     res.json({
-      status: 'ok',
+      status: "ok",
       url: page.url(),
       title: await page.title(),
-      png_base64: buf.toString('base64'),
+      png_base64: buf.toString("base64"),
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
 }
 
+// ── API: Profile video-grid scrape ─────────────────────────────────────────
+
+/**
+ * GET /profile/videos?username=X&limit=N
+ *
+ * Scrapes a profile's video grid — the only surface that exposes view counts
+ * for EVERY post, including MEDIA_UPLOAD inbox drafts (which the Display API
+ * cannot query because they only have a publish_id, not a video id) and
+ * videos posted straight from the phone app.
+ *
+ * Returns { stats: {followers, following, likes}, videos: [{video_id, url,
+ * views, caption}] }. The grid overlay only shows views; likes/comments need
+ * per-video pages and are intentionally out of scope here.
+ */
+async function handleProfileVideos(req, res) {
+  const username = String(req.query.username || TIKTOK_USERNAME).replace(
+    /^@/,
+    "",
+  );
+  const limit = Math.min(
+    Math.max(parseInt(req.query.limit || "60", 10) || 60, 1),
+    200,
+  );
+  try {
+    await ensureBrowser();
+    await page.goto(`https://www.tiktok.com/@${username}`, {
+      waitUntil: "networkidle",
+      timeout: 60000,
+    });
+    await page.waitForTimeout(3000);
+    await page
+      .getByRole("button", { name: /accept all|allow all|agree/i })
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
+
+    if (!(await checkLoggedIn())) {
+      return res
+        .status(401)
+        .json({ error: "Not logged in — POST /session first" });
+    }
+
+    // Scroll the grid until we have `limit` items or it stops growing.
+    let prevCount = 0;
+    for (let i = 0; i < 15; i++) {
+      const count = await page.locator('a[href*="/video/"]').count();
+      if (count >= limit || count === prevCount) break;
+      prevCount = count;
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(1200);
+    }
+
+    const data = await page.evaluate((maxItems) => {
+      const num = (el) => {
+        if (!el) return null;
+        const t = (el.innerText || el.textContent || "")
+          .trim()
+          .replace(/,/g, "");
+        const m = t.match(/^([\d.]+)\s*([KMB])?$/i);
+        if (!m) return null;
+        const mult =
+          { K: 1e3, M: 1e6, B: 1e9 }[(m[2] || "").toUpperCase()] || 1;
+        return Math.round(parseFloat(m[1]) * mult);
+      };
+      const pick = (sel) => num(document.querySelector(sel));
+
+      const stats = {
+        followers: pick('[data-e2e="followers-count"]'),
+        following: pick('[data-e2e="following-count"]'),
+        likes: pick('[data-e2e="likes-count"]'),
+      };
+
+      const seen = new Set();
+      const videos = [];
+      for (const a of document.querySelectorAll('a[href*="/video/"]')) {
+        const href = a.href || "";
+        const m = href.match(/\/video\/(\d+)/);
+        if (!m || seen.has(m[1])) continue;
+        seen.add(m[1]);
+        const item = a.closest('[data-e2e="user-post-item"]') || a;
+        const views = num(
+          item.querySelector('[data-e2e="video-views"]') ||
+            item.querySelector('[class*="video-count"], [class*="Views"]'),
+        );
+        const caption =
+          item.querySelector("img")?.getAttribute("alt") ||
+          a.getAttribute("title") ||
+          "";
+        videos.push({
+          video_id: m[1],
+          url: href.split("?")[0],
+          views,
+          caption,
+        });
+        if (videos.length >= maxItems) break;
+      }
+      return { stats, videos };
+    }, limit);
+
+    res.json({ status: "ok", username, ...data });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+/** POST /evaluate — run a JS expression on the current page (debugging aid). */
+async function handleEvaluate(req, res) {
+  const expression = String(req.body?.expression || "");
+  if (!expression)
+    return res.status(400).json({ error: "expression is required" });
+  try {
+    await ensureBrowser();
+    const result = await page.evaluate(expression);
+    res.json({ status: "ok", result });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'tiktok-browser-sidecar', has_session: !!sessionId });
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "tiktok-browser-sidecar",
+    has_session: !!sessionId,
+  });
 });
 
 // Session
-app.post('/session', handleSetSession);
-app.get('/session', handleCheckSession);
+app.post("/session", handleSetSession);
+app.get("/session", handleCheckSession);
 
 // Browse (Docker Playwright page already logged in)
-app.post('/browse', handleBrowse);
-app.get('/screenshot', handleScreenshot);
+app.post("/browse", handleBrowse);
+app.get("/screenshot", handleScreenshot);
+app.post("/evaluate", handleEvaluate);
+
+// Profile scrape
+app.get("/profile/videos", handleProfileVideos);
 
 // Profile read (from browser — includes avatar URL)
-app.get('/profile', handleReadProfile);
+app.get("/profile", handleReadProfile);
 
 // Privacy
-app.post('/privacy/private-account', handleSetPrivateAccount);
-app.post('/privacy/comments', handleSetComments);
-app.post('/privacy/direct-messages', handleSetDirectMessages);
+app.post("/privacy/private-account", handleSetPrivateAccount);
+app.post("/privacy/comments", handleSetComments);
+app.post("/privacy/direct-messages", handleSetDirectMessages);
 
 // Push notifications
-app.post('/notifications/desktop', handleSetDesktopNotifications);
-app.post('/notifications/interactions', handleSetInteractionNotifications);
+app.post("/notifications/desktop", handleSetDesktopNotifications);
+app.post("/notifications/interactions", handleSetInteractionNotifications);
 
 // Ads
-app.post('/ads/personalized', handleSetPersonalizedAds);
+app.post("/ads/personalized", handleSetPersonalizedAds);
 
 // Accessibility
-app.post('/accessibility/contrast', handleSetColorContrast);
+app.post("/accessibility/contrast", handleSetColorContrast);
 
 // Business verification
-app.post('/business-verification/fill', handleBusinessVerificationFill);
-app.get('/business-verification/status', handleBusinessVerificationStatus);
+app.post("/business-verification/fill", handleBusinessVerificationFill);
+app.get("/business-verification/status", handleBusinessVerificationStatus);
 
 // Read all settings
-app.get('/settings', handleReadAllSettings);
+app.get("/settings", handleReadAllSettings);
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
+process.on("SIGTERM", async () => {
   await closeBrowser();
   process.exit(0);
 });

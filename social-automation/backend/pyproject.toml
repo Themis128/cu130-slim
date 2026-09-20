@@ -43,6 +43,9 @@ dependencies = [
     "emoji>=2.14.0",
     # Prometheus scrape endpoint (/metrics) — HTTP + business vitals
     "prometheus-client>=0.21,<1.0",
+    # TikTok profile-grid scraping for analytics gap-fill (MEDIA_UPLOAD
+    # posts have no Display API video id; cookies from account meta_data)
+    "yt-dlp==2026.08.19",
     "boto3==1.35.35",
     # HTML parsing for the AI Brand Kit Extractor (website → brand profile)
     "beautifulsoup4>=4.12.0,<5.0.0",

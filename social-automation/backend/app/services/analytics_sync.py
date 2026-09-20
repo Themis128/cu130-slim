@@ -6,6 +6,8 @@ AnalyticsEvent counters with meta_data.count for dashboard aggregates).
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -1111,6 +1113,80 @@ async def _fetch_tiktok_video_stats(
     return MetricBundle(notes="tiktok_video_not_found")
 
 
+def _write_tiktok_cookie_file(cookies: dict[str, str]) -> str:
+    """Build a Netscape cookies.txt from a name→value map; returns the path."""
+    import tempfile
+    import time
+
+    exp = int(time.time()) + 86400 * 180
+    lines = ["# Netscape HTTP Cookie File"]
+    for name, value in cookies.items():
+        lines.append(f".tiktok.com\tTRUE\t/\tTRUE\t{exp}\t{name}\t{value}")
+    fd, path = tempfile.mkstemp(prefix="tt_cookies_", suffix=".txt")
+    with os.fdopen(fd, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def _scrape_tiktok_profile(username: str, cookies: dict[str, str]) -> dict[str, Any]:
+    """Synchronous yt-dlp extraction of a profile's video grid + stats.
+
+    Runs in a worker thread — yt_dlp is blocking. ``extract_flat`` returns
+    per-video stats inline (view/like/comment/share/save counts) so a single
+    pass covers every public video on the profile.
+    """
+    import yt_dlp
+
+    cookie_path = _write_tiktok_cookie_file(cookies) if cookies else None
+    try:
+        opts: dict[str, Any] = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "skip_download": True,
+        }
+        if cookie_path:
+            opts["cookiefile"] = cookie_path
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(
+                f"https://www.tiktok.com/@{username}", download=False
+            ) or {}
+        videos: dict[str, MetricBundle] = {}
+        for e in info.get("entries") or []:
+            vid = str(e.get("id") or "")
+            if not vid:
+                continue
+            views = int(e.get("view_count") or 0)
+            videos[vid] = MetricBundle(
+                impressions=views,
+                likes=int(e.get("like_count") or 0),
+                comments=int(e.get("comment_count") or 0),
+                shares=int(e.get("repost_count") or 0),
+                reach=views,
+                raw={
+                    "id": vid,
+                    "title": e.get("title") or "",
+                    "timestamp": e.get("timestamp"),
+                    "duration": e.get("duration"),
+                    "save_count": e.get("save_count"),
+                    "track": e.get("track"),
+                    "artists": e.get("artists"),
+                    "uploader": e.get("uploader"),
+                },
+            )
+        return {
+            "videos": videos,
+            "followers": info.get("channel_follower_count"),
+            "channel_id": info.get("channel_id") or info.get("uploader_id"),
+        }
+    finally:
+        if cookie_path:
+            try:
+                os.unlink(cookie_path)
+            except OSError:
+                pass
+
+
 async def sync_tiktok_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -1137,22 +1213,88 @@ async def sync_tiktok_account(
     targets = (await db.execute(targets_q)).scalars().all()
     targets = [t for t in targets if (t.published_at or t.post.published_at or t.post.created_at) >= since]
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for t in targets:
-            video_id = _resolve_tiktok_display_video_id(t)
-            if not video_id:
-                result.skipped += 1
-                result.errors.append(
-                    f"tiktok skip post={t.post_id}: no Display video id "
-                    f"(inbox publish_id={t.platform_post_id})"
+    # Map every known video id → post_id so scraped rows can be joined back.
+    id_to_post: dict[str, uuid.UUID] = {}
+    for t in targets:
+        vid = _resolve_tiktok_display_video_id(t)
+        if vid:
+            id_to_post[vid] = t.post_id
+        ps = (t.post.platform_specific or {}).get("tiktok") or {} if t.post else {}
+        for k in ("publicaly_available_post_id", "public_post_id", "video_id"):
+            if ps.get(k):
+                id_to_post[str(ps[k])] = t.post_id
+
+    api_video_ids: set[str] = set()
+    if token:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for t in targets:
+                video_id = _resolve_tiktok_display_video_id(t)
+                if not video_id:
+                    result.skipped += 1
+                    result.errors.append(
+                        f"tiktok skip post={t.post_id}: no Display video id "
+                        f"(inbox publish_id={t.platform_post_id})"
+                    )
+                    continue
+                api_video_ids.add(video_id)
+                metrics = await _fetch_tiktok_video_stats(client, token, video_id)
+                await _persist_snapshot(
+                    db, account=account, post_id=t.post_id, platform_post_id=video_id,
+                    metrics=metrics, captured_at=captured_at, source="tiktok_api",
+                    result=result, platform="tiktok",
                 )
-                continue
-            metrics = await _fetch_tiktok_video_stats(client, token, video_id)
-            await _persist_snapshot(
-                db, account=account, post_id=t.post_id, platform_post_id=video_id,
-                metrics=metrics, captured_at=captured_at, source="tiktok_api",
-                result=result, platform="tiktok",
+
+    # yt-dlp scrape of the profile grid — the only source covering
+    # MEDIA_UPLOAD inbox posts and videos published straight from the phone.
+    username = (account.username or "").lstrip("@")
+    cookies = (account.meta_data or {}).get("tiktok_web_cookies") or {}
+    if username and cookies:
+        try:
+            scraped = await asyncio.to_thread(
+                _scrape_tiktok_profile, username, cookies
             )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"tiktok scrape @{username}: {exc}")
+            scraped = None
+        if scraped:
+            for vid, metrics in scraped["videos"].items():
+                if vid in api_video_ids:
+                    continue  # Display API already persisted the authoritative row
+                await _persist_snapshot(
+                    db, account=account,
+                    post_id=id_to_post.get(vid),
+                    platform_post_id=vid,
+                    metrics=metrics, captured_at=captured_at,
+                    source="tiktok_scrape", result=result, platform="tiktok",
+                )
+            followers = scraped.get("followers")
+            if followers:
+                db.add(FollowerSnapshot(
+                    team_id=account.team_id, social_account_id=account.id,
+                    platform="tiktok", followers=int(followers),
+                ))
+            else:
+                # yt-dlp flat extraction doesn't expose follower count — the
+                # sidecar's profile page stats do (grid items may be empty in
+                # headless, but followers/following/likes render fine).
+                try:
+                    from app.core.config import get_settings
+
+                    async with httpx.AsyncClient(timeout=90.0) as sc:
+                        r = await sc.get(
+                            f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
+                            params={"username": username},
+                        )
+                    if r.status_code == 200:
+                        sc_followers = (r.json().get("stats") or {}).get("followers")
+                        if sc_followers is not None:
+                            db.add(FollowerSnapshot(
+                                team_id=account.team_id,
+                                social_account_id=account.id,
+                                platform="tiktok", followers=int(sc_followers),
+                            ))
+                except Exception:  # noqa: BLE001 — follower scrape is best-effort
+                    pass
 
     if result.synced == 0 and result.skipped == 0:
         result.skipped = len(targets)
