@@ -2,13 +2,15 @@
 name: creator-type-voice
 description: >-
   Applies the Sofia Kakkava "Visibility Era" DAY 1 self-assessment (Creator
-  Type: Expert / Storyteller / Energizer) to cloudless.gr content. Stores the
-  type's post formula in the SocialAuto brand voice
-  (brand_voices.voice_signature) so every /api/v1/ai/generate-content call —
-  UI generation and all 15 n8n workflows — writes in the owner's natural
-  style. Covers the quiz, the apply/verify tool, and the formula text for
-  each type. Use when post style feels off-brand, when re-running the
-  assessment, or when tuning generated post voice.
+  Type: Expert / Storyteller / Energizer) and DAY 2 2-Platform Rule to
+  cloudless.gr content. Stores the type's post formula and platform tiers in
+  the SocialAuto brand voice (brand_voices.voice_signature) so every
+  /api/v1/ai/generate-content call — UI generation and all 15 n8n workflows —
+  writes in the owner's natural style on the right platforms. Covers the
+  quiz, the apply/verify/platforms tool, and the formula text for each type.
+  Use when post style feels off-brand, when re-running the assessment, when
+  tuning generated post voice, or when deciding which platform a scheduled
+  workflow should target.
 allowed-tools:
   - read
   - exec
@@ -41,6 +43,27 @@ carry the adoption:
 Every n8n workflow and the UI generator flows through this path — one
 `PUT /api/v1/brand/voice` changes all of them.
 
+## DAY 2 — The 2-Platform Rule (adopted)
+
+Owner's platform commitment (8 weeks): **MAIN = LinkedIn**, **SECONDARY =
+all Meta platforms** (Instagram, Facebook Page, Threads — adapted versions
+of the main content), **LAST = everything else** (Twitter/X, TikTok —
+opportunistic only). Stored as `voice_signature.platform_focus`.
+
+How it maps to the live workflows:
+
+| Workflow | Trigger | Tier | Notes |
+|---|---|---|---|
+| `cloudless-carousel-pipeline` | every 2 days 19:00 EET | main | LinkedIn carousel → Company Page `9c4451bb-…` ✓ |
+| `weekly-cloud-computing-post` | Mon 09:00 | main | resolves `CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID` ✓ |
+| `marketing-image-generation` | every 24h | secondary | retargeted Twitter→Instagram `38ddbd44-…` (X quota dead; IG needs images anyway) |
+| `socialauto-daily-slack-digest` | daily 09:00 | n/a | reporting only |
+| all `*-text-post` / `*-image-post` | webhook only | varies | fire on demand, not scheduled |
+
+Rule of thumb when editing scheduled workflows: scheduled/original content
+targets LinkedIn; adapted content targets Meta; never add a new schedule
+that fires into `last`-tier platforms.
+
 ## Tool
 
 ```bash
@@ -52,6 +75,9 @@ Every n8n workflow and the UI generator flows through this path — one
 
 # Apply a type to the brand voice (merges, doesn't wipe other keys)
 creator_type.py apply expert|storyteller|energizer|blend
+
+# Show the DAY 2 platform tiers + live platform_focus
+creator_type.py platforms
 
 # Generate a sample post to check the style
 creator_type.py verify [platform]
