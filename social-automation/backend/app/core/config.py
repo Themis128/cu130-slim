@@ -270,6 +270,9 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_S3_ENDPOINT: str = ""
+    # Analytics datalake bucket (cloudless.gr lakehouse) — separate from the
+    # media bucket; the same Cloudflare API token writes both.
+    DATALAKE_R2_BUCKET: str = "datalake-bucket"
 
     # Webhook fired after every successful publish. Payload is a JSON object:
     # {event, post_id, platform, account_id, platform_url, published_at,

@@ -31,6 +31,7 @@ celery_app = Celery(
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.dodo_live_check",
+        "app.worker.tasks.datalake_export",
     ],
 )
 
@@ -155,6 +156,7 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
+        "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
@@ -171,6 +173,13 @@ celery_app.conf.update(
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
             "schedule": 1800.0,
+        },
+        # Export SocialAuto data to the cloudless.gr R2 datalake every 6h.
+        # Snapshot-style overwrite of lake/socialauto-*/ JSON tables; the
+        # site's materialize-datalake-snapshots ETL builds gold sections.
+        "export-datalake": {
+            "task": "app.worker.tasks.datalake_export.export_datalake",
+            "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
