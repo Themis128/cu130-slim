@@ -14,8 +14,12 @@ from app.services.insights_engine import (
     PLATFORM_BENCHMARKS,
     PLATFORM_BEST_PRACTICES,
     _confidence,
+    _count_resets,
+    _follower_anomaly,
+    _iqr_outliers,
     _pct_change,
     _recommend,
+    _sanitize_metric,
     _window_delta,
     compute_insights,
 )
@@ -149,6 +153,66 @@ def test_window_delta_clamps_negative():
     assert _window_delta(pts, NOW - timedelta(days=7), NOW) == (0, 0)
 
 
+# ── preprocessing helpers ─────────────────────────────────────────────────
+
+
+def test_sanitize_metric_repairs_bad_values():
+    assert _sanitize_metric(42) == (42, False)
+    assert _sanitize_metric(-7) == (0, True)
+    assert _sanitize_metric(None) == (0, False)
+    assert _sanitize_metric("bogus") == (0, True)
+    assert _sanitize_metric(3.9) == (3, False)
+
+
+def test_iqr_outliers_normal_distribution():
+    # median ~5, tight spread → only the 30 spike flags
+    values = [4, 5, 5, 6, 4, 30, 5, 4]
+    flags = _iqr_outliers(values)
+    assert flags == {5: "viral"}
+
+
+def test_iqr_outliers_zero_inflated_fallback():
+    # mostly zeros → IQR collapses; fallback fence still catches the spike
+    values = [0, 0, 0, 1, 0, 12, 0, 0]
+    flags = _iqr_outliers(values)
+    assert flags == {5: "viral"}
+    # but a modest 3 does NOT flag on a zero-dominated platform
+    values[5] = 3
+    assert _iqr_outliers(values) == {}
+
+
+def test_iqr_outliers_needs_min_posts():
+    assert _iqr_outliers([0, 0, 99]) == {}
+
+
+def test_iqr_outliers_underperformer():
+    values = [20, 22, 21, 19, 20, 2, 21]
+    flags = _iqr_outliers(values)
+    assert flags == {5: "underperformer"}
+
+
+def test_count_resets():
+    pts = [
+        (NOW - timedelta(days=3), 100, 1000),
+        (NOW - timedelta(days=2), 90, 900),   # reset
+        (NOW - timedelta(days=1), 95, 950),   # normal growth
+    ]
+    assert _count_resets(pts) == 1
+
+
+def test_follower_anomaly_flags_spike_and_drop():
+    series = [
+        (NOW - timedelta(days=3), 1000),
+        (NOW - timedelta(days=2), 1060),  # +60 spike
+        (NOW - timedelta(days=1), 1055),
+    ]
+    anomaly = _follower_anomaly(series)
+    assert anomaly and anomaly["delta"] == 60
+    # normal drift doesn't flag
+    calm = [(NOW - timedelta(days=2), 1000), (NOW - timedelta(days=1), 1004)]
+    assert _follower_anomaly(calm) is None
+
+
 # ── compute_insights aggregation ─────────────────────────────────────────
 
 
@@ -248,6 +312,121 @@ def test_compute_events_pick_latest_per_type():
     ig = out["platforms"]["instagram"]
     assert ig["account_insights"] == {"reach": 500}
     assert ig["audience_demographics"] == {"country": {"GR": 60}}
+
+
+def test_compute_outliers_and_medians():
+    # 4 normal posts + 1 viral on linkedin
+    rows = [_post_row("linkedin", engagement=2, er=2.0) for _ in range(4)]
+    rows.append(_post_row("linkedin", engagement=15, er=15.0))
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["median_engagement_per_post"] == 2
+    assert li["median_engagement_rate"] == 2.0
+    assert len(li["outliers"]) == 1
+    assert li["outliers"][0]["kind"] == "viral"
+    assert li["outliers"][0]["engagement"] == 15
+    assert li["data_quality"]["outlier_posts"] == 1
+    assert out["preprocessing"]["outlier_posts"] == 1
+
+
+def test_compute_sanitizes_negative_metrics():
+    rows = [
+        _post_row("linkedin", impressions=100, engagement=5, er=5.0),
+        _post_row("linkedin", impressions=-50, engagement=-3, er=-1.0),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["impressions"] == 100       # negative row repaired, not summed
+    assert li["engagement"] == 5
+    assert li["data_quality"]["sanitized_rows"] >= 3  # imp + eng + er…
+    assert out["preprocessing"]["sanitized_rows"] >= 3
+
+
+def test_compute_counter_resets_in_data_quality():
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 100, 1000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=2), 90, 900),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=1), 95, 950),
+    ]
+    out = compute_insights([_post_row()], delta_rows, [], [], now=NOW)
+    assert out["platforms"]["linkedin"]["data_quality"]["counter_resets"] == 1
+    assert out["preprocessing"]["counter_resets"] == {"linkedin": 1}
+
+
+def test_compute_follower_anomaly_attached():
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("tiktok", 500, NOW - timedelta(days=3), acct),
+        _follower_row("tiktok", 560, NOW - timedelta(days=2), acct),
+        _follower_row("tiktok", 555, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights([_post_row("tiktok")], [], followers, [], now=NOW)
+    fg = out["platforms"]["tiktok"]["follower_growth"]
+    assert fg["anomaly"]["delta"] == 60
+
+
+# ── outlier/anomaly recommendations ───────────────────────────────────────
+
+
+def test_recommend_viral_outlier():
+    plats = {
+        "linkedin": _plat(
+            focus_tier="main", posts=5,
+            outliers=[{
+                "post_id": "abc12345-viral", "kind": "viral",
+                "engagement": 15, "engagement_rate": 15.0,
+                "platform_median_engagement": 2,
+            }],
+        ),
+        "threads": _plat(posts=5),
+    }
+    recs = _recommend(plats)
+    out_rec = next(r for r in recs if r["type"] == "outlier")
+    assert out_rec["platform"] == "linkedin"
+    assert out_rec["priority"] == "high"      # main tier → high priority
+    assert "7.5×" in out_rec["text"]
+    assert "boost" in out_rec["text"]         # linkedin has ads
+
+
+def test_recommend_underperformer_no_rec():
+    plats = {
+        "linkedin": _plat(
+            focus_tier="main", posts=5,
+            outliers=[{
+                "post_id": "dead-post1", "kind": "underperformer",
+                "engagement": 0, "engagement_rate": 0.0,
+                "platform_median_engagement": 5,
+            }],
+        ),
+    }
+    assert not any(r["type"] == "outlier" for r in _recommend(plats))
+
+
+def test_recommend_follower_anomaly():
+    plats = {
+        "tiktok": _plat(
+            posts=5,
+            follower_growth={"net": 55, "current": 555, "accounts": 1,
+                             "anomaly": {"delta": 60, "at": "2026-09-20T10:00:00"}},
+        ),
+    }
+    recs = _recommend(plats)
+    a = next(r for r in recs if r["type"] == "follower_anomaly")
+    assert "gained 60" in a["text"]
+
+
+def test_recommend_data_quality_resets():
+    plats = {
+        "linkedin": _plat(
+            focus_tier="main", posts=5,
+            data_quality={"snapshots": 5, "sanitized_rows": 2,
+                          "counter_resets": 4, "outlier_posts": 0},
+        ),
+    }
+    recs = _recommend(plats)
+    dq = [r for r in recs if r["type"] == "data_gap" and r["priority"] == "low"]
+    assert dq and "counter resets" in dq[0]["text"]
+    assert "repaired" in dq[0]["text"]
 
 
 # ── _recommend ───────────────────────────────────────────────────────────

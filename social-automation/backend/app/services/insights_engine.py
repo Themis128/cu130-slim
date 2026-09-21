@@ -209,7 +209,10 @@ def _iqr_outliers(values: list[float]) -> dict[int, str]:
         return {}
     q1, _, q3 = statistics.quantiles(values, n=4, method="inclusive")
     iqr = q3 - q1
-    upper = q3 + 1.5 * iqr if iqr > 0 else max(q3 * 3, q3 + _IQR_FALLBACK_MIN_VIRAL)
+    # Absolute floor on the upper fence: on near-zero platforms the IQR is
+    # tiny and a single like would flag as "viral". 1 engagement is noise;
+    # 6+ over a flat series is a real spike.
+    upper = q3 + max(1.5 * iqr, _IQR_FALLBACK_MIN_VIRAL)
     lower = q1 - 1.5 * iqr
     out: dict[int, str] = {}
     for i, v in enumerate(values):
@@ -683,6 +686,19 @@ def compute_insights(
         "recommendations": recs,
         "best_practices": PLATFORM_BEST_PRACTICES,
         "benchmarks": PLATFORM_BENCHMARKS,
+        "preprocessing": {
+            "sanitized_rows": sum(
+                (p.get("data_quality") or {}).get("sanitized_rows", 0)
+                for p in platforms.values()
+            ),
+            "counter_resets": {
+                n: r for n, r in counter_resets.items() if r
+            },
+            "outlier_posts": sum(
+                (p.get("data_quality") or {}).get("outlier_posts", 0)
+                for p in platforms.values()
+            ),
+        },
     }
 
 
@@ -877,7 +893,64 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
             })
 
-    # 5. Follower growth signals.
+    # 5. Outliers — viral posts are the strongest "replicate this" and
+    # paid-boost signal the data can give; follower anomalies flag bot
+    # purges or viral hits that distort trend lines.
+    for name, p in platforms.items():
+        ads_ok = PLATFORM_BEST_PRACTICES.get(name, {}).get("ads_available")
+        for o in (p.get("outliers") or []):
+            if o["kind"] != "viral":
+                continue
+            median = o.get("platform_median_engagement") or 0
+            multiple = (
+                f" — {round(o['engagement'] / median, 1)}× your median"
+                if median else ""
+            )
+            recs.append({
+                "type": "outlier",
+                "priority": "high" if p["focus_tier"] == "main" else "medium",
+                "platform": name,
+                "text": (
+                    f"{name} post {str(o['post_id'])[:8]} is a positive "
+                    f"outlier: {o['engagement']} interactions{multiple}. "
+                    "Replicate its topic/format next sprint"
+                    + ("; it's also your best organic-proven boost candidate."
+                       if ads_ok else ".")
+                ),
+            })
+        g = p.get("follower_growth") or {}
+        anomaly = g.get("anomaly")
+        if anomaly:
+            direction = "gained" if anomaly["delta"] > 0 else "lost"
+            recs.append({
+                "type": "follower_anomaly",
+                "priority": "medium",
+                "platform": name,
+                "text": (
+                    f"{name} {direction} {abs(anomaly['delta'])} followers in "
+                    f"a single sync step ({str(anomaly['at'])[:10]}) — "
+                    "unusual movement; check for a viral hit, bot cleanup, "
+                    "or platform purge before trusting trend lines."
+                ),
+            })
+        dq = p.get("data_quality") or {}
+        issues = []
+        if dq.get("sanitized_rows"):
+            issues.append(f"{dq['sanitized_rows']} repaired metric values")
+        if dq.get("counter_resets", 0) >= _COUNTER_RESET_WARN_THRESHOLD:
+            issues.append(f"{dq['counter_resets']} counter resets")
+        if issues:
+            recs.append({
+                "type": "data_gap",
+                "priority": "low",
+                "platform": name,
+                "text": (
+                    f"{name} preprocessing cleaned "
+                    f"{' and '.join(issues)} — scores already exclude them."
+                ),
+            })
+
+    # 5b. Follower growth signals.
     for name, p in platforms.items():
         g = p.get("follower_growth")
         if g and g["net"] < 0 and p["posts"] > 0:
