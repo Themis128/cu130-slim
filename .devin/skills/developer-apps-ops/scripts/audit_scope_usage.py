@@ -83,11 +83,19 @@ def requested_scopes() -> dict[str, list[str]]:
     """Parse PLATFORM_SCOPES dict + client base_scopes lists from auth.py."""
     src = AUTH.read_text()
     out: dict[str, list[str]] = {}
-    # PLATFORM_SCOPES = {"platform": [..], ...}
+    # Named constants like LINKEDIN_SCOPES = [...]
+    consts: dict[str, list[str]] = {}
+    for km in re.finditer(r'(\w+_SCOPES)\s*=\s*\[(.*?)\]', src, re.S):
+        consts[km.group(1)] = re.findall(r'"([^"]+)"', km.group(2))
+    # PLATFORM_SCOPES = {"platform": [..] or CONST, ...}
     m = re.search(r"PLATFORM_SCOPES[^=]*=\s*\{(.*?)\n\s*\}", src, re.S)
     if m:
-        for pm in re.finditer(r'"(\w+)":\s*\[(.*?)\]', m.group(1), re.S):
-            out[pm.group(1)] = re.findall(r'"([^"]+)"', pm.group(2))
+        for pm in re.finditer(r'"(\w+)":\s*(\[.*?\]|\w+)', m.group(1), re.S):
+            val = pm.group(2)
+            if val.startswith("["):
+                out[pm.group(1)] = re.findall(r'"([^"]+)"', val)
+            else:
+                out[pm.group(1)] = list(consts.get(val, []))
     # base_scopes=[...] with name="x"
     for cm in re.finditer(r'base_scopes=\[(.*?)\](?:.*?name="(\w+)")?', src, re.S):
         name = cm.group(2) or "?"
