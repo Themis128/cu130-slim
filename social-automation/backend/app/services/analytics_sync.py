@@ -1170,7 +1170,9 @@ async def sync_instagram_account(
             if not media_id:
                 continue
             covered.add(media_id)
-            metrics = await _fetch_instagram_media_metrics(client, token, ig_user_id, media_id)
+            metrics = _insights_or_skip(media_id) or await _fetch_instagram_media_metrics(
+                client, token, ig_user_id, media_id
+            )
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=media_id,
                 metrics=metrics, captured_at=captured_at, source="instagram_api",
@@ -1204,7 +1206,7 @@ async def sync_instagram_account(
                         created = None
                     if created and created < since:
                         continue
-                    metrics = await _fetch_instagram_media_metrics(
+                    metrics = _insights_or_skip(mid) or await _fetch_instagram_media_metrics(
                         client, token, ig_user_id, mid
                     )
                     metrics.raw = {**(metrics.raw or {}), "discovery": item}

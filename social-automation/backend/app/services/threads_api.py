@@ -291,6 +291,54 @@ class ThreadsAPIClient:
                 )
             return str(media_id)
 
+    async def check_container_status(self, container_id: str) -> str:
+        """Return the container ``status_code``: ``IN_PROGRESS``, ``FINISHED``,
+        ``ERROR``, ``EXPIRED``, or ``PUBLISHED``."""
+        container_id = _validate_media_id(container_id)
+        url = f"{self._base_url}/{container_id}"
+        params = self._params({"fields": "status_code"})
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return str((resp.json() or {}).get("status_code") or "UNKNOWN")
+
+    async def wait_for_container_ready(
+        self,
+        container_id: str,
+        *,
+        timeout: float = 60.0,
+        interval: float = 3.0,
+    ) -> None:
+        """Poll until the container reaches ``FINISHED``.
+
+        Threads processes media containers asynchronously — publishing before
+        ``FINISHED`` fails with "Media ID is not available". Text containers
+        usually finish immediately so this returns on the first poll.
+        """
+        import asyncio
+        import time
+
+        container_id = _validate_media_id(container_id)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = await self.check_container_status(container_id)
+            if status in ("FINISHED", "PUBLISHED"):
+                return
+            if status in ("ERROR", "EXPIRED"):
+                raise ThreadsAPIError(
+                    400,
+                    f"container {container_id} status {status}",
+                    f"container:{container_id}",
+                    message=f"Threads container {container_id} processing failed ({status})",
+                )
+            await asyncio.sleep(interval)
+        raise ThreadsAPIError(
+            408,
+            "timeout",
+            f"container:{container_id}",
+            message=f"Threads container {container_id} not ready within {timeout}s",
+        )
+
     async def get_insights(self, metric: str = "views") -> dict[str, Any]:
         """Fetch account-level insights for the authenticated user."""
         url = f"{self._base_url}/{self.user_id}/insights"

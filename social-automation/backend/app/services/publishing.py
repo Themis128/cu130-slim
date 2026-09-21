@@ -2026,6 +2026,9 @@ async def _publish_threads(
                 child_ids.append(cid)
             creation_id = await client.create_carousel_container(children_ids=child_ids, text=text[:500])
 
+        # Threads processes containers async — publishing before FINISHED
+        # fails with "Media ID is not available".
+        await client.wait_for_container_ready(creation_id, timeout=60.0)
         media_id = await client.publish_container(creation_id)
     except ThreadsAPIError as exc:
         if exc.status_code == 403:
