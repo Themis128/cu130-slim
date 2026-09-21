@@ -50,14 +50,51 @@ async def _get_token() -> str:
             "Set SOCIALAUTO_TOKEN or SOCIALAUTO_ADMIN_EMAIL+SOCIALAUTO_ADMIN_PASSWORD"
         )
     async with httpx.AsyncClient() as client:
+        payload = {"username": email, "password": password}
         resp = await client.post(
             f"{API_URL}/api/v1/auth/login",
-            data={"username": email, "password": password},
+            data=payload,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
+        if resp.status_code == 401 and resp.json().get("detail") == "two_factor_required":
+            payload["otp"] = await _totp_code(email)
+            resp = await client.post(
+                f"{API_URL}/api/v1/auth/login",
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
         resp.raise_for_status()
         API_TOKEN = resp.json()["access_token"]
     return API_TOKEN
+
+
+async def _totp_code(email: str) -> str:
+    """Fetch the user's TOTP secret from the DB and generate the current code."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    from sqlalchemy import select
+
+    from app.db.session import async_session_maker
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        secret = (
+            await db.execute(select(User.two_factor_secret).where(User.email == email))
+        ).scalar_one_or_none()
+    if not secret:
+        raise RuntimeError("2FA required but no TOTP secret found for this user")
+
+    padding = "=" * (8 - len(secret) % 8) if len(secret) % 8 else ""
+    key = base64.b32decode(secret + padding)
+    msg = struct.pack(">Q", int(time.time()) // 30)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF) % 10**6
+    return f"{code:06d}"
 
 
 async def _api_request(
