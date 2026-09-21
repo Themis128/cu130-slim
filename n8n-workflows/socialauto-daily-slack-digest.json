@@ -68,6 +68,10 @@
             {
               "name": "password",
               "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
             }
           ]
         },
@@ -121,6 +125,19 @@
         980,
         100
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "6df812b1-38c9-4117-a2eb-ab7efabb8aab",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        240
+      ]
     }
   ],
   "connections": {
@@ -150,7 +167,7 @@
       "main": [
         [
           {
-            "node": "Login Social API",
+            "node": "Generate TOTP",
             "type": "main",
             "index": 0
           }
@@ -173,6 +190,17 @@
         [
           {
             "node": "Summarize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
             "type": "main",
             "index": 0
           }
