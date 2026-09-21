@@ -64,6 +64,18 @@ Rule of thumb when editing scheduled workflows: scheduled/original content
 targets LinkedIn; adapted content targets Meta; never add a new schedule
 that fires into `last`-tier platforms.
 
+## DAY 3 — Own Your Lane (adopted)
+
+The niche formula — "I help [WHO] who [PROBLEM] so they can [RESULT]" —
+stored as `voice_signature.niche` so every generation is audience-anchored:
+
+> I help small teams and small business owners who waste time and money on
+> servers and cloud complexity so they can run on simple, cost-efficient
+> cloud that just works.
+
+If generated content drifts generic or addresses the wrong audience, check
+`niche` first — it is the WHO anchor for every post.
+
 ## Tool
 
 ```bash
