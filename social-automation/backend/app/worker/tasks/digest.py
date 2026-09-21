@@ -42,6 +42,15 @@ def send_daily_slack_digest(
     )
 
 
+@shared_task(name="app.worker.tasks.digest.send_daily_strategy_report")
+def send_daily_strategy_report(
+    insight_days: int = 30,
+    send: bool = True,
+) -> dict[str, Any]:
+    """End-of-day strategy brief — insights engine → actions → email."""
+    return asyncio.run(_send_strategy_async(insight_days=insight_days, send=send))
+
+
 @shared_task(name="app.worker.tasks.digest.send_weekly_slack_digest")
 def send_weekly_slack_digest(
     days: int = 7,
@@ -82,4 +91,19 @@ async def _send_digest_async(
             }
             for r in reports
         ],
+    }
+
+
+async def _send_strategy_async(*, insight_days: int, send: bool) -> dict[str, Any]:
+    from app.services.strategy_report import run_strategy_report_for_all_teams
+
+    async with _worker_db() as db:
+        reports = await run_strategy_report_for_all_teams(
+            db, insight_days=insight_days, send=send
+        )
+    return {
+        "teams": len(reports),
+        "emailed": sum(1 for r in reports if r.get("emailed")),
+        "llm_used": sum(1 for r in reports if r.get("llm_used")),
+        "errors": [r.get("email_error") for r in reports if r.get("email_error")],
     }

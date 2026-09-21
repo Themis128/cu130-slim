@@ -305,6 +305,8 @@ class Settings(BaseSettings):
     # Override in /app/.env (mounted from host) for your own Slack workspace.
     SLACK_CHANNEL_ID: str = "C0C1F1K3DDF"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
+    # End-of-day strategy email (insights engine → action playbook).
+    STRATEGY_REPORT_HOUR: int = 21  # Europe/Athens via Celery timezone
 
     # Slack alerts (#socialauto-alerts) — warnings/errors and operational failures.
     # Prefer Incoming Webhook URL to the alerts channel; alternatively reuse
