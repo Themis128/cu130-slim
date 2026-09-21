@@ -2,7 +2,7 @@
   "mcpServers": {
     "playwright": {
       "command": "docker",
-      "args": ["run", "-i", "--init", "--network", "host", "--shm-size=2g",
+      "args": ["run", "-i", "--rm", "--init", "--network", "host", "--shm-size=2g",
         "-v", "/home/tbaltzakis/cu130-slim:/workspace",
         "-v", "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
         "-w", "/workspace",
@@ -17,10 +17,11 @@
       ]
     },
     "github-local": {
-      "command": "/home/tbaltzakis/.local/share/pnpm/mcp-server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
-      }
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "export GITHUB_PERSONAL_ACCESS_TOKEN=\"${GITHUB_PERSONAL_ACCESS_TOKEN:-$(python3 -c 'import json; print(json.load(open(\"/home/tbaltzakis/cu130-slim/.devin/mcp_config.local.json\"))[\"mcpServers\"][\"github-local\"][\"env\"][\"GITHUB_PERSONAL_ACCESS_TOKEN\"])' 2>/dev/null)}\"; exec /home/tbaltzakis/.local/bin/node /home/tbaltzakis/.local/share/pnpm/global/5/node_modules/@modelcontextprotocol/server-github/dist/index.js"
+      ]
     },
     "dmr": {
       "command": "python3",
