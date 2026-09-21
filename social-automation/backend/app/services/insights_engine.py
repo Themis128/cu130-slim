@@ -20,6 +20,7 @@ rows — deterministic and unit-testable without a database.
 
 from __future__ import annotations
 
+import statistics
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -164,6 +165,80 @@ _MOMENTUM_MIN_EVENTS = 5
 # ER-by-followers needs a meaningful denominator — below this, tiny follower
 # counts amplify one like into a double-digit "rate".
 _BENCHMARK_MIN_FOLLOWERS = 50
+
+# Outlier detection (Tukey IQR fences). Social metrics are heavily
+# zero-inflated — when IQR collapses to 0 every nonzero post would flag, so
+# the fallback fence requires an absolute jump worth noticing.
+_MIN_POSTS_FOR_OUTLIERS = 4
+_IQR_FALLBACK_MIN_VIRAL = 5
+
+# Follower-series anomaly: flag a single-step change this large
+# (absolute floor or 5% of current count — catches bot spikes and
+# unfollow storms without flagging normal growth noise).
+_FOLLOWER_ANOMALY_MIN = 10
+_FOLLOWER_ANOMALY_PCT = 0.05
+
+# Counter resets per platform before it becomes a reportable data issue.
+_COUNTER_RESET_WARN_THRESHOLD = 3
+
+
+def _sanitize_metric(value: Any) -> tuple[int, bool]:
+    """Clamp a metric to a sane non-negative int.
+
+    Returns (clean_value, was_repaired). Platform APIs occasionally return
+    negative or non-numeric values mid-outage; they would silently corrupt
+    every aggregate, so repair + count instead of trusting them.
+    """
+    try:
+        v = int(value or 0)
+    except (TypeError, ValueError):
+        return 0, True
+    if v < 0:
+        return 0, True
+    return v, False
+
+
+def _iqr_outliers(values: list[float]) -> dict[int, str]:
+    """index → 'viral' | 'underperformer' via Tukey fences on raw values.
+
+    With a collapsed IQR (mostly-zero engagement), the fallback upper fence
+    `max(3*q3, q3+5)` keeps only genuinely exceptional spikes — a post at
+    6+ engagements while the top quartile sits at 0 is a real outlier.
+    """
+    if len(values) < _MIN_POSTS_FOR_OUTLIERS:
+        return {}
+    q1, _, q3 = statistics.quantiles(values, n=4, method="inclusive")
+    iqr = q3 - q1
+    upper = q3 + 1.5 * iqr if iqr > 0 else max(q3 * 3, q3 + _IQR_FALLBACK_MIN_VIRAL)
+    lower = q1 - 1.5 * iqr
+    out: dict[int, str] = {}
+    for i, v in enumerate(values):
+        if v > upper:
+            out[i] = "viral"
+        elif iqr > 0 and v < lower:
+            out[i] = "underperformer"
+    return out
+
+
+def _count_resets(points: list[tuple[datetime, int, int]]) -> int:
+    """Times a cumulative engagement counter decreased between captures —
+    signals post deletion, stat correction, or API weirdness."""
+    return sum(
+        1
+        for prev, cur in zip(points, points[1:], strict=False)
+        if cur[1] < prev[1]
+    )
+
+
+def _follower_anomaly(series: list[tuple[datetime, int]]) -> dict[str, Any] | None:
+    """Largest single-step follower change that beats the anomaly floor."""
+    worst: dict[str, Any] | None = None
+    for (prev_at, prev_n), (at, n) in zip(series, series[1:], strict=False):
+        delta = n - prev_n
+        floor = max(_FOLLOWER_ANOMALY_MIN, int(abs(n) * _FOLLOWER_ANOMALY_PCT))
+        if abs(delta) >= floor and (worst is None or abs(delta) > abs(worst["delta"])):
+            worst = {"delta": delta, "at": at.isoformat()}
+    return worst
 
 
 def _pct_change(current: float, previous: float) -> float | None:
@@ -334,17 +409,33 @@ def compute_insights(
             "text_posts": [0, 0.0],
             "notes": set(),
             "top_post": None,
+            "post_engagements": [],   # (post_id, engagement, er) — for outliers/medians
+            "sanitized_rows": 0,
         }
     )
     for r in post_rows:
         p = plat[r.platform]
         er = float(r.engagement_rate or 0)
+        if er < 0:
+            er = 0.0
+            p["sanitized_rows"] += 1
+        impressions, repaired = _sanitize_metric(r.impressions)
+        p["sanitized_rows"] += repaired
+        engagement, repaired = _sanitize_metric(r.engagement)
+        p["sanitized_rows"] += repaired
+        likes, repaired = _sanitize_metric(r.likes)
+        p["sanitized_rows"] += repaired
+        comments, repaired = _sanitize_metric(r.comments)
+        p["sanitized_rows"] += repaired
+        shares, repaired = _sanitize_metric(r.shares)
+        p["sanitized_rows"] += repaired
         p["posts"] += 1
-        p["impressions"] += int(r.impressions or 0)
-        p["engagement"] += int(r.engagement or 0)
-        p["likes"] += int(r.likes or 0)
-        p["comments"] += int(r.comments or 0)
-        p["shares"] += int(r.shares or 0)
+        p["impressions"] += impressions
+        p["engagement"] += engagement
+        p["likes"] += likes
+        p["comments"] += comments
+        p["shares"] += shares
+        p["post_engagements"].append((str(r.post_id), engagement, er))
         if r.notes:
             p["notes"].add(r.notes)
 
@@ -370,8 +461,10 @@ def compute_insights(
         key = f"{r.platform}:{r.platform_post_id}"
         cap = r.captured_at if r.captured_at.tzinfo else r.captured_at.replace(tzinfo=UTC)
         snap_series[key].append((cap, int(r.engagement or 0), int(r.impressions or 0)))
-    for pts in snap_series.values():
+    counter_resets: dict[str, int] = defaultdict(int)
+    for key, pts in snap_series.items():
         pts.sort(key=lambda p: p[0])
+        counter_resets[key.split(":", 1)[0]] += _count_resets(pts)
 
     momentum: dict[str, dict[str, int]] = defaultdict(
         lambda: {"recent_eng": 0, "prior_eng": 0, "recent_imp": 0, "prior_imp": 0}
@@ -397,11 +490,14 @@ def compute_insights(
         platform = key.split(":", 1)[0]
         first, last = series[0][1], series[-1][1]
         g = follower_growth.setdefault(
-            platform, {"first": 0, "last": 0, "accounts": 0}
+            platform, {"first": 0, "last": 0, "accounts": 0, "anomaly": None}
         )
         g["first"] += first
         g["last"] += last
         g["accounts"] += 1
+        anomaly = _follower_anomaly(series)
+        if anomaly and (g["anomaly"] is None or abs(anomaly["delta"]) > abs(g["anomaly"]["delta"])):
+            g["anomaly"] = anomaly
 
     # ── Latest account-insight events per platform ─────────────────────────
     latest_events: dict[tuple[str, str], dict] = {}
@@ -431,12 +527,36 @@ def compute_insights(
         growth = follower_growth.get(name)
         followers_now = growth["last"] if growth else None
 
-        # ER by followers — the metric every published benchmark uses
-        # (avg engagements per post ÷ current followers). Gated on a
+        # Robust per-post stats — a single viral post shouldn't define the
+        # average. Medians power the benchmark comparison (Rival IQ's
+        # published method is "median interactions/post ÷ followers").
+        per_post = [e for _, e, _ in p["post_engagements"]]
+        median_eng_post = round(statistics.median(per_post), 2) if per_post else 0.0
+        median_er = (
+            round(statistics.median([er for _, _, er in p["post_engagements"]]), 2)
+            if p["post_engagements"]
+            else 0.0
+        )
+
+        # Post-level outliers on raw engagement (IQR fences).
+        flags = _iqr_outliers(per_post)
+        outliers = [
+            {
+                "post_id": p["post_engagements"][i][0],
+                "kind": flags[i],
+                "engagement": p["post_engagements"][i][1],
+                "engagement_rate": p["post_engagements"][i][2],
+                "platform_median_engagement": median_eng_post,
+            }
+            for i in sorted(flags)
+        ]
+
+        # ER by followers — median interactions/post ÷ current followers,
+        # the methodology every published benchmark uses. Gated on a
         # meaningful follower count: with ~10 followers, 2 likes reads as
         # a fake 20% "rate".
         er_by_followers = (
-            round(p["engagement"] / posts / followers_now * 100, 3)
+            round(median_eng_post / followers_now * 100, 3)
             if posts and followers_now and followers_now >= _BENCHMARK_MIN_FOLLOWERS
             else None
         )
@@ -473,8 +593,11 @@ def compute_insights(
             "comments": p["comments"],
             "shares": p["shares"],
             "avg_engagement_rate": avg_er,
+            "median_engagement_rate": median_er,
+            "median_engagement_per_post": median_eng_post,
             "er_by_followers_pct": er_by_followers,
             "benchmark": benchmark,
+            "outliers": outliers,
             "best_hour_athens": _best(p["hours"]),
             "best_weekday_athens": _best(p["weekdays"]),
             "media_avg_er": media_er,
@@ -492,11 +615,18 @@ def compute_insights(
                     "net": growth["last"] - growth["first"],
                     "current": growth["last"],
                     "accounts": growth["accounts"],
+                    "anomaly": growth["anomaly"],
                 }
                 if growth
                 else None
             ),
             "data_warnings": data_warnings,
+            "data_quality": {
+                "snapshots": posts,
+                "sanitized_rows": p["sanitized_rows"],
+                "counter_resets": counter_resets.get(name, 0),
+                "outlier_posts": len(outliers),
+            },
             "account_insights": latest_events.get((name, "account_insights")),
             "audience_demographics": latest_events.get((name, "audience_demographics")),
         }
@@ -514,8 +644,11 @@ def compute_insights(
             "posts": 0, "impressions": 0, "engagement": 0,
             "likes": 0, "comments": 0, "shares": 0,
             "avg_engagement_rate": 0.0,
+            "median_engagement_rate": 0.0,
+            "median_engagement_per_post": 0.0,
             "er_by_followers_pct": None,
             "benchmark": None,
+            "outliers": [],
             "best_hour_athens": None,
             "best_weekday_athens": None,
             "media_avg_er": None, "text_avg_er": None,
@@ -527,10 +660,17 @@ def compute_insights(
                     "net": growth["last"] - growth["first"],
                     "current": growth["last"],
                     "accounts": growth["accounts"],
+                    "anomaly": growth["anomaly"],
                 }
                 if growth else None
             ),
             "data_warnings": [],
+            "data_quality": {
+                "snapshots": 0,
+                "sanitized_rows": 0,
+                "counter_resets": counter_resets.get(name, 0),
+                "outlier_posts": 0,
+            },
             "account_insights": latest_events.get((name, "account_insights")),
             "audience_demographics": latest_events.get((name, "audience_demographics")),
         }
