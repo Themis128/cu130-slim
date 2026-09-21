@@ -45,8 +45,8 @@ def _validate_key(key: str) -> str:
     return key
 
 
-def _r2_object_url(key: str) -> str | None:
-    bucket = (settings.R2_BUCKET_NAME or "").strip()
+def _r2_object_url(key: str, bucket: str | None = None) -> str | None:
+    bucket = (bucket or settings.R2_BUCKET_NAME or "").strip()
     account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
     if not bucket or not account_id:
         return None
@@ -69,13 +69,16 @@ async def upload_object(
     data: bytes,
     content_type: str = "application/octet-stream",
     metadata: dict | None = None,
+    bucket: str | None = None,
 ) -> dict:
     """Upload an object to R2 via the Cloudflare REST API.
 
+    ``bucket`` overrides the default media bucket (used by the datalake
+    exporter to write into the analytics bucket).
     Returns ``{"etag", "size", "public_url", "key"}``. Max single upload 300 MB.
     """
     key = _validate_key(key)
-    url = _r2_object_url(key)
+    url = _r2_object_url(key, bucket=bucket)
     if not url:
         raise HTTPException(status_code=500, detail="R2 is not configured (R2_BUCKET_NAME or CLOUDFLARE_ACCOUNT_ID missing)")
 
@@ -102,7 +105,7 @@ async def upload_object(
         "key": key,
         "etag": result.get("etag", ""),
         "size": len(data),
-        "public_url": _r2_public_url(key),
+        "public_url": _r2_public_url(key) if bucket is None else None,
     }
 
 
