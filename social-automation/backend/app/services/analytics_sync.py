@@ -462,7 +462,7 @@ async def _persist_snapshot(
         else:
             result.skipped += 1
             return
-    if metrics.notes == "stats_unavailable":
+    if metrics.notes in ("stats_unavailable", "platform_deleted"):
         result.skipped += 1
         return
     snap = PostAnalyticsSnapshot(
@@ -668,6 +668,9 @@ async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id
         params = {"tweet.fields": "public_metrics"}
         resp = await client.get(url, headers=headers, params=params)
     if resp.status_code != 200:
+        if resp.status_code in (402, 429):
+            # Free-tier read quota exhausted — persistent state, not transient.
+            return MetricBundle(notes="quota_exhausted")
         return MetricBundle(notes=f"twitter stats HTTP {resp.status_code}")
     data = (resp.json() or {}).get("data", {})
     pm = data.get("public_metrics", {}) or {}
@@ -791,6 +794,17 @@ async def sync_twitter_account(
                 continue
             covered.add(tweet_id)
             metrics = await _fetch_twitter_metrics(client, token, tweet_id)
+            if metrics.notes == "quota_exhausted":
+                # Free tier is out of read credits — every remaining call will
+                # 402 identically. Record one data-gap marker and move on.
+                metrics = MetricBundle(notes="quota_exhausted")
+                await _persist_snapshot(
+                    db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
+                    metrics=metrics, captured_at=captured_at, source="twitter_api",
+                    result=result, platform="twitter",
+                )
+                result.skipped += len(targets) - len(covered)
+                break
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
                 metrics=metrics, captured_at=captured_at, source="twitter_api",
@@ -1402,8 +1416,11 @@ async def _fetch_threads_media_metrics(
         headers=headers,
     )
     if resp.status_code != 200:
+        msg = _meta_error_message(resp)
+        if "does not exist" in msg:
+            return MetricBundle(notes="platform_deleted")
         return MetricBundle(
-            notes=f"threads stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
+            notes=f"threads stats HTTP {resp.status_code}: {msg}"
         )
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
@@ -1508,6 +1525,13 @@ async def sync_threads_account(
                 continue
             covered.add(media_id)
             metrics = await _fetch_threads_media_metrics(client, token, media_id)
+            if metrics.notes == "platform_deleted":
+                # Media no longer exists on Threads (deleted upstream) —
+                # retire the target so future syncs skip it.
+                t.status = "deleted"
+                t.error_message = "Media deleted on Threads"
+                result.skipped += 1
+                continue
             await _persist_snapshot(
                 db, account=account, post_id=t.post_id, platform_post_id=media_id,
                 metrics=metrics, captured_at=captured_at, source="threads_api",

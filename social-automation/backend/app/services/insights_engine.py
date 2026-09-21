@@ -152,6 +152,7 @@ PLATFORM_BENCHMARKS: dict[str, dict[str, Any]] = {
 _DATA_GAP_NOTES = (
     "insights_scope_missing",
     "stats_unavailable",
+    "quota_exhausted",
     "session expired",
     "token",
     "HTTP 401",
