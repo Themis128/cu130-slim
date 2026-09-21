@@ -72,7 +72,8 @@ models/            SQLAlchemy — social_account (access_token_enc, scopes, meta
                    social_secret, user, content, media, lead, billing…
 worker/celery_app.py   queues + beat_schedule
 worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
-                   analytics, digest, recurring, media, workflows, dmr_health
+                   analytics, digest, recurring, media, workflows, dmr_health,
+                   datalake_export (→ cloudless.gr R2 datalake)
 mcp/server.py      MCP server exposing social tools
 ```
 
@@ -103,7 +104,11 @@ Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET ve
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10
+
+## cloudless.gr datalake export (`datalake_export.export_datalake`)
+
+Every 6h, snapshot-overwrites JSON tables in R2 `datalake-bucket` (`lake/socialauto-*`: accounts, posts, post-metrics history, followers, account-insight events, per-team insights-engine output, leads [sha256 email + domain only], 90d web events [UTM only, no IP/UA]). The site's `materialize-datalake-snapshots` ETL turns them into gold sections `socialauto_ops`, `social_engagement`, `social_outliers`, `social_recommendations`, `social_leads`, `social_attribution` for `/admin/analytics/datalake`. Uses `DATALAKE_R2_BUCKET` + the same `CLOUDFLARE_API_TOKEN` (verified cross-bucket write). Real-time leads still push via `CLOUDLESS_LEADS_WEBHOOK_URL` → EspoCRM.
 
 ## Meta app facts (app `1936126137016578`, business `1558125105019725`)
 
