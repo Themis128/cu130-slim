@@ -110,3 +110,32 @@ publish queue 30s · scheduled posts 60s · analytics sync 30min · token refres
 - Redirect URIs: `/api/v1/auth/oauth/{facebook,instagram,threads}/callback`; data-deletion/deauthorize → `/api/v1/auth/data-deletion`
 - Two IG token flavors: **Instagram Business Login** (`instagram_business_*` scopes, host `graph.instagram.com`) vs **FB-Login-linked** (`instagram_*`, host `graph.facebook.com`). Tokens are NOT interchangeable — debug_token on the wrong host returns "Cannot parse access token".
 - Business verification blocked by 2021 ad-account restriction → Advanced Access unavailable; own-account standard access covers current needs.
+
+## Content strategy (Visibility Era — adopted 2026-09)
+
+Sofia Kakkava's "Visibility Era" framework is encoded in the brand voice so every generated post follows it — no per-workflow prompt forks.
+
+- **DAY 1 — Creator Type**: the owner is an **Expert-led blend** (Expert + Storyteller + Energizer). Stored in `brand_voices.voice_signature` keys `creator_type` / `post_formula` / `style_notes`. `POST /api/v1/ai/generate-content` injects `voice_signature` into the system prompt via `build_brand_system_prompt` (`app/services/brand_compliance.py`) — every n8n workflow + the UI generator picks it up from one place.
+- **DAY 2 — 2-Platform Rule** (8-week commitment): `voice_signature.platform_focus` —
+  - **MAIN = LinkedIn** — original content, carousels (Company Page `9c4451bb-…`), Educator posts.
+  - **SECONDARY = Meta** — Instagram `38ddbd44-…`, Facebook Page, Threads `1071dcd5-…` — adapted/cross-posted versions.
+  - **LAST = Twitter/X + TikTok** — opportunistic only (X free-tier quota ~1.5k posts/mo is chronically exhausted; don't schedule into it).
+- **Tools/skills**: `.devin/skills/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `profile-5sec-test` (DAY 4 audit); `publish-alert-triage` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug).
+
+## n8n workflows (`n8n-workflows/`, 15 total)
+
+All workflows authenticate to social-api via admin **TOTP login**; text generation uses **automatic model routing** (no hardcoded provider/model — `ai/smollm2` was removed, it returned empty content). Re-importing a workflow **deactivates it** in n8n 2.x — republish by ID, then restart n8n.
+
+| Workflow | Trigger | Targets | Tier |
+|---|---|---|---|
+| `cloudless-carousel-pipeline` | every 2 days 19:00 EET + webhook `cloudless-carousel` | LinkedIn Company Page | main |
+| `weekly-cloud-computing-post` | Mon 09:00 | LinkedIn (org account) | main |
+| `marketing-image-generation` | every 24h + webhook `marketing-trigger` | Instagram `cloudless.gr` (CF image + caption → draft/post) | secondary — retargeted from Twitter 2026-09-21 |
+| `socialauto-daily-slack-digest` | daily 09:00 | Slack digest | reporting |
+| `{facebook,instagram,linkedin,threads,tiktok,twitter}-{text,image,carousel}-post` | webhook only | per-platform | on-demand |
+
+**n8n MCP server**: `.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py` — 13 tools (`n8n_list_workflows`, `n8n_deploy_workflow`, `n8n_trigger_webhook`, `n8n_audit_workflows`, …). API key covers workflow/credential endpoints; `/executions` returns 403 so execution tools fall back to reading Postgres `execution_data` (rehydrates n8n 2.x deduplicated format). Registered in `.devin/mcp_config.json`.
+
+## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
+
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `creator-type-voice`, `publish-alert-triage`, `session-transplant`, `session-health-ops`, `profile-5sec-test`, `linkedin-sidecar-ops`, `tiktok-console-ops`, `messenger-management`, `instagram-dm`, `instagram-account-config`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-oauth-ops`, `meta-{oauth-setup,app-review}`, `twitter-oauth-setup`, `whatsapp-{platform,phone-verify}`, `browser-daemon-mode`, `novnc-login-helper`, `playwright-e2e`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-access-paths`, `content-scoring`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`.
