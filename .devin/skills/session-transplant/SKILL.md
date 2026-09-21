@@ -31,6 +31,27 @@ The script does: `/session/start` (platform) → `/session/cookies` →
 (persists `*_storage_state.json` + per-cookie files under the bridge's
 `/data` volume).
 
+## Inject into a platform sidecar (MCP → sidecar)
+
+Sidecars accept a Playwright `storage_state` directly — heals the FB
+profile-picker gate without a trusted click. Verified 2026-09-21:
+`logged_in: true, profile_picker: false` persisted across `/session/validate`.
+
+1. Export from the MCP browser (must already be logged in):
+   `browser_run_code_unsafe`:
+   `async (page) => JSON.stringify(await page.context().cookies('https://www.facebook.com'))`
+   — needs `c_user` + `xs` present.
+2. `POST http://localhost:9226/session` with body
+   `{"storage_state": {"cookies": [<exported list>], "origins": []}}`
+   (a `{"cookies": {name: value}}` dict also works — it wraps each as
+   `.facebook.com` domain).
+3. The endpoint restarts the context, loads facebook.com, runs its own
+   `isLoggedIn` check, and saves the session on success — response is
+   `{"status":"ok","logged_in":true}`.
+
+Same shape on LinkedIn :9225 / TikTok :9224 (`POST /session` with the
+platform's cookie set — check `handleSetSession` in each `server.js`).
+
 ## Inject into the Playwright MCP browser (bridge → MCP)
 
 Needed when the MCP browser must act *as* a logged-in user (e.g. Meta
