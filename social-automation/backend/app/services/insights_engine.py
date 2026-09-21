@@ -881,7 +881,7 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     "now while the algorithm favors you."
                 ),
             })
-        elif mom <= -25:
+        elif mom is not None and mom <= -25:
             recs.append({
                 "type": "momentum",
                 "priority": "medium",
