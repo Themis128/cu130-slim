@@ -1128,7 +1128,7 @@ async def sync_instagram_account(
     # Tokens granted without an insights scope 403 on every media call —
     # skip the API entirely and record one clear note instead of an
     # error storm per media item.
-    stored_scopes = set(meta.get("scopes") or [])
+    stored_scopes = set(account.scopes or meta.get("scopes") or [])
     insights_scopes = {
         "instagram_business_manage_insights",
         "instagram_manage_insights",

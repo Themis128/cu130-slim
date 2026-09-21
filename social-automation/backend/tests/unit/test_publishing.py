@@ -96,6 +96,7 @@ async def test_publish_threads_text_only(account, post, monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "12345"}),
+        _FakeResponse(200, {"status_code": "FINISHED"}),
         _FakeResponse(200, {"id": "67890"}),
     ])
 
@@ -105,10 +106,10 @@ async def test_publish_threads_text_only(account, post, monkeypatch):
     assert result.success is True
     assert result.platform_post_id == "67890"
     assert result.platform_url == "https://www.threads.net/@testuser/post/67890"
-    assert len(fake.calls) == 2
+    assert len(fake.calls) == 3
     assert fake.calls[0]["data"]["media_type"] == "TEXT"
     assert fake.calls[0]["data"]["text"] == "Hello Threads!"
-    assert fake.calls[1]["data"]["creation_id"] == "12345"
+    assert fake.calls[2]["data"]["creation_id"] == "12345"
 
 
 @pytest.mark.asyncio
@@ -116,6 +117,7 @@ async def test_publish_threads_image(account, post, monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "45678"}),
+        _FakeResponse(200, {"status_code": "FINISHED"}),
         _FakeResponse(200, {"id": "78901"}),
     ])
 
@@ -125,10 +127,10 @@ async def test_publish_threads_image(account, post, monkeypatch):
     assert result.success is True
     assert result.platform_post_id == "78901"
     assert result.platform_url == "https://www.threads.net/@testuser/post/78901"
-    assert len(fake.calls) == 2
+    assert len(fake.calls) == 3
     assert fake.calls[0]["data"]["media_type"] == "IMAGE"
     assert fake.calls[0]["data"]["image_url"] == "https://cdn.example.com/img.png"
-    assert fake.calls[1]["data"]["creation_id"] == "45678"
+    assert fake.calls[2]["data"]["creation_id"] == "45678"
 
 
 @pytest.mark.asyncio
@@ -148,6 +150,7 @@ async def test_publish_threads_video(account, post, monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/vid.mp4")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "11111"}),
+        _FakeResponse(200, {"status_code": "FINISHED"}),
         _FakeResponse(200, {"id": "22222"}),
     ])
 
@@ -167,6 +170,7 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
         _FakeResponse(200, {"id": "11111"}),
         _FakeResponse(200, {"id": "22222"}),
         _FakeResponse(200, {"id": "33333"}),
+        _FakeResponse(200, {"status_code": "FINISHED"}),
         _FakeResponse(200, {"id": "44444"}),
     ])
 
@@ -179,7 +183,8 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
 
     assert result.success is True
     assert result.platform_post_id == "44444"
-    # First two calls create carousel items, third creates the carousel container, fourth publishes
+    # First two calls create carousel items, third creates the carousel
+    # container, fourth polls status, fifth publishes
     assert fake.calls[0]["data"]["media_type"] == "IMAGE"
     assert fake.calls[0]["data"]["is_carousel_item"] == "true"
     assert fake.calls[1]["data"]["media_type"] == "IMAGE"
@@ -187,7 +192,7 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
     assert fake.calls[2]["data"]["media_type"] == "CAROUSEL"
     assert fake.calls[2]["data"]["children"] == "11111,22222"
     assert fake.calls[2]["data"]["text"] == "Carousel post!"
-    assert fake.calls[3]["data"]["creation_id"] == "33333"
+    assert fake.calls[4]["data"]["creation_id"] == "33333"
 
 
 @pytest.mark.asyncio
