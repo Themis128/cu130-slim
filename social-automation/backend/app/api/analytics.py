@@ -21,6 +21,7 @@ from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
 from app.services.analytics_sync import sync_team_analytics
+from app.services.insights_engine import build_team_insights
 from app.services.linkedin_api import LinkedInAPIClient
 from app.services.meta_graph import facebook_graph_url
 from app.worker.tasks.analytics import sync_team_analytics_task
@@ -733,12 +734,12 @@ async def get_account_insights(
             latest[ev.event_type] = entry
 
     followers = await db.execute(
-        select(FollowerSnapshot.occurred_at, FollowerSnapshot.followers)
+        select(FollowerSnapshot.captured_at, FollowerSnapshot.followers)
         .where(
             FollowerSnapshot.social_account_id == account_id,
-            FollowerSnapshot.occurred_at >= since,
+            FollowerSnapshot.captured_at >= since,
         )
-        .order_by(FollowerSnapshot.occurred_at)
+        .order_by(FollowerSnapshot.captured_at)
     )
     follower_series = [
         {"date": ts.isoformat(), "followers": int(n)} for ts, n in followers.all()
@@ -753,6 +754,22 @@ async def get_account_insights(
         "history": history,
         "follower_trend": follower_series,
     }
+
+
+@router.get("/insights")
+async def get_team_insights(
+    days: int = Query(90, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cross-platform insights engine: per-platform performance, best posting
+    windows, content-type performance, follower trends, momentum — plus
+    rule-based recommendations (where/when/what to post, ads guidance)
+    grounded in each platform's documented best practices."""
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return await build_team_insights(db, team.id, days=days)
 
 
 @router.get("/top-posts", response_model=list[TopPost])
