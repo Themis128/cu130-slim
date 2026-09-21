@@ -194,6 +194,29 @@ def _meta_error_message(resp: httpx.Response) -> str:
         return resp.text[:200]
 
 
+def _persist_account_event(
+    db: AsyncSession,
+    account: SocialAccount,
+    captured_at: datetime,
+    event_type: str,
+    metrics: dict[str, Any],
+) -> None:
+    """Write an account-level analytics event (insights/profile/audience).
+
+    Post-level metrics live in PostAnalyticsSnapshot; account-level data
+    (page views, reach, follower demographics, org lifetime totals) lives
+    here so dashboards can chart growth/audience independent of posts.
+    """
+    db.add(AnalyticsEvent(
+        team_id=account.team_id,
+        social_account_id=account.id,
+        platform=account.platform,
+        event_type=event_type,
+        occurred_at=captured_at,
+        meta_data={"captured_at": captured_at.isoformat(), **metrics},
+    ))
+
+
 async def _fetch_linkedin_org_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -611,6 +634,17 @@ async def sync_linkedin_account(
                 source="linkedin_org_lifetime",
                 result=result,
             )
+            # Mirror into AnalyticsEvent so account-level dashboards see it.
+            _persist_account_event(
+                db, account, captured_at, "account_insights", {
+                    "impressions_lifetime": org_lifetime.impressions,
+                    "clicks_lifetime": org_lifetime.clicks,
+                    "likes_lifetime": org_lifetime.likes,
+                    "comments_lifetime": org_lifetime.comments,
+                    "shares_lifetime": org_lifetime.shares,
+                    "engagement_lifetime": org_lifetime.engagement,
+                },
+            )
 
 
 
@@ -859,6 +893,34 @@ async def sync_twitter_account(
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
                 result.errors.append(f"twitter timeline scrape: {exc}")
 
+        # Account-level metrics — followers/following/tweet_count via
+        # users/me public_metrics (free tier). A 401 means the stored
+        # OAuth2 user token is dead — recorded once, not per tweet.
+        try:
+            ur = await client.get(
+                "https://api.x.com/2/users/me",
+                params={"user.fields": "public_metrics"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if ur.status_code == 200:
+                pm = ((ur.json() or {}).get("data") or {}).get("public_metrics") or {}
+                if pm:
+                    _persist_account_event(
+                        db, account, captured_at, "account_insights",
+                        {
+                            "followers_count": int(pm.get("followers_count") or 0),
+                            "following_count": int(pm.get("following_count") or 0),
+                            "tweet_count": int(pm.get("tweet_count") or 0),
+                            "listed_count": int(pm.get("listed_count") or 0),
+                        },
+                    )
+            else:
+                result.errors.append(
+                    f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"twitter users/me: {exc}")
+
     if result.synced == 0:
         result.skipped = len(targets)
     await db.commit()
@@ -1045,6 +1107,39 @@ async def sync_facebook_account(
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"facebook post discovery: {exc}")
 
+        # Page-level insights — Pages only (meta.page_token present).
+        # v26-valid metrics: Meta removed page_impressions, page_fans,
+        # page_engaged_users, page_impressions_unique, page_fan_adds.
+        if meta.get("page_token"):
+            try:
+                resp = await _meta_insights_get(
+                    client,
+                    facebook_graph_url(f"{page_id}/insights"),
+                    [
+                        "page_views_total", "page_post_engagements",
+                        "page_daily_follows", "page_follows",
+                        "page_total_actions", "page_video_views",
+                    ],
+                    params={"access_token": page_token, "period": "day"},
+                )
+                if resp.status_code == 200:
+                    agg: dict[str, int] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        vals = item.get("values") or []
+                        latest = vals[-1].get("value", 0) if vals else 0
+                        agg[item["name"]] = int(latest) if isinstance(latest, int | float) else 0
+                    if agg:
+                        _persist_account_event(
+                            db, account, captured_at, "account_insights", agg
+                        )
+                else:
+                    result.errors.append(
+                        f"facebook page insights HTTP {resp.status_code}: "
+                        f"{_meta_error_message(resp)}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"facebook page insights: {exc}")
+
     if result.synced == 0:
         result.skipped = len(targets)
     await db.commit()
@@ -1222,6 +1317,69 @@ async def sync_instagram_account(
                 )
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"instagram media discovery: {exc}")
+
+        # Account-level insights + audience demographics — requires an
+        # insights scope on the token (skip quietly when not granted).
+        if insights_allowed:
+            insights_base = (
+                f"{ig_host}/{ig_user_id}/insights" if ig_host
+                else facebook_graph_url(f"{ig_user_id}/insights")
+            )
+            try:
+                resp = await _meta_insights_get(
+                    client,
+                    insights_base,
+                    ["reach", "follower_count", "profile_views",
+                     "accounts_engaged", "total_interactions"],
+                    params={"access_token": token, "period": "day"},
+                )
+                if resp.status_code == 200:
+                    agg: dict[str, int] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        vals = item.get("values") or []
+                        latest = vals[-1].get("value", 0) if vals else 0
+                        agg[item["name"]] = int(latest) if isinstance(latest, int | float) else 0
+                    if agg:
+                        _persist_account_event(
+                            db, account, captured_at, "account_insights", agg
+                        )
+                else:
+                    result.errors.append(
+                        f"instagram account insights HTTP {resp.status_code}: "
+                        f"{_meta_error_message(resp)}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"instagram account insights: {exc}")
+
+            # Audience demographics (country/age/gender) — campaign targeting data.
+            try:
+                resp = await client.get(
+                    insights_base,
+                    params={
+                        "access_token": token,
+                        "metric": "follower_demographics",
+                        "period": "lifetime",
+                        "metric_type": "total_value",
+                        "timeframe": "this_month",
+                        "breakdown": "country",
+                    },
+                )
+                if resp.status_code == 200:
+                    # Response: data[0].total_value.breakdowns[0].results[]
+                    # each result = {"dimension_values": ["GR"], "value": n}
+                    by_country: dict[str, int] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        for bd in (item.get("total_value") or {}).get("breakdowns") or []:
+                            for r in bd.get("results") or []:
+                                key = str((r.get("dimension_values") or ["?"])[0])
+                                by_country[key] = int(r.get("value", 0) or 0)
+                    if by_country:
+                        _persist_account_event(
+                            db, account, captured_at, "audience_demographics",
+                            {"breakdown": "country", "by_country": by_country},
+                        )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"instagram demographics: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -1681,6 +1839,17 @@ async def sync_tiktok_account(
                     metrics=metrics, captured_at=captured_at,
                     source="tiktok_scrape", result=result, platform="tiktok",
                 )
+            # Account-level profile stats from the scrape (follower count,
+            # channel id, video grid size) — persisted as an event so
+            # dashboards can chart it without re-scraping.
+            _persist_account_event(
+                db, account, captured_at, "profile_sync",
+                {
+                    "followers_count": scraped.get("followers") or 0,
+                    "channel_id": scraped.get("channel_id") or "",
+                    "video_count": len(scraped.get("videos") or {}),
+                },
+            )
             if not scraped["videos"]:
                 # 0 scraped videos with cookies present could mean a dead
                 # web session rather than an empty profile — ask the sidecar.
