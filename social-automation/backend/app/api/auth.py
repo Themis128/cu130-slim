@@ -227,6 +227,9 @@ LINKEDIN_SCOPES: list[str] = [
     "w_member_social",
     "w_organization_social",
     "r_organization_admin",
+    # Community Management API read — needed for organizationalEntity*
+    # statistics endpoints (share/follower stats feed the insights engine).
+    "r_organization_social",
 ]
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
@@ -387,7 +390,8 @@ tiktok_client = TikTokOAuth2(
     authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
     access_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
     refresh_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
-    base_scopes=["user.info.basic", "video.publish", "video.upload", "video.list"],
+    base_scopes=["user.info.basic", "user.info.profile", "user.info.stats",
+                 "video.publish", "video.upload", "video.list"],
     name="tiktok",
     token_endpoint_auth_method="client_secret_post",
 )
@@ -1146,7 +1150,8 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         ],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         "instagram2": ["user_profile", "user_media"],
-        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
+        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
+                   "video.publish", "video.upload", "video.list"],
     }
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
@@ -1318,7 +1323,11 @@ async def oauth_callback(
             username = user_info["data"]["username"]
             display_name = user_info["data"]["name"]
             avatar_url = None
-            scopes = ["tweet.read", "tweet.write", "users.read"]
+            # Mirror the granted set requested in PLATFORM_SCOPES so stored
+            # scopes reflect reality (offline.access is what makes the stored
+            # refresh token meaningful; dm.* is for unified inbox).
+            scopes = ["tweet.read", "tweet.write", "users.read",
+                      "offline.access", "dm.read", "dm.write"]
         elif platform == "facebook":
             resp = await http.get(
                 facebook_graph_url("me"),
