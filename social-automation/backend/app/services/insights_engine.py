@@ -161,6 +161,10 @@ _DATA_GAP_NOTES = (
 # small-number noise like 1→2 engagements = +100%).
 _MOMENTUM_MIN_EVENTS = 5
 
+# ER-by-followers needs a meaningful denominator — below this, tiny follower
+# counts amplify one like into a double-digit "rate".
+_BENCHMARK_MIN_FOLLOWERS = 50
+
 
 def _pct_change(current: float, previous: float) -> float | None:
     if not previous:
@@ -427,11 +431,13 @@ def compute_insights(
         growth = follower_growth.get(name)
         followers_now = growth["last"] if growth else None
 
-        # ER by followers — the metric every published benchmark uses.
-        # avg engagements per post ÷ current followers.
+        # ER by followers — the metric every published benchmark uses
+        # (avg engagements per post ÷ current followers). Gated on a
+        # meaningful follower count: with ~10 followers, 2 likes reads as
+        # a fake 20% "rate".
         er_by_followers = (
             round(p["engagement"] / posts / followers_now * 100, 3)
-            if posts and followers_now
+            if posts and followers_now and followers_now >= _BENCHMARK_MIN_FOLLOWERS
             else None
         )
         bench = PLATFORM_BENCHMARKS.get(name)
@@ -495,6 +501,40 @@ def compute_insights(
             "audience_demographics": latest_events.get((name, "audience_demographics")),
         }
 
+    # Platforms with account-level data but no tracked posts in the window
+    # still belong in the report (e.g. TikTok followers via sidecar).
+    for name in {
+        *(n for n in follower_growth),
+        *(p for p, _ in latest_events),
+    } - platforms.keys():
+        growth = follower_growth.get(name)
+        platforms[name] = {
+            "focus_tier": PLATFORM_BEST_PRACTICES.get(name, {}).get("focus", "last"),
+            "confidence": "low",
+            "posts": 0, "impressions": 0, "engagement": 0,
+            "likes": 0, "comments": 0, "shares": 0,
+            "avg_engagement_rate": 0.0,
+            "er_by_followers_pct": None,
+            "benchmark": None,
+            "best_hour_athens": None,
+            "best_weekday_athens": None,
+            "media_avg_er": None, "text_avg_er": None,
+            "momentum_7d_engagement_pct": None,
+            "momentum_7d_impressions_pct": None,
+            "engagement_7d": 0, "engagement_prev_7d": 0,
+            "follower_growth": (
+                {
+                    "net": growth["last"] - growth["first"],
+                    "current": growth["last"],
+                    "accounts": growth["accounts"],
+                }
+                if growth else None
+            ),
+            "data_warnings": [],
+            "account_insights": latest_events.get((name, "account_insights")),
+            "audience_demographics": latest_events.get((name, "audience_demographics")),
+        }
+
     recs = _recommend(platforms)
     return {
         "window_days": days,
@@ -520,13 +560,12 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     "then re-check insights.",
         }]
 
-    # Rank by benchmark-relative performance when available (comparable
-    # across platforms), else raw ER-by-impressions.
+    # Rank by avg engagements per post — the only cross-platform metric that
+    # survives broken denominators (LinkedIn impressions are under-reported,
+    # Threads followers are too few for a rate). Rate-based verdicts are still
+    # reported per-platform via `benchmark`.
     def _score(p: dict[str, Any]) -> float:
-        b = p.get("benchmark")
-        if b:
-            return b["ratio"]
-        return p["avg_engagement_rate"]
+        return p["engagement"] / p["posts"] if p["posts"] else 0.0
 
     ranked = sorted(platforms.items(), key=lambda kv: _score(kv[1]), reverse=True)
 
@@ -555,10 +594,11 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         )
         bench_note = ""
         if top.get("benchmark"):
+            b = top["benchmark"]
             bench_note = (
-                f" — {top['benchmark']['ratio']}x the "
-                f"{top_name} benchmark ({top['benchmark']['benchmark_pct']}% "
-                "ER by followers)"
+                f" — ER by followers {b['your_er_by_followers_pct']}% vs "
+                f"{b['benchmark_pct']}% industry median "
+                f"({b['verdict'].replace('_', ' ')})"
             )
         recs.append({
             "type": "channel_focus",
@@ -566,7 +606,7 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
             "platform": top_name,
             "text": (
                 f"{top_name} is your strongest channel "
-                f"({top['avg_engagement_rate']}% avg engagement over "
+                f"({round(_score(top), 2)} avg interactions/post over "
                 f"{top['posts']} posts){bench_note}. Keep original content "
                 f"here first; adapt it to secondary platforms after.{conf_note}"
             ),
@@ -661,9 +701,20 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     for name, p in platforms.items():
         mom = p.get("momentum_7d_engagement_pct")
         recent, prior = p["engagement_7d"], p["engagement_prev_7d"]
-        if mom is None or max(recent, prior) < _MOMENTUM_MIN_EVENTS:
+        if max(recent, prior) < _MOMENTUM_MIN_EVENTS:
             continue
-        if mom >= 25:
+        if mom is None and recent >= _MOMENTUM_MIN_EVENTS:
+            recs.append({
+                "type": "momentum",
+                "priority": "medium",
+                "platform": name,
+                "text": (
+                    f"{name} received {recent} interactions in the last 7 "
+                    "days after none the week before — momentum is building, "
+                    "post again this week to compound it."
+                ),
+            })
+        elif mom is not None and mom >= 25:
             recs.append({
                 "type": "momentum",
                 "priority": "medium",
@@ -753,7 +804,7 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         if top.get("best_weekday_athens") and top.get("best_hour_athens"):
             wd, _ = top["best_weekday_athens"]
             hr, _ = top["best_hour_athens"]
-            window = f" on {_WEEKDAYS[wd]} ~{hr:02d}:00 Athens"
+            window = f", best window {_WEEKDAYS[wd]} ~{hr:02d}:00 Athens"
         fmt = "media/carousel" if (
             (top.get("media_avg_er") or 0) >= (top.get("text_avg_er") or 0)
         ) else "text-led"

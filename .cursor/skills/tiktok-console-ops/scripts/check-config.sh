@@ -6,7 +6,7 @@ cd "$ROOT"
 
 EXPECTED_REDIRECT='https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback'
 EXPECTED_DOMAIN='cloudless.gr'
-EXPECTED_SCOPES='user.info.basic,user.info.profile,video.list,video.publish,video.upload'
+EXPECTED_SCOPES='user.info.basic,user.info.profile,user.info.stats,video.list,video.publish,video.upload'
 
 load_env_key() {
   local k="$1"
