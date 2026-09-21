@@ -1,6 +1,6 @@
 # SocialAuto (social.cloudless.gr) — Codemap
 
-Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-20.
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-21.
 
 ## What it is
 
