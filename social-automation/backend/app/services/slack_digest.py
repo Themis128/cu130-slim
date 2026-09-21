@@ -467,10 +467,11 @@ async def run_daily_digest_for_all_teams(
     results: list[dict[str, Any]] = []
     for team in teams:
         report = await build_daily_digest(db, team=team, days=days)
-        # Skip empty/test teams when posting (still include in API preview)
+        # Skip empty/test teams when posting (still include in API preview).
+        # Require real platform connectivity — teams that never connected an
+        # account (E2E/test teams) only produce "No social accounts" noise.
         active = (
             report.overview.get("connected_accounts", 0) > 0
-            or report.overview.get("total_posts", 0) > 0
             or report.impressions_24h > 0
         )
         if active:
