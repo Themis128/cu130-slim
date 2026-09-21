@@ -31,6 +31,36 @@ The script does: `/session/start` (platform) → `/session/cookies` →
 (persists `*_storage_state.json` + per-cookie files under the bridge's
 `/data` volume).
 
+## Inject into the Playwright MCP browser (bridge → MCP)
+
+Needed when the MCP browser must act *as* a logged-in user (e.g. Meta
+developer console work) and the only live session is in a sidecar/bridge.
+**`document.cookie` can write the *values* of httpOnly cookies** — the flag
+blocks reads, not same-domain writes. Verified working 2026-09-21 with the
+Meta dev console.
+
+1. Pull the name→value map: sidecar `GET http://localhost:9226/debug/all-cookies`
+   → `{cookies: {name: value, ...}}` (all domains mixed together).
+2. Filter to the names the target domain needs (for facebook.com keep
+   `c_user`, `xs`, `datr`, `fr`, `sb`, `wd`, `dpr`, `presence`, `locale` —
+   skip `m_pixel_ratio`, checkpoint junk, and any `*.tiktok.com` etc values).
+3. In the MCP browser: `browser_navigate` to the target domain first (cookie
+   writes are domain-scoped — you must be ON facebook.com to set its cookies),
+   then `browser_evaluate`:
+   ```js
+   () => {
+     const c = {c_user: "...", xs: "...", datr: "...", fr: "...", sb: "..."};
+     for (const [k, v] of Object.entries(c))
+       document.cookie = `${k}=${v}; path=/; domain=.facebook.com; secure`;
+     return document.cookie.length;
+   }
+   ```
+4. `browser_navigate` to the protected page — it loads logged in. The MCP
+   profile persists the cookies, so later navigations stay authenticated.
+
+This browser is contention-free (unlike the shared bridge's X-Platform
+busy-hold) — prefer it for long multi-step console automation.
+
 ## Bridge contention (X-Platform busy-hold)
 
 The bridge is ONE shared Chromium. A platform that touches the page owns a

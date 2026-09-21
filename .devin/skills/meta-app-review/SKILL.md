@@ -176,6 +176,28 @@ for (const btn of buttons) {
 - `scripts/check-business-verification.sh` — Check business verification status
 - `scripts/list-permissions.sh` — List all permissions and their review status
 - `scripts/generate-screencast.sh` — Generate a screencast from screenshots using ffmpeg
+- `scripts/reviewer_account.py` — Manage the reviewer test account: `create`
+  (EDITOR on admin team, creds → `~/.socialauto-reviewer-creds.json`),
+  `verify` (login + account count), `status`, `delete` (post-review cleanup)
+
+## Console automation via playwright MCP
+
+- Inject the live FB session into the MCP browser with `document.cookie`
+  writes (`browser_evaluate`) — see `session-transplant` → "bridge → MCP".
+  The MCP browser is contention-free vs the shared bridge's X-Platform hold.
+- Accordion headers are `href="#"` links — clicking toggles, so click once
+  and re-read the snapshot before the next action.
+- Overlays intercept synthetic JS clicks — always use `browser_click` (real
+  Playwright events).
+- Permission removal: use-case `Actions → Remove` for attached perms;
+  submission-level `remove` buttons on `/app-review/submissions/` for
+  unattached/zombie entries (e.g. WhatsApp perms that can't attach while
+  onboarding is blocked).
+- Use-case `permissions` tab shows real per-permission API call counts —
+  0 lifetime calls = evidence for removal.
+- WhatsApp perms attach only via the use case's **API Setup** flow (provisions
+  the test number), not the generic permissions table — blocked while the
+  personal account is restricted ("Onboarding failure — temporarily blocked").
 
 ## Related skills
 

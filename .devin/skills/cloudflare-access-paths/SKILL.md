@@ -55,7 +55,8 @@ whole hostname — only the 4 admin emails pass.
 
 ## Tools
 
-`scripts/cf_access.py` — list apps, probe paths, create bypass apps:
+`scripts/cf_access.py` (repo-root `scripts/`) — list apps, probe paths, create
+bypass apps, and toggle review mode:
 
 ```bash
 # List all Access apps (name | domain | decision)
@@ -66,7 +67,28 @@ python3 scripts/cf_access.py probe /api/v1/messenger/webhook /api/v1/auth/data-d
 
 # Create a bypass app for a path prefix
 python3 scripts/cf_access.py bypass social.cloudless.gr/api/v1/example/webhook --name my-bypass
+
+# App-review mode: temporarily open the WHOLE hostname for platform reviewers
+python3 scripts/cf_access.py review-mode status   # check
+python3 scripts/cf_access.py review-mode on       # prepend bypass-Everyone policy
+python3 scripts/cf_access.py review-mode off      # remove it — restores admin gate
 ```
+
+## Review mode (whole-hostname bypass)
+
+Meta/TikTok app reviewers must reach `social.cloudless.gr` directly — an
+Access SSO wall reads as "login page" and gets the submission rejected (this
+exact failure rejected the TikTok review once). `review-mode` does NOT create
+a second app on the same domain (ambiguous precedence); it **prepends a
+`bypass`/`Everyone` policy named `app-review-temp-bypass` to the existing
+`socialauto-app`** (`ed95d3d9-…`). Policy order decides evaluation, and
+deleting the temp policy restores the admin allow-list untouched — fully
+reversible. While active, exposure = the SocialAuto login page only (the
+app's own auth still gates everything). Pair with a scoped reviewer account
+(`meta-app-review/scripts/reviewer_account.py`) rather than sharing admin
+credentials. Enable right before submitting for review, disable after
+approval — do not leave it on.
+
 
 ## How to verify reachability
 
