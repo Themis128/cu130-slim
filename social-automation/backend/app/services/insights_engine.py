@@ -351,25 +351,37 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
             ),
         })
 
+    weak = []
     for name, p in ranked[1:]:
-        if p["posts"] >= 3 and top["avg_engagement_rate"] > 0:
-            ratio = p["avg_engagement_rate"] / top["avg_engagement_rate"]
-            if ratio < 0.4:
-                recs.append({
-                    "type": "deprioritize",
-                    "priority": "medium",
-                    "platform": name,
-                    "text": (
-                        f"{name} engagement is {ratio:.0%} of {top_name}'s — "
-                        f"cross-post adapted versions only, don't craft "
-                        f"{name}-first content this sprint."
-                    ),
-                })
+        if (
+            p["posts"] >= 3
+            and p["engagement"] > 0
+            and top["avg_engagement_rate"] > 0
+            and p["avg_engagement_rate"] / top["avg_engagement_rate"] < 0.4
+        ):
+            weak.append(name)
+    if weak:
+        recs.append({
+            "type": "deprioritize",
+            "priority": "medium",
+            "platform": ", ".join(weak),
+            "text": (
+                f"{', '.join(weak)} engagement is <40% of {top_name}'s — "
+                "cross-post adapted versions only, don't craft "
+                "platform-first content there this sprint."
+            ),
+        })
 
-    # 2. Best posting windows (data-backed where enough posts exist).
+    # 2. Best posting windows — only when the winning bucket actually
+    # produced engagement (ER > 0); otherwise use the platform baseline.
     for name, p in platforms.items():
         bp = PLATFORM_BEST_PRACTICES.get(name)
-        if p["best_weekday_athens"] and p["best_hour_athens"]:
+        has_signal = (
+            p["best_weekday_athens"] and p["best_hour_athens"]
+            and p["best_weekday_athens"][1] > 0
+            and p["best_hour_athens"][1] > 0
+        )
+        if has_signal:
             wd, wd_er = p["best_weekday_athens"]
             hr, hr_er = p["best_hour_athens"]
             recs.append({
@@ -394,9 +406,12 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
             })
 
-    # 3. Format recommendations (media vs text).
+    # 3. Format recommendations (media vs text) — needs real signal.
     for name, p in platforms.items():
-        if p["media_avg_er"] is not None and p["text_avg_er"] is not None:
+        if (
+            p["media_avg_er"] is not None and p["text_avg_er"] is not None
+            and (p["media_avg_er"] > 0 or p["text_avg_er"] > 0)
+        ):
             if p["media_avg_er"] > p["text_avg_er"] * 1.2:
                 recs.append({
                     "type": "format",
