@@ -1918,7 +1918,11 @@ async def instagram2_authorize(
 
     state_b64 = sign_oauth_state({"t": str(team_id)})
 
-    scope = "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages,instagram_business_manage_insights"
+    scope = (
+        "instagram_business_basic,instagram_business_content_publish,"
+        "instagram_business_manage_comments,instagram_business_manage_messages,"
+        "instagram_business_manage_insights"
+    )
     auth_url = (
         f"https://www.instagram.com/oauth/authorize"
         f"?client_id={settings.INSTAGRAM2_CLIENT_ID}"
