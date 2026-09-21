@@ -691,6 +691,70 @@ async def get_account_metrics(
     )
 
 
+@router.get("/accounts/{account_id}/insights")
+async def get_account_insights(
+    account_id: uuid.UUID,
+    days: int = Query(90, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Account-level insights: latest insights/demographics/profile events
+    collected by analytics sync, plus the follower trend for the window."""
+    result = await db.execute(
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
+        .where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = await db.execute(
+        select(AnalyticsEvent)
+        .where(
+            AnalyticsEvent.social_account_id == account_id,
+            AnalyticsEvent.event_type.in_(
+                ["account_insights", "audience_demographics", "profile_sync"]
+            ),
+            AnalyticsEvent.occurred_at >= since,
+        )
+        .order_by(AnalyticsEvent.occurred_at.desc())
+    )
+    events = rows.scalars().all()
+
+    latest: dict[str, Any] = {}
+    history: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        entry = {"occurred_at": ev.occurred_at.isoformat(), **(ev.meta_data or {})}
+        history.setdefault(ev.event_type, []).append(entry)
+        if ev.event_type not in latest:
+            latest[ev.event_type] = entry
+
+    followers = await db.execute(
+        select(FollowerSnapshot.occurred_at, FollowerSnapshot.followers)
+        .where(
+            FollowerSnapshot.social_account_id == account_id,
+            FollowerSnapshot.occurred_at >= since,
+        )
+        .order_by(FollowerSnapshot.occurred_at)
+    )
+    follower_series = [
+        {"date": ts.isoformat(), "followers": int(n)} for ts, n in followers.all()
+    ]
+
+    return {
+        "account_id": str(account_id),
+        "platform": account.platform,
+        "username": account.username or "",
+        "days": days,
+        "latest": latest,
+        "history": history,
+        "follower_trend": follower_series,
+    }
+
+
 @router.get("/top-posts", response_model=list[TopPost])
 async def get_top_posts(
     limit: int = Query(10, ge=1, le=50),
