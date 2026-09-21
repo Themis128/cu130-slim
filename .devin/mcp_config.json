@@ -42,6 +42,13 @@
       "env": {
         "CU130_ROOT": "/home/tbaltzakis/cu130-slim"
       }
+    },
+    "n8n": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py"
+      ],
+      "cwd": "/home/tbaltzakis/cu130-slim"
     }
   }
 }
