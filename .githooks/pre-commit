@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Local gate mirroring the first two CI steps of
+# .github/workflows/social-automation-backend.yml (ruff + mypy).
+# Runs only on staged backend files; fails open when the social-api
+# container is unavailable so local work is never blocked by infra.
+
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '^social-automation/backend/.*\.py$' || true)
+[ -z "$staged" ] && exit 0
+
+if ! docker compose exec -T social-api true >/dev/null 2>&1; then
+    echo "[pre-commit] social-api not running — skipping backend lint/typecheck gate" >&2
+    exit 0
+fi
+
+files=$(echo "$staged" | sed 's|^social-automation/backend/||' | tr '\n' ' ')
+
+echo "[pre-commit] ruff check $files" >&2
+if ! docker compose exec -T social-api python -m ruff check $files; then
+    echo "[pre-commit] ruff failed — fix or commit with --no-verify" >&2
+    exit 1
+fi
+
+echo "[pre-commit] mypy $files" >&2
+if ! docker compose exec -T social-api python -m mypy $files --ignore-missing-imports; then
+    echo "[pre-commit] mypy failed — fix or commit with --no-verify" >&2
+    exit 1
+fi
+
+exit 0
