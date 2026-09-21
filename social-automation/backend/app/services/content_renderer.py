@@ -45,6 +45,52 @@ def sanitize_generated_text(text: str) -> str:
     return text.strip()
 
 
+def _normalize_url(url: str) -> str:
+    """Normalize a URL for comparison — scheme, www prefix, and trailing slash
+    are stripped so ``www.cloudless.gr`` matches ``https://cloudless.gr/``."""
+    u = url.strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    return u.rstrip("/")
+
+
+def strip_embedded_metadata(content: str, hashtags: list[str] | None, link_url: str | None) -> str:
+    """Remove trailing lines that duplicate dedicated post fields.
+
+    ``render_post_text`` appends ``post.hashtags`` and ``post.link_url`` at
+    publish time, so generated text that already ends with those values would
+    print them twice. Strips, from the end of ``content`` only:
+
+    * lines made solely of hashtags that are all present in ``hashtags``
+    * a standalone line whose URL normalizes to ``link_url``
+
+    Inline hashtags/URLs and trailing content not covered by the metadata
+    fields are left untouched.
+    """
+    if not content:
+        return content
+    tagset = {h.lstrip("#").lower() for h in (hashtags or [])}
+    link_norm = _normalize_url(link_url) if link_url else None
+    lines = content.rstrip().split("\n")
+    while lines:
+        last = lines[-1].strip()
+        if not last:
+            lines.pop()
+            continue
+        tokens = last.split()
+        if tagset and all(t.startswith("#") for t in tokens) and all(
+            t.lstrip("#").lower() in tagset for t in tokens
+        ):
+            lines.pop()
+            continue
+        if link_norm and len(tokens) == 1 and _normalize_url(tokens[0]) == link_norm:
+            lines.pop()
+            continue
+        break
+    stripped = "\n".join(lines).rstrip()
+    return stripped if stripped else content.rstrip()
+
+
 def _ideal_hashtag_count(platform: str) -> tuple[int, int]:
     hint = _PLATFORM_HINTS.get(platform, {})
     val = hint.get("ideal_hashtags")

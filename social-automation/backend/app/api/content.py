@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.services.content_renderer import render_post_text
+from app.services.content_renderer import render_post_text, strip_embedded_metadata
 from app.services.spellcheck import auto_correct
 
 router = APIRouter()
@@ -128,12 +128,15 @@ async def create_post(
     await check_quota("posts_per_month", team_id, db)
 
     corrected_text = await auto_correct(post_data.content_text or "")
+    body = strip_embedded_metadata(
+        corrected_text or post_data.content_text, post_data.hashtags, post_data.link_url
+    )
 
     post = Post(
         team_id=team_id,
         user_id=current_user.id,
         status=PostStatus.DRAFT if not post_data.scheduled_at else PostStatus.SCHEDULED,
-        content_text=corrected_text or post_data.content_text,
+        content_text=body,
         media_ids=post_data.media_ids,
         platform_specific=post_data.platform_specific,
         hashtags=post_data.hashtags,
@@ -279,6 +282,8 @@ async def update_post(
 
     for field, value in update_data.items():
         setattr(post, field, value)
+
+    post.content_text = strip_embedded_metadata(post.content_text, post.hashtags, post.link_url)
 
     if post.scheduled_at and post.status == PostStatus.DRAFT:
         post.status = PostStatus.SCHEDULED
