@@ -76,6 +76,25 @@ stored as `voice_signature.niche` so every generation is audience-anchored:
 If generated content drifts generic or addresses the wrong audience, check
 `niche` first — it is the WHO anchor for every post.
 
+## DAY 4+5 — Profile test + Bio That Sells (adopted)
+
+DAY 4 audit runs via `profile-5sec-test` skill (`scripts/profile_audit.py`).
+2026-09-21 scores: FB Pages 8/8, Twitter 8/8, Threads 7/8, TikTok 7/8,
+IG 5/8. Residual fails are platform limits, not copy: IG name/website are
+app-only, Threads/TikTok have no writable website field, avatar vision
+notes are report-only (never change avatars without explicit ask).
+
+DAY 5 bio structure stored as `voice_signature.bio_formula` —
+[WHO+RESULT] / [METHOD or PROOF] / [REASON TO FOLLOW] / [CTA], compressed.
+Applied to FB Pages (about ≤100 chars), Twitter bio, Threads bio (via
+bridge), IG bio (via bridge edit form). TikTok bio is captcha-blocked;
+LinkedIn headline/about updates wait for the sidecar 429 circuit to clear.
+
+Threads data fix (2026-09-21): `social_accounts.username` was stale
+(`cloudless_gr` → corrected to `cloudless.gr`) — the bridge navigates
+`threads.com/@{username}` for reads/writes, and the wrong handle 302'd to
+a page with no Edit button.
+
 ## Tool
 
 ```bash
