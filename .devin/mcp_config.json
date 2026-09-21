@@ -9,6 +9,7 @@
         "mcr.microsoft.com/playwright/mcp:latest",
         "--config", "/workspace/.playwright-data/pw-mcp-config.json",
         "--user-data-dir", "/home/pwuser/.playwright-data/profile",
+        "--browser", "chromium",
         "--init-script", "/workspace/.playwright-data/init-script.js",
         "--ignore-https-errors",
         "--timeout-action", "15000",
