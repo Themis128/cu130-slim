@@ -2,13 +2,15 @@
 name: creator-type-voice
 description: >-
   Applies the Sofia Kakkava "Visibility Era" DAY 1 self-assessment (Creator
-  Type: Expert / Storyteller / Energizer) to cloudless.gr content. Stores the
-  type's post formula in the SocialAuto brand voice
-  (brand_voices.voice_signature) so every /api/v1/ai/generate-content call —
-  UI generation and all 15 n8n workflows — writes in the owner's natural
-  style. Covers the quiz, the apply/verify tool, and the formula text for
-  each type. Use when post style feels off-brand, when re-running the
-  assessment, or when tuning generated post voice.
+  Type: Expert / Storyteller / Energizer) and DAY 2 2-Platform Rule to
+  cloudless.gr content. Stores the type's post formula and platform tiers in
+  the SocialAuto brand voice (brand_voices.voice_signature) so every
+  /api/v1/ai/generate-content call — UI generation and all 15 n8n workflows —
+  writes in the owner's natural style on the right platforms. Covers the
+  quiz, the apply/verify/platforms tool, and the formula text for each type.
+  Use when post style feels off-brand, when re-running the assessment, when
+  tuning generated post voice, or when deciding which platform a scheduled
+  workflow should target.
 allowed-tools:
   - read
   - exec

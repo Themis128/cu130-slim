@@ -13,6 +13,7 @@ Usage:
     creator_type.py show                    # current voice_signature
     creator_type.py quiz                    # interactive DAY 1 assessment
     creator_type.py apply <type>            # expert|storyteller|energizer|blend
+    creator_type.py platforms               # DAY 2 platform tiers (live)
     creator_type.py verify [platform]       # generate a sample post
 """
 
@@ -116,6 +117,26 @@ TYPE_FORMULAS = {
 }
 
 # ---------------------------------------------------------------------------
+# DAY 2 — The 2-Platform Rule (8-week commitment)
+#
+# Owner's choice: MAIN = LinkedIn; SECONDARY = all Meta platforms;
+# LAST = everything else. Written into voice_signature.platform_focus.
+# ---------------------------------------------------------------------------
+
+PLATFORM_TIERS = {
+    "main": ["linkedin"],
+    "secondary": ["instagram", "facebook", "threads"],
+    "last": ["twitter", "tiktok"],
+}
+PLATFORM_FOCUS_TEXT = (
+    "2-Platform Rule (8-week commitment): MAIN = LinkedIn (primary content, "
+    "carousels, long-form Educator posts). SECONDARY = Meta platforms "
+    "(Instagram, Facebook Page, Threads - adapted/cross-posted versions). "
+    "LAST = everything else (Twitter/X, TikTok - opportunistic only, do not "
+    "optimize for them)"
+)
+
+# ---------------------------------------------------------------------------
 # API helpers (TOTP login — same flow as n8n workflows + socialauto MCP)
 # ---------------------------------------------------------------------------
 
@@ -210,6 +231,18 @@ def cmd_apply(kind: str) -> None:
     print(json.dumps(TYPE_FORMULAS[kind], indent=2))
 
 
+def cmd_platforms() -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    live = sig.get("platform_focus", "")
+    for tier, plats in PLATFORM_TIERS.items():
+        print(f"{tier.upper():10} {', '.join(plats)}")
+    print()
+    print("voice_signature.platform_focus:")
+    print(" ", live or "(not set — run apply)")
+    if live != PLATFORM_FOCUS_TEXT:
+        print("\nNOTE: live text differs from PLATFORM_FOCUS_TEXT")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -231,6 +264,8 @@ def main() -> None:
         cmd_quiz()
     elif cmd == "apply" and len(sys.argv) > 2:
         cmd_apply(sys.argv[2])
+    elif cmd == "platforms":
+        cmd_platforms()
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:
