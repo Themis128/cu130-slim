@@ -134,7 +134,7 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
                         return int(fc["organicFollowerCount"])
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _twitter_follower_count(account: SocialAccount) -> int:
@@ -182,10 +182,13 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
             )
             if resp.status_code == 200:
                 data = resp.json() or {}
-                return int(data.get("followers_count", 0) or data.get("fan_count", 0) or 0)
+                if data.get("followers_count") is not None:
+                    return int(data["followers_count"])
+                if data.get("fan_count") is not None:
+                    return int(data["fan_count"])
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _instagram_follower_count(account: SocialAccount) -> int:
@@ -212,10 +215,11 @@ async def _instagram_follower_count(account: SocialAccount) -> int:
             )
             if resp.status_code == 200:
                 data = resp.json() or {}
-                return int(data.get("followers_count", 0) or 0)
+                if data.get("followers_count") is not None:
+                    return int(data["followers_count"])
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _threads_follower_count(account: SocialAccount) -> int:
@@ -248,7 +252,7 @@ async def _threads_follower_count(account: SocialAccount) -> int:
                             return int(val.get("value", 0) or 0)
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _tiktok_follower_count(account: SocialAccount) -> int:
@@ -259,7 +263,7 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
     profile-page stats which render fine even in headless mode.
     """
     if account.platform != "tiktok":
-        return 0
+        return -1
     try:
         import httpx
         token = decrypt_token(account.access_token_enc)
@@ -284,7 +288,7 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
 
         username = (account.username or "").lstrip("@")
         if not username:
-            return 0
+            return -1
         async with httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.get(
                 f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
@@ -296,7 +300,7 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
                 return int(followers)
     except Exception:
         pass
-    return 0
+    return -1
 
 
 async def _follower_count(account: SocialAccount) -> int:
