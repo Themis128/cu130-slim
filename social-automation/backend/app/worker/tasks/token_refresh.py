@@ -9,6 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from celery import shared_task
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -65,6 +66,25 @@ def _get_oauth_client(platform: str):
     return clients.get(platform)
 
 
+async def _refresh_instagram_business_token(access_token: str) -> dict:
+    """Refresh an Instagram Business Login long-lived token.
+
+    Business Login tokens (IGAAU*) have no refresh_token — Meta's
+    ig_refresh_token grant exchanges the access token itself for a fresh
+    60-day token on graph.instagram.com.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={"grant_type": "ig_refresh_token", "access_token": access_token},
+        )
+    data = resp.json()
+    if resp.status_code != 200:
+        err = data.get("error", {})
+        raise RuntimeError(err.get("message") or f"ig_refresh_token HTTP {resp.status_code}")
+    return data
+
+
 @shared_task(name="app.worker.tasks.token_refresh.refresh_expiring_tokens")
 def refresh_expiring_tokens() -> dict:
     """Refresh all social account tokens that will expire within 4 hours."""
@@ -90,7 +110,15 @@ async def _refresh_expiring_tokens_async() -> dict:
         result = await db.execute(
             select(SocialAccount).where(
                 SocialAccount.status.in_(["active", "expired"]),
-                SocialAccount.refresh_token_enc.isnot(None),
+                or_(
+                    SocialAccount.refresh_token_enc.isnot(None),
+                    # Instagram Business Login tokens self-refresh via
+                    # ig_refresh_token — no refresh_token is stored.
+                    and_(
+                        SocialAccount.platform == "instagram",
+                        SocialAccount.meta_data["login_type"].astext == "business_login",
+                    ),
+                ),
                 or_(
                     SocialAccount.status == "expired",
                     and_(
@@ -130,8 +158,17 @@ async def _refresh_expiring_tokens_async() -> dict:
                 continue
 
             try:
-                refresh_token = decrypt_token(account.refresh_token_enc)
-                token = await client.refresh_token(refresh_token)
+                if (
+                    platform == "instagram"
+                    and (account.meta_data or {}).get("login_type") == "business_login"
+                    and not account.refresh_token_enc
+                ):
+                    token = await _refresh_instagram_business_token(
+                        decrypt_token(account.access_token_enc)
+                    )
+                else:
+                    refresh_token = decrypt_token(account.refresh_token_enc)
+                    token = await client.refresh_token(refresh_token)
             except Exception as exc:
                 logger.exception("Token refresh failed for %s: %s", account_label, exc)
                 summary["errors"].append(f"{account_label}: {exc}")
