@@ -116,7 +116,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"linkedin\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false,\n  \"provider\": \"dmr\",\n  \"model\": \"ai/smollm2\"\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"linkedin\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
         "options": {
           "timeout": 120000
         }
