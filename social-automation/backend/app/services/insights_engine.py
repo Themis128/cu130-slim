@@ -734,6 +734,11 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     f"{name} insights are permission-blocked — reconnect the "
                     f"account so it grants the insights scope ({w})."
                 )
+            elif "quota_exhausted" in w:
+                text = (
+                    f"{name} API read quota is exhausted — metrics will resume "
+                    "when the quota resets or the plan is upgraded."
+                )
             else:
                 text = f"{name} data collection issue: {w}"
             recs.append({

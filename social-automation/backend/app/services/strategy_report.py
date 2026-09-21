@@ -113,7 +113,7 @@ class StrategyReport:
     <tr><td>Impressions</td><td><b>{d.impressions_24h}</b></td>
         <td>Engagement</td><td><b>{d.engagement_24h}</b></td></tr>
     <tr><td>Connected accounts</td><td><b>{d.overview.get('connected_accounts', 0)}</b></td>
-        <td>Posts (30d window)</td><td><b>{d.overview.get('total_posts', 0)}</b></td></tr>
+        <td>Posts created (24h)</td><td><b>{d.overview.get('total_posts', 0)}</b></td></tr>
   </table>"""
 
         rows = "".join(

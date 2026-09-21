@@ -174,14 +174,34 @@ async def build_daily_digest(
         )
     )
 
-    # Latest snapshots engagement / impressions (24h capture window)
-    snap_rows = await db.execute(
+    # Engagement / impressions gained in the last 24h. Snapshots store
+    # cumulative platform counters and syncs capture ~every 30min, so the
+    # 24h figure is the per-post delta (max - min), not the sum of all rows.
+    # greatest() clamps counter resets at 0.
+    per_post_delta = (
         select(
-            func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
-            func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
-        ).where(
+            func.greatest(
+                func.max(PostAnalyticsSnapshot.impressions)
+                - func.min(PostAnalyticsSnapshot.impressions),
+                0,
+            ).label("d_imp"),
+            func.greatest(
+                func.max(PostAnalyticsSnapshot.engagement)
+                - func.min(PostAnalyticsSnapshot.engagement),
+                0,
+            ).label("d_eng"),
+        )
+        .where(
             PostAnalyticsSnapshot.team_id == team.id,
             PostAnalyticsSnapshot.captured_at >= since_24h,
+        )
+        .group_by(PostAnalyticsSnapshot.platform_post_id)
+        .subquery()
+    )
+    snap_rows = await db.execute(
+        select(
+            func.coalesce(func.sum(per_post_delta.c.d_imp), 0),
+            func.coalesce(func.sum(per_post_delta.c.d_eng), 0),
         )
     )
     impressions_24h, engagement_24h = snap_rows.one()
