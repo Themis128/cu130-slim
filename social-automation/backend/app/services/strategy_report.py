@@ -74,7 +74,7 @@ class StrategyReport:
         lines.append("PLATFORM PULSE (30d)")
         for name, p in self._platform_rows():
             mom = p.get("momentum_7d_engagement_pct")
-            mom_s = f"{mom:+}%" if isinstance(mom, (int, float)) else "n/a"
+            mom_s = f"{mom:+}%" if isinstance(mom, int | float) else "n/a"
             bench = p.get("benchmark") or {}
             verdict = bench.get("verdict", "").replace("_", " ") or "no benchmark"
             window = self._best_window(p)
@@ -183,7 +183,7 @@ class StrategyReport:
     @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:
         m = p.get("momentum_7d_engagement_pct")
-        return f"{m:+}%" if isinstance(m, (int, float)) else "n/a"
+        return f"{m:+}%" if isinstance(m, int | float) else "n/a"
 
     @staticmethod
     def _best_window(p: dict[str, Any]) -> str:
