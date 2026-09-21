@@ -1,6 +1,6 @@
 {
   "id": "instagram-carousel-post",
-  "name": "Instagram Carousel Post (DMR→CF)",
+  "name": "Instagram Carousel Post (DMR\u2192CF)",
   "active": true,
   "nodes": [
     {
@@ -48,6 +48,10 @@
             {
               "name": "password",
               "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
             }
           ]
         },
@@ -118,7 +122,7 @@
         }
       },
       "id": "gen-carousel",
-      "name": "Generate Carousel (DMR→CF)",
+      "name": "Generate Carousel (DMR\u2192CF)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -142,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.media_ids || []) }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.media_ids || []) }}\n}",
         "options": {
           "timeout": 60000
         }
@@ -263,6 +267,19 @@
         960,
         120
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "09dc925e-287b-4ba0-8771-7cbac6e790ae",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        140
+      ]
     }
   ],
   "connections": {
@@ -281,7 +298,7 @@
       "main": [
         [
           {
-            "node": "Login Social API",
+            "node": "Generate TOTP",
             "type": "main",
             "index": 0
           }
@@ -303,7 +320,7 @@
       "main": [
         [
           {
-            "node": "Generate Carousel (DMR→CF)",
+            "node": "Generate Carousel (DMR\u2192CF)",
             "type": "main",
             "index": 0
           }
@@ -317,7 +334,7 @@
         ]
       ]
     },
-    "Generate Carousel (DMR→CF)": {
+    "Generate Carousel (DMR\u2192CF)": {
       "main": [
         [
           {
@@ -362,6 +379,17 @@
         [
           {
             "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
             "type": "main",
             "index": 0
           }
