@@ -28,57 +28,82 @@ being disabled.
 | Account Status | `https://www.facebook.com/account_status` |
 | Account Quality | `https://www.facebook.com/accountquality` (redirects to BSH if restricted) |
 
-## Permissions in the submission
+## Submission state (2026-09-21)
 
-### Completed (allowed-usage saved)
+The draft submission was pruned to only permissions SocialAuto actually uses —
+Meta rejects submissions containing undemonstrable permissions. All remaining
+items show **Edit** (allowed-usage saved); nothing is incomplete.
 
-| Permission | Status |
-|------------|--------|
-| `pages_show_list` | Done |
-| `pages_manage_metadata` | Done |
-| `pages_messaging` | Done |
-| `business_management` | Done |
-| `pages_read_engagement` | Done |
-| `instagram_business_basic` | Done |
-| `instagram_business_manage_messages` | Done |
-| `pages_read_user_content` | Done |
-| `pages_manage_posts` | Done |
-| `pages_manage_engagement` | Done |
-| `pages_utility_messaging` | Done (screencast uploaded) |
+### Removed from the draft (with evidence)
 
-### Remaining (allowed-usage not yet saved)
+| Item | Why removed |
+|------|-------------|
+| `whatsapp_business_messaging` + `_management` | Can't attach to the app — WhatsApp onboarding is Meta-blocked; can't demo. Re-add via WhatsApp use case when onboarding unblocks. |
+| `pages_utility_messaging` | 0 lifetime API calls; no code refs (utility message templates only — messenger bot uses `pages_messaging`). |
+| `instagram_business_manage_insights` | 0 lifetime calls; analytics uses `instagram_manage_insights` (FB-login family) instead. |
+| `instagram_manage_comments` | 0 calls AND can't run — cloudless.gr IG uses Instagram Business Login and is not linked to a Page. The working `instagram_business_manage_comments` stays. |
+| `Human Agent` feature | 0 calls; no `human_agent` tag in messenger code. |
 
-| Permission | Notes |
-|------------|-------|
-| `instagram_business_content_publish` | Needs description + screencast |
-| `instagram_manage_comments` | Needs description + screencast |
-| `instagram_business_manage_insights` | Needs description + screencast |
-| `threads_basic` | Needs description + screencast |
-| `read_insights` | Needs description + screencast |
+### How to remove a permission
 
-## App Review requirements per permission
+Two levels: (a) use-case level — `Use cases → Customize → Permissions and features`
+tab → row `Actions → Remove` (removes from app + propagates to the draft);
+(b) submission level — `App Review → submissions` list page, per-item `remove`
+button (for items whose permission isn't attached to any use case, e.g. the
+WhatsApp zombies). Confirm dialog: "Yes, remove".
 
-Each permission requires ALL of the following before the submission button enables:
+### Remaining permissions (all allowed-usage saved)
 
-1. **Allowed-usage description**: A detailed explanation of how the permission is
-   used in the app. Must be specific — generic descriptions are rejected.
-2. **Screencast video**: A real MP4 (H.264, 1280×720 minimum) showing the
-   end-to-end user experience including OAuth flow. Screenshot-based videos may
-   be rejected.
-3. **API test calls**: Some permissions require test calls in Meta's Testing
-   area. Meta may take up to 24 hours to process.
-4. **Compliance checkbox**: Agree to comply with the allowed usage terms.
-5. **Customized questions**: Some permissions have tech-provider-specific
-   questions that must be answered.
-6. **Dependent permissions**: Ensure all dependent permissions are included
-   (e.g., `instagram_business_basic` for Instagram publishing).
+pages_show_list, pages_manage_metadata, pages_messaging, business_management,
+pages_read_engagement, instagram_business_basic, instagram_business_manage_messages,
+pages_read_user_content, pages_manage_posts, instagram_business_content_publish,
+pages_manage_engagement, threads_basic, instagram_content_publish,
+instagram_manage_messages, instagram_business_manage_comments, read_insights,
+ads_read, ads_management, public_profile, instagram_manage_insights, instagram_basic
+
+## Wizard steps status
+
+| Step | Status |
+|------|--------|
+| Verification | **BLOCKED** — connecting `cloudless.gr` portfolio returns "temporarily blocked from performing this action" (personal-account restriction) |
+| App settings | Done — icon, privacy URL `social.cloudless.gr/privacy` (public 200), category "Business and pages", contact email |
+| Allowed usage | Done — all items saved |
+| Data handling | Done — pre-filled reviewed (Cloudflare processor, controller Baltzakis Themistoklis, Greece) |
+| Reviewer instructions | Done — includes test account creds |
+
+## Reviewer test account
+
+- `reviewer@cloudless.gr` — EDITOR role on the admin (enterprise) team.
+- Created directly in DB (no own team → team resolution lands on admin team).
+- Credentials are in the submission's access-code field AND the instructions text.
+- **Delete this account after review concludes.**
+
+## Cloudflare Access exposure (pending decision implementation)
+
+`social.cloudless.gr` root is behind Access SSO (302 → cloudflareaccess.com) —
+same wall that got TikTok rejected. Chosen fix: **temporary full Access bypass**
+on the hostname during the review window (app's own auth still gates everything;
+exposure = login page only). Apply via `cloudflare-access-paths` skill right
+before submitting, revert after approval. Not applied yet — no benefit while
+Verification is blocked.
+
+## API-call usage table
+
+Each use-case permissions tab shows real per-permission API call counts — use it
+to prove usage before deciding keep/remove: 0 calls = removal candidate.
+Observed: ads_management 2.6k, business_management 4k, pages_messaging 8.8k,
+pages_manage_metadata 9.4k, pages_read_engagement 9.4k, instagram_basic 2.4k,
+public_profile 2.5k, instagram_business_manage_messages 366,
+instagram_content_publish 360, instagram_manage_messages 8.
 
 ## Current blocker
 
 **Business verification is blocked** by a permanent advertising restriction on
 the personal Facebook account (Themistoklis Baltzakis, ad account
 `657781691826702`, disabled Jan 24, 2021). Meta says "too much time has passed"
-and the decision cannot be reviewed through Account Quality.
+and the decision cannot be reviewed through Account Quality. The same
+restriction blocks: business-portfolio connect ("temporarily blocked"),
+WhatsApp onboarding ("temporarily blocked").
 
 See the `meta-account-restriction` skill for resolution steps.
 
