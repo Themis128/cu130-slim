@@ -872,16 +872,21 @@ async def _fetch_facebook_post_metrics(
 ) -> MetricBundle:
     """Fetch insights for a Facebook page post via Graph API.
 
-    Uses post_impressions (deprecated June 2026, still functional) plus
-    post_media_view as the modern replacement for impressions.
+    Meta removed post_impressions/post_comments/post_shares from post
+    insights in v26 (June 2026). Remaining insight metrics: post_media_view
+    (impressions replacement), post_clicks, post_reactions_like_total,
+    post_reactions_by_type_total, post_activity_by_action_type,
+    post_video_views. Comments/shares come from the post object itself
+    (comments.summary.total_count, shares.count).
     """
     url = facebook_graph_url(f"{post_id}/insights")
     resp = await _meta_insights_get(
         client,
         url,
         [
-            "post_impressions", "post_media_view", "post_clicks",
-            "post_reactions_like_total", "post_comments", "post_shares",
+            "post_media_view", "post_clicks", "post_reactions_like_total",
+            "post_reactions_by_type_total", "post_activity_by_action_type",
+            "post_video_views",
         ],
         params={"access_token": page_token},
     )
@@ -898,16 +903,45 @@ async def _fetch_facebook_post_metrics(
             return 0
         values = item.get("values", [])
         if idx < len(values):
-            return int(values[idx].get("value", 0) or 0)
+            value = values[idx].get("value", 0)
+            return int(value) if isinstance(value, int | float) else 0
         return 0
 
-    impressions = _val("post_impressions") or _val("post_media_view")
+    def _breakdown(name: str, key: str) -> int:
+        item = raw_metrics.get(name)
+        if not item:
+            return 0
+        for v in item.get("values", []):
+            value = v.get("value")
+            if isinstance(value, dict):
+                return int(value.get(key, 0) or 0)
+        return 0
+
+    impressions = _val("post_media_view") or _val("post_video_views")
+
+    # Comments/shares removed from post insights — read them off the object.
+    comments = _breakdown("post_activity_by_action_type", "comment")
+    shares = _breakdown("post_activity_by_action_type", "share")
+    obj = await client.get(
+        facebook_graph_url(post_id),
+        params={
+            "access_token": page_token,
+            "fields": "shares,comments.summary(true).limit(0)",
+        },
+    )
+    if obj.status_code == 200:
+        body = obj.json() or {}
+        comments = comments or int(
+            (body.get("comments", {}).get("summary", {}) or {}).get("total_count", 0) or 0
+        )
+        shares = shares or int((body.get("shares", {}) or {}).get("count", 0) or 0)
+
     return MetricBundle(
         impressions=impressions,
         clicks=_val("post_clicks"),
         likes=_val("post_reactions_like_total"),
-        comments=_val("post_comments"),
-        shares=_val("post_shares"),
+        comments=comments,
+        shares=shares,
         reach=impressions,
         raw=data,
     )
@@ -1036,11 +1070,12 @@ async def _fetch_instagram_media_metrics(
     else:
         url = facebook_graph_url(f"{media_id}/insights")
     # Modern metrics first; the helper drops whichever names this token's
-    # API version rejects (views vs impressions, saved vs saves, reach…).
+    # API version rejects (views vs impressions, reach…). `saved` is the
+    # valid name — `saves` is rejected with metric[N] by Meta.
     resp = await _meta_insights_get(
         client,
         url,
-        ["views", "impressions", "reach", "likes", "comments", "shares", "saved", "saves", "replies"],
+        ["views", "impressions", "reach", "likes", "comments", "shares", "saved", "replies"],
         params={"access_token": token},
     )
     if resp.status_code != 200:
@@ -1089,6 +1124,26 @@ async def sync_instagram_account(
     ig_user_id = account.account_id
     since = datetime.now(UTC) - timedelta(days=days)
     captured_at = datetime.now(UTC)
+
+    # Tokens granted without an insights scope 403 on every media call —
+    # skip the API entirely and record one clear note instead of an
+    # error storm per media item.
+    stored_scopes = set(meta.get("scopes") or [])
+    insights_scopes = {
+        "instagram_business_manage_insights",
+        "instagram_manage_insights",
+    }
+    insights_allowed = (
+        not stored_scopes or bool(stored_scopes & insights_scopes)
+    )
+
+    def _insights_or_skip(media_id: str) -> MetricBundle | None:
+        if insights_allowed:
+            return None
+        return MetricBundle(
+            notes="insights_scope_missing — reconnect account with "
+                  "instagram_business_manage_insights"
+        )
 
     targets_q = (
         select(PostTarget)
