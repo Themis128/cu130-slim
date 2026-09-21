@@ -1827,10 +1827,13 @@ async def sync_tiktok_account(
                 video_id = _resolve_tiktok_display_video_id(t)
                 if not video_id:
                     result.skipped += 1
-                    result.errors.append(
-                        f"tiktok skip post={t.post_id}: no Display video id "
-                        f"(inbox publish_id={t.platform_post_id})"
-                    )
+                    # Inbox drafts awaiting manual finish carry a documented
+                    # error_message — not a sync error, so don't re-report it.
+                    if "Draft delivered to TikTok app inbox" not in (t.error_message or ""):
+                        result.errors.append(
+                            f"tiktok skip post={t.post_id}: no Display video id "
+                            f"(inbox publish_id={t.platform_post_id})"
+                        )
                     continue
                 api_video_ids.add(video_id)
                 metrics = await _fetch_tiktok_video_stats(client, token, video_id)
@@ -1933,8 +1936,9 @@ async def sync_team_analytics(
             elif platform == "tiktok":
                 r = await sync_tiktok_account(db, account, days=days)
             else:
+                # Messaging-only platforms (whatsapp, telegram, …) have no
+                # analytics surface — skip quietly instead of re-reporting.
                 combined.skipped += 1
-                combined.errors.append(f"{platform}:{account.username}: unsupported platform")
                 continue
             combined.synced += r.synced
             combined.skipped += r.skipped
