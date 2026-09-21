@@ -59,33 +59,12 @@ def _max_chars(platform: str) -> int:
     return int(mc) if isinstance(mc, int) else 3000
 
 
-_URL_TOKEN_RE = re.compile(r"(?:https?://|www\.)\S+|\b[\w-]+\.[a-z]{2,}(?:/\S*)?", re.IGNORECASE)
-
-
-def _norm_url(url: str) -> str:
-    """Normalise a URL for dedup — scheme/www/trailing-slash agnostic."""
-    u = url.lower().strip().rstrip("/")
-    u = re.sub(r"^https?://", "", u)
-    u = re.sub(r"^www\.", "", u)
-    return u
-
-
-def _url_in_text(url: str, text: str) -> bool:
-    """True if ``url`` (in any scheme/www spelling) already appears in ``text``."""
-    want = _norm_url(url)
-    if not want:
-        return True
-    return any(_norm_url(m.group(0)) == want for m in _URL_TOKEN_RE.finditer(text))
-
-
 def render_post_text(post: Post, platform: str) -> str:
     """Adapt ``post`` content for ``platform``.
 
     * Uses per-platform override from ``post.platform_specific`` if present.
-    * Appends hashtags (capped to the platform's ideal range) — only tags not
-      already embedded in the body text.
-    * Appends link URL for platforms that support in-body links — skipped when
-      the same URL already appears in the body.
+    * Appends hashtags (capped to the platform's ideal range).
+    * Appends link URL for platforms that support in-body links.
     * Truncates to the platform's max character limit.
     """
     parts: list[str] = []
@@ -97,21 +76,16 @@ def render_post_text(post: Post, platform: str) -> str:
     elif post.content_text:
         parts.append(sanitize_generated_text(post.content_text))
 
-    body_so_far = "\n\n".join(parts)
-
-    # Hashtags — generated text often embeds the tag line already; only
-    # append tags that are missing so we never double-print the block.
+    # Hashtags
     if post.hashtags and platform in _HASHTAG_IN_BODY:
         lo, hi = _ideal_hashtag_count(platform)
         tags = post.hashtags[:hi] if hi > 0 else []
-        present = {t.lower() for t in re.findall(r"#(\w+)", body_so_far)}
-        missing = [t for t in tags if t.lstrip("#").lower() not in present]
-        if missing:
-            parts.append(" ".join(f"#{t.lstrip('#')}" for t in missing))
+        if tags:
+            tag_str = " ".join(f"#{t.lstrip('#')}" for t in tags)
+            parts.append(tag_str)
 
-    # Link URL — skip when the body already contains the same URL
-    # (www.cloudless.gr / https://cloudless.gr spellings count as the same).
-    if post.link_url and platform in _LINK_IN_BODY and not _url_in_text(post.link_url, body_so_far):
+    # Link URL
+    if post.link_url and platform in _LINK_IN_BODY:
         parts.append(post.link_url)
 
     text = "\n\n".join(p for p in parts if p)
