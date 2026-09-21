@@ -1,5 +1,5 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
-from app.services.content_renderer import sanitize_generated_text
+from app.services.content_renderer import sanitize_generated_text, strip_embedded_metadata
 
 
 class TestSanitizeGeneratedText:

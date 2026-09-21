@@ -518,14 +518,15 @@ async def cross_post_to_platform(
         adapted_text = post.content_text or ""
 
     corrected_text = await auto_correct(adapted_text)
+    final_text = strip_embedded_metadata(corrected_text or adapted_text, post.hashtags, post.link_url)
 
     new_post = Post(
         team_id=team.id,
         user_id=current_user.id,
         status=PostStatus.DRAFT if not request.schedule_at else PostStatus.SCHEDULED,
-        content_text=corrected_text or adapted_text,
+        content_text=final_text,
         media_ids=post.media_ids,
-        platform_specific={request.target_platform: {"content_text": corrected_text or adapted_text}},
+        platform_specific={request.target_platform: {"content_text": final_text}},
         hashtags=post.hashtags,
         mention_accounts=post.mention_accounts,
         link_url=post.link_url,
