@@ -41,7 +41,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless cloud hosting';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst tone = body.tone || 'professional';\nconst imagePrompt = body.image_prompt || ('Marketing image for: ' + topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.');\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'twitter' } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless cloud hosting';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst tone = body.tone || 'professional';\nconst imagePrompt = body.image_prompt || ('Marketing image for: ' + topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.');\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
       },
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
@@ -135,7 +135,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"twitter\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
         "options": {
           "timeout": 120000
         }
@@ -280,7 +280,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'twitter', post_type: 'image', post_id: raw.id || null, status: raw.status || (ok ? 'draft' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'instagram', post_type: 'image', post_id: raw.id || null, status: raw.status || (ok ? 'draft' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
       },
       "name": "Normalize Result",
       "type": "n8n-nodes-base.code",
