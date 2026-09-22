@@ -236,6 +236,22 @@ async def persist_generated_image(
 
     image_bytes, width, height = downscale_image_bytes(image_bytes, max_edge=max_edge)
 
+    # Detect the real image format from the bytes so filename + Content-Type
+    # match the payload. Generated pipelines often return JPEGs even when the
+    # caller passes extension=".png"; mismatched Content-Type causes platforms
+    # (e.g. Instagram Graph API image_url fetch) to reject the media.
+    actual_ext = extension.lower()
+    actual_mime = _MIME_BY_EXT.get(actual_ext, "application/octet-stream")
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            fmt = (img.format or "PNG").upper()
+        fmt_to_ext = {"PNG": ".png", "JPEG": ".jpg", "JPG": ".jpg", "WEBP": ".webp", "GIF": ".gif"}
+        if fmt in fmt_to_ext:
+            actual_ext = fmt_to_ext[fmt]
+            actual_mime = _MIME_BY_EXT[actual_ext]
+    except Exception:
+        pass
+
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")
 
@@ -245,12 +261,12 @@ async def persist_generated_image(
 
     # Sanitize source and extension for the filename.
     safe_source = safe_path_component(source, max_length=48)
-    safe_ext = safe_path_component(extension.lower(), max_length=16).lstrip(".")
+    safe_ext = safe_path_component(actual_ext.lower(), max_length=16).lstrip(".")
     safe_ext = f".{safe_ext}" if safe_ext else ".bin"
     filename = f"{safe_source}_{uuid.uuid4().hex[:8]}{safe_ext}"
 
     backend, storage_path, public_url = await _store_bytes(
-        image_bytes, filename, _MIME_BY_EXT.get(safe_ext, "application/octet-stream"), date_folder
+        image_bytes, filename, actual_mime, date_folder
     )
 
     if width is None or height is None:
@@ -268,7 +284,7 @@ async def persist_generated_image(
         team_id=team_id,
         user_id=user_id,
         filename=filename,
-        mime_type=_MIME_BY_EXT.get(extension.lower(), "application/octet-stream"),
+        mime_type=actual_mime,
         size_bytes=len(image_bytes),
         width=width,
         height=height,
