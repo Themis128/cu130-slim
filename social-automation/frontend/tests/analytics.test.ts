@@ -48,7 +48,6 @@ test.describe('Analytics Page — real backend', () => {
     await page.goto('/analytics');
     await expect(page.getByRole('button', { name: /sync/i })).toBeVisible({ timeout: 20000 });
   });
-});
 
   test('should display the bot analytics section', async ({ authenticatedPage: page }) => {
     await page.goto('/analytics');
@@ -59,3 +58,4 @@ test.describe('Analytics Page — real backend', () => {
     await page.goto('/analytics');
     await expect(page.getByText('Cloudflare Infrastructure Analytics')).toBeVisible({ timeout: 20000 });
   });
+});

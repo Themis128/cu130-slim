@@ -140,6 +140,34 @@ def _is_hard_stats_failure(status: int, body: str) -> bool:
     return status >= 400
 
 
+def _meta_unsupported_metric_names(msg: str) -> set[str]:
+    """Parse metric names Meta rejected for this media/product/API version.
+
+    Handles several Graph error phrasings seen in the wild, e.g.:
+    - "does not support the impressions, replies metric for this media product type"
+    - "The impressions, replies metrics are not available for this media product type"
+    - "(#100) metric impressions is not available for this media product type"
+    """
+    import re
+
+    names: set[str] = set()
+    patterns = (
+        r"does not support the ([a-zA-Z0-9_ ,]+) metrics?",
+        r"(?:The )?([a-zA-Z0-9_ ,]+) metrics? (?:is|are) not available",
+        r"metric[s]?\s*\(?([a-zA-Z0-9_ ,]+)\)?\s+is not available",
+    )
+    for pat in patterns:
+        m = re.search(pat, msg, flags=re.IGNORECASE)
+        if not m:
+            continue
+        for raw in m.group(1).split(","):
+            n = raw.strip().lower()
+            # Bail out of garbage captures that aren't metric identifiers.
+            if n and re.fullmatch(r"[a-z0-9_]+", n):
+                names.add(n)
+    return names
+
+
 async def _meta_insights_get(
     client: httpx.AsyncClient,
     url: str,
@@ -154,14 +182,16 @@ async def _meta_insights_get(
     (e.g. `post_impressions` deprecated June 2026, `saves` vs `saved`,
     `views` only on newer versions). On a 400 whose body says
     "metric[N] must be one of the following values", drop metric[N] and
-    retry. Returns the final response (200 or last error).
+    retry. Also drops metrics named in media-product-type rejection messages
+    (impressions/replies on FEED, etc.). Returns the final response (200 or
+    last error).
     """
     import re
 
     remaining = list(metrics)
     base = dict(params or {})
     resp: httpx.Response | None = None
-    for _ in range(len(remaining) * 2):
+    for _ in range(max(len(remaining) * 3, 1)):
         if not remaining:
             break
         req_params = {**base, "metric": ",".join(remaining)}
@@ -183,16 +213,11 @@ async def _meta_insights_get(
                 remaining.pop(idx)
             continue
 
-        # Pattern 2: "does not support the X, Y metric for this media product type"
-        # Meta lists unsupported metric names directly; drop all of them.
-        unsupported_match = re.search(
-            r"does not support the ([a-zA-Z0-9_ ,]+) metric",
-            msg,
-        )
-        if unsupported_match:
-            names = {n.strip().lower() for n in unsupported_match.group(1).split(",")}
+        # Pattern 2/3: media product type / "not available" lists names.
+        unsupported = _meta_unsupported_metric_names(msg)
+        if unsupported:
             before = len(remaining)
-            remaining = [m for m in remaining if m.lower() not in names]
+            remaining = [m for m in remaining if m.lower() not in unsupported]
             if len(remaining) < before:
                 continue
 
@@ -1194,13 +1219,14 @@ async def _fetch_instagram_media_metrics(
         url = f"https://graph.instagram.com/v26.0/{media_id}/insights"
     else:
         url = facebook_graph_url(f"{media_id}/insights")
-    # Modern metrics first; the helper drops whichever names this token's
-    # API version rejects (views vs impressions, reach…). `saved` is the
-    # valid name — `saves` is rejected with metric[N] by Meta.
+    # FEED/REELS-safe metrics first. Meta rejects `impressions` and `replies`
+    # for most media product types (FEED/IMAGE/VIDEO/CAROUSEL); `replies` is
+    # Stories-only. Adaptive drop still handles version/token renames.
+    # `saved` is the valid name — `saves` is rejected with metric[N] by Meta.
     resp = await _meta_insights_get(
         client,
         url,
-        ["views", "impressions", "reach", "likes", "comments", "shares", "saved", "replies"],
+        ["views", "reach", "likes", "comments", "shares", "saved", "total_interactions"],
         params={"access_token": token},
     )
     if resp.status_code != 200:

@@ -1170,7 +1170,11 @@ async def get_publish_pipeline(
         .select_from(PostTarget)
         .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
         .join(Post, Post.id == PostTarget.post_id)
-        .where(Post.team_id == team.id, Post.created_at >= since)
+        .where(
+            Post.team_id == team.id,
+            Post.created_at >= since,
+            Post.status != PostStatus.ARCHIVED,
+        )
         .group_by(SocialAccount.platform, PostTarget.status)
     )
     stats: dict[str, dict[str, int]] = {}

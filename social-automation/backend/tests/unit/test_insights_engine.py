@@ -454,6 +454,9 @@ def test_recommend_channel_focus_with_benchmark():
     assert focus["platform"] == "linkedin"
     assert "interactions/post" in focus["text"]
     assert "above benchmark" in focus["text"]
+    # LinkedIn has no industry_pct (mismatched absolute metric) — label baseline
+    assert "platform baseline" in focus["text"]
+    assert "industry median" not in focus["text"]
 
 
 def test_benchmark_gated_on_min_followers():
