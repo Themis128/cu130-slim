@@ -155,8 +155,8 @@ x-worker-depends: &worker-depends
 
 services:
   comfyui:
-    image: ghcr.io/themis128/cu130-slim-comfyui:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-comfyui:latest
+    pull_policy: always
     build:
       context: .
       dockerfile: Dockerfile
@@ -512,8 +512,8 @@ services:
       start_period: 30s
     restart: unless-stopped
   env-manager-backend:
-    image: ghcr.io/themis128/cu130-slim-env-manager-backend:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-env-manager-backend:latest
+    pull_policy: always
     build:
       context: ./env-manager/backend
       dockerfile: Dockerfile
@@ -539,8 +539,8 @@ services:
       start_period: 15s
     restart: unless-stopped
   env-manager-frontend:
-    image: ghcr.io/themis128/cu130-slim-env-manager-frontend:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-env-manager-frontend:latest
+    pull_policy: always
     build:
       context: ./env-manager/frontend
       dockerfile: Dockerfile
@@ -604,8 +604,8 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim-social-api:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-api:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
@@ -875,8 +875,8 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim-social-worker:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-worker:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -909,8 +909,8 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim-social-worker:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-worker:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -942,8 +942,8 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim-social-worker:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-worker:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -975,8 +975,8 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim-social-worker:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-worker:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -1009,8 +1009,8 @@ services:
     stop_grace_period: 90s
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim-social-worker:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-worker:latest
+    pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile.worker
@@ -1044,8 +1044,8 @@ services:
       start_period: 15s
     restart: unless-stopped
   cloudflared:
-    image: ghcr.io/themis128/cu130-slim-cloudflared:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-cloudflared:latest
+    pull_policy: always
     build:
       context: ./social-automation
       dockerfile: Dockerfile.cloudflared
@@ -1076,8 +1076,8 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: ghcr.io/themis128/cu130-slim-social-frontend:sha-32d08e2
-    pull_policy: if_not_present
+    image: ghcr.io/themis128/cu130-slim-social-frontend:latest
+    pull_policy: always
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile.dev

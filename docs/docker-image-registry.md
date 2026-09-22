@@ -20,7 +20,7 @@ ghcr.io/themis128/cu130-slim-<service>:<tag>
 | Tag format         | Description                                      | Updated by         |
 |--------------------|--------------------------------------------------|--------------------|
 | `latest`           | Moving alias for the newest successful build     | Build and push CI  |
-| `sha-<7-char-sha>` | Immutable pin written into `docker-compose.yml`  | Build and push CI  |
+| `sha-<7-char-sha>` | Immutable per-commit tag kept on GHCR for rollbacks | Build and push CI  |
 | `v2.*` / `v0.*`    | Legacy pins (pre auto-update); still pullable    | Historical         |
 
 ## CI-built services
