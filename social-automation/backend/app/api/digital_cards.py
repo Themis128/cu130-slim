@@ -1,5 +1,6 @@
 """Digital Business Cards API — CRUD, vCard 4.0 generation, public share, WhatsApp/Messenger send."""
 import os
+import re
 import secrets
 import uuid
 from datetime import datetime
@@ -70,6 +71,31 @@ def _build_vcard(card: DigitalCard) -> str:
 def _card_url(token: str) -> str:
     base = os.environ.get("FRONTEND_URL", "https://social.cloudless.gr")
     return f"{base}/card/{token}"
+
+
+def _wa_digits(value: str | None) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+# WhatsApp Cloud API error codes → actionable messages for the /card UI.
+_WA_ERROR_HINTS: dict[int, str] = {
+    190: "WhatsApp access token expired — reconnect the WhatsApp account in Accounts.",
+    133010: "Recipient number is not registered on WhatsApp.",
+    131026: "This recipient cannot be messaged (number may be blocked or restricted).",
+    131047: (
+        "Recipient is outside the 24-hour messaging window — WhatsApp requires an "
+        "approved template message to start a new conversation."
+    ),
+    131051: "Recipient is not an allowed test recipient on this WhatsApp app.",
+    132000: "Too many recipients — reduce batch size.",
+    132001: "Template does not exist for this language — check template name/language.",
+    132005: "Template parameter mismatch — check the card template variables.",
+    132012: "Template parameter format error — check the card template variables.",
+    132015: "Template is paused by Meta — check template status in Meta Business Suite.",
+    132016: "Template is disabled — check template status in Meta Business Suite.",
+}
+
+_CARD_TEMPLATE_NAME = "card_share"
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -194,6 +220,62 @@ class SendCardResult(BaseModel):
     platform: str
     message_id: str | None = None
     error: str | None = None
+
+
+async def _send_card_template(
+    client,
+    wa_account: SocialAccount,
+    to_phone: str,
+    card: DigitalCard,
+    card_url: str,
+) -> SendCardResult | None:
+    """Send the card via an approved ``card_share`` template when it exists.
+
+    Business-initiated WhatsApp messages (outside the 24h window) must be
+    template messages. Looks up an APPROVED template on the WABA and sends it
+    with the card URL as the body parameter. Returns None when no approved
+    template is available so the caller can surface a clear error.
+    """
+    waba_id = (wa_account.meta_data or {}).get("waba_id")
+    if not waba_id:
+        return None
+    token = client._client.access_token  # noqa: SLF001 — same token the client uses
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            resp = await http.get(
+                f"https://graph.facebook.com/v21.0/{waba_id}/message_templates",
+                params={
+                    "fields": "name,status,language",
+                    "name": _CARD_TEMPLATE_NAME,
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code != 200:
+            return None
+        approved = [
+            t
+            for t in (resp.json().get("data") or [])
+            if t.get("name") == _CARD_TEMPLATE_NAME and t.get("status") == "APPROVED"
+        ]
+        if not approved:
+            return None
+        lang = approved[0].get("language") or "en"
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": card.name},
+                    {"type": "text", "text": card_url},
+                ],
+            }
+        ]
+        rdata = await client.send_template(
+            to_phone, _CARD_TEMPLATE_NAME, language_code=lang, components=components
+        )
+        msg_id = (rdata.get("messages") or [{}])[0].get("id")
+        return SendCardResult(success=True, platform="whatsapp", message_id=msg_id)
+    except Exception:
+        return None
 
 
 # ── CRUD endpoints (auth required) ────────────────────────────────────────────
@@ -455,6 +537,8 @@ async def send_card(
         # Get token and phone_number_id from meta_data
         # Token is stored encrypted — decrypt if it doesn't look like a raw Meta token
         from app.core.security import decrypt_token
+        from app.services.whatsapp_api import WhatsAppAPIClient
+        from app.services.whatsapp_cloud_client import WhatsAppApiError, WhatsAppError
 
         token = wa_account.meta_data.get("access_token", "")
         phone_number_id = wa_account.meta_data.get("phone_number_id", "")
@@ -466,26 +550,54 @@ async def send_card(
                 token = decrypt_token(token)
             except Exception:
                 pass  # Token might be stored in a different format
-        # Send via WhatsApp Cloud API
-        url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": data.to_phone.replace("+", "").replace(" ", ""),
-            "type": "text",
-            "text": {"body": msg},
-        }
+
+        # The WABA's own display number is registered to the API, not to a
+        # consumer WhatsApp account — sending to it always fails (#133010).
+        if _wa_digits(data.to_phone) == _wa_digits(wa_account.meta_data.get("display_phone_number")):
+            return SendCardResult(
+                success=False,
+                platform="whatsapp",
+                error=(
+                    f"{data.to_phone} is this WhatsApp Business number itself — "
+                    "an API number can't receive messages. Send the card to a "
+                    "regular WhatsApp user instead."
+                ),
+            )
+
+        client = WhatsAppAPIClient(token, phone_number_id)
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
-            if resp.status_code == 200:
-                rdata = resp.json()
-                msg_id = rdata.get("messages", [{}])[0].get("id")
-                card.share_count += 1
-                await db.commit()
-                return SendCardResult(success=True, platform="whatsapp", message_id=msg_id)
-            else:
-                err = resp.text[:200]
-                return SendCardResult(success=False, platform="whatsapp", error=err)
+            rdata = await client.send_text(data.to_phone, msg, preview_url=True)
+            msg_id = (rdata.get("messages") or [{}])[0].get("id")
+            card.share_count += 1
+            await db.commit()
+            return SendCardResult(success=True, platform="whatsapp", message_id=msg_id)
+        except WhatsAppApiError as exc:
+            if exc.code == 131047:
+                # Outside the 24h window — Meta requires a template message.
+                tpl = await _send_card_template(client, wa_account, data.to_phone, card, card_url)
+                if tpl is not None:
+                    card.share_count += 1
+                    await db.commit()
+                    return tpl
+                return SendCardResult(
+                    success=False,
+                    platform="whatsapp",
+                    error=(
+                        _WA_ERROR_HINTS[131047]
+                        + " No approved 'card_share' template exists on the "
+                        "WhatsApp Business account yet — create/approve one in "
+                        "Meta Business Suite, or have the recipient message the "
+                        "business first to open the 24-hour window."
+                    ),
+                )
+            hint = _WA_ERROR_HINTS.get(exc.code or -1)
+            return SendCardResult(
+                success=False,
+                platform="whatsapp",
+                error=hint if hint else str(exc),
+            )
+        except WhatsAppError as exc:
+            return SendCardResult(success=False, platform="whatsapp", error=str(exc))
         except Exception as e:
             return SendCardResult(success=False, platform="whatsapp", error=str(e))
 
