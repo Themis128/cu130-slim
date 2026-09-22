@@ -13,10 +13,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import decrypt_token
 from app.models.brand import Brand
 from app.models.brand_monitoring import BrandMention, CompetitorSnapshot
+from app.models.social_account import SocialAccount
 
 
 async def search_twitter_mentions(
@@ -205,24 +208,123 @@ async def collect_mentions(
     return mentions
 
 
+async def _twitter_access_token(db: AsyncSession, brand: Brand) -> str | None:
+    """Return the team's connected X/Twitter OAuth token, if any."""
+    result = await db.execute(
+        select(SocialAccount.access_token_enc).where(
+            SocialAccount.team_id == brand.team_id,
+            SocialAccount.platform == "twitter",
+        )
+    )
+    raw = result.scalar_one_or_none()
+    if not raw:
+        return None
+    try:
+        return decrypt_token(raw if isinstance(raw, bytes) else raw.encode())
+    except Exception:
+        return None
+
+
+async def _fetch_twitter_competitor(
+    db: AsyncSession, brand: Brand, username: str
+) -> dict[str, Any] | None:
+    """Fetch real public metrics for a competitor on X via the v2 API."""
+    token = await _twitter_access_token(db, brand)
+    if not token:
+        return None
+    username = username.lstrip("@").strip()
+    if not username:
+        return None
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            user_resp = await client.get(
+                f"https://api.x.com/2/users/by/username/{username}",
+                params={"user.fields": "public_metrics"},
+                headers=headers,
+            )
+            if user_resp.status_code != 200:
+                return None
+            user = user_resp.json().get("data") or {}
+            metrics = user.get("public_metrics") or {}
+            followers = metrics.get("followers_count", 0)
+            tweet_count = metrics.get("tweet_count", 0)
+
+            top_post_content = None
+            top_post_engagement = 0
+            total_engagement = 0
+            sampled = 0
+            if user.get("id"):
+                tweets_resp = await client.get(
+                    f"https://api.x.com/2/users/{user['id']}/tweets",
+                    params={
+                        "max_results": 10,
+                        "exclude": "retweets,replies",
+                        "tweet.fields": "created_at,public_metrics",
+                    },
+                    headers=headers,
+                )
+                if tweets_resp.status_code == 200:
+                    for t in tweets_resp.json().get("data", []):
+                        m = t.get("public_metrics") or {}
+                        eng = (
+                            m.get("like_count", 0)
+                            + m.get("retweet_count", 0)
+                            + m.get("reply_count", 0)
+                            + m.get("quote_count", 0)
+                        )
+                        total_engagement += eng
+                        sampled += 1
+                        if eng > top_post_engagement:
+                            top_post_engagement = eng
+                            top_post_content = t.get("text")
+
+            engagement_rate = (
+                (total_engagement / sampled) / followers * 100
+                if sampled and followers
+                else 0.0
+            )
+            return {
+                "follower_count": followers,
+                "engagement_rate": round(engagement_rate, 4),
+                "post_count": tweet_count,
+                "top_post_content": top_post_content,
+                "top_post_engagement": top_post_engagement,
+            }
+    except Exception:
+        return None
+
+
 async def snapshot_competitor(
     db: AsyncSession,
     brand: Brand,
     competitor_name: str,
     platform: str = "twitter",
 ) -> CompetitorSnapshot | None:
-    """Take a snapshot of a competitor's metrics on a given platform."""
-    # This would use platform-specific APIs in production
-    # For now, we store a placeholder snapshot
+    """Take a snapshot of a competitor's metrics on a given platform.
+
+    Twitter/X uses the team's connected account token (public metrics are
+    free-tier readable). Other platforms have no free public-metrics API —
+    the snapshot is still stored so history accumulates once a connector
+    lands.
+    """
+    metrics: dict[str, Any] = {
+        "follower_count": 0,
+        "engagement_rate": 0.0,
+        "post_count": 0,
+        "top_post_content": None,
+        "top_post_engagement": 0,
+    }
+    if platform == "twitter":
+        real = await _fetch_twitter_competitor(db, brand, competitor_name)
+        if real:
+            metrics.update(real)
+
     snapshot = CompetitorSnapshot(
         brand_id=brand.id,
         competitor_name=competitor_name,
         platform=platform,
-        follower_count=0,
-        engagement_rate=0.0,
-        post_count=0,
-        top_post_content=None,
-        top_post_engagement=0,
+        **metrics,
     )
     db.add(snapshot)
     await db.commit()

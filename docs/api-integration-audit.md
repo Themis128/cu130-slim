@@ -429,8 +429,8 @@ The Instagram publishing service (`publishing.py:_publish_instagram`) uses the f
 | 2 | Configure Business Login redirect URI in Meta app dashboard | **Critical** | Developer app | ✅ Done |
 | 3 | Connect Instagram via Business Login OAuth flow | **Critical** | User action | ✅ Done |
 | 4 | Verify `social.cloudless.gr` domain in TikTok developer app | High | Developer app | Pending |
-| 5 | Reconnect LinkedIn personal account via SocialAuto | High | User action | Pending |
-| 6 | Reconnect LinkedIn organization account via SocialAuto | High | User action | Pending |
+| 5 | Reconnect LinkedIn personal account via SocialAuto | High | User action | ✅ Done (verified 2026-09-21 — token valid to 2026-11-20) |
+| 6 | Reconnect LinkedIn organization account via SocialAuto | High | User action | ✅ Done (verified 2026-09-21 — token valid to 2026-11-20) |
 | 7 | Complete WhatsApp phone number SMS verification | Medium | User action | Pending |
 | 8 | Test Instagram carousel publishing after Business Login | Medium | Testing | ✅ Done (single image) |
 | 9 | Test TikTok publishing with FILE_UPLOAD after domain verification | Medium | Testing | Pending |

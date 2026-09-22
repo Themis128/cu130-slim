@@ -987,11 +987,33 @@ class BrowserBridgeClient:
 
                 if (!cleanText) return;
 
-                // Determine sender: check parent container alignment
-                // Outgoing messages are right-aligned, incoming are left-aligned
-                const parent = table.parentElement;
-                const gp = parent ? parent.parentElement : null;
-                const isOutgoing = false; // TODO: detect via DOM when we have outgoing msgs
+                // Determine sender: outgoing bubbles are right-aligned in the
+                // conversation column. Walk ancestors looking for a confident
+                // right-alignment signal; absence means incoming (safe default —
+                // mislabeling an outgoing msg as incoming could trigger bot
+                // self-reply loops downstream).
+                let isOutgoing = false;
+                let node = table;
+                for (let depth = 0; depth < 6 && node && node.parentElement; depth++) {
+                    node = node.parentElement;
+                    const s = getComputedStyle(node);
+                    if (s.justifyContent === 'flex-end' || s.alignItems === 'flex-end' ||
+                        (s.marginLeft === 'auto' && s.marginRight !== 'auto')) {
+                        isOutgoing = true;
+                        break;
+                    }
+                }
+                if (!isOutgoing) {
+                    // Fallback: geometric check — bubble hugs the right edge of
+                    // the widest ancestor container
+                    const r = table.getBoundingClientRect();
+                    let container = table.parentElement;
+                    for (let d = 0; d < 6 && container; d++) container = container.parentElement;
+                    if (container) {
+                        const cr = container.getBoundingClientRect();
+                        if (cr.width > 0 && r.left > cr.left + cr.width * 0.55) isOutgoing = true;
+                    }
+                }
 
                 // Try to find a timestamp element
                 const timeEl = table.querySelector('time, [data-absolute-time], [datetime]');

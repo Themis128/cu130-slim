@@ -170,20 +170,17 @@ SocialAuto-internal channel.
 | Leads webhook | SocialAuto → cloudless.gr | ✅ Wired both ends; 0 leads sent so far |
 | Datalake export | SocialAuto → R2 → dashboard | ✅ Scheduled every 6h; ETL + dashboard consume it |
 | Email reports | SocialAuto → mailbox | ✅ Working (strategy brief delivered) |
-| Web analytics | cloudless.gr → SocialAuto | ❌ Broken, 0 events ever — 3 issues below |
+| Web analytics | cloudless.gr → SocialAuto | ✅ Working — events landing in `web_analytics_events` (first seen 2026-09-21) |
 
-**Web-analytics fixes needed:**
+**Web-analytics fixes applied:**
 
-1. `socialauto-analytics-server.ts` default URL is
-   `/api/v1/webhooks/cloudless-analytics`; the real mount is
-   `/api/v1/analytics/web/webhooks/cloudless-analytics` — set
-   `SOCIALAUTO_WEB_ANALYTICS_URL` on the pod or fix the default.
-2. No Cloudflare Access bypass for the webhook path — create a bypass app
-   scoped to `social.cloudless.gr/api/v1/analytics/web/webhooks/cloudless-analytics`.
-3. SocialAuto side unconfigured — set `CLOUDLESS_WEB_ANALYTICS_SECRET` +
-   `CLOUDLESS_WEB_ANALYTICS_TEAM_ID` (shared secret must equal
-   `SOCIALAUTO_WEB_ANALYTICS_SECRET` on cloudless.gr) or create a
-   `web_analytics_configs` row.
+1. `socialauto-analytics-server.ts` default URL now points at the real
+   mount `/api/v1/analytics/web/webhooks/cloudless-analytics`.
+2. The webhook path is publicly reachable through Cloudflare Access
+   (returns 422 on invalid payloads, not a 302/403 gate).
+3. SocialAuto side configured via `CLOUDLESS_WEB_ANALYTICS_DOMAIN`,
+   `CLOUDLESS_WEB_ANALYTICS_SECRET`, and `CLOUDLESS_WEB_ANALYTICS_TEAM_ID`
+   env vars on `social-api` + workers.
 
 ## Related but separate
 
