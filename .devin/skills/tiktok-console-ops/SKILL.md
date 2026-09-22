@@ -49,7 +49,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh ensure   # Playwright Docker → POST /session
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh status
 .cursor/skills/tiktok-console-ops/scripts/console-inspect.sh          # login + dump app state
-.cursor/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify
+.devin/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify (or exits early if already verified)
 .cursor/skills/tiktok-console-ops/scripts/dns-tiktok-txt.sh list|add <token>
 ```
 

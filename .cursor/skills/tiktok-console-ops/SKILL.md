@@ -30,6 +30,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 | Connected account        | sandbox `user3113682023385` / brand cloudless.gr                 |
 | Publish mode (pre-audit) | `MEDIA_UPLOAD`                                                   |
 | Sidecar                  | `http://127.0.0.1:9224`                                          |
+| Domain verify status     | `cloudless.gr` already verified in Production URL properties     |
 
 **Drift to fix if seen in console:** `social.cloudless.jp` web URL or redirect — replace with `.gr` SocialAuto paths above.
 
@@ -39,6 +40,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 - `TIKTOK_DEV_EMAIL`, `TIKTOK_DEV_PASSWORD` — developer portal login
 - `CLOUDFLARE_API_TOKEN` — DNS TXT for `tiktok-domain-verification=…`
 - Site TXT `tiktok-developers-site-verification=…` is **not** Content Posting domain verify
+- `domain-verify.sh` now short-circuits when `cloudless.gr` is already listed under **Verified properties**
 
 ## Tool scripts (repo root)
 
@@ -47,7 +49,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh ensure   # Playwright Docker → POST /session
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh status
 .cursor/skills/tiktok-console-ops/scripts/console-inspect.sh          # login + dump app state
-.cursor/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify
+.devin/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify (or exits early if already verified)
 .cursor/skills/tiktok-console-ops/scripts/dns-tiktok-txt.sh list|add <token>
 ```
 
