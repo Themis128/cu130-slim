@@ -109,10 +109,6 @@ def _run_script(name: str, args: list[str] | None = None, timeout: int = 600) ->
     except subprocess.TimeoutExpired:
         return _error_result(f"Timeout running {name}")
     out = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
-    # Redact obvious secrets
-    for key in ("TIKTOK_CLIENT_SECRET", "TIKTOK_DEV_PASSWORD", "session_id", "sessionid"):
-        if key.lower() in out.lower() and "PASSWORD" in key:
-            out = out  # scripts already avoid printing passwords
     return _text_result(out[-12000:] if len(out) > 12000 else out, is_error=proc.returncode != 0)
 
 

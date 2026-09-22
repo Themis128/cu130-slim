@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -65,7 +66,8 @@ async def search_reddit_mentions(brand_name: str, max_results: int = 10) -> list
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"https://www.reddit.com/search.json?q={brand_name}&limit={max_results}&sort=new",
+                "https://www.reddit.com/search.json",
+                params={"q": brand_name, "limit": max_results, "sort": "new"},
                 headers={"User-Agent": "SocialAuto/1.0"},
             )
             if resp.status_code != 200:
@@ -99,7 +101,8 @@ async def search_google_news_mentions(brand_name: str, max_results: int = 10) ->
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"https://news.google.com/rss/search?q={brand_name}&hl=en-US&gl=US&ceid=US:en",
+                "https://news.google.com/rss/search",
+                params={"q": brand_name, "hl": "en-US", "gl": "US", "ceid": "US:en"},
                 headers={"User-Agent": "SocialAuto/1.0"},
             )
             if resp.status_code != 200:
@@ -233,7 +236,9 @@ async def _fetch_twitter_competitor(
     if not token:
         return None
     username = username.lstrip("@").strip()
-    if not username:
+    # X handles are 1-15 chars of [A-Za-z0-9_] — the whitelist also keeps the
+    # value safe to embed in the request path (no '/', '?', '..', etc.).
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,15}", username):
         return None
     headers = {"Authorization": f"Bearer {token}"}
     try:
