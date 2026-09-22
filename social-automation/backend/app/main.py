@@ -78,8 +78,8 @@ async def favicon():
     return Response(status_code=204)
 
 
-@app.get("/health")
-@app.get("/api/v1/health", include_in_schema=False)
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/api/v1/health", methods=["GET", "HEAD"], include_in_schema=False)
 async def health_check():
     return {"status": "ok", "service": settings.APP_NAME, "version": settings.APP_VERSION}
 

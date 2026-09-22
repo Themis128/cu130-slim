@@ -63,6 +63,34 @@ try:
 except ImportError:  # pragma: no cover - environment-dependent
     pass
 
+
+def _reencode_image_bytes(data: bytes, *, out_format: str = "PNG") -> tuple[bytes, str]:
+    """Re-encode image bytes for browser/platform consumption.
+
+    ``out_format`` is ``PNG`` (default, preserves alpha) or ``JPEG``
+    (Instagram Graph / Meta ``image_url`` requires JPEG or PNG; WebP/HEIC/AVIF
+    commonly fail with IG error 36001 / subcode 2207083).
+    """
+    img = Image.open(io.BytesIO(data))
+    img.load()
+    fmt = (out_format or "PNG").upper()
+    if fmt == "JPEG":
+        if img.mode in ("RGBA", "LA", "P"):
+            rgba = img.convert("RGBA")
+            bg = Image.new("RGB", rgba.size, (255, 255, 255))
+            bg.paste(rgba, mask=rgba.getchannel("A"))
+            rgb = bg
+        else:
+            rgb = img.convert("RGB") if img.mode != "RGB" else img
+        buf = io.BytesIO()
+        rgb.save(buf, format="JPEG", quality=90, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue(), "image/png"
+
+
 class MediaAssetResponse(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID
@@ -196,13 +224,26 @@ async def upload_media(
     return asset
 
 @router.get("/view")
-async def view_media(path: str = Query(..., description="Relative storage path or object key of the asset")):
+async def view_media(
+    path: str = Query(..., description="Relative storage path or object key of the asset"),
+    format: str | None = Query(
+        None,
+        description=(
+            "Optional output format override. Use ``jpeg`` when the consumer is a "
+            "platform fetch (Instagram Graph image_url) that rejects WebP/HEIC/AVIF."
+        ),
+    ),
+):
     """Serve any stored media for display, converting non-web formats to PNG.
 
     Unauthenticated by design — mirrors the public ``/api/v1/uploads`` static
     mount so ``<img>`` tags can render assets without auth headers.  Formats
     browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
     transparently re-encoded to PNG with Pillow.
+
+    Pass ``format=jpeg`` to force a JPEG response (RGB, quality 90). Instagram
+    Graph ``image_url`` rejects WebP/HEIC/AVIF with error 36001/2207083; the
+    publisher appends this query param for IG public media URLs.
 
     Tries local disk first, then MinIO, then R2 — so assets stored on any
     backend can be served through this single endpoint.
@@ -234,6 +275,7 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     # Determine the file extension / mime type from the path (works for all backends).
     ext = pathlib.Path(path).suffix.lower()
     mime = ext_mime.get(ext, "application/octet-stream")
+    force_jpeg = (format or "").strip().lower() in {"jpeg", "jpg"}
 
     # Formats that browsers can display/download directly without Pillow conversion.
     DIRECT_SERVE_TYPES = BROWSER_NATIVE_IMAGE_TYPES | {
@@ -242,25 +284,36 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         "audio/mpeg", "audio/wav", "audio/aac", "audio/mp4", "audio/ogg", "audio/flac",
     }
 
+    def _serve_image_bytes(data: bytes) -> Response:
+        if force_jpeg and str(mime).startswith("image/"):
+            try:
+                raw, out_mime = _reencode_image_bytes(data, out_format="JPEG")
+            except Exception:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Cannot convert this image to JPEG for platform publishing.",
+                )
+            return Response(content=raw, media_type=out_mime)
+        if mime in DIRECT_SERVE_TYPES:
+            return Response(content=data, media_type=mime)
+        try:
+            raw, out_mime = _reencode_image_bytes(data, out_format="PNG")
+        except Exception:
+            raise HTTPException(
+                status_code=415,
+                detail="This format cannot be previewed in the browser.",
+            )
+        return Response(content=raw, media_type=out_mime)
+
     # --- Try local disk first ---
     try:
         target = safe_resolve(UPLOAD_DIR, path)
         if target.is_file():
+            if force_jpeg and str(mime).startswith("image/"):
+                return _serve_image_bytes(target.read_bytes())
             if mime in DIRECT_SERVE_TYPES:
                 return FileResponse(str(target), media_type=mime)
-            try:
-                buf = target.read_bytes()
-                img = Image.open(io.BytesIO(buf))
-                img.load()
-            except Exception:
-                raise HTTPException(
-                    status_code=415,
-                    detail="This format cannot be previewed in the browser. Download the file to view it.",
-                )
-            buf = io.BytesIO()
-            out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
-            out.save(buf, format="PNG")
-            return Response(content=buf.getvalue(), media_type="image/png")
+            return _serve_image_bytes(target.read_bytes())
     except ValueError:
         pass  # path not valid for local filesystem — try remote backends
     except HTTPException:
@@ -271,20 +324,7 @@ async def view_media(path: str = Query(..., description="Relative storage path o
         try:
             data = await minio_storage.get_object(path)
             if data:
-                if mime in DIRECT_SERVE_TYPES:
-                    return Response(content=data, media_type=mime)
-                try:
-                    img = Image.open(io.BytesIO(data))
-                    img.load()
-                except Exception:
-                    raise HTTPException(
-                        status_code=415,
-                        detail="This format cannot be previewed in the browser.",
-                    )
-                buf = io.BytesIO()
-                out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
-                out.save(buf, format="PNG")
-                return Response(content=buf.getvalue(), media_type="image/png")
+                return _serve_image_bytes(data)
         except HTTPException as exc:
             if exc.status_code == 404:
                 pass  # not in MinIO — try R2
@@ -295,24 +335,12 @@ async def view_media(path: str = Query(..., description="Relative storage path o
     try:
         data = await r2_storage.get_object(path)
         if data:
-            if mime in DIRECT_SERVE_TYPES:
-                return Response(content=data, media_type=mime)
-            try:
-                img = Image.open(io.BytesIO(data))
-                img.load()
-            except Exception:
-                raise HTTPException(
-                    status_code=415,
-                    detail="This format cannot be previewed in the browser.",
-                )
-            buf = io.BytesIO()
-            out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
-            out.save(buf, format="PNG")
-            return Response(content=buf.getvalue(), media_type="image/png")
+            return _serve_image_bytes(data)
     except HTTPException:
         pass
 
     raise HTTPException(status_code=404, detail="Media file not found on any storage backend")
+
 
 @router.get("/assets", response_model=MediaListResponse)
 async def list_media(
