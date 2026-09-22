@@ -73,7 +73,7 @@ Measured on this machine (do not invent different HW — re-measure if the host 
 | WSL GPU passthrough | `/dev/dxg` present; `nvidia-smi` works inside WSL |
 | Disk | WSL root `~1007G` (~913G free); Windows `C:` ~733G (~168G free) |
 | Compose project | `cu130-slim` — Docker Desktop 29.x, Linux engine |
-| App image pin (`docker-compose.yml`) | `ghcr.io/themis128/cu130-slim-*:sha-32d08e2` |
+| App image pin (`docker-compose.yml`) | `ghcr.io/themis128/cu130-slim:<service>-sha-32d08e2` |
 | Local override | `docker-compose.override.yml` may retarget some services to `:latest` / Hub tags for local iteration |
 | DMR | Host engine `docker-model-runner` on **`127.0.0.1:12435` only** (port **12434 is not used** / not listening). Compose services reach it via `host.docker.internal:12435`. Watchdog: `dmr-watchdog`. |
 | GPU coexistence | ComfyUI (`:8000`), `local-diffusers` (internal `:7860`, no host publish), and DMR share the same 8 GB card. Prefer one heavy consumer at a time; DMR auto-unloads when idle. With ComfyUI resident, free VRAM can drop below 1 GB. |

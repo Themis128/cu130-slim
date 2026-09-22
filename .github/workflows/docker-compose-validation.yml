@@ -46,28 +46,29 @@ jobs:
       - name: Validate pre-built image references
         run: |
           echo "Checking pre-built image references..."
-          # All CI-built images use ghcr.io/themis128/cu130-slim-{service}:latest
+          # All CI-built images use ghcr.io/themis128/cu130-slim:<service>-latest
           # with pull_policy: always, so every `compose up` picks up the newest build.
-          # CI pushes :latest plus an immutable :sha-<sha> tag for manual rollbacks.
-          expected_prefixes=(
-            "ghcr.io/themis128/cu130-slim-comfyui:"
-            "ghcr.io/themis128/cu130-slim-env-manager-backend:"
-            "ghcr.io/themis128/cu130-slim-env-manager-frontend:"
-            "ghcr.io/themis128/cu130-slim-social-api:"
-            "ghcr.io/themis128/cu130-slim-social-frontend:"
-            "ghcr.io/themis128/cu130-slim-cloudflared:"
+          # CI pushes <service>-latest plus immutable <service>-sha-<sha> tags for rollbacks.
+          PACKAGE="ghcr.io/themis128/cu130-slim"
+          expected_services=(
+            "comfyui"
+            "env-manager-backend"
+            "env-manager-frontend"
+            "social-api"
+            "social-frontend"
+            "cloudflared"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
 
-          for prefix in "${expected_prefixes[@]}"; do
-            service_name=$(echo "$prefix" | sed 's|.*/cu130-slim-\(.*\):.*|\1|')
+          for service_name in "${expected_services[@]}"; do
+            expected_image="${PACKAGE}:${service_name}-latest"
             if echo "$config_output" | jq -e --arg s "$service_name" '.services[$s]' > /dev/null 2>&1; then
               actual_image=$(echo "$config_output" | jq -r --arg s "$service_name" '.services[$s].image')
-              if [[ "$actual_image" == "${prefix}latest" ]]; then
+              if [[ "$actual_image" == "$expected_image" ]]; then
                 echo "✅ $service_name uses correct image: $actual_image"
               else
-                echo "❌ $service_name has incorrect image: $actual_image (expected: ${prefix}latest)"
+                echo "❌ $service_name has incorrect image: $actual_image (expected: $expected_image)"
                 exit 1
               fi
             else
@@ -75,14 +76,25 @@ jobs:
             fi
           done
 
-          # Worker services share a single image but have different service names.
-          for worker_service in social-worker-publishing social-worker-media social-worker-default social-worker-messenger; do
+          # Publishing worker uses its own tag; other workers share social-worker-*.
+          if echo "$config_output" | jq -e '.services["social-worker-publishing"]' > /dev/null 2>&1; then
+            actual_image=$(echo "$config_output" | jq -r '.services["social-worker-publishing"].image')
+            expected_image="${PACKAGE}:social-worker-publishing-latest"
+            if [[ "$actual_image" == "$expected_image" ]]; then
+              echo "✅ social-worker-publishing uses correct image: $actual_image"
+            else
+              echo "❌ social-worker-publishing has incorrect image: $actual_image (expected: $expected_image)"
+              exit 1
+            fi
+          fi
+          for worker_service in social-worker-media social-worker-default social-worker-messenger; do
             if echo "$config_output" | jq -e --arg s "$worker_service" '.services[$s]' > /dev/null 2>&1; then
               actual_image=$(echo "$config_output" | jq -r --arg s "$worker_service" '.services[$s].image')
-              if [[ "$actual_image" == "ghcr.io/themis128/cu130-slim-social-worker:latest" ]]; then
+              expected_image="${PACKAGE}:social-worker-latest"
+              if [[ "$actual_image" == "$expected_image" ]]; then
                 echo "✅ $worker_service uses correct image: $actual_image"
               else
-                echo "❌ $worker_service has incorrect image: $actual_image (expected: ghcr.io/themis128/cu130-slim-social-worker:latest)"
+                echo "❌ $worker_service has incorrect image: $actual_image (expected: $expected_image)"
                 exit 1
               fi
             else

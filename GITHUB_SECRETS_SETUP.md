@@ -8,7 +8,7 @@
 
 > **GHCR note:** Image pushes to GitHub Container Registry use the built-in
 > `GITHUB_TOKEN` with the `packages: write` permission declared in each
-> workflow — **no `DOCKERHUB_*` secrets are needed**. Older releases may still
+> workflow — **no `DOCKERHUB_*` secrets are needed** for app images (Docker Hub / `baltzakist/*` is **legacy only**). Older releases may still
 > exist on Docker Hub under `baltzakist/`; new pushes go to GHCR only.
 
 ---
@@ -59,7 +59,7 @@ gh secret list --repo Themis128/cu130-slim
 Anonymous pulls (Trivy, `docker compose pull` without auth) need public packages:
 
 1. Open https://github.com/Themis128?tab=packages
-2. For each `cu130-slim-*` package → Package settings → Change visibility → **Public**
+2. For each `cu130-slim:<service>-*` package → Package settings → Change visibility → **Public**
 
 ---
 
@@ -82,7 +82,7 @@ Anonymous pulls (Trivy, `docker compose pull` without auth) need public packages
 
 3. **Verify images on GHCR**:
    - https://github.com/Themis128?tab=packages
-   - `docker manifest inspect ghcr.io/themis128/cu130-slim-<service>:latest`
+   - `docker manifest inspect ghcr.io/themis128/cu130-slim:<service>-latest`
 
 ---
 
