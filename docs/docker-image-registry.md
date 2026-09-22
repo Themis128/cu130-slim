@@ -20,7 +20,7 @@ ghcr.io/themis128/cu130-slim-<service>:<tag>
 | Tag format         | Description                                      | Updated by         |
 |--------------------|--------------------------------------------------|--------------------|
 | `latest`           | Moving alias for the newest successful build     | Build and push CI  |
-| `sha-<7-char-sha>` | Immutable pin written into `docker-compose.yml`  | Build and push CI  |
+| `sha-<7-char-sha>` | Immutable per-commit tag kept on GHCR for rollbacks | Build and push CI  |
 | `v2.*` / `v0.*`    | Legacy pins (pre auto-update); still pullable    | Historical         |
 
 ## CI-built services
@@ -52,47 +52,48 @@ image and retag.
 
 ## How Compose consumes the images
 
-Pinned immutable sha tags in `docker-compose.yml`, e.g.:
+`docker-compose.yml` references the moving `latest` tag and sets
+`pull_policy: always` on every `cu130-slim-*` service, e.g.:
 
 ```yaml
-image: ghcr.io/themis128/cu130-slim-social-api:sha-32d08e2
+image: ghcr.io/themis128/cu130-slim-social-api:latest
+pull_policy: always
 ```
 
-`docker-compose.override.yml` (local only) may override individual services to `:latest` or legacy Hub (`baltzakist/…`) tags for iteration. CI validation and production pins follow the GHCR `sha-*` lines in `docker-compose.yml`. Compose pin on OFFICE when verified: **`sha-32d08e2`** (see [`CODEMAP.md` § Workstation](CODEMAP.md#workstation-office--wsl)). Live containers may lag until recreate.
+Every `docker compose up -d`/`create` checks the registry digest and pulls a
+new build when one exists — no manual pin updates needed. `docker compose
+restart` does **not** pull; use `docker compose up -d <service>` to pick up a
+fresh image. A failed pull aborts `up`, so this requires registry
+reachability (the packages are public — anonymous pull works).
 
-## Auto-update of compose pins
+`docker-compose.override.yml` (local only) may override individual services
+for iteration. CI validation requires the GHCR `:latest` refs and
+`pull_policy: always` in `docker-compose.yml`.
+
+## Tags published by CI
 
 The **Build and push images** workflow (`.github/workflows/build-and-push.yml`)
 publishes each app image twice on every successful run:
 
 | Tag | Meaning |
 |-----|---------|
-| `latest` | Moving alias for the newest successful build |
-| `sha-<7-char-sha>` | Immutable pin for the commit that was built |
-
-After the matrix (and ComfyUI) jobs finish, the `update-compose` job rewrites
-all `ghcr.io/themis128/cu130-slim-*` `image:` lines in `docker-compose.yml` to
-the new `sha-<…>` tag and opens a PR (`chore/compose-image-sha-<…>`).
+| `latest` | Moving alias consumed by compose (`pull_policy: always`) |
+| `sha-<7-char-sha>` | Immutable pin for the commit that was built — kept for rollbacks |
 
 Third-party images (n8n, postgres, redis, etc.) are never touched.
+
+### Rollback
+
+To roll a service back to a specific commit build, pin its `image:` line to
+`ghcr.io/themis128/cu130-slim-<service>:sha-<sha>` locally (or commit it) and
+`docker compose up -d <service>`. Helper script for bulk re-pinning:
+`scripts/update-compose-image-tags.sh <tag>`.
 
 ### Loop prevention
 
 `docker-compose.yml` is **not** in the workflow `push.paths` filters (only
 Dockerfiles and the workflow file itself trigger rebuilds, plus
-`workflow_dispatch`). Merging a compose-pin PR therefore does **not** start
-another full image build.
-
-Helper script: `scripts/update-compose-image-tags.sh <tag>`.
-
-### One-time catch-up
-
-After merging the automation PR:
-
-1. Make GHCR packages public (if anonymous pulls are required).
-2. Run **Build and push images** via `workflow_dispatch` on `master`.
-3. Merge the follow-up compose-pin PR the workflow opens.
-4. `docker compose pull` (and recreate) app services.
+`workflow_dispatch`), so compose changes never retrigger a full image build.
 
 ## CI workflows
 
