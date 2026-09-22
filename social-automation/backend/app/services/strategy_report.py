@@ -111,6 +111,11 @@ class StrategyReport:
             mom_s = f"{mom:+}%" if isinstance(mom, int | float) else "n/a"
             bench = p.get("benchmark") or {}
             verdict = bench.get("verdict", "").replace("_", " ") or "no benchmark"
+            if bench.get("your_er_by_followers_pct") is not None and bench.get("benchmark_pct") is not None:
+                verdict = (
+                    f"ER {bench['your_er_by_followers_pct']}% vs "
+                    f"{bench['benchmark_pct']}% ({verdict})"
+                )
             window = self._best_window(p)
             lines.append(
                 f"  {name}: {p.get('posts', 0)} posts · eng {p.get('engagement', 0)} · "
@@ -157,7 +162,7 @@ class StrategyReport:
             f"<td>{p.get('posts', 0)}</td>"
             f"<td>{p.get('engagement', 0)}</td>"
             f"<td>{esc(self._mom_str(p))}</td>"
-            f"<td>{esc((p.get('benchmark') or {}).get('verdict', '—').replace('_', ' '))}</td>"
+            f"<td>{esc(self._bench_cell(p))}</td>"
             f"<td>{esc(self._best_window(p))}</td>"
             f"<td>{esc(p.get('confidence', 'low'))}</td>"
             "</tr>"
@@ -343,6 +348,17 @@ class StrategyReport:
         if not tiles:
             return ""
         return f"<div style='margin-top:8px'>{''.join(tiles)}</div>"
+
+    @staticmethod
+    def _bench_cell(p: dict) -> str:
+        """Human-readable ER-by-followers vs baseline for email tables."""
+        bench = p.get("benchmark") or {}
+        verdict = (bench.get("verdict") or "").replace("_", " ") or "—"
+        yours = bench.get("your_er_by_followers_pct")
+        base = bench.get("benchmark_pct")
+        if yours is None or base is None:
+            return verdict
+        return f"ER {yours}% vs {base}% ({verdict})"
 
     @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:

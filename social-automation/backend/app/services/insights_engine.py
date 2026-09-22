@@ -109,12 +109,14 @@ PLATFORM_BENCHMARKS: dict[str, dict[str, Any]] = {
     "linkedin": {
         "er_by_followers_pct": 5.20,
         "method": "avg engagements/post ÷ followers",
-        "industry_pct": 3.60,  # Hootsuite Technology, avg engagement/post
+        # Prefer same-methodology ER (Socialinsider). Hootsuite Tech "3.60"
+        # is avg engagement/post (absolute), not ER% — do not use as industry_pct.
+        "industry_pct": None,
         "per_format_pct": {
             "native_document": 7.00, "multi_image": 6.45, "video": 6.00,
             "image": 5.30, "text": 4.50, "poll": 4.20, "link": 3.25,
         },
-        "source": "Socialinsider 2025 (1.3M business posts) + Hootsuite",
+        "source": "Socialinsider 2025 (1.3M business posts)",
     },
     "instagram": {
         "er_by_followers_pct": 0.36,
@@ -757,9 +759,12 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         bench_note = ""
         if top.get("benchmark"):
             b = top["benchmark"]
+            # LinkedIn (and any platform without industry_pct) compares against
+            # the published ER-by-followers baseline, not a mismatched absolute.
+            label = "industry median" if PLATFORM_BENCHMARKS.get(top_name, {}).get("industry_pct") else "platform baseline"
             bench_note = (
                 f" — ER by followers {b['your_er_by_followers_pct']}% vs "
-                f"{b['benchmark_pct']}% industry median "
+                f"{b['benchmark_pct']}% {label} "
                 f"({b['verdict'].replace('_', ' ')})"
             )
         recs.append({

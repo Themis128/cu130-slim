@@ -67,7 +67,7 @@ export default function AnalyticsPage() {
 
   const bestTimeMutation = useLinkedinBestTime()
 
-  const { data: overview, isLoading: overviewLoading } = useOverviewMetrics(days)
+  const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useOverviewMetrics(days)
   const { data: platformData, isLoading: platformLoading } = usePlatformMetrics(days)
   const { data: topPosts, isLoading: postsLoading } = useTopPosts(10, platformFilter || undefined, days)
   const { data: rawTrend } = useEngagementTrends(
@@ -154,6 +154,31 @@ export default function AnalyticsPage() {
     )
   }
 
+  if (overviewError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+          <p className="text-muted-foreground mt-1">See what&apos;s working — and what to do next.</p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <AlertTriangle className="h-10 w-10 text-amber-500" />
+            <p className="text-sm font-medium">Couldn&apos;t load analytics overview</p>
+            <p className="text-xs text-muted-foreground max-w-md">
+              The API request failed. Check that social-api is reachable, then retry.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => refetchOverview()}>
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+
   const platformMetrics = (platformData?.map((p: PlatformMetrics, i: number) => ({
     ...p,
     color: PLATFORM_COLOR[p.platform] ?? COLORS[i % COLORS.length],
@@ -230,12 +255,15 @@ export default function AnalyticsPage() {
               <SelectItem value="365">Last year</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={platformFilter} onValueChange={setPlatformFilter}>
+          <Select
+            value={platformFilter || 'all'}
+            onValueChange={(v) => setPlatformFilter(v === 'all' ? '' : v)}
+          >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="All Platforms" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Platforms</SelectItem>
+              <SelectItem value="all">All Platforms</SelectItem>
               <SelectItem value="linkedin">LinkedIn</SelectItem>
               <SelectItem value="twitter">Twitter/X</SelectItem>
               <SelectItem value="instagram">Instagram</SelectItem>

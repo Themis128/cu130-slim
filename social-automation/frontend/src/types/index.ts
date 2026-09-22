@@ -178,6 +178,7 @@ export interface OverviewMetrics {
   total_followers: number
   total_engagement: number
   total_impressions: number
+  last_sync_at?: string | null
 }
 
 export interface PlatformMetrics {
