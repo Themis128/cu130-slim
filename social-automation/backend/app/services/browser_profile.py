@@ -70,12 +70,15 @@ class BrowserProfileService:
 
     def __init__(self, storage_state: dict | None = None) -> None:
         try:
-            from playwright.async_api import async_playwright
-        except ImportError as e:
-            raise BrowserProfileError(
-                500,
-                "Playwright is not installed. Run: pip install playwright",
-            ) from e
+            from patchright.async_api import async_playwright
+        except ImportError:
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError as e:
+                raise BrowserProfileError(
+                    500,
+                    "Playwright is not installed. Run: pip install playwright",
+                ) from e
 
         self._playwright = async_playwright
         self._storage_state = storage_state

@@ -23,10 +23,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-libav \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Playwright + Chromium (Python) + FastAPI bridge ──
-RUN pip install --no-cache-dir playwright httpx fastapi uvicorn && \
-    playwright install chromium && \
-    playwright install-deps chromium
+# ── Patchright (undetected Playwright) + Chromium + FastAPI bridge ──
+# Patchright is a patched Playwright drop-in that removes the CDP
+# Runtime.enable leak and automation flags that Meta/TikTok/Instagram use
+# to silently abort mutations or revoke sessions.
+RUN pip install --no-cache-dir patchright playwright httpx fastapi uvicorn && \
+    patchright install chromium && \
+    patchright install-deps chromium
 
 # ── Node.js 22 (for npx playwright, codegen, MCP) ──
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \

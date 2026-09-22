@@ -56,6 +56,9 @@ dependencies = [
     "tiktok-private-api>=0.4.3",
     # Browser automation for Facebook/LinkedIn personal profile updates
     "playwright>=1.46.0",
+    # Undetected Playwright drop-in (CDP Runtime.enable leak fix) — preferred
+    # driver for all browser automation; falls back to playwright if absent
+    "patchright>=1.62.1",
     # Instagram private API (username/password posting fallback while Graph API restricted)
     "instagrapi>=2.1.0,<3.0.0",
     # PDF libraries — carousel PDF generation, page extraction, and rendering

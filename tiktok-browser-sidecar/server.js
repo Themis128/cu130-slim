@@ -10,7 +10,7 @@
  */
 
 import express from "express";
-import { chromium } from "playwright";
+import { chromium } from "patchright";
 
 const PORT = process.env.TIKTOK_SIDECAR_PORT || 9224;
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || "cloudless.gr";

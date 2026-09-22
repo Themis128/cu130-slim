@@ -25,7 +25,10 @@ PROFILE_URL = "https://www.tiktok.com/@user3113682023385?lang=en"
 
 
 async def main():
-    from playwright.async_api import async_playwright
+    try:
+        from patchright.async_api import async_playwright
+    except ImportError:
+        from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(

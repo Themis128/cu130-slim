@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from playwright.async_api import async_playwright
+try:
+    # Patchright: undetected drop-in Playwright (fixes Runtime.enable CDP leak,
+    # removes automation flags). Falls back to stock Playwright if missing.
+    from patchright.async_api import async_playwright
+except ImportError:
+    from playwright.async_api import async_playwright
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel

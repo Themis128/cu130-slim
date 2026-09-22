@@ -48,7 +48,7 @@
 
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { chromium } from "playwright";
+import { chromium } from "patchright";
 import fs from "fs";
 import path from "path";
 
