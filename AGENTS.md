@@ -1,5 +1,23 @@
 # Agent working notes for cu130-slim / SocialAuto
 
+## Landing changes on master (all agents — incl. Grok Build CLI)
+
+`master` is **protected**: direct pushes are always rejected (`GH006`), including `git push origin <branch>:master`. Required checks: `validate` + `secret-scan`. The only way to land work:
+
+```bash
+git fetch origin && git checkout -b <topic-branch> origin/master
+# ... work, commit ...
+git push origin <topic-branch>                      # push the branch itself
+gh pr create --base master --head <topic-branch>    # open PR
+# wait for validate + secret-scan (fast: ~10-30s for docs)
+gh pr merge <N> --squash --delete-branch
+```
+
+- Never retry `git push origin …:master` — it cannot succeed. If you see `GH006: Protected branch update failed`, switch to the PR flow above.
+- `docs/arch-hw-reality-check` was already merged via PR #43 and deleted — do not push it again.
+- Repo auto-merge is disabled; merge only after required checks pass.
+- Compose app images use `:latest` + `pull_policy: always` — no sha pin PRs.
+
 ## Commit & push cadence
 
 - After every **~15 file changes** or at the end of a **major implementation chunk**, run the test gate below, commit, and push.
