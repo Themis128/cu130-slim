@@ -1,10 +1,10 @@
 name: Build and push images
 # Pushes to ghcr.io/themis128/* (public option). Make packages public in GitHub UI if anonymous pulls are required.
 #
-# After a successful build, tags each image as :latest and :sha-<7-char-sha>,
-# then opens a PR that rewrites docker-compose.yml pins to the new sha tags.
-# docker-compose.yml is intentionally NOT in the push path filters so those
-# bot PRs do not retrigger a full rebuild loop.
+# After a successful build, tags each image as :latest and :sha-<7-char-sha>.
+# docker-compose.yml consumes the moving :latest tag (pull_policy: always), so
+# no compose pin update is needed after a build. The :sha-<sha> tags remain
+# available on GHCR for manual rollbacks.
 
 on:
   workflow_dispatch:
