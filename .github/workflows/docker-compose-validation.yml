@@ -55,6 +55,7 @@ jobs:
             "ghcr.io/themis128/cu130-slim-env-manager-frontend:"
             "ghcr.io/themis128/cu130-slim-social-api:"
             "ghcr.io/themis128/cu130-slim-social-frontend:"
+            "ghcr.io/themis128/cu130-slim-cloudflared:"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
@@ -92,7 +93,7 @@ jobs:
           # All CI-built services must have a valid pull_policy.
           # Accept: always, if_not_present, missing (Docker default = if_not_present).
           # Reject: never (would skip pulling CI-built images).
-          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-frontend celery-beat; do
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-frontend celery-beat cloudflared; do
             if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
               pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
               if [[ "$pull_policy" == "always" || "$pull_policy" == "if_not_present" || "$pull_policy" == "missing" ]]; then

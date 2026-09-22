@@ -1,17 +1,21 @@
 #!/bin/bash
 # Setup GitHub Secrets for CI/CD
 # Run this script after installing GitHub CLI (gh) and authenticating
+#
+# Post-GHCR-cutover: image push uses the built-in GITHUB_TOKEN / packages:write
+# permission. No Docker Hub secrets are required for CI. Keep this script for
+# optional third-party secrets (Codecov, etc.).
 
 set -euo pipefail
 
-REPO="Themis128/ComfyUI-Docker"  # Adjust if different
+REPO="Themis128/cu130-slim"  # Adjust if different
 
 echo "=== GitHub Secrets Setup for cu130-slim ==="
 echo ""
 echo "This script will add the following secrets to $REPO:"
-echo "  1. DOCKERHUB_USERNAME"
-echo "  2. DOCKERHUB_TOKEN"
-echo "  3. CODECOV_TOKEN"
+echo "  1. CODECOV_TOKEN"
+echo ""
+echo "Note: GHCR push uses the built-in GITHUB_TOKEN — no DOCKERHUB_* secrets needed."
 echo ""
 
 # Check if gh is installed
@@ -34,26 +38,8 @@ fi
 echo "✅ GitHub CLI is installed and authenticated"
 echo ""
 
-# DOCKERHUB_USERNAME
-echo "1. DOCKERHUB_USERNAME"
-read -p "   Enter Docker Hub username (default: baltzakist): " DOCKERHUB_USERNAME
-DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-baltzakist}
-gh secret set DOCKERHUB_USERNAME --body "$DOCKERHUB_USERNAME" --repo "$REPO"
-echo "   ✅ Set DOCKERHUB_USERNAME=$DOCKERHUB_USERNAME"
-echo ""
-
-# DOCKERHUB_TOKEN
-echo "2. DOCKERHUB_TOKEN"
-echo "   Create a token at: https://hub.docker.com/settings/security"
-echo "   (Access Token → New Access Token → Read, Write, Delete permissions)"
-read -s -p "   Enter Docker Hub access token: " DOCKERHUB_TOKEN
-echo ""
-gh secret set DOCKERHUB_TOKEN --body "$DOCKERHUB_TOKEN" --repo "$REPO"
-echo "   ✅ Set DOCKERHUB_TOKEN"
-echo ""
-
 # CODECOV_TOKEN
-echo "3. CODECOV_TOKEN"
+echo "1. CODECOV_TOKEN"
 echo "   Get token from: https://codecov.io/gh/$REPO/settings"
 read -s -p "   Enter Codecov token (or press Enter to skip): " CODECOV_TOKEN
 echo ""
@@ -69,4 +55,5 @@ echo ""
 echo "=== Verifying secrets ==="
 gh secret list --repo "$REPO"
 echo ""
-echo "✅ All done! Workflows will now use these secrets."
+echo "✅ All done! GHCR workflows use the built-in GITHUB_TOKEN."
+echo "   Make GHCR packages public: https://github.com/Themis128?tab=packages"

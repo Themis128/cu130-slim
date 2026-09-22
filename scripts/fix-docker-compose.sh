@@ -102,9 +102,14 @@ log_info "Removing redundant .env mounts from services that don't need them..."
 # Services that need .env: postgres, metabase, chroma, portainer, env-manager-backend, social-api, social-worker, redis
 # Services that DON'T need .env: n8n, n8n-sandbox, ollama, comfyui, social-postgres, social-frontend
 
-# Fix 8: Update image references to use :latest for version consistency
-log_info "Updating image references to use :latest tag..."
-sed -i 's|image: baltzakist/cu130-slim-comfyui:.*|image: baltzakist/cu130-slim-comfyui:latest|' "${COMPOSE_FILE}"
+# Fix 8: Update CI-built image references to GHCR and :latest for version consistency
+log_info "Updating image references to GHCR :latest tag..."
+sed -i 's|image: .*/cu130-slim-comfyui:.*|image: ghcr.io/themis128/cu130-slim-comfyui:latest|' "${COMPOSE_FILE}"
+sed -i 's|image: .*/cu130-slim-env-manager-backend:.*|image: ghcr.io/themis128/cu130-slim-env-manager-backend:latest|' "${COMPOSE_FILE}"
+sed -i 's|image: .*/cu130-slim-env-manager-frontend:.*|image: ghcr.io/themis128/cu130-slim-env-manager-frontend:latest|' "${COMPOSE_FILE}"
+sed -i 's|image: .*/cu130-slim-social-api:.*|image: ghcr.io/themis128/cu130-slim-social-api:latest|' "${COMPOSE_FILE}"
+sed -i 's|image: .*/cu130-slim-social-worker:.*|image: ghcr.io/themis128/cu130-slim-social-worker:latest|' "${COMPOSE_FILE}"
+sed -i 's|image: .*/cu130-slim-social-frontend:.*|image: ghcr.io/themis128/cu130-slim-social-frontend:latest|' "${COMPOSE_FILE}"
 
 log_success "All fixes applied. Backup saved as ${BACKUP_FILE}"
 log_info "Review changes with: diff ${BACKUP_FILE} ${COMPOSE_FILE}"
