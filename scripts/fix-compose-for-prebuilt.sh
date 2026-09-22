@@ -1,5 +1,5 @@
 #!/bin/bash
-# Complete fix for docker-compose.yml to use pre-built images from Docker Hub
+# Complete fix for docker-compose.yml to use pre-built images from GHCR
 
 set -euo pipefail
 
@@ -23,17 +23,17 @@ def log_info(msg):
 with open('docker-compose.yml', 'r') as f:
     compose = yaml.safe_load(f)
 
-DOCKERHUB_USER = "baltzakist"
+GHCR_NS = "ghcr.io/themis128"
 PROJECT_NAME = "cu130-slim"
 
-# Services that should use pre-built images from Docker Hub
+# Services that should use pre-built images from GHCR
 custom_services = {
-    'comfyui': f'{DOCKERHUB_USER}/{PROJECT_NAME}-comfyui:latest',
-    'env-manager-backend': f'{DOCKERHUB_USER}/{PROJECT_NAME}-env-manager-backend:latest',
-    'env-manager-frontend': f'{DOCKERHUB_USER}/{PROJECT_NAME}-env-manager-frontend:latest',
-    'social-api': f'{DOCKERHUB_USER}/{PROJECT_NAME}-social-api:latest',
-    'social-worker': f'{DOCKERHUB_USER}/{PROJECT_NAME}-social-worker:latest',
-    'social-frontend': f'{DOCKERHUB_USER}/{PROJECT_NAME}-social-frontend:latest',
+    'comfyui': f'{GHCR_NS}/{PROJECT_NAME}-comfyui:latest',
+    'env-manager-backend': f'{GHCR_NS}/{PROJECT_NAME}-env-manager-backend:latest',
+    'env-manager-frontend': f'{GHCR_NS}/{PROJECT_NAME}-env-manager-frontend:latest',
+    'social-api': f'{GHCR_NS}/{PROJECT_NAME}-social-api:latest',
+    'social-worker': f'{GHCR_NS}/{PROJECT_NAME}-social-worker:latest',
+    'social-frontend': f'{GHCR_NS}/{PROJECT_NAME}-social-frontend:latest',
 }
 
 # Remove build sections and ensure image is set for custom services
