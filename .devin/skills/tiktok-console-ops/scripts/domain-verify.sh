@@ -39,14 +39,7 @@ if [ ! -f "$TOKEN_FILE" ]; then
 fi
 
 TOKEN=$(python3 -c "import json;print(json.load(open('$TOKEN_FILE')).get('token') or '')")
-STATUS=$(python3 -c "import json;print(json.load(open('$TOKEN_FILE')).get('status') or '')")
-
-if [ "$STATUS" = "already_verified" ]; then
-  echo "Domain $DOMAIN is already verified in TikTok console — no DNS token needed"
-  exit 0
-fi
-
-if [ -z "$TOKEN" ] || [ "$TOKEN" = "already-verified" ]; then
+if [ -z "$TOKEN" ]; then
   echo "No tiktok-domain-verification token found — open console manually or fix app URL properties UI" >&2
   python3 -c "import json;print(json.dumps(json.load(open('$TOKEN_FILE')),indent=2)[:2000])"
   exit 2
