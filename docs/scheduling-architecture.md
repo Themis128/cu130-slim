@@ -1,5 +1,7 @@
 # Scheduling Architecture
 
+Workstation topology/ports: [`CODEMAP.md`](CODEMAP.md) (incl. § Workstation OFFICE/WSL).
+
 How a Post goes from "scheduled" to "published" — the beat sweeps, the
 publish_queue, retries, token refresh, and per-platform publish modes.
 

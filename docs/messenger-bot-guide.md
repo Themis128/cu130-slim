@@ -598,7 +598,7 @@ All fields are optional — only provided fields are updated:
 1. **Check DMR is running**:
    ```bash
    docker model status
-   curl http://localhost:12434/engines/v1/models
+   curl http://localhost:12435/engines/v1/models
    ```
 
 2. **Try a different model**: Update `model` in bot config.

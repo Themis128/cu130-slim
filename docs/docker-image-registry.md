@@ -55,8 +55,10 @@ image and retag.
 Pinned immutable sha tags in `docker-compose.yml`, e.g.:
 
 ```yaml
-image: ghcr.io/themis128/cu130-slim-social-api:sha-8d1ef9a
+image: ghcr.io/themis128/cu130-slim-social-api:sha-32d08e2
 ```
+
+`docker-compose.override.yml` (local only) may override individual services to `:latest` or legacy Hub (`baltzakist/…`) tags for iteration. CI validation and production pins follow the GHCR `sha-*` lines in `docker-compose.yml`. Compose pin on OFFICE when verified: **`sha-32d08e2`** (see [`CODEMAP.md` § Workstation](CODEMAP.md#workstation-office--wsl)). Live containers may lag until recreate.
 
 ## Auto-update of compose pins
 

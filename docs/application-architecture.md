@@ -670,7 +670,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  ┌─────────────┐                                                    │
 │  │ airbyte-mcp │  Host-level (not Compose):                        │
 │  │ :9228/9229  │  ┌──────────────────────────────────────┐         │
-│  │             │  │ Docker Model Runner (DMR) :12434     │         │
+│  │             │  │ Docker Model Runner (DMR) :12435     │         │
 │  │ Airbyte MCP │  │ Text: qwen3:8b  Vision: qwen3-vl     │         │
 │  │ connector   │  │ Embeddings: qwen3-embedding           │         │
 │  └─────────────┘  └──────────────────────────────────────┘         │
@@ -1346,6 +1346,8 @@ Admin team is auto-set to Enterprise with unlimited everything.
 
 ## Port Map
 
+Hardware/GPU snapshot for this workstation lives in [`CODEMAP.md` § Workstation (OFFICE / WSL)](CODEMAP.md#workstation-office--wsl) — do not duplicate here.
+
 All published ports are bound to `127.0.0.1` — no service is reachable on the
 LAN; public traffic arrives only via the Cloudflare Tunnel.
 
@@ -1373,7 +1375,7 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 9227 | linkedin-mcp-server | LinkedIn MCP |
 | 9228/9229 | airbyte-mcp-server | Airbyte MCP |
 | 9230 | messenger-sidecar | Messenger |
-| 12434 | DMR (host) | Local AI |
+| 12435 | DMR (host) | Local AI (not 12434) |
 | 5433 | social-postgres | App DB |
 
 ## Verification Status

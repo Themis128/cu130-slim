@@ -9,6 +9,8 @@ access on the RTX 3070 (8 GB VRAM, WSL2). Cloudflare Workers AI is the **only**
 cloud fallback; every other provider in `PROVIDER_CATALOG` is manual-selection
 only.
 
+Workstation CPU/RAM/disk/Docker snapshot (measured): [`CODEMAP.md` § Workstation (OFFICE / WSL)](CODEMAP.md#workstation-office--wsl). Do not duplicate the HW table here.
+
 Two inference backends are active:
 
 - **llama.cpp** — default engine, GGUF quantized models, full GPU offload
@@ -219,6 +221,10 @@ Important gaps:
   local-diffusers needs ~2 GB — overlap with the 8B is bounded by its short
   keep-alive. Unload with `docker model unload --all` if the diffusers path
   OOMs.
+- **ComfyUI coexistence**: `social-media-comfyui-gpu` on host `:8000` holds a CUDA context
+  even when idle. Measured free VRAM with ComfyUI up can be **<1 GB** — unload or stop
+  ComfyUI before loading `qwen3-vl` / dual 8B+vision workloads. Prefer DMR mid/tiny models
+  when ComfyUI must stay up.
 - **Model list normalization**: `validate_dmr_models()` matches expected refs
   against `/engines/v1/models`, which reports `huggingface.co/...` lowercase
   for `hf.co` refs — the matcher normalizes both sides before suffix-matching.
