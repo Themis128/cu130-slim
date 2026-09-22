@@ -209,16 +209,39 @@ async def save_uploaded_media(
     return asset
 
 
+_FMT_TO_EXT = {
+    "PNG": ".png",
+    "JPEG": ".jpg",
+    "JPG": ".jpg",
+    "WEBP": ".webp",
+    "GIF": ".gif",
+}
+
+
+def _detect_image_format(image_bytes: bytes, default_ext: str, default_mime: str) -> tuple[str, str]:
+    """Sniff the real image format; fall back to the caller's labels."""
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            fmt = (img.format or "PNG").upper()
+        if fmt in _FMT_TO_EXT:
+            ext = _FMT_TO_EXT[fmt]
+            return ext, _MIME_BY_EXT[ext]
+    except Exception:
+        pass
+    return default_ext, default_mime
+
+
 def _ensure_jpeg_bytes(image_bytes: bytes) -> tuple[bytes, int, int] | None:
     """Convert any PIL-readable image to JPEG bytes. Returns None on failure."""
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             if img.mode in ("RGBA", "LA", "P"):
+                # Normalize through RGBA so palette transparency (P) and
+                # luminance-alpha (LA) both produce a proper alpha mask.
+                rgba = img.convert("RGBA")
                 bg = Image.new("RGB", img.size, (255, 255, 255))
-                bg.paste(img, mask=img.split()[-1] if img.mode != "P" else None)
+                bg.paste(rgba, mask=rgba.getchannel("A"))
                 rgb = bg
-            elif img.mode == "CMYK":
-                rgb = img.convert("RGB")
             else:
                 rgb = img.convert("RGB") if img.mode != "RGB" else img
             buf = io.BytesIO()
@@ -270,20 +293,14 @@ async def persist_generated_image(
             image_bytes, width, height = converted
             actual_mime = "image/jpeg"
         else:
-            actual_mime = "image/jpeg"
+            # Conversion failed — don't mislabel a non-JPEG payload as JPEG.
+            actual_ext, actual_mime = _detect_image_format(
+                image_bytes, actual_ext, actual_mime
+            )
     else:
-        try:
-            with Image.open(io.BytesIO(image_bytes)) as img:
-                fmt = (img.format or "PNG").upper()
-            fmt_to_ext = {
-                "PNG": ".png", "JPEG": ".jpg", "JPG": ".jpg",
-                "WEBP": ".webp", "GIF": ".gif",
-            }
-            if fmt in fmt_to_ext:
-                actual_ext = fmt_to_ext[fmt]
-                actual_mime = _MIME_BY_EXT[actual_ext]
-        except Exception:
-            pass
+        actual_ext, actual_mime = _detect_image_format(
+            image_bytes, actual_ext, actual_mime
+        )
 
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")

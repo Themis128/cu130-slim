@@ -729,6 +729,7 @@ async def generate_brand_logo(
         image_bytes=image_bytes,
         prompt=prompt,
         source="ai-logo",
+        extension=".png",  # logos need alpha — JPEG would flatten transparency
     )
 
     # Build the logo URL from the media asset
@@ -829,6 +830,7 @@ async def generate_brand_favicon(
         image_bytes=image_bytes,
         prompt=prompt,
         source="ai-favicon",
+        extension=".png",  # favicons need alpha — JPEG would flatten transparency
     )
 
     favicon_url = f"/api/v1/media/view/{asset.id}"
