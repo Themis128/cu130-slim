@@ -704,3 +704,16 @@ def test_sidecar_file_path_mapping():
     assert pub._sidecar_file_path("uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
     assert pub._sidecar_file_path("/uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
     assert pub._sidecar_file_path("") is None
+
+
+def test_media_public_url_force_jpeg(monkeypatch):
+    """Instagram Graph URLs must request JPEG re-encode from /media/view."""
+    from app.services import publishing as pub
+
+    monkeypatch.setattr(pub._settings, "MEDIA_PUBLIC_BASE_URL", "https://media.example")
+    monkeypatch.setattr(pub._settings, "R2_PUBLIC_URL", "")
+    url = pub._media_public_url("2026/01/x.webp", force_jpeg=True)
+    assert url == "https://media.example/api/v1/media/view?path=2026%2F01%2Fx.webp&format=jpeg"
+    url2 = pub._media_public_url("2026/01/x.webp")
+    assert url2 == "https://media.example/api/v1/media/view?path=2026%2F01%2Fx.webp"
+    assert "&format=jpeg" not in url2
