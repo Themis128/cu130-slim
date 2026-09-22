@@ -23,7 +23,10 @@ import os
 import sys
 from pathlib import Path
 
-from playwright.async_api import async_playwright
+try:
+    from patchright.async_api import async_playwright
+except ImportError:
+    from playwright.async_api import async_playwright
 
 COOKIE_DIR = Path("/app/cookies")
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
