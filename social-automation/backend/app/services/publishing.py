@@ -309,13 +309,17 @@ def _images_to_pdf(image_paths: list[str], title: str = "Carousel") -> bytes:
     return pdf_bytes.getvalue()
 
 
-def _media_public_url(storage_path: str) -> str | None:
+def _media_public_url(storage_path: str, *, force_jpeg: bool = False) -> str | None:
     """Build a publicly reachable URL for a local upload path.
 
     Priority:
     1. MEDIA_PUBLIC_BASE_URL + /api/v1/media/view?path=...
     2. /run/tunnel/url (Cloudflare tunnel) + /api/v1/media/view?path=...
     3. R2_PUBLIC_URL + storage_path (for R2-backed assets with relative keys)
+
+    When ``force_jpeg`` is True (Instagram Graph ``image_url``), append
+    ``format=jpeg`` so ``/media/view`` re-encodes WebP/HEIC/AVIF to JPEG and
+    avoids Meta error 36001 / subcode 2207083 ("image format not supported").
     """
     base = (_settings.MEDIA_PUBLIC_BASE_URL or "").rstrip("/")
     if not base:
@@ -325,10 +329,15 @@ def _media_public_url(storage_path: str) -> str | None:
         except OSError:
             pass
     if base:
-        return f"{base}/api/v1/media/view?path={urllib.parse.quote(storage_path)}"
+        url = f"{base}/api/v1/media/view?path={urllib.parse.quote(storage_path)}"
+        if force_jpeg:
+            url += "&format=jpeg"
+        return url
     # Fall back to R2 public URL for assets stored as relative R2 keys
     r2_base = (_settings.R2_PUBLIC_URL or "").rstrip("/")
     if r2_base and storage_path and not storage_path.startswith("/"):
+        # Direct R2 object URLs cannot be re-encoded; callers that need JPEG
+        # should store JPEG/PNG originals or use MEDIA_PUBLIC_BASE_URL.
         return f"{r2_base}/{storage_path}"
     return None
 
@@ -1014,7 +1023,8 @@ async def _instagram_public_urls(
 
     urls: list[str] = []
     for sp in storage_paths:
-        url = _media_public_url(sp)
+        # Always request JPEG from /media/view so Graph never sees WebP/HEIC/AVIF.
+        url = _media_public_url(sp, force_jpeg=True)
         if url:
             urls.append(url)
     return urls
@@ -2000,9 +2010,11 @@ async def _publish_threads(
     media_urls: list[tuple[str, str]] = []  # (url, kind)
     if storage_paths:
         for sp in storage_paths[:20]:
-            url = _media_public_url(sp)
+            kind = _threads_media_kind(sp)
+            # Threads image_url has the same JPEG/PNG constraint as Instagram Graph.
+            url = _media_public_url(sp, force_jpeg=(kind == "image"))
             if url:
-                media_urls.append((url, _threads_media_kind(sp)))
+                media_urls.append((url, kind))
 
     try:
         if not media_urls:
