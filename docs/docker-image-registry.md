@@ -17,10 +17,11 @@ ghcr.io/themis128/cu130-slim-<service>:<tag>
 
 ## Tag types
 
-| Tag format        | Description                                      | Updated by         |
-|-------------------|--------------------------------------------------|--------------------|
-| `latest`          | Moving alias when published                      | CI / manual        |
-| `v2.<run_number>` | Version tag pinned in `docker-compose.yml`       | Compose + CI       |
+| Tag format         | Description                                      | Updated by         |
+|--------------------|--------------------------------------------------|--------------------|
+| `latest`           | Moving alias for the newest successful build     | Build and push CI  |
+| `sha-<7-char-sha>` | Immutable pin written into `docker-compose.yml`  | Build and push CI  |
+| `v2.*` / `v0.*`    | Legacy pins (pre auto-update); still pullable    | Historical         |
 
 ## CI-built services
 
@@ -51,11 +52,45 @@ image and retag.
 
 ## How Compose consumes the images
 
-Pinned version tags in `docker-compose.yml`, e.g.:
+Pinned immutable sha tags in `docker-compose.yml`, e.g.:
 
 ```yaml
-image: ghcr.io/themis128/cu130-slim-social-api:v2.419
+image: ghcr.io/themis128/cu130-slim-social-api:sha-8d1ef9a
 ```
+
+## Auto-update of compose pins
+
+The **Build and push images** workflow (`.github/workflows/build-and-push.yml`)
+publishes each app image twice on every successful run:
+
+| Tag | Meaning |
+|-----|---------|
+| `latest` | Moving alias for the newest successful build |
+| `sha-<7-char-sha>` | Immutable pin for the commit that was built |
+
+After the matrix (and ComfyUI) jobs finish, the `update-compose` job rewrites
+all `ghcr.io/themis128/cu130-slim-*` `image:` lines in `docker-compose.yml` to
+the new `sha-<…>` tag and opens a PR (`chore/compose-image-sha-<…>`).
+
+Third-party images (n8n, postgres, redis, etc.) are never touched.
+
+### Loop prevention
+
+`docker-compose.yml` is **not** in the workflow `push.paths` filters (only
+Dockerfiles and the workflow file itself trigger rebuilds, plus
+`workflow_dispatch`). Merging a compose-pin PR therefore does **not** start
+another full image build.
+
+Helper script: `scripts/update-compose-image-tags.sh <tag>`.
+
+### One-time catch-up
+
+After merging the automation PR:
+
+1. Make GHCR packages public (if anonymous pulls are required).
+2. Run **Build and push images** via `workflow_dispatch` on `master`.
+3. Merge the follow-up compose-pin PR the workflow opens.
+4. `docker compose pull` (and recreate) app services.
 
 ## CI workflows
 
