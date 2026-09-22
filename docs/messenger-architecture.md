@@ -489,7 +489,7 @@ Bot Builder UI with a Resume button.
 │                                                                     │
 │  ┌─────────────┐                                                    │
 │  │ DMR (host)  │  Host-level Docker engine (not a Compose service)  │
-│  │ :12434      │  Llama 3.2, Qwen3 8B, Qwen3-VL, Qwen3-embedding    │
+│  │ :12435      │  Llama 3.2, Qwen3 8B, Qwen3-VL, Qwen3-embedding    │
 │  │             │  OpenAI + Anthropic + Ollama compatible APIs        │
 │  └─────────────┘                                                    │
 └─────────────────────────────────────────────────────────────────────┘
@@ -638,7 +638,7 @@ to personal Messenger   (Chromium)           (every 2 min)
 | `MESSENGER_SIDECAR_URL` | social-api | Sidecar dispatch URL |
 | `CLOUDFLARE_API_TOKEN` | sidecar, worker-messenger | AI auto-reply (Workers AI) |
 | `CLOUDFLARE_ACCOUNT_ID` | sidecar, worker-messenger | AI auto-reply (account) |
-| `DMR_URL` | sidecar, worker-messenger | DMR base URL (`http://host.docker.internal:12434/engines/llama.cpp/v1`) |
+| `DMR_URL` | sidecar, worker-messenger | DMR base URL (`http://host.docker.internal:12435/engines/llama.cpp/v1`) |
 | `DMR_TEXT_MODEL` | sidecar, worker-messenger | Primary text model (`ai/llama3.2`) |
 | `DMR_TINY_MODEL` | sidecar, worker-messenger | Intent detection model (`ai/smollm2`) |
 | `DMR_EMBEDDING_MODEL` | sidecar, worker-messenger | Embeddings for RAG (`ai/qwen3-embedding`) |
