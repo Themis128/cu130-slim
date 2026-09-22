@@ -62,15 +62,22 @@ image: ghcr.io/themis128/cu130-slim-social-api:v2.419
 | Workflow | Role |
 |----------|------|
 | `.github/workflows/build-and-push.yml` | Build + push to **GHCR** (`packages: write`) |
-| `.github/workflows/docker-compose-validation.yml` | Assert compose image prefixes are `ghcr.io/themis128/` |
+| `.github/workflows/docker-compose-validation.yml` | Assert compose image prefixes are `ghcr.io/themis128/` (includes `cloudflared`) |
 | `.github/workflows/trivy-scan.yml` / `security.yml` | Login to GHCR, pull compose ref (or build), scan |
-| `.github/workflows/docker-ci.yml` | Legacy Docker Hub path (prefer `build-and-push.yml`) |
+| `.github/workflows/docker-ci.yml` | Secondary GHCR build path (`packages: write`) — prefer `build-and-push.yml` |
 
 ## Making packages public (manual)
 
 1. Open https://github.com/Themis128?tab=packages
 2. For each `cu130-slim-*` package → Package settings → Change visibility → Public
 3. Re-run Trivy / Security Scanning / Build and push as needed
+
+## Manual release
+
+`scripts/build-tag-push-all.sh` builds, tags, and pushes all images to GHCR
+(`ghcr.io/<owner>/cu130-slim-<service>:<tag>`) and rewrites compose refs to the
+same namespace. Auth via `gh auth token | docker login ghcr.io -u <user>
+--password-stdin` — no Docker Hub credentials needed.
 
 ## Checking tags on GHCR
 

@@ -129,9 +129,6 @@ jobs:
           elif docker pull ghcr.io/themis128/cu130-slim-comfyui:latest; then
             docker tag ghcr.io/themis128/cu130-slim-comfyui:latest "$REF"
             echo "Retagged :latest -> $REF"
-          elif docker pull baltzakist/cu130-slim-comfyui:latest; then
-            docker tag baltzakist/cu130-slim-comfyui:latest "$REF"
-            echo "Retagged Docker Hub legacy image -> $REF"
           else
             echo "Registry pull failed (private/missing tag). Building comfyui locally..."
             docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
@@ -246,8 +243,6 @@ jobs:
             echo "Pulled $REF from registry"
           elif docker pull ghcr.io/themis128/cu130-slim-comfyui:latest; then
             docker tag ghcr.io/themis128/cu130-slim-comfyui:latest "$REF"
-          elif docker pull baltzakist/cu130-slim-comfyui:latest; then
-            docker tag baltzakist/cu130-slim-comfyui:latest "$REF"
           else
             echo "Registry pull failed. Building comfyui locally..."
             docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui

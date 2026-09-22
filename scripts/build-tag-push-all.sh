@@ -1,11 +1,19 @@
 #!/bin/bash
-# Build, tag, push all custom Docker images to Docker Hub
-# Updates docker-compose.yml to use :latest tags
+# Build, tag, push all custom Docker images to GitHub Container Registry (GHCR)
+# Updates docker-compose.yml to use the chosen tag.
+#
+# GHCR uses the built-in GITHUB_TOKEN / gh CLI for auth. Make packages public
+# in the GitHub UI after first push so anonymous pulls (Trivy, compose) work.
 
 set -euo pipefail
 
 # Configuration
-DOCKERHUB_USER="${DOCKERHUB_USER:-baltzakist}"
+GHCR_REGISTRY="ghcr.io"
+OWNER="${GITHUB_OWNER:-}"
+if [ -z "$OWNER" ] && command -v gh >/dev/null 2>&1; then
+    OWNER="$(gh repo view --json owner -q .owner.login 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+fi
+OWNER="${OWNER:-themis128}"
 PROJECT_NAME="cu130-slim"
 TAG="${TAG:-latest}"
 
@@ -21,21 +29,31 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-# Check Docker Hub login
-check_docker_login() {
-    log_info "Checking Docker Hub authentication..."
-    if ! docker info 2>/dev/null | grep -q "Username: ${DOCKERHUB_USER}"; then
-        log_warn "Not logged in as ${DOCKERHUB_USER}. Please run: docker login"
-        read -p "Login now? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            docker login
-        else
-            log_error "Docker Hub login required. Exiting."
-            exit 1
-        fi
+# Check GHCR login via gh CLI or GITHUB_TOKEN
+check_ghcr_login() {
+    log_info "Checking GitHub Container Registry authentication..."
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        log_success "Authenticated with gh CLI"
+        return 0
     fi
-    log_success "Authenticated as ${DOCKERHUB_USER}"
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        log_info "Logging into ghcr.io with GITHUB_TOKEN..."
+        echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null 2>&1 || true
+    fi
+    if docker info 2>/dev/null | grep -q "ghcr.io"; then
+        log_success "Authenticated to ghcr.io"
+        return 0
+    fi
+    log_warn "Not logged in to ghcr.io. Please run: gh auth login && gh auth token | docker login ghcr.io -u USERNAME --password-stdin"
+    read -p "Login now with gh? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        gh auth login
+        gh auth token | docker login ghcr.io -u "$(gh api user -q .login)" --password-stdin
+    else
+        log_error "GHCR login required. Exiting."
+        exit 1
+    fi
 }
 
 # Build and push a single image
@@ -43,31 +61,31 @@ build_and_push() {
     local service_name=$1
     local dockerfile_path=$2
     local build_context=$3
-    local image_name="${DOCKERHUB_USER}/${PROJECT_NAME}-${service_name}:${TAG}"
-    
+    local image_name="${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:${TAG}"
+
     log_info "Building ${service_name}..."
     log_info "  Dockerfile: ${dockerfile_path}"
     log_info "  Context: ${build_context}"
     log_info "  Target image: ${image_name}"
-    
+
     if docker build -f "${dockerfile_path}" -t "${image_name}" "${build_context}"; then
         log_success "Built ${image_name}"
     else
         log_error "Failed to build ${service_name}"
         return 1
     fi
-    
-    log_info "Pushing ${image_name} to Docker Hub..."
+
+    log_info "Pushing ${image_name} to GHCR..."
     if docker push "${image_name}"; then
         log_success "Pushed ${image_name}"
     else
         log_error "Failed to push ${service_name}"
         return 1
     fi
-    
+
     # Also tag as latest explicitly
-    docker tag "${image_name}" "${DOCKERHUB_USER}/${PROJECT_NAME}-${service_name}:latest"
-    docker push "${DOCKERHUB_USER}/${PROJECT_NAME}-${service_name}:latest"
+    docker tag "${image_name}" "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:latest"
+    docker push "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:latest"
     log_success "Tagged and pushed :latest for ${service_name}"
 }
 
@@ -75,61 +93,24 @@ build_and_push() {
 update_docker_compose() {
     local compose_file="docker-compose.yml"
     local backup_file="docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)"
-    
+
     log_info "Backing up current docker-compose.yml to ${backup_file}"
     cp "${compose_file}" "${backup_file}"
-    
-    log_info "Updating docker-compose.yml with ${DOCKERHUB_USER}/${PROJECT_NAME}-*:${TAG} images..."
-    
-    # Use sed to replace image lines for custom-built services
-    # comfyui
-    sed -i "s|image: baltzakist/cu130-slim-comfyui:.*|image: ${DOCKERHUB_USER}/${PROJECT_NAME}-comfyui:${TAG}|" "${compose_file}"
-    
-    # env-manager-backend (build: context -> image)
-    sed -i '/env-manager-backend:/,/^[[:space:]]*[a-z]/{
-        /build:/,/^[[:space:]]*[a-z]/{
-            /context:/d
-            /dockerfile:/d
-        }
-        /build:/a\    image: '"${DOCKERHUB_USER}/${PROJECT_NAME}-env-manager-backend:${TAG}"'
-    }' "${compose_file}"
-    
-    # env-manager-frontend
-    sed -i '/env-manager-frontend:/,/^[[:space:]]*[a-z]/{
-        /build:/,/^[[:space:]]*[a-z]/{
-            /context:/d
-            /dockerfile:/d
-        }
-        /build:/a\    image: '"${DOCKERHUB_USER}/${PROJECT_NAME}-env-manager-frontend:${TAG}"'
-    }' "${compose_file}"
-    
-    # social-api
-    sed -i '/social-api:/,/^[[:space:]]*[a-z]/{
-        /build:/,/^[[:space:]]*[a-z]/{
-            /context:/d
-            /dockerfile:/d
-        }
-        /build:/a\    image: '"${DOCKERHUB_USER}/${PROJECT_NAME}-social-api:${TAG}"'
-    }' "${compose_file}"
-    
-    # social-worker
-    sed -i '/social-worker:/,/^[[:space:]]*[a-z]/{
-        /build:/,/^[[:space:]]*[a-z]/{
-            /context:/d
-            /dockerfile:/d
-        }
-        /build:/a\    image: '"${DOCKERHUB_USER}/${PROJECT_NAME}-social-worker:${TAG}"'
-    }' "${compose_file}"
-    
-    # social-frontend
-    sed -i '/social-frontend:/,/^[[:space:]]*[a-z]/{
-        /build:/,/^[[:space:]]*[a-z]/{
-            /context:/d
-            /dockerfile:/d
-        }
-        /build:/a\    image: '"${DOCKERHUB_USER}/${PROJECT_NAME}-social-frontend:${TAG}"'
-    }' "${compose_file}"
-    
+
+    log_info "Updating docker-compose.yml with ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-*:${TAG} images..."
+
+    local prefix="${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}"
+
+    # Replace image lines for custom-built services. Use a robust sed that
+    # targets the whole file rather than per-service blocks, which avoids
+    # mangling build contexts when services use inline build definitions.
+    sed -i "s|image: .*/${PROJECT_NAME}-comfyui:.*|image: ${prefix}-comfyui:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*/${PROJECT_NAME}-env-manager-backend:.*|image: ${prefix}-env-manager-backend:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*/${PROJECT_NAME}-env-manager-frontend:.*|image: ${prefix}-env-manager-frontend:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*/${PROJECT_NAME}-social-api:.*|image: ${prefix}-social-api:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*/${PROJECT_NAME}-social-worker:.*|image: ${prefix}-social-worker:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*/${PROJECT_NAME}-social-frontend:.*|image: ${prefix}-social-frontend:${TAG}|" "${compose_file}"
+
     log_success "Updated docker-compose.yml"
     log_info "Backup saved as: ${backup_file}"
 }
@@ -137,13 +118,13 @@ update_docker_compose() {
 # Main execution
 main() {
     log_info "Starting build, tag, and push for all custom images"
-    log_info "Docker Hub user: ${DOCKERHUB_USER}"
+    log_info "GHCR namespace: ${GHCR_REGISTRY}/${OWNER}"
     log_info "Project: ${PROJECT_NAME}"
     log_info "Tag: ${TAG}"
     echo
-    
-    check_docker_login
-    
+
+    check_ghcr_login
+
     # Array of services to build: "service_name|dockerfile_path|build_context"
     declare -a services=(
         "comfyui|Dockerfile|."
@@ -153,7 +134,7 @@ main() {
         "social-worker|social-automation/backend/Dockerfile.worker|social-automation/backend"
         "social-frontend|social-automation/frontend/Dockerfile|social-automation/frontend"
     )
-    
+
     # Build and push each service
     failed=()
     for service_def in "${services[@]}"; do
@@ -163,10 +144,10 @@ main() {
         fi
         echo
     done
-    
+
     # Update docker-compose.yml
     update_docker_compose
-    
+
     # Summary
     echo
     log_info "=== BUILD SUMMARY ==="
@@ -175,16 +156,13 @@ main() {
         log_info "Images pushed:"
         for service_def in "${services[@]}"; do
             IFS='|' read -r name _ _ <<< "${service_def}"
-            log_info "  ${DOCKERHUB_USER}/${PROJECT_NAME}-${name}:${TAG}"
+            echo "  ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${name}:${TAG}"
         done
-        log_info ""
-        log_info "docker-compose.yml updated to use :${TAG} tags"
-        log_info "Run 'docker compose pull' on target machines to update"
+        log_info "Make packages public at: https://github.com/${OWNER}?tab=packages"
     else
-        log_error "Failed to build/push: ${failed[*]}"
+        log_error "Failed services: ${failed[*]}"
         exit 1
     fi
 }
 
-# Run main
 main "$@"
