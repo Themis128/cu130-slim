@@ -45,6 +45,7 @@ whole hostname — only the 4 admin emails pass.
 | `/api/v1/whatsapp/webhook` | (existing) | Meta WhatsApp verify+events |
 | `/api/v1/telegram/webhook/` | (existing) | Telegram webhooks |
 | `/api/v1/billing/*` webhooks | (existing) | Polar/Dodo payment webhooks |
+| `/api/v1/media/view` | `socialauto-media-view` (`5cc45c62-a067-4be4-a9ac-89be5396c0bf`) | Public media serving for platform fetches (TikTok `PULL_FROM_URL`, Meta `image_url`). Endpoint is unauthenticated by design — required on the TikTok-verified `cloudless.gr` domain. |
 
 ## Credentials
 
