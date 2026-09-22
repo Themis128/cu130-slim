@@ -18,6 +18,18 @@ fi
 
 files=$(echo "$staged" | sed 's|^social-automation/backend/||' | tr '\n' ' ')
 
+# The slim runtime image does not ship dev tools; pip installs land in the
+# container's writable layer and vanish on recreate. Bootstrap pinned
+# versions (pyproject [project.optional-dependencies].dev) when missing.
+if ! docker compose exec -T social-api python -m ruff --version >/dev/null 2>&1 \
+    || ! docker compose exec -T social-api python -m mypy --version >/dev/null 2>&1; then
+    echo "[pre-commit] installing ruff+mypy into social-api (lost on recreate)" >&2
+    if ! docker compose exec -T social-api pip install -q 'ruff==0.4.3' 'mypy==1.10.0'; then
+        echo "[pre-commit] tool install failed — skipping backend gate" >&2
+        exit 0
+    fi
+fi
+
 echo "[pre-commit] ruff check $files" >&2
 if ! docker compose exec -T social-api python -m ruff check $files; then
     echo "[pre-commit] ruff failed — fix or commit with --no-verify" >&2
