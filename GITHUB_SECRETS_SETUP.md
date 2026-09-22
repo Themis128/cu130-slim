@@ -4,9 +4,12 @@
 
 | Secret | Required | Purpose | Where to Get |
 |--------|----------|---------|--------------|
-| `DOCKERHUB_USERNAME` | ✅ Yes | Docker Hub username for image pushes | Your Docker Hub account |
-| `DOCKERHUB_TOKEN` | ✅ Yes | Docker Hub access token for authentication | https://hub.docker.com/settings/security |
-| `CODECOV_TOKEN` | ⚠️ Optional | Codecov upload token for coverage reports | https://codecov.io/gh/Themis128/ComfyUI-Docker/settings |
+| `CODECOV_TOKEN` | ⚠️ Optional | Codecov upload token for coverage reports | https://codecov.io/gh/Themis128/cu130-slim/settings |
+
+> **GHCR note:** Image pushes to GitHub Container Registry use the built-in
+> `GITHUB_TOKEN` with the `packages: write` permission declared in each
+> workflow — **no `DOCKERHUB_*` secrets are needed**. Older releases may still
+> exist on Docker Hub under `baltzakist/`; new pushes go to GHCR only.
 
 ---
 
@@ -29,25 +32,13 @@ gh auth login
 
 ## Option 2: Manual via GitHub Web UI
 
-1. Go to: **https://github.com/Themis128/ComfyUI-Docker/settings/secrets/actions**
+1. Go to: **https://github.com/Themis128/cu130-slim/settings/secrets/actions**
 
-2. Click **"New repository secret"** for each:
-
-### DOCKERHUB_USERNAME
-- **Name**: `DOCKERHUB_USERNAME`
-- **Secret**: `baltzakist`
-
-### DOCKERHUB_TOKEN
-- **Name**: `DOCKERHUB_TOKEN`
-- **Secret**: [Create at https://hub.docker.com/settings/security]
-  - Click "New Access Token"
-  - Name: `github-actions-cu130-slim`
-  - Permissions: **Read, Write, Delete**
-  - Copy the token immediately (shown only once!)
+2. Click **"New repository secret"**:
 
 ### CODECOV_TOKEN (Optional)
 - **Name**: `CODECOV_TOKEN`
-- **Secret**: [Get from https://codecov.io/gh/Themis128/ComfyUI-Docker/settings]
+- **Secret**: [Get from https://codecov.io/gh/Themis128/cu130-slim/settings]
   - Repository upload token
 
 ---
@@ -56,18 +47,19 @@ gh auth login
 
 ```bash
 # Via CLI
-gh secret list --repo Themis128/ComfyUI-Docker
+gh secret list --repo Themis128/cu130-slim
 
-# Or check in UI: https://github.com/Themis128/ComfyUI-Docker/settings/secrets/actions
+# Or check in UI: https://github.com/Themis128/cu130-slim/settings/secrets/actions
 ```
 
-Expected output:
-```
-NAME              UPDATED
-CODECOV_TOKEN     2024-01-15 10:30:00
-DOCKERHUB_TOKEN   2024-01-15 10:30:00
-DOCKERHUB_USERNAME 2024-01-15 10:30:00
-```
+---
+
+## Making GHCR packages public (one-time, per package)
+
+Anonymous pulls (Trivy, `docker compose pull` without auth) need public packages:
+
+1. Open https://github.com/Themis128?tab=packages
+2. For each `cu130-slim-*` package → Package settings → Change visibility → **Public**
 
 ---
 
@@ -77,43 +69,38 @@ DOCKERHUB_USERNAME 2024-01-15 10:30:00
    ```bash
    # Option A: Push to master
    git push origin master
-   
+
    # Option B: Manual trigger via CLI
-   gh workflow run docker-ci.yml --repo Themis128/ComfyUI-Docker
-   
+   gh workflow run build-and-push.yml --repo Themis128/cu130-slim
+
    # Option C: Manual trigger via UI
-   # Go to Actions → Docker CI → Run workflow
+   # Go to Actions → Build and push images → Run workflow
    ```
 
 2. **Monitor the build**:
-   - https://github.com/Themis128/ComfyUI-Docker/actions
+   - https://github.com/Themis128/cu130-slim/actions
 
-3. **Verify images on Docker Hub**:
-   - https://hub.docker.com/r/baltzakist/cu130-slim-comfyui
-   - https://hub.docker.com/r/baltzakist/cu130-slim-env-manager-backend
-   - https://hub.docker.com/r/baltzakist/cu130-slim-env-manager-frontend
-   - https://hub.docker.com/r/baltzakist/cu130-slim-social-api
-   - https://hub.docker.com/r/baltzakist/cu130-slim-social-worker
-   - https://hub.docker.com/r/baltzakist/cu130-slim-social-frontend
+3. **Verify images on GHCR**:
+   - https://github.com/Themis128?tab=packages
+   - `docker manifest inspect ghcr.io/themis128/cu130-slim-<service>:latest`
 
 ---
 
 ## Troubleshooting
 
-### "Docker Hub rate limit exceeded"
-- Ensure `DOCKERHUB_TOKEN` is set correctly
-- Check token has Read/Write/Delete permissions
-- Token must not be expired
+### "denied: permission_denied" on GHCR push
+- Ensure the workflow declares `packages: write` under `permissions:`.
+- Package visibility/org settings may restrict `GITHUB_TOKEN` writes — check
+  repo Settings → Actions → Workflow permissions.
 
-### "Permission denied" on push
-- Verify `DOCKERHUB_USERNAME` matches the token owner
-- Check repository exists on Docker Hub (auto-created on first push)
+### Anonymous pull fails
+- Package is still private — flip it to **Public** in package settings.
 
 ### Codecov upload fails
-- Ensure `CODECOV_TOKEN` is from the correct repository
-- Token must have upload permissions
+- Ensure `CODECOV_TOKEN` is from the correct repository.
+- Token must have upload permissions.
 
 ### Workflow not triggering
-- Check branch protection rules
-- Verify workflow files are in `.github/workflows/`
-- Check Actions tab for disabled workflows
+- Check branch protection rules.
+- Verify workflow files are in `.github/workflows/`.
+- Check Actions tab for disabled workflows.
