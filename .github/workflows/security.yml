@@ -106,6 +106,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -130,11 +131,36 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Pull published comfyui image (avoids ~15GB build overhead)
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull or build published comfyui image
         if: matrix.service == 'comfyui'
         run: |
-          docker pull baltzakist/cu130-slim-comfyui:latest || \
+          set -euo pipefail
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            REF="ghcr.io/${OWNER}/cu130-slim-comfyui:latest"
+          fi
+          echo "Target image: $REF"
+          if docker pull "$REF"; then
+            echo "Pulled $REF from registry"
+          elif docker pull ghcr.io/themis128/cu130-slim-comfyui:latest; then
+            docker tag ghcr.io/themis128/cu130-slim-comfyui:latest "$REF"
+            echo "Retagged :latest -> $REF"
+          elif docker pull baltzakist/cu130-slim-comfyui:latest; then
+            docker tag baltzakist/cu130-slim-comfyui:latest "$REF"
+            echo "Retagged Docker Hub legacy image -> $REF"
+          else
+            echo "Registry pull failed (private/missing tag). Building comfyui locally..."
             docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+          fi
+          docker image inspect "$REF" >/dev/null
 
       - name: Build ${{ matrix.service }} image
         if: matrix.service != 'comfyui'

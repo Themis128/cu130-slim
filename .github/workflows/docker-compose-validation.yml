@@ -51,15 +51,15 @@ jobs:
       - name: Validate pre-built image references
         run: |
           echo "Checking pre-built image references..."
-          # All CI-built images use baltzakist/cu130-slim-{service}:<tag> with pull_policy: if_not_present.
+          # All CI-built images use ghcr.io/themis128/cu130-slim-{service}:<tag> with pull_policy: if_not_present.
           # CI auto-increments version tags (v2.{run_number}) and updates :latest.
           # Accept either :latest or a versioned :vN.N tag.
           expected_prefixes=(
-            "baltzakist/cu130-slim-comfyui:"
-            "baltzakist/cu130-slim-env-manager-backend:"
-            "baltzakist/cu130-slim-env-manager-frontend:"
-            "baltzakist/cu130-slim-social-api:"
-            "baltzakist/cu130-slim-social-frontend:"
+            "ghcr.io/themis128/cu130-slim-comfyui:"
+            "ghcr.io/themis128/cu130-slim-env-manager-backend:"
+            "ghcr.io/themis128/cu130-slim-env-manager-frontend:"
+            "ghcr.io/themis128/cu130-slim-social-api:"
+            "ghcr.io/themis128/cu130-slim-social-frontend:"
           )
 
           config_output=$(docker compose --env-file .github/test.env config --format json)
@@ -83,10 +83,10 @@ jobs:
           for worker_service in social-worker-publishing social-worker-media social-worker-default social-worker-messenger; do
             if echo "$config_output" | jq -e --arg s "$worker_service" '.services[$s]' > /dev/null 2>&1; then
               actual_image=$(echo "$config_output" | jq -r --arg s "$worker_service" '.services[$s].image')
-              if [[ "$actual_image" == baltzakist/cu130-slim-social-worker:* ]]; then
+              if [[ "$actual_image" == ghcr.io/themis128/cu130-slim-social-worker:* ]]; then
                 echo "✅ $worker_service uses correct image: $actual_image"
               else
-                echo "❌ $worker_service has incorrect image: $actual_image (expected prefix: baltzakist/cu130-slim-social-worker:*)"
+                echo "❌ $worker_service has incorrect image: $actual_image (expected prefix: ghcr.io/themis128/cu130-slim-social-worker:*)"
                 exit 1
               fi
             else
