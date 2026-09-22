@@ -16,22 +16,55 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.user import Team
 from app.services.email_digest import _html_escape, send_email
 from app.services.insights_engine import build_team_insights
+from app.services.publishing import _media_public_url
 from app.services.slack_digest import DigestReport, build_daily_digest
 
 logger = logging.getLogger(__name__)
 
 _MAX_ACTIONS = 6
+_MAX_POSTS_PER_PLATFORM = 4
+_CONTENT_PREVIEW_CHARS = 90
+_RECENT_POSTS_DAYS = 7
+
+
+@dataclass
+class BriefMedia:
+    """One media asset attached to a recent published post."""
+
+    filename: str | None = None
+    mime_type: str | None = None
+    url: str | None = None
+    is_image: bool = False
+
+
+@dataclass
+class BriefPost:
+    """A published post summary for the strategy brief media section."""
+
+    post_id: str
+    content_preview: str = ""
+    published_at: datetime | None = None
+    platform_url: str | None = None
+    media: list[BriefMedia] = field(default_factory=list)
+    missing_media: bool = False
+
+    @property
+    def id_prefix(self) -> str:
+        return (self.post_id or "")[:8]
 
 
 @dataclass
@@ -45,6 +78,7 @@ class StrategyReport:
     llm_used: bool = False
     emailed: bool = False
     email_error: str | None = None
+    recent_posts_by_platform: dict[str, list[BriefPost]] = field(default_factory=dict)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -83,6 +117,7 @@ class StrategyReport:
                 f"7d momentum {mom_s} · {verdict} · best {window}"
             )
         lines.append("")
+        lines.extend(self._recent_posts_text(tz))
         lines.append("TOMORROW'S PLAYBOOK")
         if self.actions:
             for i, a in enumerate(self.actions, 1):
@@ -138,6 +173,8 @@ class StrategyReport:
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
         )
 
+        recent_block = self._recent_posts_html(tz, esc)
+
         action_items = "".join(f"<li>{esc(a)}</li>" for a in self.actions)
         actions_block = (
             f"<h3>Tomorrow's playbook</h3><ol>{action_items}</ol>"
@@ -164,6 +201,7 @@ class StrategyReport:
   <p>{esc(self.team_name)} · {esc(when)}</p>
   {digest_block}
   {platform_block}
+  {recent_block}
   {actions_block}
   {issues_block}
   <p style="color:#666;font-size:12px">Sources: SocialAuto insights engine · ops digest in Slack #socialauto</p>
@@ -180,6 +218,132 @@ class StrategyReport:
             key=lambda kv: (tier_rank.get(kv[1].get("focus_tier", "last"), 3), kv[0]),
         )
 
+    def _recent_platform_sections(self) -> list[tuple[str, list[BriefPost]]]:
+        """Platforms with recent posts — pulse order first, then alpha."""
+        if not self.recent_posts_by_platform:
+            return []
+        pulse_names = [n for n, _ in self._platform_rows()]
+        seen: set[str] = set()
+        out: list[tuple[str, list[BriefPost]]] = []
+        for name in pulse_names:
+            posts = self.recent_posts_by_platform.get(name)
+            if posts:
+                out.append((name, posts))
+                seen.add(name)
+        for name in sorted(self.recent_posts_by_platform):
+            if name not in seen and self.recent_posts_by_platform[name]:
+                out.append((name, self.recent_posts_by_platform[name]))
+        return out
+
+    def _fmt_published(self, when: datetime | None, tz: ZoneInfo) -> str:
+        if when is None:
+            return "unknown time"
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return when.astimezone(tz).strftime("%a %d %b %Y %H:%M %Z")
+
+    def _recent_posts_text(self, tz: ZoneInfo) -> list[str]:
+        sections = self._recent_platform_sections()
+        lines = ["RECENT POSTS & MEDIA (7 days)"]
+        if not sections:
+            lines.append("  No published posts in the last 7 days.")
+            lines.append("")
+            return lines
+        for platform, posts in sections:
+            lines.append(f"  {platform}:")
+            for bp in posts:
+                preview = bp.content_preview or "(no text)"
+                bit = f'    - "{preview}" · {bp.id_prefix} · {self._fmt_published(bp.published_at, tz)}'
+                if bp.platform_url:
+                    bit += f" · {bp.platform_url}"
+                lines.append(bit)
+                if bp.missing_media:
+                    lines.append("      ⚠ Missing media — every post must have correct media")
+                elif bp.media:
+                    parts: list[str] = []
+                    for m in bp.media:
+                        label = m.filename or ("image" if m.is_image else "media")
+                        if m.is_image and m.url:
+                            parts.append(f"[img] {m.url}")
+                        elif m.url:
+                            parts.append(f"▶ {label} ({m.url})")
+                        else:
+                            parts.append(f"▶ {label}")
+                    lines.append("      media: " + "; ".join(parts))
+        lines.append("")
+        return lines
+
+    def _recent_posts_html(self, tz: ZoneInfo, esc) -> str:
+        sections = self._recent_platform_sections()
+        if not sections:
+            return (
+                "<h3>Recent posts &amp; media (7 days)</h3>"
+                "<p><i>No published posts in the last 7 days.</i></p>"
+            )
+
+        blocks: list[str] = [
+            "<h3>Recent posts &amp; media (7 days)</h3>"
+        ]
+        for platform, posts in sections:
+            blocks.append(f"<h4 style='margin:14px 0 6px'>{esc(platform)}</h4>")
+            for bp in posts:
+                preview = esc(bp.content_preview or "(no text)")
+                when_s = esc(self._fmt_published(bp.published_at, tz))
+                link = ""
+                if bp.platform_url:
+                    link = (
+                        f' · <a href="{esc(bp.platform_url)}" '
+                        f'style="color:#2563eb">view post</a>'
+                    )
+                media_html = self._media_tiles_html(bp, esc)
+                warn = ""
+                if bp.missing_media:
+                    warn = (
+                        "<div style='color:#b45309;font-size:13px;margin-top:6px'>"
+                        "⚠ Missing media — every post must have correct media"
+                        "</div>"
+                    )
+                blocks.append(
+                    "<div style='margin:0 0 12px;padding:10px 12px;border:1px solid #e5e7eb;"
+                    "border-radius:6px;background:#fafafa'>"
+                    f"<div style='font-size:14px'><b>{preview}</b></div>"
+                    f"<div style='color:#555;font-size:12px;margin-top:4px'>"
+                    f"{esc(bp.id_prefix)} · {when_s}{link}</div>"
+                    f"{media_html}{warn}</div>"
+                )
+        return "\n".join(blocks)
+
+    @staticmethod
+    def _media_tiles_html(bp: BriefPost, esc) -> str:
+        if not bp.media:
+            return ""
+        tiles: list[str] = []
+        for m in bp.media:
+            if not m.url:
+                continue
+            url = esc(m.url)
+            name = esc(m.filename or ("image" if m.is_image else "media"))
+            if m.is_image:
+                tiles.append(
+                    f'<a href="{url}" style="display:inline-block;margin:4px 6px 0 0">'
+                    f'<img src="{url}" alt="{name}" width="120" height="120" '
+                    f'style="object-fit:cover;border-radius:4px;border:1px solid #ddd;'
+                    f'display:block"/></a>'
+                )
+            else:
+                tiles.append(
+                    f'<a href="{url}" style="display:inline-block;width:120px;height:120px;'
+                    f'margin:4px 6px 0 0;border-radius:4px;border:1px solid #ddd;'
+                    f'background:#111;color:#fff;text-decoration:none;text-align:center;'
+                    f'vertical-align:top">'
+                    f'<span style="display:block;padding-top:36px;font-size:28px">▶</span>'
+                    f'<span style="display:block;font-size:11px;padding:4px 6px;'
+                    f'word-break:break-all">{name}</span></a>'
+                )
+        if not tiles:
+            return ""
+        return f"<div style='margin-top:8px'>{''.join(tiles)}</div>"
+
     @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:
         m = p.get("momentum_7d_engagement_pct")
@@ -193,6 +357,57 @@ class StrategyReport:
         if wd and hr and wd[1] > 0 and hr[1] > 0:
             return f"{weekdays[wd[0]]} {hr[0]:02d}:00"
         return "baseline"
+
+
+def _preview_text(text: str | None, limit: int = _CONTENT_PREVIEW_CHARS) -> str:
+    """Collapse whitespace and truncate for email previews."""
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(limit - 1, 1)].rstrip() + "…"
+
+
+def _is_image_asset(mime_type: str | None, filename: str | None) -> bool:
+    if mime_type and mime_type.lower().startswith("image/"):
+        return True
+    if filename:
+        lower = filename.lower()
+        return lower.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".avif", ".bmp"))
+    return False
+
+
+def _brief_media_url(asset: MediaAsset) -> str | None:
+    """Prefer absolute public_url; else build via publishing._media_public_url."""
+    pub = (asset.public_url or "").strip()
+    if pub.startswith("http://") or pub.startswith("https://"):
+        return pub
+    if asset.storage_path:
+        return _media_public_url(asset.storage_path)
+    return None
+
+
+def _brief_media_from_assets(
+    media_ids: list[UUID] | None,
+    assets_by_id: dict[UUID, MediaAsset],
+) -> list[BriefMedia]:
+    """Resolve MediaAssets in post.media_ids order into BriefMedia with URLs."""
+    out: list[BriefMedia] = []
+    for mid in media_ids or []:
+        asset = assets_by_id.get(mid)
+        if not asset:
+            continue
+        url = _brief_media_url(asset)
+        if not url:
+            continue
+        out.append(
+            BriefMedia(
+                filename=asset.filename,
+                mime_type=asset.mime_type,
+                url=url,
+                is_image=_is_image_asset(asset.mime_type, asset.filename),
+            )
+        )
+    return out
 
 
 def _rule_actions(insights: dict[str, Any]) -> list[str]:
@@ -287,6 +502,69 @@ async def _llm_actions(
     return actions or None
 
 
+async def _load_recent_posts_by_platform(
+    db: AsyncSession,
+    team_id: UUID,
+    *,
+    days: int = _RECENT_POSTS_DAYS,
+    max_per_platform: int = _MAX_POSTS_PER_PLATFORM,
+) -> dict[str, list[BriefPost]]:
+    """Published posts in the last N days, grouped by target platform."""
+    since = datetime.now(UTC) - timedelta(days=days)
+    result = await db.execute(
+        select(Post)
+        .where(
+            Post.team_id == team_id,
+            Post.status == PostStatus.PUBLISHED,
+            Post.published_at.is_not(None),
+            Post.published_at >= since,
+        )
+        .options(
+            selectinload(Post.targets).selectinload(PostTarget.social_account),
+        )
+        .order_by(Post.published_at.desc())
+    )
+    posts = list(result.scalars().unique().all())
+
+    all_ids: list[UUID] = []
+    for post in posts:
+        all_ids.extend(post.media_ids or [])
+    assets_by_id: dict[UUID, MediaAsset] = {}
+    if all_ids:
+        assets = (
+            await db.execute(select(MediaAsset).where(MediaAsset.id.in_(all_ids)))
+        ).scalars().all()
+        assets_by_id = {a.id: a for a in assets}
+
+    by_platform: dict[str, list[BriefPost]] = {}
+    for post in posts:
+        media = _brief_media_from_assets(post.media_ids, assets_by_id)
+        missing = len(media) == 0
+        preview = _preview_text(post.content_text)
+        for target in post.targets or []:
+            account = target.social_account
+            platform = (account.platform if account else None) or ""
+            if not platform:
+                continue
+            # Only include successfully published targets (skip failed/pending).
+            if (target.status or "published") != "published":
+                continue
+            bucket = by_platform.setdefault(platform, [])
+            if len(bucket) >= max_per_platform:
+                continue
+            bucket.append(
+                BriefPost(
+                    post_id=str(post.id),
+                    content_preview=preview,
+                    published_at=target.published_at or post.published_at,
+                    platform_url=target.platform_url,
+                    media=list(media),
+                    missing_media=missing,
+                )
+            )
+    return by_platform
+
+
 async def build_strategy_report(
     db: AsyncSession,
     *,
@@ -297,6 +575,7 @@ async def build_strategy_report(
     tz_name = settings.APP_TIMEZONE or "Europe/Athens"
     digest = await build_daily_digest(db, team=team, days=1)
     insights = await build_team_insights(db, team.id, days=insight_days)
+    recent = await _load_recent_posts_by_platform(db, team.id)
 
     report = StrategyReport(
         generated_at=datetime.now(UTC),
@@ -304,6 +583,7 @@ async def build_strategy_report(
         team_name=team.name or "SocialAuto",
         insights=insights,
         digest=digest,
+        recent_posts_by_platform=recent,
     )
 
     actions = await _llm_actions(db, team.id, insights, digest)

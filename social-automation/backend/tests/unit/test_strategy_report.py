@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
 
 from app.services.strategy_report import (
+    BriefMedia,
+    BriefPost,
     StrategyReport,
+    _brief_media_from_assets,
+    _is_image_asset,
     _parse_actions,
+    _preview_text,
     _rule_actions,
 )
 
@@ -47,15 +54,69 @@ INSIGHTS = {
 }
 
 
-def _report() -> StrategyReport:
-    return StrategyReport(
+def _sample_recent() -> dict[str, list[BriefPost]]:
+    return {
+        "linkedin": [
+            BriefPost(
+                post_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                content_preview="Ship faster with Cloudless managed hosting — zero friction deploys.",
+                published_at=datetime(2026, 9, 20, 10, 30, tzinfo=UTC),
+                platform_url="https://www.linkedin.com/feed/update/urn:li:share:1",
+                media=[
+                    BriefMedia(
+                        filename="deploy.png",
+                        mime_type="image/png",
+                        url="https://cdn.example/api/v1/media/view?path=deploy.png",
+                        is_image=True,
+                    ),
+                    BriefMedia(
+                        filename="walkthrough.mp4",
+                        mime_type="video/mp4",
+                        url="https://cdn.example/api/v1/media/view?path=walkthrough.mp4",
+                        is_image=False,
+                    ),
+                ],
+            ),
+            BriefPost(
+                post_id="11111111-2222-3333-4444-555555555555",
+                content_preview="Oops — this one shipped without assets.",
+                published_at=datetime(2026, 9, 19, 8, 0, tzinfo=UTC),
+                platform_url=None,
+                media=[],
+                missing_media=True,
+            ),
+        ],
+        "instagram": [
+            BriefPost(
+                post_id="inst0001-aaaa-bbbb-cccc-dddddddddddd",
+                content_preview="Reel teaser for the new status page.",
+                published_at=datetime(2026, 9, 18, 15, 0, tzinfo=UTC),
+                platform_url="https://www.instagram.com/p/ABC/",
+                media=[
+                    BriefMedia(
+                        filename="reel.mp4",
+                        mime_type="video/mp4",
+                        url="https://cdn.example/api/v1/media/view?path=reel.mp4",
+                        is_image=False,
+                    ),
+                ],
+            ),
+        ],
+    }
+
+
+def _report(**overrides) -> StrategyReport:
+    base = dict(
         generated_at=NOW,
         timezone="Europe/Athens",
         team_name="Test Team",
         insights=INSIGHTS,
         actions=["Post a LinkedIn carousel at 09:00", "Cross-post to Threads"],
         llm_used=True,
+        recent_posts_by_platform=_sample_recent(),
     )
+    base.update(overrides)
+    return StrategyReport(**base)
 
 
 def test_parse_actions_numbered_and_bulleted():
@@ -107,3 +168,100 @@ def test_empty_report_still_renders():
     r = StrategyReport(generated_at=NOW, timezone="Europe/Athens", team_name="T")
     assert "publish consistently" in r.to_text()
     assert "<html>" in r.to_html()
+    assert "RECENT POSTS & MEDIA" in r.to_text()
+    assert "Recent posts &amp; media" in r.to_html()
+
+
+def test_preview_text_truncates():
+    assert _preview_text("short") == "short"
+    long = "x" * 120
+    out = _preview_text(long, limit=90)
+    assert len(out) == 90
+    assert out.endswith("…")
+    assert _preview_text("  hello\n\nworld  ") == "hello world"
+
+
+def test_is_image_asset_helpers():
+    assert _is_image_asset("image/png", None) is True
+    assert _is_image_asset("video/mp4", "clip.mp4") is False
+    assert _is_image_asset(None, "photo.JPEG") is True
+
+
+def test_brief_media_from_assets_preserves_order_and_prefers_public_url(monkeypatch):
+    mid1, mid2, mid3 = uuid4(), uuid4(), uuid4()
+    assets = {
+        mid1: SimpleNamespace(
+            id=mid1,
+            filename="a.png",
+            mime_type="image/png",
+            public_url="https://cdn.example/a.png",
+            storage_path="team/a.png",
+        ),
+        mid2: SimpleNamespace(
+            id=mid2,
+            filename="b.mp4",
+            mime_type="video/mp4",
+            public_url="/relative/not-absolute",
+            storage_path="team/b.mp4",
+        ),
+        mid3: SimpleNamespace(
+            id=mid3,
+            filename="missing.bin",
+            mime_type="application/octet-stream",
+            public_url=None,
+            storage_path=None,
+        ),
+    }
+
+    def fake_public(path: str, *, force_jpeg: bool = False) -> str | None:
+        return f"https://media.test/view?path={path}"
+
+    monkeypatch.setattr(
+        "app.services.strategy_report._media_public_url",
+        fake_public,
+    )
+    media = _brief_media_from_assets([mid1, mid2, mid3], assets)  # type: ignore[arg-type]
+    assert len(media) == 2
+    assert media[0].url == "https://cdn.example/a.png"
+    assert media[0].is_image is True
+    assert media[1].url == "https://media.test/view?path=team/b.mp4"
+    assert media[1].is_image is False
+    assert media[1].filename == "b.mp4"
+
+
+def test_text_render_includes_recent_posts_and_media():
+    text = _report().to_text()
+    assert "RECENT POSTS & MEDIA (7 days)" in text
+    assert "linkedin:" in text
+    assert "aaaaaaaa" in text
+    assert "Ship faster with Cloudless" in text
+    assert "https://www.linkedin.com/feed/update" in text
+    assert "[img] https://cdn.example/api/v1/media/view?path=deploy.png" in text
+    assert "▶ walkthrough.mp4" in text
+    assert "Missing media" in text
+    assert "instagram:" in text
+    assert "▶ reel.mp4" in text
+    # published time in Europe/Athens (UTC+3 in Sep)
+    assert "EEST" in text or "03:00" in text or "13:30" in text
+
+
+def test_html_render_includes_img_thumbnails_and_video_tile():
+    html = _report().to_html()
+    assert "Recent posts &amp; media (7 days)" in html
+    assert "<h4" in html and "linkedin" in html
+    assert 'src="https://cdn.example/api/v1/media/view?path=deploy.png"' in html
+    assert "▶" in html
+    assert "walkthrough.mp4" in html
+    assert "Missing media" in html
+    assert 'href="https://www.linkedin.com/feed/update/urn:li:share:1"' in html
+    # section sits after platform pulse, before playbook
+    pulse_i = html.index("Platform pulse")
+    recent_i = html.index("Recent posts")
+    playbook_i = html.index("Tomorrow's playbook")
+    assert pulse_i < recent_i < playbook_i
+
+
+def test_recent_section_empty_when_no_posts():
+    r = _report(recent_posts_by_platform={})
+    assert "No published posts in the last 7 days" in r.to_text()
+    assert "No published posts in the last 7 days" in r.to_html()
