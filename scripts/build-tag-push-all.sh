@@ -61,7 +61,7 @@ build_and_push() {
     local service_name=$1
     local dockerfile_path=$2
     local build_context=$3
-    local image_name="${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:${TAG}"
+    local image_name="${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}:${service_name}-${TAG}"
 
     log_info "Building ${service_name}..."
     log_info "  Dockerfile: ${dockerfile_path}"
@@ -84,8 +84,8 @@ build_and_push() {
     fi
 
     # Also tag as latest explicitly
-    docker tag "${image_name}" "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:latest"
-    docker push "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${service_name}:latest"
+    docker tag "${image_name}" "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}:${service_name}-latest"
+    docker push "${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}:${service_name}-latest"
     log_success "Tagged and pushed :latest for ${service_name}"
 }
 
@@ -97,19 +97,19 @@ update_docker_compose() {
     log_info "Backing up current docker-compose.yml to ${backup_file}"
     cp "${compose_file}" "${backup_file}"
 
-    log_info "Updating docker-compose.yml with ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-*:${TAG} images..."
+    log_info "Updating docker-compose.yml with ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}:*-${TAG} images..."
 
     local prefix="${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}"
 
     # Replace image lines for custom-built services. Use a robust sed that
     # targets the whole file rather than per-service blocks, which avoids
     # mangling build contexts when services use inline build definitions.
-    sed -i "s|image: .*/${PROJECT_NAME}-comfyui:.*|image: ${prefix}-comfyui:${TAG}|" "${compose_file}"
-    sed -i "s|image: .*/${PROJECT_NAME}-env-manager-backend:.*|image: ${prefix}-env-manager-backend:${TAG}|" "${compose_file}"
-    sed -i "s|image: .*/${PROJECT_NAME}-env-manager-frontend:.*|image: ${prefix}-env-manager-frontend:${TAG}|" "${compose_file}"
-    sed -i "s|image: .*/${PROJECT_NAME}-social-api:.*|image: ${prefix}-social-api:${TAG}|" "${compose_file}"
-    sed -i "s|image: .*/${PROJECT_NAME}-social-worker:.*|image: ${prefix}-social-worker:${TAG}|" "${compose_file}"
-    sed -i "s|image: .*/${PROJECT_NAME}-social-frontend:.*|image: ${prefix}-social-frontend:${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]comfyui[^ ]*|image: ${prefix}:comfyui-${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]env-manager-backend[^ ]*|image: ${prefix}:env-manager-backend-${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]env-manager-frontend[^ ]*|image: ${prefix}:env-manager-frontend-${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]social-api[^ ]*|image: ${prefix}:social-api-${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]social-worker[^ ]*|image: ${prefix}:social-worker-${TAG}|" "${compose_file}"
+    sed -i "s|image: .*cu130-slim[:\-]social-frontend[^ ]*|image: ${prefix}:social-frontend-${TAG}|" "${compose_file}"
 
     log_success "Updated docker-compose.yml"
     log_info "Backup saved as: ${backup_file}"
@@ -156,9 +156,9 @@ main() {
         log_info "Images pushed:"
         for service_def in "${services[@]}"; do
             IFS='|' read -r name _ _ <<< "${service_def}"
-            echo "  ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}-${name}:${TAG}"
+            echo "  ${GHCR_REGISTRY}/${OWNER}/${PROJECT_NAME}:${name}-${TAG}"
         done
-        log_info "Make packages public at: https://github.com/${OWNER}?tab=packages"
+        log_info "Make the single package public at: https://github.com/${OWNER}?tab=packages"
     else
         log_error "Failed services: ${failed[*]}"
         exit 1

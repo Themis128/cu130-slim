@@ -124,13 +124,13 @@ jobs:
             | jq -r '.services.comfyui.image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
             OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-            REF="ghcr.io/${OWNER}/cu130-slim-comfyui:latest"
+            REF="ghcr.io/${OWNER}/cu130-slim:comfyui-latest"
           fi
           echo "Target image: $REF"
           if docker pull "$REF"; then
             echo "Pulled $REF from registry"
-          elif docker pull ghcr.io/themis128/cu130-slim-comfyui:latest; then
-            docker tag ghcr.io/themis128/cu130-slim-comfyui:latest "$REF"
+          elif docker pull ghcr.io/themis128/cu130-slim:comfyui-latest; then
+            docker tag ghcr.io/themis128/cu130-slim:comfyui-latest "$REF"
             echo "Retagged :latest -> $REF"
           else
             echo "Registry pull failed (private/missing tag). Building comfyui locally..."
@@ -150,7 +150,7 @@ jobs:
             | jq -r '.services["${{ matrix.service }}"].image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
             # Compose project-name prefix for build-only services
-            REF="cu130-slim-${{ matrix.service }}:latest"
+            REF="ghcr.io/themis128/cu130-slim:${{ matrix.service }}-latest"
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "Scanning image: $REF"
