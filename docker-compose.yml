@@ -155,7 +155,7 @@ x-worker-depends: &worker-depends
 
 services:
   comfyui:
-    image: ghcr.io/themis128/cu130-slim-comfyui:v2.417
+    image: ghcr.io/themis128/cu130-slim-comfyui:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: .
@@ -512,7 +512,7 @@ services:
       start_period: 30s
     restart: unless-stopped
   env-manager-backend:
-    image: ghcr.io/themis128/cu130-slim-env-manager-backend:v2.417
+    image: ghcr.io/themis128/cu130-slim-env-manager-backend:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./env-manager/backend
@@ -539,7 +539,7 @@ services:
       start_period: 15s
     restart: unless-stopped
   env-manager-frontend:
-    image: ghcr.io/themis128/cu130-slim-env-manager-frontend:v2.417
+    image: ghcr.io/themis128/cu130-slim-env-manager-frontend:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./env-manager/frontend
@@ -604,7 +604,7 @@ services:
       start_period: 10s
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim-social-api:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-api:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -875,7 +875,7 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim-social-worker:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-worker:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -909,7 +909,7 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim-social-worker:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-worker:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -942,7 +942,7 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim-social-worker:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-worker:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -975,7 +975,7 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim-social-worker:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-worker:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -1009,7 +1009,7 @@ services:
     stop_grace_period: 90s
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim-social-worker:v2.419
+    image: ghcr.io/themis128/cu130-slim-social-worker:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/backend
@@ -1044,7 +1044,7 @@ services:
       start_period: 15s
     restart: unless-stopped
   cloudflared:
-    image: ghcr.io/themis128/cu130-slim-cloudflared:v0.2
+    image: ghcr.io/themis128/cu130-slim-cloudflared:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation
@@ -1076,7 +1076,7 @@ services:
         condition: service_healthy
 
   social-frontend:
-    image: ghcr.io/themis128/cu130-slim-social-frontend:v2.434
+    image: ghcr.io/themis128/cu130-slim-social-frontend:sha-8f57c97
     pull_policy: if_not_present
     build:
       context: ./social-automation/frontend
