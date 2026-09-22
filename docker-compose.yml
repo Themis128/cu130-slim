@@ -168,6 +168,7 @@ services:
       - 127.0.0.1:8000:8000
     volumes:
       - ./.env:/app/.env:ro
+      - ./comfyui/profiles:/opt/ComfyUI/profiles:ro
       - ./storage-user/custom_nodes:/home/user/ComfyUI/custom_nodes
       - ./storage-models/models:/home/user/ComfyUI/models
       - ./storage-user/metadata:/home/user/ComfyUI/metadata
@@ -176,15 +177,14 @@ services:
       - ./storage-user/input:/home/user/ComfyUI/input
     environment:
       # ── GPU sharing: ComfyUI + local-diffusers coexist on 8GB RTX 3070 ───
-      # Remove --gpu-only so ComfyUI uses CPU offload (default behavior) and
-      # only moves models to GPU during generation. This frees VRAM between
-      # requests so local-diffusers (SD 1.5) can use the GPU too.
-      # --force-fp16: halves VRAM usage with minimal quality loss
-      # --reserve-vram 4: keep 4GB VRAM free for local-diffusers + DMR
-      - CLI_ARGS=--listen 0.0.0.0 --port 8000 --preview-method auto --force-fp16 --reserve-vram 4
+      # Profile files live in ./comfyui/profiles and are bind-mounted into
+      # /opt/ComfyUI/profiles. The entrypoint reads the selected profile and
+      # appends it to the base listen args. Override with CLI_ARGS if needed.
+      - COMFYUI_PROFILE=sdxl
+      - CLI_ARGS=
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
-      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
     <<: *public-dns
     runtime: nvidia
     deploy:
