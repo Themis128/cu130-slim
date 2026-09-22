@@ -1,6 +1,7 @@
 """Analytics API — metrics from self-hosted Postgres (AnalyticsEvent), no cloud analytics APIs."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -526,10 +527,46 @@ async def get_overview(
         )
     )
     accounts = accounts_result.scalars().all()
-    total_followers = 0
-    for account in accounts:
-        # -1 means "fetch failed" — don't subtract it from the total.
-        total_followers += max(0, await _follower_count(account))
+
+    # Follower counts come from the latest follower_snapshots row per
+    # account — the periodic analytics sync already populates it. Live
+    # platform calls are only made (in parallel) for accounts that have
+    # never been synced, so the dashboard stays fast.
+    latest_followers = (
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.followers,
+            func.row_number()
+            .over(
+                partition_by=FollowerSnapshot.social_account_id,
+                order_by=FollowerSnapshot.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(FollowerSnapshot.team_id == team.id)
+        .subquery()
+    )
+    snap_rows = await db.execute(
+        select(latest_followers.c.social_account_id, latest_followers.c.followers).where(
+            latest_followers.c.rn == 1
+        )
+    )
+    followers_by_account = {row.social_account_id: row.followers for row in snap_rows.all()}
+
+    unsynced = [a for a in accounts if a.id not in followers_by_account]
+    live_counts: dict = {}
+    if unsynced:
+        results = await asyncio.gather(
+            *(_follower_count(a) for a in unsynced), return_exceptions=True
+        )
+        live_counts = {
+            a.id: max(0, c) for a, c in zip(unsynced, results) if isinstance(c, int)
+        }
+
+    total_followers = sum(
+        max(0, followers_by_account.get(a.id, live_counts.get(a.id, 0)))
+        for a in accounts
+    )
 
     # Prefer latest snapshots when present; else event counters (with meta_data.count)
     snap_eng = await db.execute(
