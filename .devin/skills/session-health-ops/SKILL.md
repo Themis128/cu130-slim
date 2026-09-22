@@ -41,6 +41,7 @@ each sidecar `/health`; exits 1 on hard failures and prints a
 | x.com publish fails `402 credits depleted` | X billing, NOT auth | Browser fallback engages automatically; session must be logged in (see `twitter-browser-ops`) |
 | sidecar `/health` down | Sidecar | `docker compose restart <sidecar>`; check `docker compose ps` |
 | bridge session `done` but page on wrong site | Bridge | Cosmetic — busy-hold owns the page; next tagged op navigates back |
+| bridge sessions lost after `docker compose up -d --force-recreate browser-novnc` | Bridge storage | Mount the `browser_profile` volume (`patchright-ops` skill); otherwise the Chromium profile lives in the container layer and is wiped on recreate |
 
 ## Refresh/recovery entry points
 
