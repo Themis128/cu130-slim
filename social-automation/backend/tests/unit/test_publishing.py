@@ -93,7 +93,7 @@ def post():
 
 @pytest.mark.asyncio
 async def test_publish_threads_text_only(account, post, monkeypatch):
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "12345"}),
         _FakeResponse(200, {"status_code": "FINISHED"}),
@@ -114,7 +114,7 @@ async def test_publish_threads_text_only(account, post, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_threads_image(account, post, monkeypatch):
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "45678"}),
         _FakeResponse(200, {"status_code": "FINISHED"}),
@@ -135,7 +135,7 @@ async def test_publish_threads_image(account, post, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_threads_access_denied(account, post, monkeypatch):
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient(_FakeResponse(403, {"error": {"message": "Access denied"}}))
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
@@ -147,7 +147,7 @@ async def test_publish_threads_access_denied(account, post, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_threads_video(account, post, monkeypatch):
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/vid.mp4")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/vid.mp4")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "11111"}),
         _FakeResponse(200, {"status_code": "FINISHED"}),
@@ -165,7 +165,7 @@ async def test_publish_threads_video(account, post, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_threads_carousel(account, post, monkeypatch):
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: f"https://cdn.example.com/{path}")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: f"https://cdn.example.com/{path}")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "11111"}),
         _FakeResponse(200, {"id": "22222"}),
@@ -238,8 +238,8 @@ async def test_publish_twitter_thread(account, post):
 
 @pytest.mark.asyncio
 async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
-    """402 credits-depleted falls back to the browser bridge (free path)."""
-    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "Quota"}))
+    """402 credits-depleted falls back to browser; soft-skips if browser also fails."""
+    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
     fallback = AsyncMock(
         return_value=pub.PublishResult(success=False, error="browser down")
     )
@@ -249,7 +249,9 @@ async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
         result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
 
     assert result.success is False
-    assert result.error == "browser down"
+    assert result.skipped is True
+    assert "quota" in (result.error or "").lower() or "credits" in (result.error or "").lower()
+    assert "Reconnect will not fix" in (result.error or "")
     fallback.assert_awaited_once()
 
 
@@ -298,7 +300,7 @@ async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
         ),
     )
     monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
-    monkeypatch.setattr(pub, "_media_public_url", lambda _: "https://verified.example/video.mp4")
+    monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
     post = SimpleNamespace(platform_specific={})
@@ -333,7 +335,7 @@ async def test_publish_tiktok_supports_direct_post(monkeypatch):
         ),
     )
     monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
-    monkeypatch.setattr(pub, "_media_public_url", lambda _: "https://verified.example/video.mp4")
+    monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
     post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "DIRECT_POST"}})
@@ -456,7 +458,7 @@ async def test_publish_tiktok_surfaces_fail_reason(monkeypatch):
         ),
     )
     monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
-    monkeypatch.setattr(pub, "_media_public_url", lambda _: "https://verified.example/video.mp4")
+    monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
     post = SimpleNamespace(platform_specific={})
@@ -585,7 +587,7 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
     """When no sidecar session exists, fall back to Graph API."""
     # Make the account look like a business account to skip the probe
     ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
-    monkeypatch.setattr(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png")
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "17841460000000001"}),   # create container
         _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
@@ -645,7 +647,7 @@ async def test_publish_instagram_sidecar_session_expired(ig_account_with_session
 
     with patch.object(priv_mod, "httpx") as mock_priv_httpx, \
          patch.object(graph_mod, "httpx") as mock_graph_httpx, \
-         patch.object(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png"):
+         patch.object(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png"):
 
         mock_priv_httpx.AsyncClient = lambda timeout=60.0: fake_sidecar
         mock_graph_httpx.AsyncClient = lambda timeout=30.0: fake_graph
@@ -683,7 +685,7 @@ async def test_publish_instagram_sidecar_error_no_fallback(ig_account_with_sessi
 
     with patch.object(priv_mod, "httpx") as mock_priv_httpx, \
          patch.object(graph_mod, "httpx") as mock_graph_httpx, \
-         patch.object(pub, "_media_public_url", lambda path: "https://cdn.example.com/img.png"):
+         patch.object(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png"):
 
         mock_priv_httpx.AsyncClient = lambda timeout=60.0: fake_sidecar
         mock_graph_httpx.AsyncClient = lambda timeout=30.0: fake_graph
@@ -713,7 +715,41 @@ def test_media_public_url_force_jpeg(monkeypatch):
     monkeypatch.setattr(pub._settings, "MEDIA_PUBLIC_BASE_URL", "https://media.example")
     monkeypatch.setattr(pub._settings, "R2_PUBLIC_URL", "")
     url = pub._media_public_url("2026/01/x.webp", force_jpeg=True)
-    assert url == "https://media.example/api/v1/media/view?path=2026%2F01%2Fx.webp&format=jpeg"
+    assert url == "https://media.example/api/v1/media/view?path=2026/01/x.webp&format=jpeg"
     url2 = pub._media_public_url("2026/01/x.webp")
-    assert url2 == "https://media.example/api/v1/media/view?path=2026%2F01%2Fx.webp"
+    assert url2 == "https://media.example/api/v1/media/view?path=2026/01/x.webp"
     assert "&format=jpeg" not in url2
+
+
+@pytest.mark.asyncio
+async def test_publish_facebook_group_soft_skipped(account, post):
+    account.platform = "facebook"
+    account.account_type = "group"
+    account.meta_data = {}
+    result = await pub._publish_facebook("tok", "hi", account, post, [])
+    assert result.success is False
+    assert result.skipped is True
+    assert "Groups API is deprecated" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_text_only_soft_skipped(account, post, monkeypatch):
+    account.platform = "instagram"
+    result = await pub._publish_instagram("tok", "caption only", account, post, [], [], None)
+    assert result.success is False
+    assert result.skipped is True
+    assert "at least one image" in (result.error or "").lower()
+
+
+def test_tiktok_clarify_url_ownership():
+    msg = pub._tiktok_clarify_error("TikTok error url_ownership_unverified: bad domain")
+    assert "verified" in msg.lower()
+    assert "FILE_UPLOAD" in msg
+
+
+def test_tiktok_clarify_unaudited():
+    msg = pub._tiktok_clarify_error(
+        "unaudited_client_can_only_post_to_private_accounts"
+    )
+    assert "MEDIA_UPLOAD" in msg
+    assert "audit" in msg.lower()

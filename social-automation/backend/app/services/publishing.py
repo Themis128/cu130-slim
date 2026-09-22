@@ -52,7 +52,7 @@ from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecar
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION, facebook_graph_url
 from app.services.spellcheck import auto_correct
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
-from app.services.tiktok_api import TikTokAPIClient
+from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,87 @@ class PublishResult:
     # publish_id kept alongside the public Display API video id).
     platform_meta: dict[str, Any] | None = None
 
+
+
+
+# Platform-limit signatures → soft-skip (do not burn retries / reconnect).
+_FB_GROUP_MARKERS = (
+    "posting to a group",
+    "publish_to_groups",
+    "app being installed in the group",
+)
+_TT_OWNERSHIP_MARKERS = ("url_ownership_unverified",)
+_TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
+_X_QUOTA_MARKERS = (
+    "credits-depleted",
+    "usagecapexceeded",
+    "monthly write",
+    "tweet cap",
+    "free tier",
+)
+
+
+def _err_has(text: str | None, markers: tuple[str, ...]) -> bool:
+    low = (text or "").lower()
+    return any(m.lower() in low for m in markers)
+
+
+def _facebook_group_skip_result(detail: str | None = None) -> PublishResult:
+    """Meta removed Groups API (incl. publish_to_groups) in Graph v19+.
+
+    https://developers.facebook.com/blog/post/2024/01/23/introducing-facebook-graph-and-marketing-api-v19/
+    Page publishing still needs pages_manage_posts + pages_read_engagement.
+    """
+    extra = f" Upstream: {detail[:240]}" if detail else ""
+    return PublishResult(
+        success=False,
+        skipped=True,
+        error=(
+            "Facebook Groups API is deprecated — Graph cannot publish to groups "
+            "(publish_to_groups removed). Retarget to a Facebook Page with "
+            "pages_manage_posts + pages_read_engagement, or use the personal "
+            "browser sidecar for profile posts. Reconnect will not restore group "
+            f"publishing.{extra}"
+        ),
+    )
+
+
+def _tiktok_clarify_error(exc: Exception | str) -> str:
+    """Map TikTok Content Posting error codes to actionable guidance."""
+    raw = str(exc)
+    if _err_has(raw, _TT_OWNERSHIP_MARKERS):
+        return (
+            "TikTok url_ownership_unverified: PULL_FROM_URL requires a verified "
+            "Domain/URL Prefix in TikTok Developer Console (Media Transfer Guide). "
+            "Prefer FILE_UPLOAD when a local video exists (already attempted if path "
+            "was available), or verify MEDIA_PUBLIC_BASE_URL domain. Photos always "
+            "need PULL_FROM_URL + verified ownership. "
+            "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide"
+        )
+    if _err_has(raw, _TT_UNAUDITED_MARKERS):
+        return (
+            "TikTok unaudited_client_can_only_post_to_private_accounts: Direct Post "
+            "to public/friends privacy needs App Review audit. Until audited, use "
+            "publish_mode=MEDIA_UPLOAD (inbox draft) or DIRECT_POST with SELF_ONLY "
+            "on a private account. "
+            "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post"
+        )
+    return raw
+
+
+def _x_quota_skip_result(detail: str | None = None) -> PublishResult:
+    """X free/paid write credits exhausted — reconnect does not reset monthly caps."""
+    extra = f" Detail: {detail[:240]}" if detail else ""
+    return PublishResult(
+        success=False,
+        skipped=True,
+        error=(
+            "X free tier monthly write quota / API credits exhausted. Reconnect "
+            "will not fix this — wait for the billing-cycle reset, add credits at "
+            "console.x.com, or ensure the browser-bridge X session is logged in "
+            f"for the free web fallback.{extra}"
+        ),
+    )
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
@@ -139,8 +220,22 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"HTTP {exc.response.status_code}: {exc.response.text[:400]}")
     except LinkedInAPIError as exc:
         return PublishResult(success=False, error=f"HTTP {exc.status_code}: {exc.response_text[:400]}")
+    except TikTokAPIError as exc:
+        clarified = _tiktok_clarify_error(exc)
+        skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS)
+        return PublishResult(success=False, skipped=skip, error=clarified)
+    except TwitterAPIError as exc:
+        blob = f"{exc} {getattr(exc, 'response_text', '')}"
+        if exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS):
+            return _x_quota_skip_result(blob)
+        return PublishResult(success=False, error=str(exc)[:500])
     except Exception as exc:
-        return PublishResult(success=False, error=str(exc))
+        blob = str(exc)
+        if _err_has(blob, _FB_GROUP_MARKERS):
+            return _facebook_group_skip_result(blob)
+        if _err_has(blob, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS):
+            return PublishResult(success=False, skipped=True, error=_tiktok_clarify_error(blob))
+        return PublishResult(success=False, error=blob)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -555,10 +650,15 @@ async def _publish_twitter(
             tweet_media_ids = media_ids if i == 0 else None
             result = await client.create_tweet(text=chunk, reply_tweet_id=last_id, media_ids=tweet_media_ids)
         except TwitterAPIError as exc:
-            if exc.status_code == 402:
-                # X API write credits exhausted — fall back to posting through
-                # the browser bridge (free path, same as the DM endpoints).
-                return await _publish_twitter_via_browser(account, text, post, media_paths)
+            blob = f"{exc} {getattr(exc, 'response_text', '')}"
+            if exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS):
+                # X API write credits / monthly cap — try browser bridge first.
+                browser_result = await _publish_twitter_via_browser(
+                    account, text, post, media_paths
+                )
+                if browser_result.success:
+                    return browser_result
+                return _x_quota_skip_result(browser_result.error or blob)
             if exc.status_code in (401, 403) and not refreshed:
                 refreshed = True
                 new_token = await _refresh_oauth2_token(account, db)
@@ -630,10 +730,7 @@ async def _publish_twitter_via_browser(
                     # the whole batch's budget.
                     await client.start_session("twitter", contention_retries=8)
                 except BrowserBridgeError as exc:
-                    return PublishResult(
-                        success=False,
-                        error=f"X API quota exhausted and browser busy: {exc.detail}",
-                    )
+                    return _x_quota_skip_result(f"browser busy: {exc.detail}")
             state = await client.is_twitter_logged_in()
             if not state.get("logged_in"):
                 # Self-heal: drive the two-step login with stored creds.
@@ -649,23 +746,15 @@ async def _publish_twitter_via_browser(
                         login_user, settings.TWITTER_LOGIN_PASSWORD
                     )
                     if login_res.get("status") != "logged_in":
-                        return PublishResult(
-                            success=False,
-                            error=(
-                                "X API quota exhausted and browser login failed: "
-                                f"{login_res.get('error')}"
-                            ),
+                        return _x_quota_skip_result(
+                            f"browser login failed: {login_res.get('error')}"
                         )
             res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:
-        return PublishResult(
-            success=False,
-            error=f"X API quota exhausted and browser fallback failed: {exc}",
-        )
+        return _x_quota_skip_result(f"browser fallback failed: {exc}")
     if res.get("status") != "ok":
-        return PublishResult(
-            success=False,
-            error=f"X API quota exhausted and browser fallback failed: {res.get('error') or res.get('message')}",
+        return _x_quota_skip_result(
+            f"browser fallback failed: {res.get('error') or res.get('message')}"
         )
     url = res.get("url") or (f"https://x.com/{account.username}" if account.username else None)
     post_id = url.rstrip("/").rsplit("/status/", 1)[-1] if url and "/status/" in url else None
@@ -922,6 +1011,14 @@ async def _publish_facebook(
     media_paths: list[str],
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
+    # Groups API removed in Graph v19+ — soft-skip instead of retrying OAuthException.
+    acct_type = (account.account_type or "").lower()
+    meta_type = str((getattr(account, "meta_data", None) or {}).get("account_type") or "").lower()
+    if acct_type == "group" or meta_type == "group":
+        return _facebook_group_skip_result(
+            f"account_type={account.account_type!r} account_id={account.account_id}"
+        )
+
     # Personal profile (type=user) with a browser session → use sidecar
     if account.account_type == "user" and _has_facebook_browser_session(account):
         result = await _publish_facebook_via_sidecar(account, text, post, media_paths)
@@ -932,62 +1029,76 @@ async def _publish_facebook(
     page_id = account.account_id
     # access_token is stored as the page token from OAuth callback.
     # Fall back to dynamic lookup for accounts connected before this fix.
-    page_token = await _facebook_page_token(access_token, page_id)
+    try:
+        page_token = await _facebook_page_token(access_token, page_id)
+    except Exception as exc:
+        if _err_has(str(exc), _FB_GROUP_MARKERS):
+            return _facebook_group_skip_result(str(exc))
+        raise
 
     # Text/link posts go through the real FacebookAPIClient.
     # Photo albums still use Facebook's unpublished upload flow (file bytes).
     fb_client = FacebookAPIClient(access_token=page_token, page_id=page_id)
 
-    if not media_paths:
-        result = await fb_client.create_post(message=text, link=post.link_url)
-        fb_post_id = result.get("id", "")
+    try:
+        if not media_paths:
+            result = await fb_client.create_post(message=text, link=post.link_url)
+            fb_post_id = result.get("id", "")
+            return PublishResult(
+                success=True,
+                platform_post_id=fb_post_id,
+                platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
+            )
+
+        graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            # Upload each photo as unpublished, then publish as album/multi-photo
+            photo_ids: list[str] = []
+            for path in media_paths[:10]:
+                with open(path, "rb") as fh:
+                    img_bytes = fh.read()
+                r = await client.post(
+                    f"{graph_base}/{page_id}/photos",
+                    data={"access_token": page_token, "published": "false"},
+                    files={"source": ("image.png", img_bytes, "image/png")},
+                )
+                if r.status_code == 200:
+                    pid = r.json().get("id")
+                    if pid:
+                        photo_ids.append(pid)
+                elif _err_has(r.text, _FB_GROUP_MARKERS):
+                    return _facebook_group_skip_result(r.text)
+
+            if photo_ids:
+                # Multi-photo post via /feed with attached_media
+                attached = [{"media_fbid": pid} for pid in photo_ids]
+                import json as _json
+                r = await client.post(
+                    f"{graph_base}/{page_id}/feed",
+                    data={
+                        "message": text,
+                        "access_token": page_token,
+                        "attached_media": _json.dumps(attached),
+                    },
+                )
+                if r.status_code >= 400 and _err_has(r.text, _FB_GROUP_MARKERS):
+                    return _facebook_group_skip_result(r.text)
+                r.raise_for_status()
+                fb_post_id = r.json().get("id", "")
+            else:
+                # Photo uploads all failed — fall through to text post
+                result = await fb_client.create_post(message=text, link=post.link_url)
+                fb_post_id = result.get("id", "")
+
         return PublishResult(
             success=True,
             platform_post_id=fb_post_id,
             platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
         )
-
-    graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        # Upload each photo as unpublished, then publish as album/multi-photo
-        photo_ids: list[str] = []
-        for path in media_paths[:10]:
-            with open(path, "rb") as fh:
-                img_bytes = fh.read()
-            r = await client.post(
-                f"{graph_base}/{page_id}/photos",
-                data={"access_token": page_token, "published": "false"},
-                files={"source": ("image.png", img_bytes, "image/png")},
-            )
-            if r.status_code == 200:
-                pid = r.json().get("id")
-                if pid:
-                    photo_ids.append(pid)
-
-        if photo_ids:
-            # Multi-photo post via /feed with attached_media
-            attached = [{"media_fbid": pid} for pid in photo_ids]
-            import json as _json
-            r = await client.post(
-                f"{graph_base}/{page_id}/feed",
-                data={
-                    "message": text,
-                    "access_token": page_token,
-                    "attached_media": _json.dumps(attached),
-                },
-            )
-            r.raise_for_status()
-            fb_post_id = r.json().get("id", "")
-        else:
-            # Photo uploads all failed — fall through to text post
-            result = await fb_client.create_post(message=text, link=post.link_url)
-            fb_post_id = result.get("id", "")
-
-    return PublishResult(
-        success=True,
-        platform_post_id=fb_post_id,
-        platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
-    )
+    except Exception as exc:
+        if _err_has(str(exc), _FB_GROUP_MARKERS):
+            return _facebook_group_skip_result(str(exc))
+        raise
 
 
 # ── Instagram ─────────────────────────────────────────────────────────────────
@@ -1546,6 +1657,17 @@ async def _publish_instagram(
         5. **Facebook Login Graph API** (graph.facebook.com) — last resort
            (requires Meta App Review + Page-Instagram linkage).
     """
+    # Content rule: Instagram has no text-only feed posts (Graph / private / web).
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "Instagram requires at least one image or video. "
+                "Text-only posts are rejected — attach media or remove the IG target."
+            ),
+        )
+
     meta = account.meta_data or {}
 
     # 1. Business Login Graph API (graph.instagram.com) — highest priority
@@ -1856,7 +1978,11 @@ async def _publish_tiktok(
     publish_id = init.get("data", {}).get("publish_id")
     if not publish_id:
         error = init.get("error", {})
-        return PublishResult(success=False, error=f"TikTok init failed: {error}")
+        clarified = _tiktok_clarify_error(
+            f"{error.get('code', '')}: {error.get('message', error)}"
+        )
+        skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS)
+        return PublishResult(success=False, skipped=skip, error=f"TikTok init failed: {clarified}")
 
     # 1b) Upload video bytes if using FILE_UPLOAD
     if upload_url and local_video_path:
@@ -1953,10 +2079,13 @@ async def _poll_tiktok_publish_status(
             )
         if status_value in ("FAILED", "CANCELLED"):
             fail_reason = status_data.get("fail_reason") or "unknown"
+            clarified = _tiktok_clarify_error(str(fail_reason))
+            skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS)
             return PublishResult(
                 success=False,
+                skipped=skip,
                 platform_post_id=publish_id,
-                error=f"TikTok publish failed: {fail_reason}",
+                error=f"TikTok publish failed: {clarified}",
                 platform_meta=_meta({"status": status_value, "fail_reason": fail_reason}),
             )
 
