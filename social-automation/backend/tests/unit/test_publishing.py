@@ -238,8 +238,8 @@ async def test_publish_twitter_thread(account, post):
 
 @pytest.mark.asyncio
 async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
-    """402 credits-depleted falls back to the browser bridge (free path)."""
-    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "Quota"}))
+    """402 credits-depleted falls back to browser; soft-skips if browser also fails."""
+    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
     fallback = AsyncMock(
         return_value=pub.PublishResult(success=False, error="browser down")
     )
@@ -249,7 +249,9 @@ async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
         result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
 
     assert result.success is False
-    assert result.error == "browser down"
+    assert result.skipped is True
+    assert "quota" in (result.error or "").lower() or "credits" in (result.error or "").lower()
+    assert "Reconnect will not fix" in (result.error or "")
     fallback.assert_awaited_once()
 
 
@@ -717,3 +719,37 @@ def test_media_public_url_force_jpeg(monkeypatch):
     url2 = pub._media_public_url("2026/01/x.webp")
     assert url2 == "https://media.example/api/v1/media/view?path=2026%2F01%2Fx.webp"
     assert "&format=jpeg" not in url2
+
+
+@pytest.mark.asyncio
+async def test_publish_facebook_group_soft_skipped(account, post):
+    account.platform = "facebook"
+    account.account_type = "group"
+    account.meta_data = {}
+    result = await pub._publish_facebook("tok", "hi", account, post, [])
+    assert result.success is False
+    assert result.skipped is True
+    assert "Groups API is deprecated" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_text_only_soft_skipped(account, post, monkeypatch):
+    account.platform = "instagram"
+    result = await pub._publish_instagram("tok", "caption only", account, post, [], [], None)
+    assert result.success is False
+    assert result.skipped is True
+    assert "at least one image" in (result.error or "").lower()
+
+
+def test_tiktok_clarify_url_ownership():
+    msg = pub._tiktok_clarify_error("TikTok error url_ownership_unverified: bad domain")
+    assert "verified" in msg.lower()
+    assert "FILE_UPLOAD" in msg
+
+
+def test_tiktok_clarify_unaudited():
+    msg = pub._tiktok_clarify_error(
+        "unaudited_client_can_only_post_to_private_accounts"
+    )
+    assert "MEDIA_UPLOAD" in msg
+    assert "audit" in msg.lower()

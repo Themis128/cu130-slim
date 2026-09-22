@@ -56,7 +56,7 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 
 | Signature | Meaning | Action |
 |---|---|---|
-| `(#200) If posting to a group…` | FB personal-profile posting | Meta API can't post to personal profiles, period — retarget to a Page |
+| `(#200) If posting to a group…` / `publish_to_groups` | FB Groups API deprecated (v19+) | Soft-skip; retarget to a Page (`pages_manage_posts`). Groups API removed Apr 2024 — reconnect will not help |
 | `Instagram requires at least one image` | Text-only post to IG | Attach media or drop the IG target |
 | `X free tier monthly write quota` | 1,500 tweets/mo exhausted | Waits for billing reset; browser fallback covers real posts |
 | `stats HTTP 402` / `non_public_metrics` | Paid-tier metric on free plan | Expected — public_metrics still sync |
