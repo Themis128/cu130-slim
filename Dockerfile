@@ -91,7 +91,7 @@ RUN mkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input} \
 # Create entrypoint script to setup symlinks at runtime.
 # Uses printf (not echo) so \n is reliably interpreted; exec replaces bash
 # with python3 so the process becomes PID 1 and receives SIGTERM correctly.
-RUN printf '#!/bin/bash\nset -e\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\nexec python3 main.py ${CLI_ARGS:---listen 0.0.0.0 --port 8000}\n' > /entrypoint.sh \
+RUN printf '#!/bin/bash\nset -e\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\n\nPROFILE=${COMFYUI_PROFILE:-sdxl}\nPROFILE_FILE="/opt/ComfyUI/profiles/${PROFILE}.txt"\nPROFILE_ARGS=""\nif [ -f "$PROFILE_FILE" ]; then\n  PROFILE_ARGS=$(grep -v "^#" "$PROFILE_FILE" | tr "\\n" " ")\nfi\n\nBASE_ARGS="--listen 0.0.0.0 --port 8000 --preview-method auto"\nexec python3 main.py $BASE_ARGS $PROFILE_ARGS ${CLI_ARGS:-}\n' > /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1

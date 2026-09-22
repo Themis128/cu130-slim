@@ -1,0 +1,5 @@
+# Quality-first profile when GPU is not shared (local-diffusers/DMR idle).
+# Removes lowvram and fp8; uses FP16 + FP16 VAE for best quality/speed.
+--force-fp16
+--fp16-vae
+--reserve-vram 1

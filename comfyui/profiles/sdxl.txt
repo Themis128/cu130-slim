@@ -1,0 +1,7 @@
+# SDXL profile for 8GB GPU shared with local-diffusers + DMR.
+# Uses CPU offloading (lowvram) and FP16 VAE to keep ~4GB free.
+--lowvram
+--force-fp16
+--fp16-vae
+--dont-upcast-attention
+--reserve-vram 4

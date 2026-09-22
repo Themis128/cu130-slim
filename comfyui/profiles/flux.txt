@@ -1,0 +1,8 @@
+# FLUX profile for 8GB GPU. FP8 weight quantization is required to fit
+# the 12B-parameter diffusion model; VAE stays FP16.
+--lowvram
+--fp8_e4m3fn
+--force-fp16
+--fp16-vae
+--dont-upcast-attention
+--reserve-vram 4
