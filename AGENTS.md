@@ -9,13 +9,15 @@ git fetch origin && git checkout -b <topic-branch> origin/master
 # ... work, commit ...
 git push origin <topic-branch>                      # push the branch itself
 gh pr create --base master --head <topic-branch>    # open PR
-# wait for validate + secret-scan (fast: ~10-30s for docs)
+# either wait for validate + secret-scan then merge:
 gh pr merge <N> --squash --delete-branch
+# or let it merge itself when checks pass:
+gh pr merge <N> --squash --delete-branch --auto
 ```
 
 - Never retry `git push origin …:master` — it cannot succeed. If you see `GH006: Protected branch update failed`, switch to the PR flow above.
 - `docs/arch-hw-reality-check` was already merged via PR #43 and deleted — do not push it again.
-- Repo auto-merge is disabled; merge only after required checks pass.
+- Repo auto-merge is **enabled** — `--auto` queues the merge until `validate` + `secret-scan` pass.
 - Compose app images use `:latest` + `pull_policy: always` — no sha pin PRs.
 
 ## Commit & push cadence
