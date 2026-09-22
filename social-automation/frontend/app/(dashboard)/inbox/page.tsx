@@ -200,6 +200,12 @@ export default function InboxPage() {
                         <span>Open</span>
                       </Button>
                     </Link>
+                  ) : c.platform === 'whatsapp' ? (
+                    <Link href="/whatsapp">
+                      <Button variant="ghost" size="sm">
+                        <span>Open</span>
+                      </Button>
+                    </Link>
                   ) : null}
                 </div>
               </div>
