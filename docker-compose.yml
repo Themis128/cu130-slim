@@ -1044,8 +1044,11 @@ services:
       start_period: 15s
     restart: unless-stopped
   cloudflared:
-    image: baltzakist/cloudflared:v0.2
+    image: ghcr.io/themis128/cu130-slim-cloudflared:v0.2
     pull_policy: if_not_present
+    build:
+      context: ./social-automation
+      dockerfile: Dockerfile.cloudflared
     container_name: social-cloudflared
     networks:
       - backend

@@ -1,4 +1,5 @@
 name: Docker CI
+# Legacy Docker Hub build path. Prefer .github/workflows/build-and-push.yml (GHCR public option).
 
 on:
   push:

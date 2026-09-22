@@ -1,4 +1,5 @@
 name: Build and push images
+# Pushes to ghcr.io/themis128/* (public option). Make packages public in GitHub UI if anonymous pulls are required.
 
 on:
   workflow_dispatch:
@@ -32,6 +33,7 @@ jobs:
           - env-manager-backend
           - env-manager-frontend
           - social-frontend
+          - cloudflared
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

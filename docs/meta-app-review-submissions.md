@@ -1,5 +1,8 @@
 # Meta App Review Submission Guide
 
+
+> **Credentials**: Do not put real admin passwords in this document. Reviewer / operator login uses `SOCIAL_ADMIN_EMAIL` and `SOCIAL_ADMIN_PASSWORD` from the secure store / deploy-host `.env` (see `.env.example`).
+
 ## App Details
 - **App ID**: 1936126137016578
 - **App Name**: Cloudless
@@ -29,7 +32,7 @@
 Cloudless uses Human Agent to help businesses respond to Instagram and Facebook messages automatically. Our platform integrates with Instagram messaging to allow social media managers to read and respond to DMs from a unified inbox. The Human Agent permission enables our app to send automated or manual replies on behalf of the connected Instagram Business account, improving response times and customer engagement.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and connect an Instagram Business account
 3. Navigate to the Messages inbox
 4. Select a conversation and type a reply
@@ -42,7 +45,7 @@ How to test:
 Cloudless is a social media management platform that helps businesses manage their Instagram Business/Creator accounts. We use instagram_business_basic to read the connected Instagram Business account profile metadata (username, ID, profile picture, follower count, media count) and display it in our dashboard. This permission is foundational — it is required as a dependency for instagram_business_manage_messages, instagram_business_content_publish, instagram_business_manage_insights, and instagram_business_manage_comments, all of which we are also requesting in this submission.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and click 'Connect Instagram'
 3. Authorize with your Instagram Business/Creator account via the OAuth flow
 4. After connection, the dashboard displays the Instagram profile info (username, followers count, media count) retrieved via the instagram_business_basic permission
@@ -57,7 +60,7 @@ This permission is used as a dependent permission for instagram_business_manage_
 Cloudless uses instagram_business_manage_messages to enable social media managers to read and respond to Instagram Direct Messages from within our unified inbox. This permission allows our app to retrieve message conversations, send replies, and manage message interactions on behalf of the connected Instagram Business account. This is a core feature of our social media management platform — it saves time by centralizing all social communications in one place.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and connect an Instagram Business account
 3. Navigate to the Messages/Inbox section
 4. View existing conversations retrieved via the instagram_business_manage_messages permission
@@ -72,7 +75,7 @@ This permission depends on instagram_business_basic (also requested in this subm
 Cloudless uses instagram_business_content_publish to publish images, videos, carousels, and stories to the connected Instagram Business account. This is the core publishing feature of our social media management platform. Users can create posts in our content editor, schedule them for optimal times, and publish them directly to Instagram without leaving our platform. The permission enables: (1) single image posts, (2) video/reel posts, (3) carousel posts with multiple images/videos, (4) story posts with optional link stickers.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and connect an Instagram Business account
 3. Navigate to Content > New Post
 4. Upload an image or video, add a caption and hashtags
@@ -89,7 +92,7 @@ This permission depends on instagram_business_basic (also requested in this subm
 Cloudless uses instagram_business_manage_insights to retrieve analytics data for the connected Instagram Business account and its published media. This includes: (1) account-level insights (reach, impressions, follower demographics), (2) per-media insights (likes, comments, shares, saves, reach), (3) publishing quota checks (content_publishing_limit endpoint to monitor remaining daily publish quota). These insights are displayed in our Analytics dashboard and used to provide content performance recommendations.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and connect an Instagram Business account
 3. Navigate to Analytics > Instagram
 4. View account-level insights (reach, impressions, follower count trends)
@@ -105,7 +108,7 @@ This permission depends on instagram_business_basic (also requested in this subm
 Cloudless uses instagram_business_manage_comments to help social media managers moderate and respond to comments on their Instagram Business account posts. This permission enables: (1) listing all comments on a media post, (2) replying to comments, (3) hiding inappropriate comments, (4) deleting spam comments. This is a critical engagement feature — it allows users to manage all their Instagram comments from a single dashboard without opening the Instagram app.
 
 How to test:
-1. Visit https://social.cloudless.gr and log in (credentials: admin@cloudless.gr / Cloudless2026!)
+1. Visit https://social.cloudless.gr and log in (credentials: use SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from the deploy host `.env` (gitignored; never commit real passwords))
 2. Go to Settings > Accounts and connect an Instagram Business account
 3. Navigate to Content > [select a published post]
 4. View the comments section — all comments are retrieved via instagram_business_manage_comments
