@@ -236,6 +236,12 @@ async function handleSetSession(req, res) {
 
 /** Check if the current session is still alive. */
 async function handleCheckSession(req, res) {
+  // Fast path: with no injected session/cookies there is nothing to
+  // verify — skip the ~15s anonymous profile navigation that otherwise
+  // stalls every health/session probe.
+  if (!sessionId && !Object.keys(extraCookies).length) {
+    return res.json({ status: "ok", logged_in: false, reason: "no_session" });
+  }
   try {
     await gotoProfile();
     const title = await page.title();

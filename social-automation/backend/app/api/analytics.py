@@ -1016,36 +1016,56 @@ async def get_follower_counts(
     accounts = accounts_result.scalars().all()
     since = datetime.now(UTC) - timedelta(days=days)
 
+    # All snapshots for the window in one query, grouped by account —
+    # instead of a per-account SELECT plus a live external call each
+    # (the previous shape took ~22s for 11 accounts).
+    snap_rows = await db.execute(
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.captured_at,
+            FollowerSnapshot.followers,
+        )
+        .where(
+            FollowerSnapshot.social_account_id.in_([a.id for a in accounts]),
+            FollowerSnapshot.captured_at >= since,
+        )
+        .order_by(FollowerSnapshot.captured_at.asc())
+    )
+    snaps_by_account: dict[uuid.UUID, list] = {}
+    for account_id, captured_at, followers in snap_rows.all():
+        snaps_by_account.setdefault(account_id, []).append((captured_at, followers))
+
+    # Live platform calls only for accounts that have never been synced —
+    # in parallel, like get_overview.
+    unsynced = [a for a in accounts if not snaps_by_account.get(a.id)]
+    live_counts: dict[uuid.UUID, int] = {}
+    if unsynced:
+        results = await asyncio.gather(
+            *(_follower_count(a) for a in unsynced), return_exceptions=True
+        )
+        for a, r in zip(unsynced, results, strict=False):
+            live_counts[a.id] = r if isinstance(r, int) else -1
+
     result: list[FollowerSeries] = []
     for account in accounts:
-        # Historical snapshots
-        snap_rows = await db.execute(
-            select(FollowerSnapshot.captured_at, FollowerSnapshot.followers)
-            .where(
-                FollowerSnapshot.social_account_id == account.id,
-                FollowerSnapshot.captured_at >= since,
-            )
-            .order_by(FollowerSnapshot.captured_at.asc())
-        )
-        snaps = snap_rows.all()
-
-        # Live count (always fetch so "current" is accurate even if sync
-        # hasn't run recently). -1 = fetch failed — fall back to the last
-        # known snapshot instead of reporting a bogus -1.
-        live = await _follower_count(account)
-        if live < 0:
-            live = snaps[-1][1] if snaps else 0
-
+        snaps = snaps_by_account.get(account.id, [])
         if snaps:
+            # Current = latest synced snapshot (sync runs ~30min; a live
+            # call per account made this endpoint unusably slow).
+            current = snaps[-1][1]
             series = [
                 FollowerSeriesPoint(
-                    date=row[0].astimezone(UTC).strftime("%Y-%m-%d"),
-                    followers=row[1],
+                    date=ts.astimezone(UTC).strftime("%Y-%m-%d"),
+                    followers=count,
                 )
-                for row in snaps
+                for ts, count in snaps
             ]
-            change = live - snaps[0][1]
+            change = current - snaps[0][1]
         else:
+            live = live_counts.get(account.id, 0)
+            if live < 0:
+                live = 0
+            current = live
             series = [FollowerSeriesPoint(
                 date=datetime.now(UTC).strftime("%Y-%m-%d"),
                 followers=live,
@@ -1054,7 +1074,7 @@ async def get_follower_counts(
 
         result.append(FollowerSeries(
             platform=account.platform,
-            current=live,
+            current=current,
             change=change,
             series=series,
         ))
