@@ -193,6 +193,30 @@ try {
   }
   await shot(page, 'dv-domain-detail.png');
 
+  // Short-circuit: domain already listed under Verified properties
+  const alreadyVerified = await (async () => {
+    const text = await page.locator('body').innerText();
+    const verifiedIdx = text.toLowerCase().indexOf('verified properties');
+    const unverifiedIdx = text.toLowerCase().indexOf('unverified properties');
+    const domainIdx = text.indexOf(DOMAIN);
+    if (domainIdx === -1 || verifiedIdx === -1 || domainIdx < verifiedIdx) return false;
+    return unverifiedIdx === -1 || domainIdx < unverifiedIdx;
+  })();
+
+  if (alreadyVerified) {
+    write('domain-verification-token.json', { token: 'already-verified', domain: DOMAIN, status: 'already_verified' });
+    console.log('ALREADY_VERIFIED');
+    write('domain-verify-summary.json', {
+      url: page.url(),
+      hasToken: true,
+      clickVerify: CLICK_VERIFY,
+      status: 'already_verified',
+    });
+    console.log('DOMAIN_VERIFY_DONE');
+    await browser.close();
+    process.exit(0);
+  }
+
   // Expand DNS / copy UI
   for (const label of [/DNS record/i, /TXT/i, /Copy/i, /Show record/i, /verification record/i, /Get record/i, /Verify properties/i]) {
     const el = page.getByText(label).first();
