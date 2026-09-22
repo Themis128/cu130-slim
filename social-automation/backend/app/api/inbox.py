@@ -16,22 +16,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, desc, func, select
 
 from app.api.deps import get_current_team_id, get_current_user
 from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from app.models.user import User
+from app.models.whatsapp_message import WhatsAppMessage
 from app.services.browser_bridge import BrowserBridgeClient
 from app.services.instagram_api import InstagramAPIClient
 from app.services.messenger_api import MessengerAPIClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Short server-side cache — the inbox page polls every 30s and each fetch
+# fans out to external APIs (Graph + browser bridge), so repeat calls
+# within a minute return the previous result.
+_INBOX_CACHE_TTL_S = 60.0
+_inbox_cache: dict[str, tuple[float, UnifiedInboxResponse]] = {}
 
 
 class UnifiedConversation(BaseModel):
@@ -70,6 +78,11 @@ async def get_unified_inbox(
     Failed platform fetches are skipped (non-fatal) so the inbox always
     returns available conversations even if one platform is down.
     """
+    cache_key = str(team_id)
+    cached = _inbox_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _INBOX_CACHE_TTL_S:
+        return cached[1]
+
     conversations: list[UnifiedConversation] = []
 
     # Fetch all social accounts for the user's team
@@ -79,27 +92,26 @@ async def get_unified_inbox(
         )
         accounts = result.scalars().all()
 
+    # Per-platform fetch budget — a wedged platform (e.g. busy browser
+    # bridge) must not stall the whole inbox.
+    FETCH_TIMEOUT_S = 30.0
+
     # Group accounts by platform
     tasks: list[asyncio.Task] = []
     for account in accounts:
         platform = (account.platform or "").lower()
         account_type = (account.account_type or "").lower()
         if platform == "facebook" and account_type == "page":
-            tasks.append(asyncio.create_task(
-                _fetch_page_messenger(account)
-            ))
+            coro = _fetch_page_messenger(account)
         elif platform == "facebook" and account_type == "user":
-            tasks.append(asyncio.create_task(
-                _fetch_personal_messenger(account)
-            ))
+            coro = _fetch_personal_messenger(account)
         elif platform == "instagram":
-            tasks.append(asyncio.create_task(
-                _fetch_instagram_dms(account)
-            ))
+            coro = _fetch_instagram_dms(account)
         elif platform == "whatsapp":
-            tasks.append(asyncio.create_task(
-                _fetch_whatsapp(account)
-            ))
+            coro = _fetch_whatsapp(account)
+        else:
+            continue
+        tasks.append(asyncio.create_task(asyncio.wait_for(coro, timeout=FETCH_TIMEOUT_S)))
 
     # Run all fetches in parallel
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -107,7 +119,7 @@ async def get_unified_inbox(
         if isinstance(result, list):
             conversations.extend(result)
         elif isinstance(result, Exception):
-            logger.debug("Inbox fetch error (non-fatal): %s", result)
+            logger.info("Inbox fetch error (non-fatal): %s", result)
 
     # Sort by unread first, then by name
     conversations.sort(key=lambda c: (not c.unread, c.sender_name.lower()))
@@ -116,11 +128,13 @@ async def get_unified_inbox(
     for c in conversations:
         by_platform[c.platform] = by_platform.get(c.platform, 0) + 1
 
-    return UnifiedInboxResponse(
+    response = UnifiedInboxResponse(
         conversations=conversations,
         total=len(conversations),
         by_platform=by_platform,
     )
+    _inbox_cache[cache_key] = (time.monotonic(), response)
+    return response
 
 
 async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversation]:
@@ -179,7 +193,7 @@ async def _fetch_personal_messenger(account: SocialAccount) -> list[UnifiedConve
         for convo in result.get("conversations", []):
             convos.append(UnifiedConversation(
                 platform="personal_messenger",
-                account_id=account.id,
+                account_id=str(account.id),
                 account_name=account.display_name or "Personal Messenger",
                 thread_id=convo.get("thread_id"),
                 sender_name=convo.get("name", "Unknown"),
@@ -220,19 +234,28 @@ async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversati
             use_business_login_api=meta.get("login_type") == "business_login",
         )
         result = await client.get_conversations(limit=25)
+        own_username = (account.username or "").lower()
+        own_ids = {str(ig_user_id)}
         convos = []
         for convo in result.get("data", []):
             participants = convo.get("participants", {}).get("data", [])
-            sender = participants[0] if participants else {}
+            # participants[0] is our own business account — the customer is
+            # the other participant.
+            others = [
+                p for p in participants
+                if str(p.get("id", "")) not in own_ids
+                and (p.get("username") or "").lower() != own_username
+            ]
+            sender = others[0] if others else (participants[0] if participants else {})
             messages = convo.get("messages", {}).get("data", [])
             last_msg = messages[0] if messages else {}
             convos.append(UnifiedConversation(
                 platform="instagram",
-                account_id=account.id,
+                account_id=str(account.id),
                 account_name=account.display_name or "Instagram",
                 thread_id=convo.get("id"),
                 sender_name=sender.get("username", "Unknown"),
-                preview=last_msg.get("message", ""),
+                preview=last_msg.get("message") or "[media]",
                 unread=False,
                 timestamp=last_msg.get("created_time"),
             ))
@@ -243,9 +266,74 @@ async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversati
 
 
 async def _fetch_whatsapp(account: SocialAccount) -> list[UnifiedConversation]:
-    """Fetch WhatsApp conversations (Cloud API)."""
-    # WhatsApp Cloud API doesn't have a "list conversations" endpoint.
-    # Conversations are created when a message is sent/received.
-    # This would require tracking conversations in our own database.
-    # For now, return empty — future enhancement.
-    return []
+    """Fetch WhatsApp conversations from persisted webhook/send records.
+
+    The Cloud API has no "list conversations" endpoint, so threads are
+    built from ``whatsapp_messages`` rows written by the webhook and the
+    send endpoints — one conversation per remote phone number, ordered by
+    the latest message.
+    """
+    try:
+        async with async_session_maker() as db:
+            latest = (
+                select(
+                    WhatsAppMessage.sender_phone.label("peer"),
+                    func.max(WhatsAppMessage.created_at).label("mx"),
+                )
+                .where(WhatsAppMessage.social_account_id == account.id)
+                .group_by(WhatsAppMessage.sender_phone)
+                .subquery()
+            )
+            rows = (
+                await db.execute(
+                    select(WhatsAppMessage)
+                    .join(
+                        latest,
+                        and_(
+                            WhatsAppMessage.sender_phone == latest.c.peer,
+                            WhatsAppMessage.created_at == latest.c.mx,
+                        ),
+                    )
+                    .order_by(desc(WhatsAppMessage.created_at))
+                    .limit(50)
+                )
+            ).scalars().all()
+            if not rows:
+                return []
+
+            # Best display name per peer = most recent inbound sender_name.
+            names = (
+                await db.execute(
+                    select(WhatsAppMessage.sender_phone, WhatsAppMessage.sender_name)
+                    .where(
+                        WhatsAppMessage.social_account_id == account.id,
+                        WhatsAppMessage.direction == "inbound",
+                        WhatsAppMessage.sender_name != "",
+                    )
+                    .order_by(desc(WhatsAppMessage.created_at))
+                )
+            ).all()
+        name_by_peer: dict[str, str] = {}
+        for phone, name in names:
+            name_by_peer.setdefault(phone, name)
+
+        convos = []
+        for m in rows:
+            peer = m.sender_phone
+            body = m.message_text or f"[{m.message_type}]"
+            if m.direction == "outbound":
+                body = f"You: {body}"
+            convos.append(UnifiedConversation(
+                platform="whatsapp",
+                account_id=str(account.id),
+                account_name=account.display_name or "WhatsApp",
+                thread_id=peer,
+                sender_name=name_by_peer.get(peer) or peer,
+                preview=body,
+                unread=False,
+                timestamp=m.created_at.isoformat() if m.created_at else None,
+            ))
+        return convos
+    except Exception as exc:
+        logger.debug("WhatsApp inbox fetch failed for %s: %s", account.id, exc)
+        return []

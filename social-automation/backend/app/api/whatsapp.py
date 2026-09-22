@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -32,6 +33,7 @@ from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
+from app.models.whatsapp_message import WhatsAppMessage
 from app.services.facebook_api import _sanitize_log_text
 from app.services.whatsapp_api import (
     WhatsAppAPIClient,
@@ -750,6 +752,15 @@ async def send_message(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send message: {e}")
 
+    text = body.text or body.caption or ("[image]" if body.image_url else "[document]")
+    await _record_message(
+        db, account,
+        peer_phone=body.to,
+        direction="outbound",
+        message_type="text" if body.text else ("image" if body.image_url else "document"),
+        message_text=text,
+        message_id=(result.get("messages") or [{}])[0].get("id", ""),
+    )
     return result
 
 
@@ -773,6 +784,14 @@ async def send_template(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send template: {e}")
 
+    await _record_message(
+        db, account,
+        peer_phone=body.to,
+        direction="outbound",
+        message_type="template",
+        message_text=f"[template: {body.template_name}]",
+        message_id=(result.get("messages") or [{}])[0].get("id", ""),
+    )
     return result
 
 
@@ -1023,6 +1042,44 @@ def _process_waba_level_events(body: dict) -> int:
     return count
 
 
+async def _record_message(
+    db: AsyncSession,
+    account: SocialAccount,
+    *,
+    peer_phone: str,
+    direction: str,
+    message_type: str,
+    message_text: str,
+    message_id: str = "",
+    sender_name: str = "",
+    phone_number_id: str = "",
+) -> None:
+    """Persist a WhatsApp message so the unified inbox can list conversations."""
+    if not message_id:
+        message_id = f"local-{uuid.uuid4()}"
+    stmt = (
+        pg_insert(WhatsAppMessage)
+        .values(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            phone_number_id=phone_number_id or (account.meta_data or {}).get("phone_number_id", ""),
+            sender_phone=peer_phone,
+            sender_name=sender_name,
+            direction=direction,
+            message_id=message_id,
+            message_type=message_type,
+            message_text=message_text,
+        )
+        .on_conflict_do_nothing(constraint="uq_wa_msg_account_wamid")
+    )
+    try:
+        await db.execute(stmt)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.debug("WhatsApp message persist failed (non-fatal): %s", _sanitize_log_text(type(e).__name__))
+
+
 async def _process_inline(
     db: AsyncSession,
     phone_number_id: str,
@@ -1043,6 +1100,19 @@ async def _process_inline(
     if not account:
         logger.warning("No WhatsApp account found for inbound phone_number_id")
         return
+
+    # Persist the inbound message for the unified inbox — regardless of
+    # whether auto-reply is enabled.
+    await _record_message(
+        db, account,
+        peer_phone=sender_phone,
+        direction="inbound",
+        message_type=message_type,
+        message_text=message_text,
+        message_id=message_id,
+        sender_name=sender_name,
+        phone_number_id=phone_number_id,
+    )
 
     meta = account.meta_data or {}
     auto_reply = meta.get("whatsapp_auto_reply", {})
@@ -1085,7 +1155,16 @@ async def _process_inline(
 
         # Send the reply via Cloud API (within the 24h customer service window)
         client = _get_whatsapp_client(account)
-        await client.send_text(sender_phone, reply_text, messaging_type="RESPONSE")
+        sent = await client.send_text(sender_phone, reply_text, messaging_type="RESPONSE")
+        sent_id = (sent.get("messages") or [{}])[0].get("id", "") if isinstance(sent, dict) else ""
+        await _record_message(
+            db, account,
+            peer_phone=sender_phone,
+            direction="outbound",
+            message_type="text",
+            message_text=reply_text,
+            message_id=sent_id,
+        )
 
     except Exception as e:
         logger.error(
