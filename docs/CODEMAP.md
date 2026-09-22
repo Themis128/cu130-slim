@@ -1,6 +1,6 @@
 # SocialAuto (social.cloudless.gr) — Codemap
 
-Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-21.
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-22 (hardware + compose ports re-checked on OFFICE/WSL).
 
 ## What it is
 
@@ -10,8 +10,8 @@ SocialAuto: multi-platform social media automation — compose/publish posts, un
 
 ```
 browser → social.cloudless.gr → Cloudflare Tunnel (social-cloudflared)
-        → social-frontend:3000 (Next.js UI)
-        → /api/* → social-api:8000 (FastAPI, host port 8083)
+        → social-frontend:8083 (Next.js UI; host port 8082→8083)
+        → /api/* → social-api:8000 (FastAPI, host port 8083→8000)
 ```
 
 Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails only). Public Access bypass apps exist for paths that third parties must reach unauthenticated:
@@ -30,7 +30,7 @@ Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails o
 | Service | Port(s) | Role |
 |---|---|---|
 | social-api | 8083→8000 | FastAPI backend |
-| social-frontend | 8082→3000 | Next.js UI |
+| social-frontend | 8082→8083 | Next.js UI |
 | social-postgres | 5433→5432 | app DB `social_automation` |
 | redis | 6379 | Celery broker + cache failover |
 | celery-beat | — | scheduler (single instance) |
@@ -44,14 +44,41 @@ Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails o
 | instagram-private-api | 8011 | aiograpi REST wrapper (mobile private API) |
 | warp-proxy | 1080 | free Cloudflare WARP SOCKS5 (first-choice proxy) |
 | n8n | 5678 | workflow automation |
-| comfyui / local-diffusers | 8000/8010, 8081 | image gen |
-| chroma / minio / languagetool | 8001, 9000-9001, 8080 | vector failover / S3 failover / spellcheck |
-| postgres (metabase) / metabase | 5432, 3000 | analytics warehouse — separate from social-postgres |
+| comfyui | 8000→8000 | GPU image gen (shares RTX 3070 with DMR / local-diffusers) |
+| local-diffusers | (no host publish; :7860 internal) | SD 1.5 GPU image gen |
+| chroma | 8001→8000 | vector failover |
+| minio | 9100→9000, 9101→9001 | S3 failover (host 9100/9101 — not 9000) |
+| languagetool | 8010→8010 | spellcheck |
+| env-manager-frontend / backend | 8080, 8081 | .env UI/API |
+| postgres (metabase) / metabase | 5432 (internal), 3000 | analytics warehouse — separate from social-postgres |
 | flower | 5555 | Celery UI |
-| social-metrics | 9100 | Prometheus exporter |
+| social-metrics | 9390→80 | Prometheus/nginx metrics |
 | dmr-watchdog | — | restarts docker-model-runner when wedged |
 
-Not in Compose: **DMR** (Docker Model Runner, host engine on `localhost:12435` / `host.docker.internal:12435`).
+Not in Compose: **DMR** (Docker Model Runner, host engine on `localhost:12435` / `host.docker.internal:12435`). Port **12434 is unused** on this workstation.
+
+## Workstation (OFFICE / WSL)
+
+Measured on this machine (do not invent different HW — re-measure if the host changes). Full DMR/GPU detail: [`dmr-architecture.md`](dmr-architecture.md). Image pins: [`docker-image-registry.md`](docker-image-registry.md).
+
+| Fact | Value (2026-09-22) |
+|---|---|
+| Host OS | Windows 11 Enterprise Insider Preview (build 26220) |
+| WSL distro | Ubuntu 26.04.1 LTS (`Ubuntu-26.04`), kernel 6.18.x WSL2 |
+| CPU (Windows) | 12th Gen Intel Core i9-12900H — 14 cores / 20 threads |
+| CPU visible to Docker/WSL | 8 vCPUs (Docker Desktop allocation) |
+| RAM (Windows physical) | ~32 GiB |
+| RAM visible to Docker/WSL | ~15.6 GiB total (~7 GiB available under load when measured) |
+| GPU | NVIDIA GeForce RTX 3070 Laptop GPU, **8192 MiB** VRAM, driver **616.56** |
+| WSL GPU passthrough | `/dev/dxg` present; `nvidia-smi` works inside WSL |
+| Disk | WSL root `~1007G` (~913G free); Windows `C:` ~733G (~168G free) |
+| Compose project | `cu130-slim` — Docker Desktop 29.x, Linux engine |
+| App image pin (`docker-compose.yml`) | `ghcr.io/themis128/cu130-slim-*:sha-32d08e2` |
+| Local override | `docker-compose.override.yml` may retarget some services to `:latest` / Hub tags for local iteration |
+| DMR | Host engine `docker-model-runner` on **`127.0.0.1:12435` only** (port **12434 is not used** / not listening). Compose services reach it via `host.docker.internal:12435`. Watchdog: `dmr-watchdog`. |
+| GPU coexistence | ComfyUI (`:8000`), `local-diffusers` (internal `:7860`, no host publish), and DMR share the same 8 GB card. Prefer one heavy consumer at a time; DMR auto-unloads when idle. With ComfyUI resident, free VRAM can drop below 1 GB. |
+
+**Agent guidance:** Prefer 4B Instruct / smollm3 for concurrent chatbot load; reserve `ai/qwen3:8b-q4_K_M` and `ai/qwen3-vl` (~5 GB each) for single-flight work. Never assume port 12434.
 
 ## Backend layout (`social-automation/backend/app/`)
 

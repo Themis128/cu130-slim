@@ -3,7 +3,7 @@
 ## Overview
 
 All media that SocialAuto can produce, the model/engine used for each, and the
-fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB).
+fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB). Live workstation snapshot: [`CODEMAP.md` § Workstation](CODEMAP.md#workstation-office--wsl). **DMR listens on host port 12435** (12434 is unused).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -40,7 +40,7 @@ fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB).
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| DMR (llama.cpp) | `http://host.docker.internal:12434/engines/llama.cpp/v1` | Text/vision/embeddings |
+| DMR (llama.cpp) | `http://host.docker.internal:12435/engines/llama.cpp/v1` | Text/vision/embeddings |
 | local-diffusers | `http://local-diffusers:7860` | Image generation (GPU) |
 | Cloudflare AI | `https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/` | Text + image (cloud) |
 | social-api | `http://localhost:8083` | App API |
@@ -51,8 +51,9 @@ fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB).
 | Service | URL | Notes |
 |---------|-----|-------|
 | social-api | `http://localhost:8083` | Port mapped |
-| DMR CLI | `docker model status/list/run` | CLI only, no HTTP from host |
-| local-diffusers | Not accessible | No port mapped to host |
+| DMR HTTP | `http://localhost:12435/engines/v1/models` | Host-bound engine API |
+| DMR CLI | `docker model status/list/run` | CLI + HTTP both work from WSL |
+| local-diffusers | Not published to host | Reachable as `http://local-diffusers:7860` on the compose network only |
 
 ## Databases
 
@@ -360,9 +361,9 @@ If login returns `{"detail":"Invalid credentials"}`:
 
 ### DMR (Text + Vision Helper)
 
-**Endpoint (container):** `http://host.docker.internal:12434/engines/llama.cpp/v1`
+**Endpoint (container):** `http://host.docker.internal:12435/engines/llama.cpp/v1`
 **CLI (host):** `docker model status/list/run/pull`
-**Text model:** `ai/llama3.2` (3.21B, 1.87 GiB)
+**Text model (compose default):** `ai/qwen3:8b-q4_K_M` (~5 GB VRAM); mid/chatbot `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`; legacy NLP helper `ai/llama3.2` still pulled
 **Vision model:** `ai/qwen3-vl` (8.19B, 4.79 GiB)
 **Embedding model:** `ai/qwen3-embedding`
 

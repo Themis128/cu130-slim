@@ -117,7 +117,7 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues.
 - Total: 7 concurrent prefork processes across 3 containers.
 - Publishing gets 3 slots (I/O-bound API calls, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
-- Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this 8GB-RAM host.
+- Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this memory-constrained Docker Desktop allocation (~16 GiB visible to WSL/Docker; Windows host is ~32 GiB).
 - Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
 - `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acknowledged after completion, not on receipt — a worker crash triggers redelivery instead of silent loss.
 - `result_expires=3600`: Redis result backend auto-cleans after 1 hour.
@@ -127,31 +127,28 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 
 ## GPU & VRAM optimization
 
-The stack runs on an 8GB VRAM GPU (RTX 3070 Laptop) with 8GB system RAM. Both Ollama and ComfyUI share the GPU:
+Primary local inference is **Docker Model Runner (DMR)** on host port **12435** (not Ollama; not 12434). ComfyUI and `local-diffusers` share the same **RTX 3070 Laptop 8 GB** GPU.
 
-### Ollama (`ollama` container)
+Authoritative detail:
+- Hardware snapshot: [`docs/CODEMAP.md` § Workstation (OFFICE / WSL)](docs/CODEMAP.md#workstation-office--wsl)
+- DMR topology / models / VRAM budget: [`docs/dmr-architecture.md`](docs/dmr-architecture.md) and `AGENTS.md` § GPU & VRAM optimization
 
-- **Model**: `llama3.1:8b-gpu` (custom Modelfile at `ollama/Modelfile.llama31-gpu`) — forces all 32 layers to GPU (`num_gpu=99`), 2048-token context.
-- **`OLLAMA_FLASH_ATTENTION=1`** — reduces VRAM and RAM for attention layers.
-- **`OLLAMA_KV_CACHE_TYPE=q8_0`** — quantizes KV cache to 8-bit, halves context memory.
-- **`OLLAMA_CONTEXT_LENGTH=2048`** — caps context at 2048 tokens (social copy rarely exceeds 500).
-- **`OLLAMA_GPU_OVERHEAD=2147483648`** (2GB) — reserves VRAM for ComfyUI so Ollama doesn't monopolize the card.
-- **`OLLAMA_MAX_LOADED_MODELS=1`** — only one model resident at a time.
-- **`OLLAMA_NUM_PARALLEL=1`** — no concurrent inference (prevents KV cache multiplication).
-- **`OLLAMA_KEEP_ALIVE=-1`** — model stays in VRAM permanently (no reload latency).
-- Default model in `app/core/config.py` is `llama3.1:8b-gpu`.
-- `ollama ps` should show `100% GPU, 2048 ctx, Forever`.
+### Quick checks
 
-### ComfyUI (`social-media-comfyui-gpu` container)
+```bash
+curl -sf http://localhost:12435/engines/v1/models | python3 -m json.tool
+nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
+```
 
-- **`--gpu-only`** — forces text encoders, CLIP, and models onto GPU (minimum RAM).
-- **`--force-fp16`** — halves VRAM usage with minimal quality loss.
-- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM Ollama.
+### ComfyUI (`social-media-comfyui-gpu`)
+
+- **`--gpu-only`**, **`--force-fp16`**, **`--reserve-vram 1`** — keep headroom for DMR / local-diffusers.
+- Host port `127.0.0.1:8000`. Idle CUDA context still consumes VRAM — pause ComfyUI before large vision/8B loads if free VRAM is tight.
 
 ### Java heap limits (RAM savings)
 
-- **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m` (was 512m).
-- **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (was default ~1GB). Note: 256m causes OOM; 384m is the minimum.
+- **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m`.
+- **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (256m OOMs; 384m is the practical minimum).
 
 ## User guides
 
