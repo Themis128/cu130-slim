@@ -44,13 +44,15 @@ async def _assert_asset_in_media_library(client, headers, gen_data, prompt):
     # rewrite) before storage, so it may differ from the raw prompt — it only
     # needs to be populated.
     assert asset["alt_text"]
-    assert asset["mime_type"] == "image/png"
+    # Generated images are normalized to JPEG for universal social-platform
+    # compatibility (Instagram Graph API rejects PNG image_url uploads).
+    assert asset["mime_type"] == "image/jpeg"
     assert asset["width"] == 64 and asset["height"] == 32
 
     # 2. File was written to disk under the upload dir and is servable
     view = await client.get("/api/v1/media/view", params={"path": asset["storage_path"]})
     assert view.status_code == 200, view.text
-    assert view.headers["content-type"] == "image/png"
+    assert view.headers["content-type"] == "image/jpeg"
     img = Image.open(io.BytesIO(view.content))
     assert img.size == (64, 32)
 

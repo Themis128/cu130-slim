@@ -209,6 +209,25 @@ async def save_uploaded_media(
     return asset
 
 
+def _ensure_jpeg_bytes(image_bytes: bytes) -> tuple[bytes, int, int] | None:
+    """Convert any PIL-readable image to JPEG bytes. Returns None on failure."""
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            if img.mode in ("RGBA", "LA", "P"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[-1] if img.mode != "P" else None)
+                rgb = bg
+            elif img.mode == "CMYK":
+                rgb = img.convert("RGB")
+            else:
+                rgb = img.convert("RGB") if img.mode != "RGB" else img
+            buf = io.BytesIO()
+            rgb.save(buf, format="JPEG", quality=90, optimize=True)
+            return buf.getvalue(), rgb.width, rgb.height
+    except Exception:
+        return None
+
+
 async def persist_generated_image(
     db: AsyncSession,
     *,
@@ -217,12 +236,16 @@ async def persist_generated_image(
     image_bytes: bytes,
     prompt: str,
     source: str = "ai-generated",
-    extension: str = ".png",
+    extension: str = ".jpg",
     max_edge: int | None = None,
     folder: str | None = None,
 ) -> MediaAsset:
     """Write generated image bytes under UPLOAD_DIR/YYYY/MM/DD/ or R2 and create a
     ``media_assets`` row so the asset shows up in the Media Library page.
+
+    Social platforms (Instagram, LinkedIn, X, Meta) accept JPEG universally,
+    so generated images default to JPEG. The caller can still request ``.png``
+    when transparency is required.
 
     Pass ``max_edge=None`` with env MEDIA_MAX_EDGE for default cap, or an int to
     override. Pass ``max_edge=0`` to store full resolution (e.g. LinkedIn carousels).
@@ -236,21 +259,31 @@ async def persist_generated_image(
 
     image_bytes, width, height = downscale_image_bytes(image_bytes, max_edge=max_edge)
 
-    # Detect the real image format from the bytes so filename + Content-Type
-    # match the payload. Generated pipelines often return JPEGs even when the
-    # caller passes extension=".png"; mismatched Content-Type causes platforms
-    # (e.g. Instagram Graph API image_url fetch) to reject the media.
+    # Social platforms universally accept JPEG. When the caller requests JPEG,
+    # convert to actual JPEG bytes so filename + Content-Type match the payload.
+    # For PNG/WebP/etc. requests, detect the real format and label accordingly.
     actual_ext = extension.lower()
     actual_mime = _MIME_BY_EXT.get(actual_ext, "application/octet-stream")
-    try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            fmt = (img.format or "PNG").upper()
-        fmt_to_ext = {"PNG": ".png", "JPEG": ".jpg", "JPG": ".jpg", "WEBP": ".webp", "GIF": ".gif"}
-        if fmt in fmt_to_ext:
-            actual_ext = fmt_to_ext[fmt]
-            actual_mime = _MIME_BY_EXT[actual_ext]
-    except Exception:
-        pass
+    if actual_ext in (".jpg", ".jpeg"):
+        converted = _ensure_jpeg_bytes(image_bytes)
+        if converted is not None:
+            image_bytes, width, height = converted
+            actual_mime = "image/jpeg"
+        else:
+            actual_mime = "image/jpeg"
+    else:
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                fmt = (img.format or "PNG").upper()
+            fmt_to_ext = {
+                "PNG": ".png", "JPEG": ".jpg", "JPG": ".jpg",
+                "WEBP": ".webp", "GIF": ".gif",
+            }
+            if fmt in fmt_to_ext:
+                actual_ext = fmt_to_ext[fmt]
+                actual_mime = _MIME_BY_EXT[actual_ext]
+        except Exception:
+            pass
 
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")
