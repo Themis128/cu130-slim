@@ -273,7 +273,8 @@ def section_env() -> list[str]:
             "SOCIAL_TOTP_SECRET": "n8n workflow login",
             "N8N_API_KEY": "n8n API access"}
     try:
-        text = open(env_path).read()
+        with open(env_path, encoding="utf-8") as f:
+            text = f.read()
         for k, desc in keys.items():
             set_ = re.search(rf"^{k}=\S+", text, re.M) is not None
             out.append(f"  {k:<28} {'set' if set_ else 'MISSING'}  ({desc})")

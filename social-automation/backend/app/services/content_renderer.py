@@ -22,23 +22,62 @@ _LINK_IN_BODY = {"linkedin", "facebook"}
 _HASHTAG_IN_BODY = {"twitter", "instagram", "tiktok", "facebook", "linkedin"}
 
 
-# Model artifact patterns seen in generated drafts — normalise before publish.
+# Model artifact markers seen in generated drafts — normalise before publish.
 # {hashtag|\#|cloudless} → #cloudless ; [link to X] placeholder → dropped
-_HASHTAG_MARKUP_RE = re.compile(r"\{hashtag\|\\#\|([^}]+)\}")
-_PLACEHOLDER_LINK_RE = re.compile(r"\[link to [^\]]*\]", re.IGNORECASE)
-_URN_ONLY_RE = re.compile(r"^urn:li:\w+:\d+$")
+_HASHTAG_MARKUP_PREFIX = "{hashtag|\\#|"
+_PLACEHOLDER_LINK_PREFIX = "[link to "
+
+
+def _replace_hashtag_markup(text: str) -> str:
+    """Replace ``{hashtag|\\#|X}`` artifacts with ``#X``.
+
+    Plain ``str.find`` scan — linear on untrusted input where an equivalent
+    regex with ``[^}]+`` can backtrack quadratically.
+    """
+    out: list[str] = []
+    i = 0
+    while (start := text.find(_HASHTAG_MARKUP_PREFIX, i)) != -1:
+        end = text.find("}", start + len(_HASHTAG_MARKUP_PREFIX))
+        if end == -1:
+            break
+        if end == start + len(_HASHTAG_MARKUP_PREFIX):
+            # Empty markup — not an artifact, keep scanning after the '{'.
+            out.append(text[i : start + 1])
+            i = start + 1
+            continue
+        out.append(text[i:start])
+        out.append(f"#{text[start + len(_HASHTAG_MARKUP_PREFIX):end].strip()}")
+        i = end + 1
+    out.append(text[i:])
+    return "".join(out)
+
+
+def _drop_placeholder_links(text: str) -> str:
+    """Drop ``[link to ...]`` placeholders (case-insensitive) — linear scan."""
+    lower = text.lower()
+    out: list[str] = []
+    i = 0
+    while (start := lower.find(_PLACEHOLDER_LINK_PREFIX, i)) != -1:
+        end = text.find("]", start + len(_PLACEHOLDER_LINK_PREFIX))
+        if end == -1:
+            break
+        out.append(text[i:start])
+        i = end + 1
+    out.append(text[i:])
+    return "".join(out)
 
 
 def sanitize_generated_text(text: str) -> str:
     """Strip model markup artifacts and placeholder links from generated text."""
     if not text:
         return text
-    text = _HASHTAG_MARKUP_RE.sub(lambda m: f"#{m.group(1).strip()}", text)
-    text = _PLACEHOLDER_LINK_RE.sub("", text)
+    text = _replace_hashtag_markup(text)
+    text = _drop_placeholder_links(text)
     # Collapse horizontal whitespace runs left behind by removals
     text = re.sub(r"[^\S\n]+", " ", text)
     # Drop spaces before punctuation/newlines introduced by removals
-    text = re.sub(r" +([,.!?;:\n])", r"\1", text)
+    # (runs were collapsed above, so a single space is all that can remain)
+    text = re.sub(r" ([,.!?;:\n])", r"\1", text)
     # Trim spaces after newlines; collapse 3+ newlines to a paragraph break
     text = re.sub(r"\n +", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
