@@ -161,7 +161,7 @@ async def _meta_insights_get(
     remaining = list(metrics)
     base = dict(params or {})
     resp: httpx.Response | None = None
-    for _ in range(len(remaining)):
+    for _ in range(len(remaining) * 2):
         if not remaining:
             break
         req_params = {**base, "metric": ",".join(remaining)}
@@ -174,13 +174,29 @@ async def _meta_insights_get(
             msg = (resp.json() or {}).get("error", {}).get("message", "")
         except Exception:
             msg = ""
+
+        # Pattern 1: metric[N] must be one of...
         m = re.search(r"metric\[(\d+)\]", msg)
-        if not m or "must be one of" not in msg:
-            return resp
-        idx = int(m.group(1))
-        if idx >= len(remaining):
-            return resp
-        remaining.pop(idx)
+        if m and "must be one of" in msg:
+            idx = int(m.group(1))
+            if idx < len(remaining):
+                remaining.pop(idx)
+            continue
+
+        # Pattern 2: "does not support the X, Y metric for this media product type"
+        # Meta lists unsupported metric names directly; drop all of them.
+        unsupported_match = re.search(
+            r"does not support the ([a-zA-Z0-9_ ,]+) metric",
+            msg,
+        )
+        if unsupported_match:
+            names = {n.strip().lower() for n in unsupported_match.group(1).split(",")}
+            before = len(remaining)
+            remaining = [m for m in remaining if m.lower() not in names]
+            if len(remaining) < before:
+                continue
+
+        return resp
     return resp if resp is not None else await client.get(
         url, headers=headers, params=base
     )
