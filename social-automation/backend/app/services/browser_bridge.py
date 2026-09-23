@@ -106,19 +106,20 @@ class BrowserBridgeClient:
 
         On HTTP 409 (another platform's busy-hold or a fresh login
         window), retries ``contention_retries`` times with 20s backoff.
-        The last third escalates to ``force`` — under rotating poller
-        sessions patience rarely pays, and a preempted poller just
-        re-runs on its next cycle. Keep retries modest: they run inside
-        the publish task's soft time limit alongside other queue rows.
+        Holds are honored for their full life — an abandoned busy-hold
+        self-expires on the bridge (180s) and a stale login window is
+        preemptible server-side, so patient callers get in without force.
+        Pass ``force=True`` only for manual recovery of a wedged session.
+        Keep retries modest: they run inside the publish task's soft time
+        limit alongside other queue rows.
         """
-        force_from = max((contention_retries * 2) // 3, 1)
         for attempt in range(contention_retries + 1):
             async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
                 resp = await client.post(
                     f"{self._base_url}/session/start",
                     json={
                         "platform": platform,
-                        "force": force or attempt >= force_from,
+                        "force": force,
                     },
                 )
                 if resp.status_code == 409 and attempt < contention_retries:

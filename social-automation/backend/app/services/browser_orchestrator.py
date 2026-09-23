@@ -44,6 +44,7 @@ _PLATFORM_KEY = "browser-bridge:platform"   # Current platform using the browser
 _LOCK_TIMEOUT = 90           # Auto-release after 90s (enough for any browser interaction)
 _LOCK_RETRY_DELAY = 0.3      # Time between lock acquisition attempts
 _MAX_WAIT = 60               # Max seconds to wait for the lock
+_STALE_TOKEN_AGE = 300.0     # Queue entries older than this are from dead callers
 
 
 async def _get_redis() -> Any:
@@ -98,6 +99,22 @@ class BrowserSession:
         try:
             deadline = time.perf_counter() + self.max_wait
             while time.perf_counter() < deadline:
+                # Evict dead queue fronts — a crashed or restarted caller
+                # never removes its token, and one stale entry at the head
+                # would otherwise starve every caller behind it forever.
+                now = time.time()
+                while True:
+                    front = await r.lindex(_QUEUE_KEY, 0)
+                    if front is None:
+                        break
+                    try:
+                        ts = float(str(front).split(":", 1)[1])
+                    except (IndexError, ValueError):
+                        ts = 0.0
+                    if now - ts < _STALE_TOKEN_AGE:
+                        break
+                    await r.lpop(_QUEUE_KEY)
+
                 # Check if we're at the front of the queue
                 front = await r.lindex(_QUEUE_KEY, 0)
                 if front == self._lock_token:
@@ -147,6 +164,28 @@ class BrowserSession:
             except Exception:
                 pass
             return self.bridge
+
+    async def renew(self) -> bool:
+        """Extend a held lock for flows longer than ``_LOCK_TIMEOUT``.
+
+        The lock is a plain ``SET NX EX`` key — nothing renews it, so a
+        multi-minute flow (pagination, multi-step compose) loses exclusion
+        at 90s and a waiting poller proceeds lockless. Call this every
+        ~30-60s inside a long ``browser_session`` block. Returns False once
+        the lock is gone (expired and re-acquired by someone else).
+        """
+        if not self._acquired or not self._lock_token:
+            return False
+        try:
+            r = await _get_redis()
+            current = await r.get(_LOCK_KEY)
+            if current and str(current) == str(self._lock_token):
+                await r.expire(_LOCK_KEY, _LOCK_TIMEOUT)
+                await r.expire(_PLATFORM_KEY, _LOCK_TIMEOUT)
+                return True
+        except Exception:
+            pass
+        return False
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Release the browser lock."""
