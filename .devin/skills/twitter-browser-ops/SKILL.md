@@ -66,6 +66,25 @@ Reads `TWITTER_LOGIN_*` from `.env`, pauses `celery-beat` first (see
 contention below), runs the flow, calls `/session/extract` on success,
 and always unpauses beat. Exit 2 = manual captcha needed.
 
+### Playwright MCP driver (headless)
+
+```bash
+python3 scripts/pw_mcp_x_login.py [handle]
+```
+
+Launches `mcr.microsoft.com/playwright/mcp` per `.devin/mcp_config.json`
+and drives the funnel over stdio JSON-RPC in one `browser_run_code_unsafe`
+call (locator clicks, `:visible` scoping for X's duplicated DOM clones,
+`data-testid=mask`/progressbar waits, screenshots to `.playwright-mcp/`).
+Exports x.com cookies to `.playwright-data/x_cookies.json` on success.
+
+**Known wall (observed 2026-09-23):** X's funnel can soft-block automation —
+the modal spins forever, or the account-lookup step returns *"We couldn't
+find an active X account with that username"* for a handle that is
+verified live via the OAuth API. That error is an anti-automation wall,
+NOT bad credentials (the password step never runs). Repeated funnel hits
+make it worse — stop and use manual noVNC login instead of retrying.
+
 ## Browser contention (shared browser-novnc)
 
 All platforms share one Chromium. The bridge enforces a **busy-hold with
