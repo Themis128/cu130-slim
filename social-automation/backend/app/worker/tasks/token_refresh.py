@@ -85,6 +85,30 @@ async def _refresh_instagram_business_token(access_token: str) -> dict:
     return data
 
 
+def _skip_for_recent_update(
+    token_expires_at: datetime | None,
+    updated_at: datetime | None,
+    now: datetime,
+) -> bool:
+    """True when the account was updated recently AND its token will still be
+    valid when the next hourly run happens.
+
+    A token expiring inside the next MIN_REFRESH_INTERVAL must be refreshed
+    now — otherwise it sits dead until the next run (observed 2026-09-23: a
+    token with 1.2s of validity left passed the old "still valid" check, was
+    skipped on an unrelated updated_at bump, and 401'd for ~1h). Conversely
+    a dead token is never skipped — updated_at is bumped by unrelated account
+    writes (publish attempts), which would starve it forever.
+    """
+    survives_next_run = (
+        token_expires_at is not None
+        and token_expires_at > now + MIN_REFRESH_INTERVAL
+    )
+    if not survives_next_run or not updated_at:
+        return False
+    return (now - updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL
+
+
 @shared_task(name="app.worker.tasks.token_refresh.refresh_expiring_tokens")
 def refresh_expiring_tokens() -> dict:
     """Refresh all social account tokens that will expire within 4 hours."""
@@ -135,17 +159,10 @@ async def _refresh_expiring_tokens_async() -> dict:
             platform = account.platform
             account_label = f"{platform}/{account.username or account.account_id}"
 
-            # Skip if we refreshed too recently — but never skip a token that is
-            # already expired: updated_at is bumped by unrelated account writes
-            # (e.g. publish attempts), which would starve a dead token forever.
-            token_still_valid = (
-                account.token_expires_at is not None
-                and account.token_expires_at > now
-            )
-            if (
-                token_still_valid
-                and account.updated_at
-                and (now - account.updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL
+            # Skip only when refreshed/touched recently AND the token outlives
+            # the next run — see _skip_for_recent_update.
+            if _skip_for_recent_update(
+                account.token_expires_at, account.updated_at, now
             ):
                 logger.info("Skipping %s — refreshed recently (%s)", account_label, account.updated_at)
                 summary["skipped"] += 1

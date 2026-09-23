@@ -324,8 +324,15 @@ async def build_daily_digest(
     for snap in bad_snaps.scalars().all():
         note = (snap.notes or "").lower()
         detail = (snap.notes or "")[:200]
-        # Soft LinkedIn misses (stale ids / no activity) are expected; skip.
-        if "activityids" in note or note.startswith("stats_unavailable"):
+        # Soft misses that are expected states, not actionable warnings:
+        # LinkedIn stale ids, no-activity markers, and X free-tier read quota
+        # (persists until billing reset — a daily warning adds no signal).
+        if (
+            "activityids" in note
+            or note.startswith("stats_unavailable")
+            or "quota_exhausted" in note
+            or "needs paid tier" in note
+        ):
             continue
         if any(k in note for k in ("http 5", "denied", "quota", "unauthorized", "forbidden")):
             issues.append(

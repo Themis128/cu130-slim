@@ -75,6 +75,8 @@ SIGNATURES: list[tuple[str, str, str, str]] = [
      "Free tier 1,500 posts/month — waits for billing reset; browser fallback covers real posts"),
     (r"stats HTTP 402|HTTP 402", "platform-limit", "X API paid-tier metric",
      "non_public_metrics needs paid tier — expected on free plan"),
+    (r"quota_exhausted", "platform-limit", "X free-tier read quota exhausted",
+     "Free-tier read cap hit — persists until billing reset; publishing unaffected (browser fallback)"),
     (r"Post button disabled|Could not find the tweet composer|Continue button not found", "app-bug",
      "X web UI selector drift",
      "Browser fallback selectors stale — update browser bridge X composer/login selectors"),
@@ -293,11 +295,14 @@ def main() -> None:
     i = 0
     while i < len(args):
         if args[i] == "--days":
-            days = int(args[i + 1]); i += 2
+            days = int(args[i + 1])
+            i += 2
         elif args[i] == "--section":
-            only = set(args[i + 1].split(",")); i += 2
+            only = set(args[i + 1].split(","))
+            i += 2
         elif args[i] == "--json":
-            as_json = True; i += 1
+            as_json = True
+            i += 1
         else:
             i += 1
 

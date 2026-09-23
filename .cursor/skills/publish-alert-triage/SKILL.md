@@ -56,10 +56,11 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 
 | Signature | Meaning | Action |
 |---|---|---|
-| `(#200) If posting to a group…` | FB personal-profile posting | Meta API can't post to personal profiles, period — retarget to a Page |
+| `(#200) If posting to a group…` / `publish_to_groups` | FB Groups API deprecated (v19+) | Soft-skip; retarget to a Page (`pages_manage_posts`). Groups API removed Apr 2024 — reconnect will not help |
 | `Instagram requires at least one image` | Text-only post to IG | Attach media or drop the IG target |
 | `X free tier monthly write quota` | 1,500 tweets/mo exhausted | Waits for billing reset; browser fallback covers real posts |
 | `stats HTTP 402` / `non_public_metrics` | Paid-tier metric on free plan | Expected — public_metrics still sync |
+| `quota_exhausted` | X free-tier read cap hit (402/429 → coded state) | Expected — persists until billing reset; publishing unaffected |
 
 ### Config — one-time fixes
 
@@ -73,7 +74,7 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 
 | Signature | Meaning | Action |
 |---|---|---|
-| `Session has expired` / `Cannot parse access token` / `stats HTTP 401` / `REVOKED_ACCESS_TOKEN` | Dead OAuth token | Reconnect in Accounts UI; verify `refresh_expiring_tokens` rotates what it can |
+| `Session has expired` / `Cannot parse access token` / `stats HTTP 401` / `REVOKED_ACCESS_TOKEN` | Dead OAuth token | Reconnect in Accounts UI; verify `refresh_expiring_tokens` rotates what it can. Note: X tokens live 2h (`expires_in:7200`) and refresh tokens are single-use — a skipped boundary run leaves ~1h of 401s; `_skip_for_recent_update` in token_refresh.py guards this |
 | `Browser session not logged in` | Bridge/sidecar session dead | noVNC re-login or `session-transplant` skill (cookie move) |
 | `does not exist, cannot be loaded due to missing permissions` | Stale media id or missing scope | Usually media deleted on platform or wrong account — check |
 | `publish_cancelled` (TikTok) | MEDIA_UPLOAD inbox draft dismissed | Republish; DIRECT_POST needs approved app audit |
