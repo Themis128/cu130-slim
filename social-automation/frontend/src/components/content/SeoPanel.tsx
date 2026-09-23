@@ -10,8 +10,17 @@ import { cn } from '@/lib/utils'
 
 type SeoResult = {
   platform: string
-  score: number
-  keywords: string[]
+  score: {
+    overall: number
+    readability: number
+    keywords: number
+    hashtags: number
+    links: number
+    plain_english: number
+    length: number
+    recommendations: string[]
+  }
+  keywords: { keyword: string; count: number }[]
   meta: { title: string; description: string }
   open_graph: {
     og_title: string
@@ -54,7 +63,13 @@ export function SeoPanel({
     if (!content.trim()) return
     try {
       const res = await analyzeSeo.mutateAsync({ content, platform })
-      setResult(res.data as SeoResult)
+      // Older deployments returned score as a bare number — normalize so the
+      // panel never renders an object into JSX (crashes the error boundary).
+      const raw = res.data as Omit<SeoResult, 'score'> & { score: SeoResult['score'] | number }
+      if (typeof raw.score === 'number') {
+        raw.score = { overall: raw.score, readability: 0, keywords: 0, hashtags: 0, links: 0, plain_english: 0, length: 0, recommendations: [] }
+      }
+      setResult(raw as SeoResult)
     } catch {
       // error toast handled by the hook
     }
@@ -112,13 +127,13 @@ export function SeoPanel({
                     stroke="currentColor"
                     strokeWidth={4}
                     strokeDasharray={2 * Math.PI * 20}
-                    strokeDashoffset={2 * Math.PI * 20 * (1 - result.score / 100)}
-                    className={scoreColor(result.score)}
+                    strokeDashoffset={2 * Math.PI * 20 * (1 - result.score.overall / 100)}
+                    className={scoreColor(result.score.overall)}
                     strokeLinecap="round"
                   />
                 </svg>
-                <span className={cn('absolute text-sm font-bold', scoreColor(result.score))}>
-                  {result.score}
+                <span className={cn('absolute text-sm font-bold', scoreColor(result.score.overall))}>
+                  {result.score.overall}
                 </span>
               </div>
               <div className="flex-1">
@@ -126,12 +141,12 @@ export function SeoPanel({
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
                     <div
-                      className={cn('h-full rounded-full transition-all', scoreBg(result.score))}
-                      style={{ width: `${result.score}%` }}
+                      className={cn('h-full rounded-full transition-all', scoreBg(result.score.overall))}
+                      style={{ width: `${result.score.overall}%` }}
                     />
                   </div>
-                  <span className={cn('text-xs font-medium', scoreColor(result.score))}>
-                    {result.score >= 80 ? 'Good' : result.score >= 60 ? 'Fair' : 'Needs work'}
+                  <span className={cn('text-xs font-medium', scoreColor(result.score.overall))}>
+                    {result.score.overall >= 80 ? 'Good' : result.score.overall >= 60 ? 'Fair' : 'Needs work'}
                   </span>
                 </div>
               </div>
@@ -171,8 +186,9 @@ export function SeoPanel({
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {result.keywords.slice(0, 10).map((kw, i) => (
-                    <Badge key={`${kw}-${i}`} variant="secondary" className="text-xs">
-                      {kw}
+                    <Badge key={`${kw.keyword}-${i}`} variant="secondary" className="text-xs">
+                      {kw.keyword}
+                      {kw.count > 1 && <span className="ml-1 text-muted-foreground">×{kw.count}</span>}
                     </Badge>
                   ))}
                 </div>
@@ -238,9 +254,21 @@ export function SeoPanel({
               </div>
             )}
 
+            {/* Recommendations */}
+            {result.score.recommendations?.length > 0 && (
+              <ul className="space-y-1 pt-1">
+                {result.score.recommendations.map((rec, i) => (
+                  <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             {/* Quality indicator */}
             <div className="flex items-center gap-1.5 pt-1 border-t">
-              {result.score >= 70 ? (
+              {result.score.overall >= 70 ? (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                   <span className="text-xs text-muted-foreground">
