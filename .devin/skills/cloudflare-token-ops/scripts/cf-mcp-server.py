@@ -13,7 +13,7 @@ Auth model (resolved from env or repo-root .env):
   CLOUDFLARE_ACCOUNT_ID                     — defaults to fb7dc7b6… (cloudless.gr)
 
 Secret hygiene: created token values / service-token secrets are written to
-/tmp/cf-token-*.json (0600); tool results return the file path only.
+~/.cache/cf-ops/cf-token-*.json (0600); tool results return the file path only.
 
 Tools:
   cf_verify                - which credential mode is active + token status
@@ -127,7 +127,10 @@ def _policy(scope: str, pg: dict) -> dict:
 
 
 def _stash(name: str, data: dict) -> str:
-    out = Path(f"/tmp/cf-token-{name}.json")
+    # ~/.cache/cf-ops — durable across WSL sessions (this box wipes /tmp).
+    d = Path.home() / ".cache" / "cf-ops"
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"cf-token-{name}.json"
     out.write_text(json.dumps(data, indent=2))
     out.chmod(0o600)
     return str(out)
