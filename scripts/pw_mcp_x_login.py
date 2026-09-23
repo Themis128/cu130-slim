@@ -90,95 +90,10 @@ class McpClient:
         try:
             self.proc.terminate()
             self.proc.wait(timeout=10)
-<<<<<<< HEAD
         except (OSError, subprocess.SubprocessError):
             self.proc.kill()
 
 
-=======
-        except Exception:
-            self.proc.kill()
-
-
-def snapshot_text(client):
-    return client.call("browser_snapshot", {})
-
-
-def find_submit_button(snap, names):
-    """Find the <button> wrapping an exact-named child, else a named button."""
-    lines = snap.splitlines()
-    direct = None
-    for i, line in enumerate(lines):
-        if "ref=" not in line:
-            continue
-        ref = line.split("ref=", 1)[1].split("]")[0].split()[0].rstrip("]")
-        low = line.strip().lower()
-        for n in names:
-            if f'button "{n}"' in low:
-                return ref
-            if low.endswith(f": {n.lower()}"):
-                # walk back to the enclosing button (less-indented line)
-                indent = len(line) - len(line.lstrip())
-                for j in range(i - 1, -1, -1):
-                    pl = lines[j]
-                    pind = len(pl) - len(pl.lstrip())
-                    if pind < indent and "button" in pl and "ref=" in pl:
-                        return pl.split("ref=", 1)[1].split("]")[0].split()[0].rstrip("]")
-                direct = direct or ref
-    return direct
-
-
-def click_visible_button(client, names):
-    """Real mouse click on the *visible* button whose label matches.
-
-    X renders duplicate hidden buttons in localized clones — offsetParent
-    filtering picks the live one, and page.mouse.click is trusted input
-    (synthetic el.click()/Enter are ignored by the onboarding funnel).
-    """
-    code = """async (page) => {
-        const names = %s;
-        const target = await page.evaluate((names) => {
-            const els = [...document.querySelectorAll('div[role=button],button,[role=button]')];
-            const vis = els.filter(e => {
-                const r = e.getBoundingClientRect();
-                return r.width > 0 && r.height > 0 && e.offsetParent !== null;
-            });
-            const exact = vis.find(e => names.some(n => (e.innerText || '').trim() === n));
-            const el = exact || vis.find(e => names.some(n => (e.innerText || '').includes(n)));
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            return { x: r.x + r.width / 2, y: r.y + r.height / 2, label: (el.innerText || '').trim().slice(0, 60) };
-        }, names);
-        if (!target) return 'NOT_FOUND';
-        await page.mouse.click(target.x, target.y);
-        return 'CLICKED: ' + target.label;
-    }""" % json.dumps(names)
-    out = client.call("browser_run_code_unsafe", {"code": code})
-    print("  click:", out.strip().splitlines()[-1][:120] if out.strip() else out)
-    return "CLICKED" in out
-
-
-def find_ref(snap, *, role=None, name_substrs=None, exact_names=None):
-    """Find first matching ref in a playwright-mcp YAML-ish snapshot."""
-    for line in snap.splitlines():
-        if "ref=" not in line:
-            continue
-        ref = line.split("ref=", 1)[1].split("]")[0].split()[0].rstrip("]")
-        low = line.lower()
-        if role and f'"{role}"' not in low and f" {role} " not in low:
-            continue
-        if exact_names and not any(
-            f'"{n}"' in line or line.rstrip().endswith(f": {n}")
-            for n in exact_names
-        ):
-            continue
-        if name_substrs and not any(s in low for s in name_substrs):
-            continue
-        return ref
-    return None
-
-
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
 def main():
     env = load_env(f"{REPO}/.env")
     # X reported "no active account" for the gmail — the @handle is the
@@ -219,25 +134,15 @@ def main():
         # Pull the @handle once for a possible unusual-activity verify step.
         handle = subprocess.run(
             ["docker", "exec", "-i", "social-postgres", "sh", "-c",
-<<<<<<< HEAD
              ('psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc '
               "\"SELECT username FROM social_accounts WHERE platform='twitter' LIMIT 1\"")],
             capture_output=True, text=True, check=False).stdout.strip() or ident
-=======
-             'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc '
-             "\"SELECT username FROM social_accounts WHERE platform='twitter' LIMIT 1\""],
-            capture_output=True, text=True).stdout.strip() or ident
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
 
         # Run the whole onboarding funnel in one shot with Playwright waits —
         # snapshot round-trips keep catching the Loading dialog and the
         # background page's duplicate DOM.
         login_code = """async (page) => {
-<<<<<<< HEAD
             const IDENT = __IDENT__, PASS = __PASS__, HANDLE = __HANDLE__;
-=======
-            const IDENT = %s, PASS = %s, HANDLE = %s;
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
             const log = [];
             const clickNamed = async (names) => {
                 const t = await page.evaluate((names) => {
@@ -316,19 +221,12 @@ def main():
             log.push('arkose=' + !!(await page.locator('iframe[src*=arkose]').count()));
             log.push('body=' + (await page.locator('body').innerText()).replace(/\\s+/g, ' ').slice(0, 200));
             return log.join('\\n');
-<<<<<<< HEAD
         }""".replace("__IDENT__", json.dumps(ident)) \
              .replace("__PASS__", json.dumps(password)) \
              .replace("__HANDLE__", json.dumps(handle))
         out = client.call("browser_run_code_unsafe", {"code": login_code}, timeout=240)
         # The tool echoes the code; the Result section holds the log text.
         m = re.search(r'### Result\n(.*?)(?:\n### |\Z)', out, re.DOTALL)
-=======
-        }""" % (json.dumps(ident), json.dumps(password), json.dumps(handle))
-        out = client.call("browser_run_code_unsafe", {"code": login_code}, timeout=240)
-        # The tool echoes the code; the Result section holds the log text.
-        m = re.search(r'### Result\n(.*?)(?:\n### |\Z)', out, re.S)
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
         flow_text = (m.group(1) if m else out[-800:])
         print("flow:", flow_text[:1200])
         if "couldn't find an active X account" in flow_text:
@@ -347,11 +245,7 @@ def main():
                 captcha: !!document.querySelector('iframe[src*=arkose]'),
                 err: (document.body.innerText.match(/password you entered is incorrect/i)||[])[0] || null
             })"""})
-<<<<<<< HEAD
             res = re.search(r'\{[^{}]*"loggedIn"[^{}]*\}', state, re.DOTALL)
-=======
-            res = re.search(r'\{[^{}]*"loggedIn"[^{}]*\}', state, re.S)
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
             res = res.group(0) if res else ""
             print("state:", res[:300] or state[-200:])
             compact = res.replace(" ", "")
@@ -375,26 +269,15 @@ def export(client):
         return JSON.stringify(cookies);
     }"""
     out = client.call("browser_run_code_unsafe", {"code": code})
-<<<<<<< HEAD
     m = re.search(r'### Result\n(.*?)(?:\n### |\Z)', out, re.DOTALL)
-=======
-    m = re.search(r'### Result\n(.*?)(?:\n### |\Z)', out, re.S)
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
     raw = (m.group(1).strip() if m else out).strip()
     # Result is a JSON-encoded string of the JSON array — decode twice.
     try:
         cookies = json.loads(json.loads(raw.strip('"')))
-<<<<<<< HEAD
     except (json.JSONDecodeError, TypeError, ValueError):
         try:
             cookies = json.loads(raw)
         except (json.JSONDecodeError, TypeError, ValueError):
-=======
-    except Exception:
-        try:
-            cookies = json.loads(raw)
-        except Exception:
->>>>>>> aa5f26a6 (fix(analytics): exclude archived posts, drop unsupported IG metrics, fix LinkedIn benchmark label)
             cookies = []
     path = f"{REPO}/.playwright-data/x_cookies.json"
     with open(path, "w") as f:
