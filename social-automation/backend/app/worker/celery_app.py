@@ -186,12 +186,10 @@ celery_app.conf.update(
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
         },
-        # Daily SocialAuto report → Slack #socialauto (09:00 Europe/Athens)
-        "daily-slack-digest": {
-            "task": "app.worker.tasks.digest.send_daily_slack_digest",
-            "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0),
-            "kwargs": {"days": 1, "post_to_slack": True},
-        },
+        # Daily SocialAuto report → Slack #socialauto is triggered by the
+        # n8n workflow `socialauto-daily-slack-digest` (cron 0 9 * * * →
+        # POST /api/v1/ops/daily-digest), NOT by beat — a beat entry here
+        # double-posts the digest every morning (observed 2026-09-18/21/22).
         # Weekly SocialAuto rollup → Slack #socialauto (Monday 09:00 Europe/Athens)
         "weekly-slack-rollup": {
             "task": "app.worker.tasks.digest.send_weekly_slack_digest",

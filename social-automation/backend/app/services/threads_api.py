@@ -292,15 +292,22 @@ class ThreadsAPIClient:
             return str(media_id)
 
     async def check_container_status(self, container_id: str) -> str:
-        """Return the container ``status_code``: ``IN_PROGRESS``, ``FINISHED``,
-        ``ERROR``, ``EXPIRED``, or ``PUBLISHED``."""
+        """Return the container ``status``: ``IN_PROGRESS``, ``FINISHED``,
+        ``ERROR``, ``EXPIRED``, or ``PUBLISHED``.
+
+        Threads containers expose ``status`` (+ ``error_message``) — NOT the
+        Instagram ``status_code`` field; querying ``status_code`` on a Threads
+        container returns ``Tried accessing nonexisting field (status_code)``.
+        """
         container_id = _validate_media_id(container_id)
         url = f"{self._base_url}/{container_id}"
-        params = self._params({"fields": "status_code"})
+        params = self._params({"fields": "status,error_message"})
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=self._headers(), params=params)
             self._raise_for_status(resp, url)
-            return str((resp.json() or {}).get("status_code") or "UNKNOWN")
+            data = resp.json() or {}
+            self._last_container_error = data.get("error_message")
+            return str(data.get("status") or data.get("status_code") or "UNKNOWN")
 
     async def wait_for_container_ready(
         self,
@@ -325,11 +332,13 @@ class ThreadsAPIClient:
             if status in ("FINISHED", "PUBLISHED"):
                 return
             if status in ("ERROR", "EXPIRED"):
+                detail = getattr(self, "_last_container_error", None)
                 raise ThreadsAPIError(
                     400,
                     f"container {container_id} status {status}",
                     f"container:{container_id}",
-                    message=f"Threads container {container_id} processing failed ({status})",
+                    message=f"Threads container {container_id} processing failed ({status})"
+                    + (f": {detail}" if detail else ""),
                 )
             await asyncio.sleep(interval)
         raise ThreadsAPIError(
