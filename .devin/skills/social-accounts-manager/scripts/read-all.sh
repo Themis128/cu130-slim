@@ -6,7 +6,7 @@ cd "$ROOT"
 
 TOKEN=$(curl -s -X POST http://localhost:8083/api/v1/auth/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=tbaltzakis@cloudless.gr&password=TH!123789th!" \
+  -d "username=tbaltzakis@cloudless.gr&password=${SA_ADMIN_PASSWORD:?set SA_ADMIN_PASSWORD}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 echo "=== All Connected Accounts ==="

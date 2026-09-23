@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-const ADMIN_EMAIL = 'tbaltzakis@cloudless.gr';
-const ADMIN_PASSWORD = 'TH!123789th!';
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'tbaltzakis@cloudless.gr';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  throw new Error('E2E_ADMIN_PASSWORD env var required — never hardcode credentials');
+}
 
 test.describe('Admin Login — real credentials', () => {
   test('should log in as admin and reach dashboard', async ({ page }) => {

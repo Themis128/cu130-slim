@@ -60,13 +60,13 @@ Run from repo root `cu130-slim/`:
 .devin/skills/social-profile-secrets/scripts/get-secret.sh INSTAGRAM_USERNAME
 
 # Save Instagram credentials
-.devin/skills/social-profile-secrets/scripts/set-instagram.sh cloudless_gr TH!123789th!
+.devin/skills/social-profile-secrets/scripts/set-instagram.sh cloudless_gr <password>
 
 # Save Facebook browser credentials
-.devin/skills/social-profile-secrets/scripts/set-facebook.sh baltzakis.themis@gmail.com TH!123789th!
+.devin/skills/social-profile-secrets/scripts/set-facebook.sh baltzakis.themis@gmail.com <password>
 
 # Save LinkedIn browser credentials
-.devin/skills/social-profile-secrets/scripts/set-linkedin.sh user@example.com TH!123789th!
+.devin/skills/social-profile-secrets/scripts/set-linkedin.sh user@example.com <password>
 
 # Save Twitter v1.1 credentials
 .devin/skills/social-profile-secrets/scripts/set-twitter.sh key secret token token_secret
