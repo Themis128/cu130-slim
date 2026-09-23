@@ -47,11 +47,13 @@ SIGNATURES: list[tuple[str, str, str, str]] = [
     # (regex, class, label, action)
     (r"url_ownership_unverified", "config", "TikTok PULL_FROM_URL domain not verified",
      "Verify cloudless.gr in TikTok console (tiktok-console-ops → domain-verify.sh) or switch to FILE_UPLOAD"),
+    (r"unaudited_client_can_only_post_to_private_accounts", "config", "TikTok app unaudited for public Direct Post",
+     "Submit Content Posting API audit / App Review; until then MEDIA_UPLOAD or SELF_ONLY on private account"),
     (r"MEDIA_PUBLIC_BASE_URL", "config", "No public media URL base for TikTok",
      "Set MEDIA_PUBLIC_BASE_URL to a public https URL (Cloudflare tunnel) reachable by TikTok"),
-    (r"\(#200\).*publish_to_groups|posting to a group", "platform-limit",
-     "Facebook personal-profile posting",
-     "Meta API cannot post to personal profiles — retarget the post to a Page account; do not retry"),
+    (r"\(#200\).*publish_to_groups|posting to a group|Groups API is deprecated", "platform-limit",
+     "Facebook Groups API deprecated",
+     "Meta removed Groups API (publish_to_groups) in v19+ — retarget to a Page; do not retry/reconnect"),
     (r"Instagram requires at least one image", "platform-limit", "IG text-only post",
      "Instagram API has no text-only posts — attach media or drop the IG target for this post"),
     (r"Error validating access token: Session has expired", "session", "Token expired",
@@ -73,6 +75,8 @@ SIGNATURES: list[tuple[str, str, str, str]] = [
      "Free tier 1,500 posts/month — waits for billing reset; browser fallback covers real posts"),
     (r"stats HTTP 402|HTTP 402", "platform-limit", "X API paid-tier metric",
      "non_public_metrics needs paid tier — expected on free plan"),
+    (r"quota_exhausted", "platform-limit", "X free-tier read quota exhausted",
+     "Free-tier read cap hit — persists until billing reset; publishing unaffected (browser fallback)"),
     (r"Post button disabled|Could not find the tweet composer|Continue button not found", "app-bug",
      "X web UI selector drift",
      "Browser fallback selectors stale — update browser bridge X composer/login selectors"),
@@ -273,7 +277,8 @@ def section_env() -> list[str]:
             "SOCIAL_TOTP_SECRET": "n8n workflow login",
             "N8N_API_KEY": "n8n API access"}
     try:
-        text = open(env_path).read()
+        with open(env_path, encoding="utf-8") as f:
+            text = f.read()
         for k, desc in keys.items():
             set_ = re.search(rf"^{k}=\S+", text, re.M) is not None
             out.append(f"  {k:<28} {'set' if set_ else 'MISSING'}  ({desc})")
@@ -290,11 +295,14 @@ def main() -> None:
     i = 0
     while i < len(args):
         if args[i] == "--days":
-            days = int(args[i + 1]); i += 2
+            days = int(args[i + 1])
+            i += 2
         elif args[i] == "--section":
-            only = set(args[i + 1].split(",")); i += 2
+            only = set(args[i + 1].split(","))
+            i += 2
         elif args[i] == "--json":
-            as_json = True; i += 1
+            as_json = True
+            i += 1
         else:
             i += 1
 

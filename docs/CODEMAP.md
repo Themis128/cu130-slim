@@ -107,7 +107,7 @@ mcp/server.py      MCP server exposing social tools
 
 ## Session layers (three independent ones)
 
-1. **OAuth tokens** — `social_accounts.access_token_enc` (encrypted), `scopes`, `meta_data`. Refreshed by `token_refresh` (hourly :15) + `instagram_token_refresh`/`linkedin_session_refresh` (weekly).
+1. **OAuth tokens** — `social_accounts.access_token_enc` (encrypted), `scopes`, `meta_data`. Refreshed by `token_refresh` (hourly :15) + `instagram_token_refresh`/`linkedin_session_refresh` (weekly). X tokens live 2h (`expires_in:7200`); refresh tokens are single-use. `token_refresh._skip_for_recent_update` skips recently-touched accounts **only** when the token survives the next hourly run — a token expiring inside the window refreshes immediately (2026-09-23 fix: a 1.2s-valid token was skipped on an unrelated `updated_at` bump → ~1h of 401s).
 2. **Shared bridge** `browser-novnc:9223` — one Chromium for all web-session work (IG DMs fallback, personal Messenger, Threads, X). Owner-hold: requests carry `X-Platform`; owner holds browser ~180s past last touch; `POST /session/start {platform, force:true}` claims it; `POST /session/cookies` injects; `POST /session/extract` persists storage state.
 3. **Dedicated sidecars** — TikTok 9224, LinkedIn 9225, Facebook 9226, Messenger 9230. Each keeps its own Playwright profile + storage state under its data volume. `/login`, `/session/validate`, `/debug/all-cookies` (cookie export for transplants). TikTok sidecar `/session` fast-paths to `logged_in:false, reason:"no_session"` when no session cookies are injected — no 15s anonymous profile navigation on every health probe.
 
@@ -151,6 +151,11 @@ Instagram DMs, and WhatsApp. Implementation notes (added 2026-09):
 ~30min) — never a sequential live platform call per account (that made
 `/overview` ~14s and `/followers` ~22s). Live `_follower_count` calls only
 run for accounts with no snapshot at all, via `asyncio.gather` in parallel.
+
+Snapshot `notes` carry sync outcomes; `analytics_sync` codes X free-tier
+402/429 as `quota_exhausted`. `slack_digest` treats `quota_exhausted`,
+`needs paid tier`, LinkedIn `activityids`, and `stats_unavailable` notes as
+expected states — they are skipped, not surfaced as warnings.
 
 ## Fallback chains (see AGENTS.md for detail)
 
@@ -210,4 +215,4 @@ All workflows authenticate to social-api via admin **TOTP login**; text generati
 
 ## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
 
-Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `creator-type-voice`, `publish-alert-triage`, `session-transplant`, `session-health-ops`, `profile-5sec-test`, `linkedin-sidecar-ops`, `tiktok-console-ops`, `messenger-management`, `instagram-dm`, `instagram-account-config`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-oauth-ops`, `meta-{oauth-setup,app-review}`, `twitter-oauth-setup`, `whatsapp-{platform,phone-verify}`, `browser-daemon-mode`, `novnc-login-helper`, `playwright-e2e`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-access-paths`, `content-scoring`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`.
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `creator-type-voice`, `publish-alert-triage`, `session-transplant`, `session-health-ops`, `profile-5sec-test`, `linkedin-sidecar-ops`, `tiktok-console-ops`, `messenger-management`, `instagram-dm`, `instagram-account-config`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-oauth-ops`, `meta-{oauth-setup,app-review}`, `twitter-oauth-setup`, `whatsapp-{platform,phone-verify}`, `browser-daemon-mode`, `novnc-login-helper`, `playwright-e2e`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-access-paths`, `cloudflare-token-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-scoring`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`.
