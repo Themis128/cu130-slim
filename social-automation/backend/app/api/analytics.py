@@ -322,11 +322,19 @@ async def _follower_count(account: SocialAccount) -> int:
     return await fn(account)
 
 
-def _latest_snapshot_ids_subq(team_id, since: datetime | None = None, *, posts_only: bool = False):
+def _latest_snapshot_ids_subq(
+    team_id,
+    since: datetime | None = None,
+    *,
+    posts_only: bool = False,
+    until: datetime | None = None,
+):
     """IDs of the newest snapshot per platform_post_id by captured_at."""
     filters = [PostAnalyticsSnapshot.team_id == team_id]
     if since is not None:
         filters.append(PostAnalyticsSnapshot.captured_at >= since)
+    if until is not None:
+        filters.append(PostAnalyticsSnapshot.captured_at < until)
     if posts_only:
         # Exclude org-lifetime aggregates from post rankings
         filters.append(PostAnalyticsSnapshot.source != "linkedin_org_lifetime")
@@ -383,6 +391,8 @@ class AccountMetrics(BaseModel):
     total_impressions: int
     total_engagement: int
     avg_engagement_rate: float
+    impressions_change_pct: float = 0.0
+    engagement_change_pct: float = 0.0
 
 
 class TopPost(BaseModel):
@@ -694,29 +704,110 @@ async def get_account_metrics(
 
     since = datetime.now(UTC) - timedelta(days=days)
 
+    # Window-scoped published count — matches /platforms semantics (was
+    # all-time, which diverged from every other analytics surface).
     posts_count = (
         await db.execute(
-            select(func.count(PostTarget.post_id)).where(
+            select(func.count(Post.id.distinct()))
+            .join(PostTarget, PostTarget.post_id == Post.id)
+            .where(
                 PostTarget.social_account_id == account_id,
-                PostTarget.status == "published",
+                Post.status == PostStatus.PUBLISHED,
+                Post.created_at >= since,
             )
         )
     ).scalar() or 0
 
-    events = await db.execute(
-        select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
-        .where(
-            AnalyticsEvent.social_account_id == account_id,
-            AnalyticsEvent.occurred_at >= since,
+    # Prefer latest-per-post snapshots — the same source /overview and
+    # /platforms use — so this endpoint agrees with them. Fall back to
+    # AnalyticsEvent counters only when the account has no snapshots.
+    snap = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
+                func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
+            ).where(
+                PostAnalyticsSnapshot.id.in_(
+                    _latest_snapshot_ids_subq(account.team_id, since, posts_only=True)
+                ),
+                PostAnalyticsSnapshot.social_account_id == account.id,
+            )
         )
-        .group_by(AnalyticsEvent.event_type)
-    )
-    event_counts = {event_type: int(count or 0) for event_type, count in events.all()}
-    impressions = event_counts.get("impression", 0)
-    engagement = _engagement_sum(event_counts)
+    ).one()
+    prev_start = since - timedelta(days=days)
+    prev_snap = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
+                func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
+            ).where(
+                PostAnalyticsSnapshot.id.in_(
+                    _latest_snapshot_ids_subq(
+                        account.team_id, prev_start, posts_only=True, until=since
+                    )
+                ),
+                PostAnalyticsSnapshot.social_account_id == account.id,
+            )
+        )
+    ).one()
 
-    # Fetch live follower count for this account (-1 = fetch failed)
-    followers = max(0, await _follower_count(account))
+    if snap[0] or snap[1]:
+        impressions, engagement = int(snap[0]), int(snap[1])
+        prev_impressions, prev_engagement = int(prev_snap[0]), int(prev_snap[1])
+    else:
+        events = await db.execute(
+            select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
+            .where(
+                AnalyticsEvent.social_account_id == account_id,
+                AnalyticsEvent.occurred_at >= since,
+            )
+            .group_by(AnalyticsEvent.event_type)
+        )
+        event_counts = {event_type: int(count or 0) for event_type, count in events.all()}
+        impressions = event_counts.get("impression", 0)
+        engagement = _engagement_sum(event_counts)
+        prev_events = await db.execute(
+            select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
+            .where(
+                AnalyticsEvent.social_account_id == account_id,
+                AnalyticsEvent.occurred_at >= prev_start,
+                AnalyticsEvent.occurred_at < since,
+            )
+            .group_by(AnalyticsEvent.event_type)
+        )
+        prev_counts = {t: int(c or 0) for t, c in prev_events.all()}
+        prev_impressions = prev_counts.get("impression", 0)
+        prev_engagement = _engagement_sum(prev_counts)
+
+    impressions_change_pct = (
+        round((impressions - prev_impressions) / prev_impressions * 100, 1)
+        if prev_impressions > 0
+        else 0.0
+    )
+    engagement_change_pct = (
+        round((engagement - prev_engagement) / prev_engagement * 100, 1)
+        if prev_engagement > 0
+        else 0.0
+    )
+
+    # Followers from the latest FollowerSnapshot (populated by the periodic
+    # sync — same source /overview uses). Live platform call only when the
+    # account was never synced.
+    latest_followers = (
+        await db.execute(
+            select(FollowerSnapshot.followers)
+            .where(
+                FollowerSnapshot.team_id == account.team_id,
+                FollowerSnapshot.social_account_id == account.id,
+            )
+            .order_by(FollowerSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_followers is not None:
+        followers = max(0, latest_followers)
+    else:
+        followers = max(0, await _follower_count(account))
 
     return AccountMetrics(
         account_id=account_id,
@@ -727,6 +818,8 @@ async def get_account_metrics(
         total_impressions=impressions,
         total_engagement=engagement,
         avg_engagement_rate=_engagement_rate(engagement, impressions),
+        impressions_change_pct=impressions_change_pct,
+        engagement_change_pct=engagement_change_pct,
     )
 
 
