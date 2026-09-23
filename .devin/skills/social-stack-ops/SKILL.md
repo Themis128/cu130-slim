@@ -65,6 +65,12 @@ docker compose exec -T ollama ollama ps
 
 # check GPU VRAM
 nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
+
+# Prometheus shows up{job="socialauto"}=0 but container is "healthy"?
+# Docker Desktop restart breaks the Windows port-proxy for 192.168.1.23:9390
+# (TCP accepts, HTTP resets — Pi-side curl gets 000). Fix:
+docker restart social-metrics
+# verify from omv: curl -m 10 http://192.168.1.23:9390/metrics -> 200
 ```
 
 ## Related skills
