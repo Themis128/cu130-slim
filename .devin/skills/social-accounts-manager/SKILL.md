@@ -69,7 +69,7 @@ Instagram sidecar: http://localhost:8011
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8083/api/v1/auth/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=tbaltzakis@cloudless.gr&password=TH!123789th!" \
+  -d "username=tbaltzakis@cloudless.gr&password=<password>" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 ```
 
