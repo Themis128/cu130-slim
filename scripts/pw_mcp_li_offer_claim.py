@@ -39,12 +39,14 @@ def load_env(path):
 
 def record(stage: str, data):
     try:
-        log = json.load(open(RESULT_LOG))
-    except Exception:
+        with open(RESULT_LOG) as f:
+            log = json.load(f)
+    except (OSError, json.JSONDecodeError):
         log = []
     log.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "stage": stage, "data": data})
-    json.dump(log, open(RESULT_LOG, "w"), indent=1)
+    with open(RESULT_LOG, "w") as f:
+        json.dump(log, f, indent=1)
 
 
 def run_code(client, code, timeout=150, secrets=()):
@@ -136,8 +138,11 @@ def attempt(user, password, target_url):
                 } else steps.push('NOT FOUND: coupon field');
                 await shot('04-coupon');
 
+                const cardForm = await page.locator(
+                    'input[autocomplete*="cc"], input[name*="card" i], iframe[src*="card" i]'
+                ).count();
                 const body = (await page.locator('body').innerText()).slice(0, 1200);
-                return JSON.stringify({steps, url: page.url(), body});
+                return JSON.stringify({steps, url: page.url(), cardForm, body});
             } catch (e) { return 'ERR: ' + steps.join('|') + ' :: ' + e.message.slice(0,200); }
         }"""
         claim = claim.replace("TARGET", json.dumps(target_url)).replace("COUPON_JSON", json.dumps(COUPON))
@@ -146,7 +151,11 @@ def attempt(user, password, target_url):
         res = result_text(out)
         if "chrome-error" in res or ("ERR:" in res and "429" in res):
             return "walled"
-        if "payment" in res.lower() or "credit card" in res.lower():
+        # A saved card means no card-entry form should appear — only stop if
+        # LinkedIn actually renders one (nav text mentioning "payment" is not
+        # a gate). Result JSON may be backslash-escaped in the tool output.
+        norm = res.replace("\\", "").replace(" ", "")
+        if "cardForm\":" in norm and 'cardForm":0' not in norm:
             return "needs_payment_info"
         if "NOT FOUND" in res:
             return "partial"
