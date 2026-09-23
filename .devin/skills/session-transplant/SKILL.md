@@ -123,7 +123,32 @@ Practical rules:
 - **MCP cookie export**: `browser_run_code_unsafe` takes `async (page) => …`
   (single `page` arg, NOT `{page}`), runs as an expression, and has no
   `require` — return `JSON.stringify(await page.context().cookies([...]))`
-  and save the result host-side.
+  and save the result host-side. The tool result is a *double-escaped* JSON
+  literal — decode the outer string first (`raw_decode` at the `"` after
+  `### Result`), then parse the array inside.
+- **Healed sessions still 401 via `/api/v1/profile` — stale DB state.**
+  For FB personal profile reads the backend does NOT use the live sidecar
+  session: `_get_facebook_sidecar()` re-injects
+  `social_accounts.meta_data.browser_storage_state` into the sidecar on
+  every call. Facebook rotates `xs`, so a stored state older than its
+  rotation window is dead even when the sidecar itself is logged in.
+  Symptom: sidecar `GET /session` → `logged_in:true` but the API returns
+  `401 {"error":"Not logged in to Facebook"}`.
+  Fix — after any transplant also refresh the stored state:
+  ```python
+  meta["browser_storage_state"] = {"cookies": fresh_cookies,
+                                   "origins": old.get("origins", [])}
+  # UPDATE social_accounts SET meta_data=$1::jsonb WHERE id=<acct uuid>
+  ```
+  (asyncpg inside `social-api`; fresh cookies = the MCP export list).
+  Verified 2026-09-23: profile read returned 200 immediately after.
+- **Check the MCP profile before any credential login.** Its persistent
+  profile (`/home/pwuser/.playwright-data/profile`) holds long-lived
+  sessions — on 2026-09-23 it still had a fully working FB session
+  (`c_user`+`xs`+`datr`+`fr`+`sb`) weeks after the sidecar/bridge died.
+  Export from it first; only fall back to credentials if `c_user`/`xs`
+  are absent — a weak export (missing `datr`/`sb`) bounces straight back
+  to the profile picker.
 
 ## Threads bootstrap via live Instagram session
 
