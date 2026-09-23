@@ -32,6 +32,7 @@ celery_app = Celery(
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
+        "app.worker.tasks.linkedin_invites",
     ],
 )
 
@@ -158,6 +159,7 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
+        "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
@@ -244,6 +246,14 @@ celery_app.conf.update(
         "check-linkedin-sessions": {
             "task": "app.worker.tasks.linkedin_session_check.check_linkedin_sessions",
             "schedule": crontab(minute=45, hour="*/12"),  # every 12h at :45
+        },
+        # Daily LinkedIn Page invite-to-follow batch (10:30 Europe/Athens).
+        # Monthly invite credits expire unused at refill — NLP-scored top-N
+        # selection via browser bridge; idles automatically when credits hit 0.
+        "send-linkedin-invites": {
+            "task": "app.worker.tasks.linkedin_invites.send_linkedin_invites",
+            "schedule": crontab(hour=10, minute=30),
+            "kwargs": {"batch_size": 40},
         },
         # Reconcile TikTok MEDIA_UPLOAD inbox drafts — upgrade publish_ids to
         # real video ids when the draft is finished in-app, flag stale drafts

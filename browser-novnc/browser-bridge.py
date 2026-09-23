@@ -409,7 +409,7 @@ async def start_session(req: StartRequest):
                 )
 
         busy = (
-            _state["browser"] is not None
+            (_state["browser"] is not None or _state["context"] is not None)
             and time.time() < _state.get("busy_until", 0.0)
         )
         busy_owner = _state.get("busy_owner")
