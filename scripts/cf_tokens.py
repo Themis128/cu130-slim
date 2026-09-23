@@ -15,6 +15,7 @@ Usage:
     python3 scripts/cf_tokens.py add-perm <token-id> <perm-group-substring>
     python3 scripts/cf_tokens.py create <name> --scope account|user --perm <substr> [--perm ...]
     python3 scripts/cf_tokens.py service-token <name> [--duration forever]
+    python3 scripts/cf_tokens.py roll <token-id> [--scope user|account]
 
 New token VALUES are written to /tmp/cf-token-<name>.json (0600) — never
 printed. Reads CLOUDFLARE_* from the repo-root .env.
@@ -231,6 +232,23 @@ def cmd_service_token(name: str, duration: str) -> None:
     print(f"created service token {t['name']} id={t['id']} → creds in {out} (0600)")
 
 
+def cmd_roll(token_id: str, scope: str = "account") -> None:
+    # PUT …/tokens/{id}/value rolls the secret IMMEDIATELY — the old value dies
+    # even if the HTTP response errors. Parse `result` as a bare string.
+    path = (f"/user/tokens/{token_id}/value" if scope == "user"
+            else f"/accounts/{ACCOUNT}/tokens/{token_id}/value")
+    r = cf("PUT", path, {})
+    res = r.get("result")
+    value = res if isinstance(res, str) else (res or {}).get("value")
+    if not value:
+        sys.exit(f"roll failed or value lost — check response: {r.get('errors')} "
+                 "(the old value may already be dead; recover via dashboard roll)")
+    out = _secrets_dir() / f"cf-token-rolled-{token_id[:8]}.json"
+    out.write_text(json.dumps({"id": token_id, "value": value}, indent=2))
+    out.chmod(0o600)
+    print(f"rolled token {token_id[:8]}… → new value in {out} (0600)")
+
+
 if __name__ == "__main__":
     load_env()
     if len(sys.argv) < 2:
@@ -274,5 +292,14 @@ if __name__ == "__main__":
         if "--duration" in args:
             dur = args[args.index("--duration") + 1]
         cmd_service_token(args[0], dur)
+    elif cmd == "roll":
+        if not args:
+            sys.exit("roll <token-id> [--scope user|account]")
+        scope = "account"
+        if "--scope" in args:
+            i = args.index("--scope")
+            scope = args[i + 1]
+            args = args[:i] + args[i + 2:]
+        cmd_roll(args[0], scope)
     else:
         sys.exit(__doc__)

@@ -91,3 +91,10 @@ CF_TOKEN_FILE=~/.cache/cf-ops/x.json python3 scripts/cf_tokens.py service-token 
 - Zone-scoped `GET/POST /zones/{zone}/access/service_tokens` exists but
   needs zone-scope `Access: Service Tokens` perms — account path suffices
   for the `socialauto-app` use case.
+- **Token roll (`PUT …/tokens/{id}/value`) commits server-side even when
+  the HTTP response errors.** On 2026-09-23 a roll sent without
+  `Content-Type: application/json` returned `400 Invalid request headers`
+  but still rolled — old value dead, new value lost. Always send the
+  header AND treat `result` as a bare string (not an object). Use
+  `cf_tokens.py roll <id>` — it handles both and writes the new value to
+  `~/.cache/cf-ops/`.
