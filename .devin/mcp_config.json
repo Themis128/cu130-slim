@@ -2,19 +2,36 @@
   "mcpServers": {
     "playwright": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "--init", "--network", "host", "--shm-size=2g",
-        "-v", "/home/tbaltzakis/cu130-slim:/workspace",
-        "-v", "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
-        "-w", "/workspace",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "--network",
+        "host",
+        "--shm-size=2g",
+        "-v",
+        "/home/tbaltzakis/cu130-slim:/workspace",
+        "-v",
+        "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
+        "-w",
+        "/workspace",
         "mcr.microsoft.com/playwright/mcp:latest",
-        "--config", "/workspace/.playwright-data/pw-mcp-config.json",
-        "--user-data-dir", "/home/pwuser/.playwright-data/profile",
-        "--browser", "chromium",
-        "--init-script", "/workspace/.playwright-data/init-script.js",
+        "--config",
+        "/workspace/.playwright-data/pw-mcp-config.json",
+        "--user-data-dir",
+        "/home/pwuser/.playwright-data/profile",
+        "--browser",
+        "chromium",
+        "--init-script",
+        "/workspace/.playwright-data/init-script.js",
         "--ignore-https-errors",
-        "--timeout-action", "15000",
-        "--timeout-navigation", "120000",
-        "--timeout-settle", "1500"
+        "--timeout-action",
+        "15000",
+        "--timeout-navigation",
+        "120000",
+        "--timeout-settle",
+        "1500"
       ]
     },
     "github-local": {
@@ -26,11 +43,23 @@
     },
     "dmr": {
       "command": "python3",
-      "args": ["/home/tbaltzakis/cu130-slim/.devin/skills/docker-model-runner/scripts/dmr-mcp-server.py"]
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/docker-model-runner/scripts/dmr-mcp-server.py"
+      ]
     },
     "socialauto": {
       "command": "docker",
-      "args": ["compose", "exec", "-T", "-e", "SOCIALAUTO_URL=http://social-api:8000", "social-api", "python3", "-m", "app.mcp.server"],
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "-e",
+        "SOCIALAUTO_URL=http://social-api:8000",
+        "social-api",
+        "python3",
+        "-m",
+        "app.mcp.server"
+      ],
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "tiktok-console": {
@@ -47,6 +76,20 @@
       "command": "python3",
       "args": [
         "/home/tbaltzakis/cu130-slim/.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py"
+      ],
+      "cwd": "/home/tbaltzakis/cu130-slim"
+    },
+    "cloudflare-docs": {
+      "command": "/home/tbaltzakis/.local/bin/node",
+      "args": [
+        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://docs.mcp.cloudflare.com/mcp"
+      ]
+    },
+    "cloudflare": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/cloudflare-token-ops/scripts/cf-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim"
     }

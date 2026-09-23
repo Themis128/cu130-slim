@@ -49,10 +49,30 @@ whole hostname — only the 4 admin emails pass.
 
 ## Credentials
 
-- `CLOUDFLARE_ACCESS_TOKEN` in `.env` — the only token that can read/write
-  Access apps (account `fb7dc7b69b662480cd5961a4d1913c78`). It fails
-  `user/tokens/verify` but works on `/access/*` endpoints.
+- `CLOUDFLARE_ACCESS_TOKEN` in `.env` — account token `cloudless-access`
+  (id `87bc6879…`), the only token that can read/write Access apps (account
+  `fb7dc7b69b662480cd5961a4d1913c78`). It fails `user/tokens/verify` but works
+  on `/access/*` endpoints. Lacks `Access: Service Tokens` — cannot create
+  service tokens.
 - `CLOUDFLARE_API_TOKEN` — works for zone basics (zones list) but NOT Access.
+- `CLOUDFLARE_GLOBAL_KEY` + `CLOUDFLARE_EMAIL` (optional, `.env`) — the account
+  Global API Key. The ONLY credential that can create/edit API tokens
+  (`/user/tokens`, `/accounts/{id}/tokens`) — Cloudflare forbids token-managed
+  tokens. With it set, `scripts/cf_tokens.py` can add permission groups to any
+  token (`add-perm`), mint user/account tokens (`create`), and create Access
+  service tokens (`service-token`). Token values are written to
+  `/tmp/cf-token-*.json` (0600), never printed.
+
+`scripts/cf_tokens.py` — token management:
+
+```bash
+python3 scripts/cf_tokens.py verify                     # auth mode + key check
+python3 scripts/cf_tokens.py list                       # user + account tokens
+python3 scripts/cf_tokens.py perm-groups --scope account service  # find group ids
+python3 scripts/cf_tokens.py add-perm <token-id> "Access: Service Tokens"
+python3 scripts/cf_tokens.py create my-token --scope account --perm "Workers Scripts"
+python3 scripts/cf_tokens.py service-token cloudless-site-bridge --duration forever
+```
 
 ## Tools
 
@@ -114,3 +134,31 @@ curl -s -o /dev/null -w "%{http_code}\n" https://social.cloudless.gr/<path>
 - Do NOT bypass `/api/v1/` broadly — admin endpoints must stay behind Access.
   Bypass only paths that third parties must reach (callbacks, webhooks) or that
   are explicitly public (health).
+
+## Cloudflare MCP servers (registered 2026-09-23)
+
+`.devin/mcp_config.local.json` carries `cloudflare-api` — the official Code
+Mode server at `https://mcp.cloudflare.com/mcp`, authenticated with
+`CLOUDFLARE_ACCESS_TOKEN` as a Bearer token (no OAuth needed; token needs
+`user:read`/`account:read` minimum — `CLOUDFLARE_API_TOKEN` fails that check).
+Tools: `docs`, `search` (OpenAPI spec), `execute` (arbitrary CF API calls).
+`.devin/mcp_config.json` has `cloudflare-docs` (`https://docs.mcp.cloudflare.com/mcp`,
+no auth).
+
+Both are wired as **stdio** servers through `mcp-remote`
+(`node ~/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js <url>
+[--header 'Authorization: Bearer …']`) — installed 2026-09-23 via `pnpm add`
+in `~/.local/lib/mcp-remote` because `npm`/`npx` shims and `pnpm add -g` are
+broken on this box (`pnpm dlx` works). Remote `url`-type entries show yellow
+in the client; the stdio bridge is the reliable transport.
+
+Gotchas calling it directly over HTTP (no MCP client):
+
+- `mcp.cloudflare.com` 1010-bot-blocks Python `urllib` — use `curl`.
+- Responses are SSE-framed — parse the last `data:` line.
+- The server proxies the same API token — it does NOT widen permissions.
+  `CLOUDFLARE_ACCESS_TOKEN` lacks `Access: Service Tokens` write, so service
+  tokens can be listed (`GET /accounts/{acct}/access/service_tokens` → empty
+  = token lives in another account) but NOT created through it. Token
+  creation needs the dashboard (correct account selected) or a token with
+  that scope.
