@@ -10,20 +10,43 @@ the cloudless.gr account (`fb7dc7b69b662480cd5961a4d1913c78`).
 - Creating/listing Cloudflare Access service tokens
 - Checking which CF credentials are configured and working
 
-## Hard rule — Cloudflare auth model
+## Auth model (verified 2026-09-23)
 
-**API tokens cannot create or edit other API tokens.** Token management
-(`POST/PUT /user/tokens`, `/accounts/{id}/tokens`) requires the account
-**Global API Key** (`X-Auth-Key` + `X-Auth-Email`) or an OAuth user session.
-Everything else (Access apps, service tokens, D1, zones) works with scoped
-tokens.
+- **Account-scope token management works with a scoped token.** An account
+  token holding `Account API Tokens Write` (e.g. `cloudless-access`) can
+  list/create/edit/delete **account** tokens via `/accounts/{id}/tokens/*` —
+  no Global Key needed. This is the preferred path.
+- **User-scope token ops still need the Global API Key**
+  (`X-Auth-Key` + `X-Auth-Email`) or an OAuth user session — scoped tokens
+  cannot touch `/user/tokens`.
+- `CF_TOKEN_FILE=<path>` env var makes `cf_tokens.py` act as a different
+  bearer token (the file must contain JSON with a `"value"` key) — used to
+  call APIs as a freshly-minted ephemeral token.
+
+### Ephemeral-minter pattern (used for service-token + D1 writes)
+
+`cloudless-access` lacks `Access: Service Tokens` and `D1` scopes, but its
+`Account API Tokens Write` lets it mint a purpose-scoped token on demand:
+
+```python
+# 1. mint ephemeral token with just the needed perm group
+POST /accounts/{acct}/tokens  {policies: [{permission_groups:[D1 Write,...],
+                               resources:{account}}]}
+# 2. use token value for the operation
+# 3. DELETE /accounts/{acct}/tokens/{id}  — always clean up
+```
+
+Values live only in memory / `~/.cache/cf-ops/` (0600) — **do not use /tmp**:
+this WSL environment wipes /tmp between sessions (observed 2026-09-23 —
+two minted token values were lost and the orphaned tokens had to be
+deleted server-side).
 
 ## Credentials (repo-root `.env`, never printed/committed)
 
 | Var | Purpose |
 |---|---|
-| `CLOUDFLARE_GLOBAL_KEY` + `CLOUDFLARE_EMAIL` | Global API Key — unlocks ALL token management. Get: dash.cloudflare.com → My Profile → API Tokens → Global API Key → View (must be the account owning cloudless.gr). |
-| `CLOUDFLARE_ACCESS_TOKEN` | Account token `cloudless-access` (id `87bc6879…`) — Access apps/policies read+write, service-token LIST. Cannot create service tokens (lacks `Access: Service Tokens`) until the group is added via `cf_add_token_perm` with the global key. |
+| `CLOUDFLARE_ACCESS_TOKEN` | Account token `cloudless-access` (id `87bc6879…`) — Access apps/policies read+write + `Account API Tokens Write`. The workhorse credential. |
+| `CLOUDFLARE_GLOBAL_KEY` + `CLOUDFLARE_EMAIL` | Global API Key — only needed for USER-token ops. Get: dash.cloudflare.com → My Profile → API Tokens → Global API Key → View (account owning cloudless.gr). |
 
 ## MCP server (preferred)
 
@@ -44,26 +67,27 @@ python3 scripts/cf_tokens.py perm-groups --scope account service
 python3 scripts/cf_tokens.py add-perm <token-id> "Access: Service Tokens"
 python3 scripts/cf_tokens.py create <name> --scope account --perm "Workers Scripts"
 python3 scripts/cf_tokens.py service-token cloudless-site-bridge --duration forever
+CF_TOKEN_FILE=~/.cache/cf-ops/x.json python3 scripts/cf_tokens.py service-token ...
 ```
 
 ## Secret hygiene
 
-- New token values / service-token secrets are written to
-  `/tmp/cf-token-*.json` (0600) — return the path, never the value.
+- New token values / service-token secrets go to `~/.cache/cf-ops/*.json`
+  (0600) — return the path, never the value.
 - Never echo `CLOUDFLARE_*` values or `.env` contents.
+- Always DELETE ephemeral minter tokens after use.
 - Global key = full account control. Keep it in `.env` (gitignored) only.
 
-## Known-good recipes
+## Gotchas
 
-**Fix missing scope on cloudless-access** (the 2026-09-23 blocker):
-
-```bash
-python3 scripts/cf_tokens.py add-perm 87bc6879b2b67255a53abcd305b60302 \
-    "Access: Service Tokens"
-python3 scripts/cf_tokens.py service-token cloudless-site-bridge --duration forever
-# creds land in /tmp/cf-token-svc-cloudless-site-bridge.json — feed to D1, don't print
-```
-
-**Service token lives in the wrong account** — `cf_list_service_tokens`
-returning empty while the dashboard shows the token means it was created in
-another CF account. Verify account ownership before creating anything.
+- **Empty `service_tokens` list ≠ no tokens.** A token without
+  `Access: Service Tokens Read` gets a silent empty list (HTTP 200,
+  `count:0`) — this caused a false "wrong account" diagnosis on 2026-09-23.
+  Always check the calling token's perm groups before concluding absence.
+- **`any_valid_service_token` in an `allow` policy is not enough** for
+  non-browser auth on this zone-scoped app — the service token got
+  `service_token_status:false` until a dedicated `non_identity`
+  (Service Auth) policy was added. See `cloudflare-access-paths` skill.
+- Zone-scoped `GET/POST /zones/{zone}/access/service_tokens` exists but
+  needs zone-scope `Access: Service Tokens` perms — account path suffices
+  for the `socialauto-app` use case.

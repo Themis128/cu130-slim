@@ -31,6 +31,13 @@ whole hostname — only the 4 admin emails pass.
   the path, with a single `bypass` policy including `Everyone`. An `allow`
   policy with `Everyone` still runs the identity check — it does NOT open the
   path.
+- **Service-token auth needs a `non_identity` (Service Auth) policy.** An
+  `allow` policy with `any_valid_service_token` in `include` looks right but
+  still redirects machine callers to the IdP (`service_token_status:false` in
+  the login-redirect meta JWT). The fix (applied 2026-09-23 to `socialauto-app`):
+  a second policy `decision: "non_identity"`, `include: [{"any_valid_service_token": {}}]`,
+  precedence after the admin allow-list. Verified: with-token → origin 401/200,
+  no-token → 302.
 - Bypassed paths are fully public — the endpoint must authenticate itself
   (webhook verify token, HMAC signature, OAuth state).
 
@@ -52,16 +59,15 @@ whole hostname — only the 4 admin emails pass.
 - `CLOUDFLARE_ACCESS_TOKEN` in `.env` — account token `cloudless-access`
   (id `87bc6879…`), the only token that can read/write Access apps (account
   `fb7dc7b69b662480cd5961a4d1913c78`). It fails `user/tokens/verify` but works
-  on `/access/*` endpoints. Lacks `Access: Service Tokens` — cannot create
-  service tokens.
+  on `/access/*` endpoints. Holds `Account API Tokens Write` — it can mint
+  purpose-scoped ACCOUNT tokens on demand (ephemeral-minter pattern; see
+  `cloudflare-token-ops` skill). Lacks `Access: Service Tokens` itself.
 - `CLOUDFLARE_API_TOKEN` — works for zone basics (zones list) but NOT Access.
 - `CLOUDFLARE_GLOBAL_KEY` + `CLOUDFLARE_EMAIL` (optional, `.env`) — the account
-  Global API Key. The ONLY credential that can create/edit API tokens
-  (`/user/tokens`, `/accounts/{id}/tokens`) — Cloudflare forbids token-managed
-  tokens. With it set, `scripts/cf_tokens.py` can add permission groups to any
-  token (`add-perm`), mint user/account tokens (`create`), and create Access
-  service tokens (`service-token`). Token values are written to
-  `/tmp/cf-token-*.json` (0600), never printed.
+  Global API Key. Only needed for USER-scope token ops (`/user/tokens`);
+  account-scope token ops work via `Account API Tokens Write` without it.
+  Token values are written to `~/.cache/cf-ops/*.json` (0600), never printed
+  — **not /tmp**: this WSL box wipes /tmp between sessions.
 
 `scripts/cf_tokens.py` — token management:
 
@@ -157,8 +163,12 @@ Gotchas calling it directly over HTTP (no MCP client):
 - `mcp.cloudflare.com` 1010-bot-blocks Python `urllib` — use `curl`.
 - Responses are SSE-framed — parse the last `data:` line.
 - The server proxies the same API token — it does NOT widen permissions.
-  `CLOUDFLARE_ACCESS_TOKEN` lacks `Access: Service Tokens` write, so service
-  tokens can be listed (`GET /accounts/{acct}/access/service_tokens` → empty
-  = token lives in another account) but NOT created through it. Token
-  creation needs the dashboard (correct account selected) or a token with
-  that scope.
+- **Empty `GET …/access/service_tokens` is ambiguous**: a caller without
+  `Access: Service Tokens Read` gets HTTP 200 `count:0` even when tokens
+  exist — this caused a false "wrong account" diagnosis on 2026-09-23.
+  Check the calling token's perm groups (`GET /accounts/{acct}/tokens`)
+  before concluding absence.
+- `cloudless-site-bridge` service token (id `4f790719-…`, `forever`) is live
+  and works; an older same-named token `99c39000-…` also exists (both pass
+  via `any_valid_service_token`). Bridge creds are in D1 `app_config` as
+  `SOCIALAUTO_SERVICE_TOKEN` (`client_id:client_secret`).

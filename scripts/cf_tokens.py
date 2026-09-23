@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Cloudflare API-token management — create/edit tokens programmatically.
 
-API tokens CANNOT manage other tokens — Cloudflare only allows the account
-Global API Key (X-Auth-Key + X-Auth-Email) or an OAuth user session to call
-/user/tokens and /accounts/{id}/tokens. Set in .env:
-
-    CLOUDFLARE_EMAIL=<account login email>
-    CLOUDFLARE_GLOBAL_KEY=<global api key>
+Auth modes (auto-detected):
+- CLOUDFLARE_GLOBAL_KEY + CLOUDFLARE_EMAIL — full user+account token management.
+- CLOUDFLARE_ACCESS_TOKEN (or CF_TOKEN_FILE=<json with "value">) — scoped
+  bearer token. Account-scope operations (list/create/edit ACCOUNT tokens)
+  work when the token holds "Account API Tokens Write"; user-scope ops
+  (/user/tokens) still need the Global Key.
 
 Usage:
     python3 scripts/cf_tokens.py verify
@@ -40,6 +40,13 @@ def load_env() -> None:
 
 
 def _headers() -> dict:
+    # CF_TOKEN_FILE=<path to json with "value"> overrides the bearer token —
+    # used to act as a freshly-minted token (e.g. a service-token minter).
+    tf = os.environ.get("CF_TOKEN_FILE")
+    if tf:
+        tok = json.loads(Path(tf).read_text())["value"]
+        return {"Authorization": f"Bearer {tok}",
+                "Content-Type": "application/json"}
     key = os.environ.get("CLOUDFLARE_GLOBAL_KEY")
     email = os.environ.get("CLOUDFLARE_EMAIL")
     if key and email:
@@ -54,7 +61,8 @@ def _headers() -> dict:
 
 
 def using_global_key() -> bool:
-    return bool(os.environ.get("CLOUDFLARE_GLOBAL_KEY"))
+    return bool(os.environ.get("CLOUDFLARE_GLOBAL_KEY")
+                and not os.environ.get("CF_TOKEN_FILE"))
 
 
 def cf(method: str, path: str, body: dict | None = None) -> dict:
@@ -71,10 +79,20 @@ def cf(method: str, path: str, body: dict | None = None) -> dict:
             return {"success": False, "errors": [{"message": e.read().decode()[:300]}]}
 
 
-def _need_global() -> None:
-    if not using_global_key():
-        sys.exit("needs CLOUDFLARE_GLOBAL_KEY+CLOUDFLARE_EMAIL in .env — "
-                 "API tokens cannot manage tokens")
+def _secrets_dir() -> Path:
+    # ~/.cache/cf-ops — durable across WSL sessions (this box wipes /tmp).
+    d = Path.home() / ".cache" / "cf-ops"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _need_global(scope: str = "user") -> None:
+    # Account-scope token ops are allowed for scoped tokens holding
+    # "Account API Tokens Write" — the API enforces and 403s otherwise.
+    # User-scope token ops genuinely require the Global Key / OAuth session.
+    if scope == "user" and not using_global_key():
+        sys.exit("user-scope token ops need CLOUDFLARE_GLOBAL_KEY+"
+                 "CLOUDFLARE_EMAIL in .env")
 
 
 def _find_pg(scope: str, substr: str) -> dict:
@@ -146,12 +164,12 @@ def cmd_perm_groups(scope: str, substr: str) -> None:
 
 
 def cmd_add_perm(token_id: str, substr: str) -> None:
-    _need_global()
     # try account token first, then user token
     base = f"/accounts/{ACCOUNT}/tokens/{token_id}"
     d = cf("GET", base)
     scope = "account"
     if not d.get("success"):
+        _need_global("user")
         base = f"/user/tokens/{token_id}"
         d = cf("GET", base)
         scope = "user"
@@ -182,7 +200,7 @@ def cmd_add_perm(token_id: str, substr: str) -> None:
 
 
 def cmd_create(name: str, scope: str, perms: list[str]) -> None:
-    _need_global()
+    _need_global(scope)
     policies = [_policy_for(scope, _find_pg(scope, s)) for s in perms]
     if not policies:
         sys.exit("create needs at least one --perm <substring>")
@@ -192,7 +210,7 @@ def cmd_create(name: str, scope: str, perms: list[str]) -> None:
     if not r.get("success"):
         sys.exit(f"create failed: {r.get('errors')}")
     t = r["result"]
-    out = Path(f"/tmp/cf-token-{name}.json")
+    out = _secrets_dir() / f"cf-token-{name}.json"
     out.write_text(json.dumps({"id": t["id"], "name": t["name"],
                                "value": t["value"]}, indent=2))
     out.chmod(0o600)
@@ -205,7 +223,7 @@ def cmd_service_token(name: str, duration: str) -> None:
     if not r.get("success"):
         sys.exit(f"create failed: {r.get('errors')}")
     t = r["result"]
-    out = Path(f"/tmp/cf-svctoken-{name}.json")
+    out = _secrets_dir() / f"cf-svctoken-{name}.json"
     out.write_text(json.dumps({"id": t["id"], "name": t["name"],
                                "client_id": t["client_id"],
                                "client_secret": t["client_secret"]}, indent=2))
