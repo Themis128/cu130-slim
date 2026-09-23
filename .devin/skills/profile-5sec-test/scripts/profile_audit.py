@@ -126,7 +126,7 @@ def vision_score(avatar_url: str, is_personal: bool) -> dict:
 
 def audit_account(acc: dict, brand: str) -> dict:
     pid = acc["id"]
-    prof = http("GET", f"{API}/profile/{pid}", token=acc["_token"])
+    prof = http("GET", f"{API}/profile/{pid}", token=acc["_token"], timeout=150)
     if "_error" in prof or "detail" in prof:
         return {"platform": acc["platform"], "username": acc.get("username"),
                 "error": (prof.get("_error") or str(prof.get("detail")))[:200]}

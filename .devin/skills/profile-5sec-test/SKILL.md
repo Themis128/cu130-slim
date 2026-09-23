@@ -40,7 +40,13 @@ Env: `SOCIAL_API_URL` (default `http://localhost:8083/api/v1`),
   on mobile-API calls (web session ≠ API session trust). Bottom line: IG
   name/website edits require the mobile app; don't burn time on web paths.
 - **Threads** has no writable website field (PUT ignores it); the bio text
-  carries the link.
+  carries the link. Its `full_name` is inherited from the linked Instagram
+  account — changing it requires the IG mobile-app name edit (same limit
+  as above); Threads itself exposes no name field.
+- **Facebook personal `/profile` scrape exceeds 60s** (up to 3 navigations
+  × 20s settle) — the audit passes `timeout=150` for profile reads; a
+  "timed out" error on that account is scrape latency, not auth failure.
+  The sidecar's own `/session` check (`logged_in`) is the fast probe.
 - **TikTok** profile writes are captcha-blocked (tt-ticket-guard); website
   needs a business account anyway.
 - **Twitter/X handle** (@screen_name) is not API-writable — account settings
