@@ -89,6 +89,8 @@ def _plat(**over):
         "benchmark": None,
         "best_hour_athens": (10, 5.0),
         "best_weekday_athens": (2, 5.0),
+        "best_hour_sample": 10,
+        "best_weekday_sample": 10,
         "media_avg_er": 6.0,
         "text_avg_er": 4.0,
         "momentum_7d_engagement_pct": None,
@@ -242,11 +244,24 @@ def test_compute_timing_buckets_athens():
     rows = [
         _post_row(published_at=pub, er=4.0),
         _post_row(published_at=pub, er=6.0),
+        _post_row(published_at=pub, er=5.0),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
     assert li["best_hour_athens"] == (2, 5.0)
     assert li["best_weekday_athens"] == (4, 5.0)  # Friday in Athens
+    assert li["best_hour_sample"] == 3
+    assert li["best_weekday_sample"] == 3
+
+
+def test_compute_timing_buckets_need_min_sample():
+    # 2 posts in a bucket is noise — no custom window should be emitted
+    pub = datetime(2026, 9, 17, 23, 30, tzinfo=UTC)
+    rows = [_post_row(published_at=pub, er=4.0), _post_row(published_at=pub, er=6.0)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["best_hour_athens"] is None
+    assert li["best_weekday_athens"] is None
 
 
 def test_compute_momentum_from_snapshot_deltas():
@@ -363,6 +378,33 @@ def test_compute_follower_anomaly_attached():
     out = compute_insights([_post_row("tiktok")], [], followers, [], now=NOW)
     fg = out["platforms"]["tiktok"]["follower_growth"]
     assert fg["anomaly"]["delta"] == 60
+
+
+def test_compute_follower_zero_readings_filtered():
+    # A run of failed-scrape zeros followed by the first real count is
+    # baseline establishment, not a +N gain.
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("linkedin", 0, NOW - timedelta(days=8), acct),
+        _follower_row("linkedin", 0, NOW - timedelta(days=5), acct),
+        _follower_row("linkedin", 841, NOW - timedelta(days=2), acct),
+        _follower_row("linkedin", 841, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights([_post_row("linkedin")], [], followers, [], now=NOW)
+    fg = out["platforms"]["linkedin"]["follower_growth"]
+    assert fg["anomaly"] is None
+    assert fg["net"] == 0
+    assert fg["current"] == 841
+
+
+def test_compute_follower_all_zero_series_ignored():
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("twitter", 0, NOW - timedelta(days=3), acct),
+        _follower_row("twitter", 0, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights([_post_row("twitter")], [], followers, [], now=NOW)
+    assert out["platforms"]["twitter"]["follower_growth"] is None
 
 
 # ── outlier/anomaly recommendations ───────────────────────────────────────
@@ -507,6 +549,20 @@ def test_recommend_timing_only_with_engagement_signal():
     th = next(r for r in recs if r["type"] == "timing" and r["platform"] == "threads")
     assert th["priority"] == "low"
     assert "baseline" in th["text"]
+
+
+def test_recommend_timing_thin_sample_is_directional():
+    plats = {
+        "linkedin": _plat(
+            focus_tier="main", posts=4,
+            best_weekday_athens=(4, 3.0), best_hour_athens=(2, 4.0),
+            best_weekday_sample=2, best_hour_sample=3,
+        ),
+    }
+    recs = _recommend(plats)
+    li = next(r for r in recs if r["type"] == "timing" and r["platform"] == "linkedin")
+    assert li["priority"] == "medium"
+    assert "directional" in li["text"]
 
 
 def test_recommend_momentum_floor_blocks_small_numbers():

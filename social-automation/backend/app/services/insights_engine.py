@@ -488,6 +488,10 @@ def compute_insights(
     # ── Follower trends ────────────────────────────────────────────────────
     follower_windows: dict[str, list[tuple[datetime, int]]] = defaultdict(list)
     for fr in follower_rows:
+        # A 0 reading is a failed scrape, not a real count — dropping it keeps
+        # a first real count from masquerading as a massive gain.
+        if int(fr.followers) <= 0:
+            continue
         follower_windows[f"{fr.platform}:{fr.social_account_id}"].append(
             (fr.captured_at, int(fr.followers))
         )
@@ -589,6 +593,11 @@ def compute_insights(
             if n and any(sig in n for sig in _DATA_GAP_NOTES)
         )
 
+        # Timing buckets need a real sample — a 2-post bucket's ER max is
+        # noise, not an audience signal.
+        best_hr = _best(p["hours"], min_n=3)
+        best_wd = _best(p["weekdays"], min_n=3)
+
         platforms[name] = {
             "focus_tier": PLATFORM_BEST_PRACTICES.get(name, {}).get("focus", "last"),
             "confidence": _confidence(posts, p["impressions"]),
@@ -604,8 +613,10 @@ def compute_insights(
             "er_by_followers_pct": er_by_followers,
             "benchmark": benchmark,
             "outliers": outliers,
-            "best_hour_athens": _best(p["hours"]),
-            "best_weekday_athens": _best(p["weekdays"]),
+            "best_hour_athens": best_hr,
+            "best_weekday_athens": best_wd,
+            "best_hour_sample": p["hours"][best_hr[0]][0] if best_hr else 0,
+            "best_weekday_sample": p["weekdays"][best_wd[0]][0] if best_wd else 0,
             "media_avg_er": media_er,
             "text_avg_er": text_er,
             "momentum_7d_engagement_pct": _pct_change(
@@ -657,6 +668,8 @@ def compute_insights(
             "outliers": [],
             "best_hour_athens": None,
             "best_weekday_athens": None,
+            "best_hour_sample": 0,
+            "best_weekday_sample": 0,
             "media_avg_er": None, "text_avg_er": None,
             "momentum_7d_engagement_pct": None,
             "momentum_7d_impressions_pct": None,
@@ -812,6 +825,20 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         if has_signal:
             wd, wd_er = p["best_weekday_athens"]
             hr, hr_er = p["best_hour_athens"]
+            # Below ~5 posts per winning bucket the max-ER pick is the
+            # winner's curse — report it but flag as directional, like the
+            # channel_focus rec does for low-confidence platforms.
+            thin = (
+                min(
+                    p.get("best_hour_sample") or 0,
+                    p.get("best_weekday_sample") or 0,
+                ) < 5
+                or p.get("confidence") == "low"
+            )
+            conf_note = (
+                "" if not thin
+                else " (low data confidence — treat as directional)"
+            )
             recs.append({
                 "type": "timing",
                 "priority": "medium",
@@ -820,7 +847,7 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     f"Your {name} audience engages most on {_WEEKDAYS[wd]} "
                     f"around {hr:02d}:00 Athens time ({wd_er}% / {hr_er}% avg "
                     f"ER in those buckets). Schedule there; platform baseline: "
-                    f"{bp['best_windows'] if bp else 'n/a'}."
+                    f"{bp['best_windows'] if bp else 'n/a'}.{conf_note}"
                 ),
             })
         elif bp:

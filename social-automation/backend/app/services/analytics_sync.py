@@ -631,7 +631,9 @@ async def sync_linkedin_account(
                         },
                     )
                 followers = activity.get("followers")
-                if followers is not None:
+                # A logged-out scrape yields 0, not None — persisting it would
+                # poison the series (first real count then reads as a huge gain).
+                if followers:
                     db.add(FollowerSnapshot(
                         team_id=account.team_id, social_account_id=account.id,
                         platform="linkedin", followers=int(followers),
@@ -940,7 +942,8 @@ async def sync_twitter_account(
                     )
                     discovered[tid] = id_to_post.get(tid)
                 followers = scraped.get("followers")
-                if followers is not None:
+                # Same guard as the LinkedIn scrape — 0 means the scrape failed.
+                if followers:
                     db.add(FollowerSnapshot(
                         team_id=account.team_id, social_account_id=account.id,
                         platform="twitter", followers=int(followers),
@@ -2005,7 +2008,7 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
         from app.api.analytics import _follower_count
 
         followers = await _follower_count(account)
-        if followers < 0:
+        if followers <= 0:
             return
         snap = FollowerSnapshot(
             team_id=account.team_id,
