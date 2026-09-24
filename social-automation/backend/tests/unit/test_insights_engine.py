@@ -239,17 +239,23 @@ def test_compute_aggregates_per_platform():
 
 
 def test_compute_timing_buckets_athens():
-    # 23:30 UTC = 02:30 next day Athens (EEST, UTC+3) — weekday must shift too
+    # 23:30 UTC = 02:30 next day Athens (EEST, UTC+3) — weekday must shift too.
+    # The winner must also beat the platform mean ER by the 1.25 margin gate,
+    # so add a weaker bucket (Mon 14:00 Athens) to make the signal real.
     pub = datetime(2026, 9, 17, 23, 30, tzinfo=UTC)  # Thu UTC → Fri Athens
+    weak = datetime(2026, 9, 14, 11, 0, tzinfo=UTC)  # Mon UTC → Mon Athens
     rows = [
-        _post_row(published_at=pub, er=4.0),
-        _post_row(published_at=pub, er=6.0),
-        _post_row(published_at=pub, er=5.0),
+        _post_row(published_at=pub, er=7.0),
+        _post_row(published_at=pub, er=9.0),
+        _post_row(published_at=pub, er=8.0),
+        _post_row(published_at=weak, er=1.0),
+        _post_row(published_at=weak, er=3.0),
+        _post_row(published_at=weak, er=2.0),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
-    assert li["best_hour_athens"] == (2, 5.0)
-    assert li["best_weekday_athens"] == (4, 5.0)  # Friday in Athens
+    assert li["best_hour_athens"] == (2, 8.0)
+    assert li["best_weekday_athens"] == (4, 8.0)  # Friday in Athens
     assert li["best_hour_sample"] == 3
     assert li["best_weekday_sample"] == 3
 
