@@ -30,6 +30,7 @@ async def _post_slack_text(
     token: str,
     channel_id: str,
     purpose: str,
+    blocks: list[dict] | None = None,
 ) -> tuple[bool, str | None, str | None]:
     webhook_url = (webhook_url or "").strip()
     token = (token or "").strip()
@@ -48,6 +49,8 @@ async def _post_slack_text(
                 try:
                     if webhook_url:
                         payload: dict = {"text": text}
+                        if blocks:
+                            payload["blocks"] = blocks
                         if channel_id.startswith("#"):
                             payload["channel"] = channel_id
                         resp = await client.post(webhook_url, json=payload)
@@ -63,7 +66,12 @@ async def _post_slack_text(
                         resp = await client.post(
                             "https://api.slack.com/api/chat.postMessage",
                             headers={"Authorization": f"Bearer {token}"},
-                            json={"channel": channel_id, "text": text, "mrkdwn": True},
+                            json={
+                                "channel": channel_id,
+                                "text": text,
+                                "mrkdwn": True,
+                                **({"blocks": blocks} if blocks else {}),
+                            },
                         )
                         data = resp.json()
                         if not data.get("ok"):

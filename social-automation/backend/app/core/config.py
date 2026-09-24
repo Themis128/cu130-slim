@@ -350,6 +350,15 @@ class Settings(BaseSettings):
     SLACK_LEADS_WEBHOOK_URL: str = ""
     SLACK_LEADS_CHANNEL_ID: str = ""
 
+    # LinkedIn Ads daily report — dedicated Slack channel for the active
+    # campaign digest (falls back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID).
+    SLACK_ADS_WEBHOOK_URL: str = ""
+    SLACK_ADS_CHANNEL_ID: str = ""
+    # Campaign tracked by the daily 10:00 report + the date reports stop.
+    LINKEDIN_ADS_CAMPAIGN_ID: str = ""
+    LINKEDIN_ADS_END_DATE: str = ""  # ISO date, e.g. "2026-10-01"
+    LINKEDIN_ADS_EMAIL_TO: str = ""  # falls back to DIGEST_EMAIL_TO
+
     # n8n: optional Slack Incoming Webhook URL for workflow failures.
     # If empty, n8n workflows should fall back to SLACK_ALERTS_WEBHOOK_URL.
     N8N_ERROR_SLACK_WEBHOOK_URL: str = ""
