@@ -171,19 +171,25 @@ _state: dict[str, Any] = {
 # interaction. Long enough to cover a multi-step compose (navigate, type,
 # attach, post) including slow media uploads; short enough that a crashed
 # caller frees the browser for pollers within minutes.
-BUSY_HOLD_SECONDS = 180.0
+BUSY_HOLD_SECONDS = float(os.environ.get("BRIDGE_BUSY_HOLD_SECONDS", "180"))
 
 # Seconds a "waiting" session (login window open, nobody authenticated yet)
 # may block other platforms before it is treated as abandoned and can be
 # preempted. Must be long enough for a real human/service login via noVNC
 # (~1-2 min) plus margin, short enough that a stale poller session can't
 # starve publishers for the full 10-minute detection loop.
-WAITING_TIMEOUT = 300.0
+WAITING_TIMEOUT = float(os.environ.get("BRIDGE_WAITING_TIMEOUT", "300"))
 
 # Interactive sessions (a human is logging in via noVNC) get a much longer
 # abandoned-login window — typing creds, solving a captcha, or fetching a
 # 2FA code legitimately takes longer than a poller's automated attempt.
-INTERACTIVE_WAITING_TIMEOUT = 1800.0
+INTERACTIVE_WAITING_TIMEOUT = float(os.environ.get("BRIDGE_INTERACTIVE_TIMEOUT", "1800"))
+
+# Seconds the login-detection loop waits for a success URL before tearing
+# down the browser. Interactive sessions get INTERACTIVE_WAITING_TIMEOUT
+# instead — a human doing 2FA/captcha or driving the browser to a
+# non-platform site must not have the page killed mid-flow.
+LOGIN_DETECT_SECONDS = float(os.environ.get("BRIDGE_LOGIN_DETECT_SECONDS", "600"))
 
 # Callers identify themselves with the X-Platform header; while the
 # busy-hold is active only requests tagged with the owning platform may
@@ -1364,13 +1370,21 @@ async def _run_browser(platform: str):
             await page.goto(site["url"], wait_until="domcontentloaded")
             _state["message"] = f"Browser open at {site['url']} — log in via noVNC"
 
-            # Wait for a success URL (up to 10 minutes). Poll page.url rather
-            # than wait_for_url: the latter only fires on navigation events and
-            # misses redirects that complete before the wait attaches (e.g. a
-            # session whose persistent-profile cookies auto-authenticate the
-            # login page instantly).
+            # Wait for a success URL. Poll page.url rather than wait_for_url:
+            # the latter only fires on navigation events and misses redirects
+            # that complete before the wait attaches (e.g. a session whose
+            # persistent-profile cookies auto-authenticate the login page).
+            # Interactive sessions get a longer window, and once the operator
+            # navigates off the platform's domain the loop switches to
+            # manual-drive mode — the browser stays alive for arbitrary use.
             success = False
-            deadline = asyncio.get_event_loop().time() + 600
+            manual_drive = False
+            site_host = urlparse(site["url"]).hostname or ""
+            deadline = asyncio.get_event_loop().time() + (
+                INTERACTIVE_WAITING_TIMEOUT
+                if _state["interactive"]
+                else LOGIN_DETECT_SECONDS
+            )
             while asyncio.get_event_loop().time() < deadline:
                 try:
                     current_url = page.url
@@ -1382,6 +1396,14 @@ async def _run_browser(platform: str):
                         break
                 if success:
                     break
+                if (
+                    _state["interactive"]
+                    and site_host
+                    and site_host not in current_url
+                    and "about:blank" not in current_url
+                ):
+                    manual_drive = True
+                    break
                 await asyncio.sleep(2)
 
             if success:
@@ -1391,7 +1413,6 @@ async def _run_browser(platform: str):
 
                 cookies = await context.cookies()
                 all_cookies = {c["name"]: c["value"] for c in cookies}
-                from urllib.parse import urlparse
                 plat_base = ".".join(
                     (urlparse(site["url"]).hostname or "").split(".")[-2:]
                 )
@@ -1433,6 +1454,21 @@ async def _run_browser(platform: str):
                     await asyncio.sleep(5)
                     try:
                         _ = context.pages  # raises once the context is closed
+                    except Exception:
+                        break
+            elif manual_drive:
+                # Interactive session navigated off the platform site — a
+                # human/agent is driving. Keep the browser alive until
+                # /session/stop or a new /session/start replaces the context.
+                _state["status"] = "active"
+                _state["message"] = f"Interactive session active at {current_url}"
+                while (
+                    _state.get("status") in ("done", "active")
+                    and _state.get("context") is context
+                ):
+                    await asyncio.sleep(5)
+                    try:
+                        _ = context.pages
                     except Exception:
                         break
             else:
