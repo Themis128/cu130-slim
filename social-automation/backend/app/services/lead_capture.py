@@ -41,6 +41,16 @@ def _is_greek_message(message: str) -> bool:
     return any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF for c in (message or ""))
 
 
+def _looks_like_name(text: str) -> bool:
+    """Reject input that is clearly a question, email, or essay rather than
+    a person's name — otherwise the user's real question gets stored as
+    their 'name' (observed in production)."""
+    t = (text or "").strip()
+    if not t or len(t) > 60 or "?" in t or "@" in t or "\n" in t:
+        return False
+    return True
+
+
 def _lead_prompts(*, greek: bool) -> dict[str, str]:
     if greek:
         return {
@@ -51,6 +61,7 @@ def _lead_prompts(*, greek: bool) -> dict[str, str]:
             "ask_company_size": "Πόσα άτομα είναι η ομάδα σας;",
             "ask_interest": "Τι σας ενδιαφέρει περισσότερο;",
             "thanks": "Τέλεια — τα πήραμε. Θα σας απαντήσουμε σύντομα.",
+            "close": "Κανένα πρόβλημα — παραλείπουμε τη φόρμα. Πώς μπορώ να βοηθήσω;",
         }
     return {
         "welcome": "Clear skies. Zero friction. Quick 30 seconds so we can help properly.",
@@ -60,6 +71,7 @@ def _lead_prompts(*, greek: bool) -> dict[str, str]:
         "ask_company_size": "What’s your company size?",
         "ask_interest": "What are you most interested in?",
         "thanks": "Perfect — got it. We’ll get back to you shortly.",
+        "close": "No problem — skipping the form. How can I help?",
     }
 
 
@@ -94,22 +106,48 @@ def is_lead_capture_trigger(text: str, payload: str | None = None) -> bool:
     if p in {"GET_STARTED", "LEAD_CAPTURE_START", "MENU_CONTACT", "BOT_CONTACT"}:
         return True
     t = (text or "").strip().lower()
+    # Intent phrases only — bare words like "cloud", "growth" or the brand
+    # name itself trap normal questions into the form (observed: a lead asked
+    # "is Cloudless a store or SaaS?" and got looped through the form).
     return any(
         kw in t
         for kw in (
             "audit",
-            "free audit",
-            "book",
+            "book a demo",
+            "book a call",
             "demo",
             "call me",
-            "contact",
-            "cloudless",
-            "growth",
-            "cloud",
+            "get a quote",
+            "talk to sales",
+            "talk to someone",
             "συνεργασία",
-            "audit",
             "ραντεβού",
             "επικοινωνία",
+        )
+    )
+
+
+def is_lead_capture_exit(text: str) -> bool:
+    """True when the user wants out of the lead-capture form."""
+    t = (text or "").strip().lower()
+    return any(
+        kw in t
+        for kw in (
+            "stop",
+            "cancel",
+            "nevermind",
+            "never mind",
+            "no thanks",
+            "not interested",
+            "leave me alone",
+            "unsubscribe",
+            "forget it",
+            "skip",
+            "σταμάτα",
+            "άστο",
+            "ακύρωση",
+            "όχι ευχαριστώ",
+            "δεν θέλω",
         )
     )
 
@@ -164,15 +202,33 @@ async def handle_lead_capture_message(
         payload = (postback_payload or "").strip().upper()
         text = (inbound_text or "").strip()
 
+        # Escape hatch — explicit opt-out ends the flow and acknowledges it.
+        if is_lead_capture_exit(text):
+            await r.delete(key)
+            return LeadCaptureReply(text=prompts["close"])
+
+        async def _retry_or_close(step_name: str, reply: LeadCaptureReply) -> LeadCaptureReply:
+            """Re-ask once; on the second consecutive miss, close the flow
+            gracefully instead of looping the form at a frustrated user."""
+            attempts = state.get("attempts") or {}
+            n = int(attempts.get(step_name, 0)) + 1
+            if n >= 2:
+                await r.delete(key)
+                return LeadCaptureReply(text=prompts["close"])
+            attempts[step_name] = n
+            state["attempts"] = attempts
+            await r.setex(key, 3600, json.dumps(state))
+            return reply
+
         # Step: name
         if step == LeadCaptureStep.name:
-            if text:
+            if _looks_like_name(text):
                 fields["name"] = text[:200]
                 state["fields"] = fields
                 state["step"] = LeadCaptureStep.email
                 await r.setex(key, 3600, json.dumps(state))
                 return LeadCaptureReply(text=prompts["ask_email"])
-            return LeadCaptureReply(text=prompts["ask_name"])
+            return await _retry_or_close(LeadCaptureStep.name, LeadCaptureReply(text=prompts["ask_name"]))
 
         # Step: email
         if step == LeadCaptureStep.email:
@@ -186,7 +242,7 @@ async def handle_lead_capture_message(
                     text=prompts["ask_company_size"],
                     quick_replies=_company_size_quick_replies(greek=greek),
                 )
-            return LeadCaptureReply(text=prompts["bad_email"])
+            return await _retry_or_close(LeadCaptureStep.email, LeadCaptureReply(text=prompts["bad_email"]))
 
         # Step: company size
         if step == LeadCaptureStep.company_size:
@@ -220,9 +276,12 @@ async def handle_lead_capture_message(
                         size = LeadCompanySize.s_200_plus
 
             if size is None:
-                return LeadCaptureReply(
-                    text=prompts["ask_company_size"],
-                    quick_replies=_company_size_quick_replies(greek=greek),
+                return await _retry_or_close(
+                    LeadCaptureStep.company_size,
+                    LeadCaptureReply(
+                        text=prompts["ask_company_size"],
+                        quick_replies=_company_size_quick_replies(greek=greek),
+                    ),
                 )
 
             fields["company_size"] = size.value
@@ -256,9 +315,12 @@ async def handle_lead_capture_message(
                         interest = LeadInterest.cloud
 
             if interest is None:
-                return LeadCaptureReply(
-                    text=prompts["ask_interest"],
-                    quick_replies=_interest_quick_replies(greek=greek),
+                return await _retry_or_close(
+                    LeadCaptureStep.interest,
+                    LeadCaptureReply(
+                        text=prompts["ask_interest"],
+                        quick_replies=_interest_quick_replies(greek=greek),
+                    ),
                 )
 
             fields["interest"] = interest.value
