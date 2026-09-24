@@ -31,8 +31,8 @@ from app.models.user import Team
 from app.services.email_digest import _html_escape, send_email
 from app.services.insights_engine import build_team_insights
 from app.services.publishing import _media_public_url
-from app.services.tiktok_api import is_tiktok_publish_id
 from app.services.slack_digest import DigestReport, build_daily_digest
+from app.services.tiktok_api import is_tiktok_publish_id
 
 logger = logging.getLogger(__name__)
 
@@ -490,7 +490,7 @@ def _parse_actions(text: str) -> list[str]:
                 continue
             # The model sometimes emits the same action twice with a slightly
             # different tail ("…again"). Drop near-duplicates.
-            if any(is_duplicate(action, seen, threshold=0.7) for seen in actions):
+            if any(is_duplicate(action, seen, threshold=0.85) for seen in actions):
                 continue
             actions.append(action)
     return actions[:_MAX_ACTIONS]
@@ -514,8 +514,12 @@ async def _llm_actions(
         f"engagement {digest.engagement_24h}.\n\n"
         f"Write {_MAX_ACTIONS} concrete actions for tomorrow as a numbered "
         "list. Each action must be specific (which platform, what content "
-        "type, when to post, why based on the numbers). No preamble, no "
-        "closing remarks — only the numbered list."
+        "type, when to post, why based on the numbers). Do not repeat the "
+        "same platform+time action twice. Do not recommend posting between "
+        "00:00–06:00 Athens unless that hour's sample is explicitly strong — "
+        "a thin overnight bucket is noise; prefer the platform baseline "
+        "windows instead. No preamble, no closing remarks — only the "
+        "numbered list."
     )
     try:
         resp = await call_inference(
