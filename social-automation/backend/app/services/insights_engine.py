@@ -521,10 +521,17 @@ def compute_insights(
         avg_er = round(p["engagement"] / p["impressions"] * 100, 2) if p["impressions"] else 0.0
 
         def _best(buckets: dict[int, list[int]], min_n: int = 2):
+            """Winning bucket's avg ER must beat the platform mean ER by a
+            margin — otherwise the argmax is noise ordering, not a signal."""
             cands = [
                 (k, round(v[1] / v[0], 2)) for k, v in buckets.items() if v[0] >= min_n
             ]
-            return max(cands, key=lambda kv: kv[1]) if cands else None
+            if not cands:
+                return None
+            total_n = sum(v[0] for v in buckets.values())
+            mean_er = sum(v[1] for v in buckets.values()) / total_n if total_n else 0.0
+            win = max(cands, key=lambda kv: kv[1])
+            return win if win[1] > 0 and win[1] >= mean_er * 1.25 else None
 
         media_er = (
             round(p["media_posts"][1] / p["media_posts"][0], 2) if p["media_posts"][0] else None

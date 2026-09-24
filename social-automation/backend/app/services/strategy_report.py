@@ -31,6 +31,7 @@ from app.models.user import Team
 from app.services.email_digest import _html_escape, send_email
 from app.services.insights_engine import build_team_insights
 from app.services.publishing import _media_public_url
+from app.services.tiktok_api import is_tiktok_publish_id
 from app.services.slack_digest import DigestReport, build_daily_digest
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class BriefPost:
     platform_url: str | None = None
     media: list[BriefMedia] = field(default_factory=list)
     missing_media: bool = False
+    pending_inbox: bool = False  # TikTok MEDIA_UPLOAD draft awaiting app publish
 
     @property
     def id_prefix(self) -> str:
@@ -262,7 +264,11 @@ class StrategyReport:
                 if bp.platform_url:
                     bit += f" · {bp.platform_url}"
                 lines.append(bit)
-                if bp.missing_media:
+                if bp.pending_inbox:
+                    lines.append(
+                        "      ⌛ Draft in TikTok app inbox — finish in the app to go live"
+                    )
+                elif bp.missing_media:
                     lines.append("      ⚠ Missing media — every post must have correct media")
                 elif bp.media:
                     parts: list[str] = []
@@ -302,7 +308,13 @@ class StrategyReport:
                     )
                 media_html = self._media_tiles_html(bp, esc)
                 warn = ""
-                if bp.missing_media:
+                if bp.pending_inbox:
+                    warn = (
+                        "<div style='color:#0369a1;font-size:13px;margin-top:6px'>"
+                        "⌛ Draft in TikTok app inbox — finish in the app to go live"
+                        "</div>"
+                    )
+                elif bp.missing_media:
                     warn = (
                         "<div style='color:#b45309;font-size:13px;margin-top:6px'>"
                         "⚠ Missing media — every post must have correct media"
@@ -467,13 +479,20 @@ _ACTION_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*(.+?)\s*$")
 
 def _parse_actions(text: str) -> list[str]:
     """Pull numbered/bulleted action lines out of the model's reply."""
+    from app.services.duplicate_detector import is_duplicate
+
     actions: list[str] = []
     for line in text.splitlines():
         m = _ACTION_LINE.match(line)
         if m:
             action = m.group(1).strip().strip('"')
-            if len(action) > 15:
-                actions.append(action)
+            if len(action) <= 15:
+                continue
+            # The model sometimes emits the same action twice with a slightly
+            # different tail ("…again"). Drop near-duplicates.
+            if any(is_duplicate(action, seen, threshold=0.7) for seen in actions):
+                continue
+            actions.append(action)
     return actions[:_MAX_ACTIONS]
 
 
@@ -565,6 +584,11 @@ async def _load_recent_posts_by_platform(
             # Only include successfully published targets (skip failed/pending).
             if (target.status or "published") != "published":
                 continue
+            # TikTok MEDIA_UPLOAD stores a publish_id (v_inbox_file~/p_pub_…)
+            # — the draft is in the app inbox, not live. Label, don't hide.
+            pending_inbox = platform == "tiktok" and is_tiktok_publish_id(
+                target.platform_post_id
+            )
             bucket = by_platform.setdefault(platform, [])
             if len(bucket) >= max_per_platform:
                 continue
@@ -576,6 +600,7 @@ async def _load_recent_posts_by_platform(
                     platform_url=target.platform_url,
                     media=list(media),
                     missing_media=missing,
+                    pending_inbox=pending_inbox,
                 )
             )
     return by_platform
