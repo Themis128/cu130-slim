@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: BLE001 UP031 -- broad catch retries SPA context destruction; %-format injects JSON into JS without fighting f-string braces.
 """Drive LinkedIn Campaign Manager through the LinkedIn browser sidecar (port 9225).
 
 Usage:
@@ -56,7 +57,7 @@ def eval_retry(script, tries=4, wait=2.5):
         except Exception as e:  # SPA re-navigation destroys the context
             last = e
             time.sleep(wait)
-    raise last
+    raise last if last is not None else RuntimeError("eval_retry: no attempts ran")
 
 
 def cmd_nav(url):
