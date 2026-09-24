@@ -65,9 +65,10 @@ No authentication required — the bridge is internal to the compose network.
 | GET | `/session/cookies` | Extract cookies from active session |
 | POST | `/session/stop` | Stop the current session |
 | POST | `/session/navigate` | Navigate to a URL |
-| POST | `/session/evaluate` | Evaluate JavaScript expression |
-| POST | `/session/click` | Click an element by selector |
-| POST | `/session/fill` | Fill an input/textarea by selector |
+| POST | `/session/evaluate` | Evaluate JavaScript expression (`frame_url` substring targets an iframe, e.g. reCAPTCHA) |
+| GET | `/session/screenshot` | PNG screenshot of the current viewport |
+| POST | `/session/click` | Click an element by selector (picks first *visible* match) |
+| POST | `/session/fill` | Fill an input/textarea by selector (visible match; falls back to real keystrokes) |
 | POST | `/session/upload` | Upload a file to an input[type=file] |
 | POST | `/session/login` | Start a login flow for a platform |
 | POST | `/session/extract` | Extract cookies immediately |
@@ -226,8 +227,11 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
   request). Tagged live-page interactions set a 180s hold owned by that
   platform (`busy_owner`/`busy_until`); while held, any request tagged
   for a *different* platform — or untagged — gets `409 Browser busy`
-  at `_ensure_live_page` (covers navigate/evaluate/fill/click/extract).
-  The owner can re-enter freely. `/session/start` for another platform
+  at `_ensure_live_page` (covers navigate/evaluate/fill/click/
+  mouse-click/upload/login/profile/extract — and `/session/stop`, so a
+  foreign platform cannot tear down a held session).
+  The owner can re-enter freely, and every owner interaction refreshes
+  the hold. `/session/start` for another platform
   also returns 409 while held; a same-platform start reuses the session.
   `{"platform": "...", "force": true}` overrides for manual recovery.
   Untagged calls are safe when no tagged hold is active (legacy
@@ -262,6 +266,17 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
   contention_retries=14)` retries 409s every 20s, escalating to
   `force` on the last 3 tries — publishers outlast poller churn instead
   of burning queue attempts.
+- **Visible-element picking**: `click`/`fill`/`upload` pick the first
+  *visible* match (RN-web dialogs on Threads/IG render hidden duplicate
+  nodes — `.first` can hit a dead copy) and poll ~10s for async mounts.
+  `fill` falls back to `press_sequentially` (real keystrokes) when the
+  element rejects programmatic fill.
+- **Observability**: `GET /session/screenshot` returns a live PNG —
+  use it instead of guessing DOM state. `evaluate` accepts `frame_url`
+  to run inside a matching iframe (reCAPTCHA lives in frames).
+- **Crash cleanup**: if the context dies mid-extraction, dead
+  browser/context/page refs are cleared so the next `/session/start`
+  launches cleanly instead of wedging on a corpse.
 - **Launch collision**: session start cancels the previous
   `_run_browser` task and closes the old context before relaunching;
   `launch_persistent_context` retries once after `pkill -f chromium`
