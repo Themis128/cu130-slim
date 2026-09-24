@@ -97,7 +97,7 @@ async def _run_check() -> dict:
     """Check LinkedIn sidecar session and refresh cookies if alive."""
     settings = get_settings()
     sidecar_url = settings.LINKEDIN_BROWSER_SIDECAR_URL
-    summary = {"sidecar_up": False, "session_alive": False, "cookies_refreshed": False, "accounts_marked": 0}
+    summary = {"sidecar_up": False, "session_alive": False, "cookies_refreshed": False, "accounts_marked": 0, "accounts_restored": 0, "inconclusive": False}
 
     client = LinkedInSidecarClient(base_url=sidecar_url)
 
@@ -132,10 +132,34 @@ async def _run_check() -> dict:
                     logger.warning("Could not save refreshed LinkedIn cookie: %s", exc)
     except LinkedInSidecarError as exc:
         logger.warning("LinkedIn session refresh failed: %s", exc)
+        if exc.status_code != 401:
+            # 429 rate-limits, 5xx, and network errors mean the check could
+            # not determine the session state — leave account status alone
+            # rather than marking accounts expired on a transient failure.
+            summary["inconclusive"] = True
+            logger.info(
+                "LinkedIn session check inconclusive (sidecar %s) — account status untouched",
+                exc.status_code,
+            )
+            return summary
         summary["session_alive"] = False
 
-    # Mark LinkedIn accounts as expired if session is dead
-    if not summary["session_alive"]:
+    # Mark LinkedIn accounts as expired if session is dead; restore accounts
+    # that were marked expired by an earlier transient failure (e.g. a 429
+    # circuit-open) once the session verifies alive again.
+    if summary["session_alive"]:
+        async with _worker_db() as db:
+            result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "linkedin",
+                    SocialAccount.status == "expired",
+                )
+            )
+            for account in result.scalars().all():
+                account.status = "active"
+                summary["accounts_restored"] += 1
+            await db.commit()
+    else:
         async with _worker_db() as db:
             result = await db.execute(
                 select(SocialAccount).where(SocialAccount.platform == "linkedin")
