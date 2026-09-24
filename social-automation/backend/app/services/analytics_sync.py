@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
@@ -360,6 +361,70 @@ async def _fetch_linkedin_org_stats(
 
     return out
 
+async def _fetch_linkedin_ad_stats(
+    client: httpx.AsyncClient,
+    token: str,
+    ad_account_id: str,
+    *,
+    since: datetime,
+) -> dict[str, MetricBundle]:
+    """Campaign-level paid metrics via the Advertising Reporting API.
+
+    Requires the ``r_ads_reporting`` scope — granted by the "Advertising
+    Reporting API" product on the developer app (self-serve in development
+    tier, ≤5 ad accounts). Returns one bundle per sponsoredCampaign URN with
+    daily rows and spend in ``raw`` (MetricBundle has no spend field).
+    """
+    if not ad_account_id:
+        return {}
+    headers = _linkedin_headers(token)
+    end = datetime.now(UTC)
+    date_range = (
+        f"(start:(year:{since.year},month:{since.month},day:{since.day}),"
+        f"end:(year:{end.year},month:{end.month},day:{end.day}))"
+    )
+    fields = (
+        "impressions,clicks,landingPageClicks,reactions,comments,shares,"
+        "totalEngagements,approximateUniqueImpressions,"
+        "costInLocalCurrency,costInUsd,pivotValues,dateRange"
+    )
+    url = (
+        "https://api.linkedin.com/rest/adAnalytics"
+        f"?q=analytics&pivot=CAMPAIGN&timeGranularity=DAILY"
+        f"&dateRange={date_range}"
+        f"&accounts={_restli_list([f'urn:li:sponsoredAccount:{ad_account_id}'])}"
+        f"&fields={fields}"
+    )
+    resp = await client.get(url, headers=headers)
+    if resp.status_code >= 400:
+        return {"_error": MetricBundle(notes=f"adAnalytics HTTP {resp.status_code}: {resp.text[:200]}")}
+
+    out: dict[str, MetricBundle] = {}
+    for el in (resp.json() or {}).get("elements") or []:
+        pivots = el.get("pivotValues") or []
+        campaign = next(
+            (str(p) for p in pivots if "sponsoredCampaign" in str(p)),
+            str(pivots[0]) if pivots else "unknown",
+        )
+        bundle = out.setdefault(campaign, MetricBundle(raw={"daily": [], "costLocal": 0.0, "costUsd": 0.0}))
+        bundle.impressions += int(el.get("impressions") or 0)
+        bundle.clicks += int(el.get("clicks") or 0)
+        bundle.likes += int(el.get("reactions") or 0)
+        bundle.comments += int(el.get("comments") or 0)
+        bundle.shares += int(el.get("shares") or 0)
+        bundle.reach += int(el.get("approximateUniqueImpressions") or 0)
+        bundle.raw["costLocal"] = round(bundle.raw["costLocal"] + float(el.get("costInLocalCurrency") or 0), 2)
+        bundle.raw["costUsd"] = round(bundle.raw["costUsd"] + float(el.get("costInUsd") or 0), 2)
+        bundle.raw["daily"].append({
+            "dateRange": el.get("dateRange"),
+            "impressions": el.get("impressions"),
+            "clicks": el.get("clicks"),
+            "totalEngagements": el.get("totalEngagements"),
+            "costInLocalCurrency": el.get("costInLocalCurrency"),
+        })
+    return out
+
+
 async def _fetch_org_lifetime_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -665,6 +730,27 @@ async def sync_linkedin_account(
                 source="linkedin_org" if is_org else "linkedin_member",
                 result=result,
             )
+
+        # Paid (Boost) analytics — Advertising Reporting API. Only queried
+        # when the token actually carries r_ads_reporting and an ad account
+        # is configured; otherwise this is a no-op.
+        ad_account_id = (get_settings().LINKEDIN_AD_ACCOUNT_ID or "").strip()
+        if is_org and ad_account_id and "r_ads_reporting" in (account.scopes or []):
+            ad_stats = await _fetch_linkedin_ad_stats(client, token, ad_account_id, since=since)
+            for campaign_urn, ad_metrics in ad_stats.items():
+                if campaign_urn == "_error":
+                    result.errors.append(ad_metrics.notes or "adAnalytics error")
+                    continue
+                await _persist_snapshot(
+                    db,
+                    account=account,
+                    post_id=None,
+                    platform_post_id=campaign_urn,
+                    metrics=ad_metrics,
+                    captured_at=captured_at,
+                    source="linkedin_ads",
+                    result=result,
+                )
 
         if is_org and not (org_lifetime.notes or "").startswith("org lifetime HTTP"):
             await _persist_snapshot(

@@ -231,6 +231,18 @@ LINKEDIN_SCOPES: list[str] = [
     # statistics endpoints (share/follower stats feed the insights engine).
     "r_organization_social",
 ]
+
+
+def _linkedin_scopes() -> list[str]:
+    """LINKEDIN_SCOPES plus opt-in extras from LINKEDIN_EXTRA_SCOPES.
+
+    Extras (e.g. ``r_ads_reporting`` for Advertising Reporting API) must only
+    be configured after the matching product is enabled on the developer app —
+    requesting an unapproved scope degrades the consent screen.
+    """
+    scopes = list(LINKEDIN_SCOPES)
+    extra = (get_settings().LINKEDIN_EXTRA_SCOPES or "").replace(",", " ").split()
+    return scopes + [s for s in extra if s not in scopes]
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
     client_id=settings.INSTAGRAM2_CLIENT_ID,
@@ -1134,7 +1146,7 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         )
 
     PLATFORM_SCOPES: dict[str, list[str]] = {
-        "linkedin": LINKEDIN_SCOPES,
+        "linkedin": _linkedin_scopes(),
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
         "facebook": [
             "public_profile",
@@ -1295,7 +1307,7 @@ async def oauth_callback(
             username = user_info.get("email")
             display_name = f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip()
             avatar_url = user_info.get("picture")
-            scopes = LINKEDIN_SCOPES
+            scopes = _linkedin_scopes()
             # Discover company pages this member can post as (e.g. cloudless.gr).
             # Best-effort: a transient LinkedIn API / ACL failure must not fail the
             # whole connect after the user already granted consent on the OAuth page
