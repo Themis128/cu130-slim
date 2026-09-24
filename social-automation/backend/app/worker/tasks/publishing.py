@@ -16,6 +16,7 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
+from app.services.duplicate_detector import is_duplicate
 from app.services.publishing import publish_to_platform
 from app.services.slack_notifications import post_alert_to_slack, post_publishing_to_slack
 from app.services.spellcheck import auto_correct
@@ -288,11 +289,6 @@ async def _process_publish_queue_async() -> None:
                     )
                     continue
 
-                if post.content_text:
-                    post.content_text = await auto_correct(post.content_text)
-
-                pub = await publish_to_platform(account, post, db)
-
                 target_result = await db.execute(
                     select(PostTarget).where(
                         PostTarget.post_id == post.id,
@@ -300,6 +296,44 @@ async def _process_publish_queue_async() -> None:
                     )
                 )
                 target = target_result.scalar_one_or_none()
+
+                # Duplicate guard: two distinct Post rows with identical copy
+                # can land in the same slot (e.g. a re-generated draft). Don't
+                # re-post the same content to the same account inside 24h.
+                # Recurring posts are exempt — republishing is their point.
+                if not post.is_recurring:
+                    recent_texts = (
+                        await db.execute(
+                            select(Post.content_text)
+                            .join(PostTarget, PostTarget.post_id == Post.id)
+                            .where(
+                                PostTarget.social_account_id == account.id,
+                                PostTarget.status == "published",
+                                PostTarget.published_at >= now - timedelta(hours=24),
+                                Post.id != post.id,
+                            )
+                        )
+                    ).scalars().all()
+                    if any(
+                        is_duplicate(post.content_text or "", t or "", threshold=0.9)
+                        for t in recent_texts
+                    ):
+                        item.status = QueueStatus.COMPLETED
+                        if target:
+                            target.status = "skipped"
+                            target.error_message = (
+                                "Skipped: identical content already published to "
+                                "this account within the last 24h"
+                            )
+                        await db.flush()
+                        await _rollup_post_status(post, db)
+                        await db.commit()
+                        continue
+
+                if post.content_text:
+                    post.content_text = await auto_correct(post.content_text)
+
+                pub = await publish_to_platform(account, post, db)
 
                 if pub.success:
                     item.status = QueueStatus.COMPLETED
