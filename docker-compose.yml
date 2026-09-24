@@ -1501,6 +1501,35 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # Jupyter scratchpad for ad-hoc analytics against social-postgres.
+  # Localhost-only (SSH tunnel / Tailscale) — token auth from .env.
+  # Never expose this port publicly: it is remote code execution.
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:x86_64-2025-07-28
+    pull_policy: if_not_present
+    container_name: social-jupyter
+    networks:
+      - backend
+      - db
+    ports:
+      - 127.0.0.1:8888:8888
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./jupyter/start-notebook.d:/usr/local/bin/start-notebook.d:ro
+      - ./.env:/home/jovyan/.env:ro
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
+      - TZ=Europe/Athens
+    <<: *public-dns
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8888/api || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
   portainer_data: null
   postgres_data: null
