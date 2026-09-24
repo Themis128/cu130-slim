@@ -54,6 +54,12 @@ Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails o
 | flower | 5555 | Celery UI |
 | social-metrics | 9390→80 | Prometheus/nginx metrics |
 | dmr-watchdog | — | restarts docker-model-runner when wedged |
+| jupyter | 8888 | scipy notebook scratchpad — `social-postgres` analytics, `JUPYTER_TOKEN` auth, localhost-only |
+| api-gateway | (internal) | nginx stable `/api/v1` upstream for blue/green deploys |
+| n8n-sandbox | — | AI code sandbox for n8n |
+| portainer | 9000 | container management |
+| linkedin-mcp-server | 9227 | LinkedIn MCP server |
+| airbyte-mcp-server | 9228/9229 | Airbyte MCP connector |
 
 Not in Compose: **DMR** (Docker Model Runner, host engine on `localhost:12435` / `host.docker.internal:12435`). Port **12434 is unused** on this workstation.
 

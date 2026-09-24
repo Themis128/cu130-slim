@@ -566,7 +566,7 @@ Beat Schedule:
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
-## Docker Compose Stack (34 services)
+## Docker Compose Stack (36 services + 1 blue/green slot)
 
 ### Core Application
 
@@ -667,15 +667,35 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ management  │  │ backend     │  │             │                 │
 │  └─────────────┘  └─────────────┘  └─────────────┘                 │
 │                                                                     │
-│  ┌─────────────┐                                                    │
-│  │ airbyte-mcp │  Host-level (not Compose):                        │
-│  │ :9228/9229  │  ┌──────────────────────────────────────┐         │
-│  │             │  │ Docker Model Runner (DMR) :12435     │         │
-│  │ Airbyte MCP │  │ Text: qwen3:8b  Vision: qwen3-vl     │         │
-│  │ connector   │  │ Embeddings: qwen3-embedding           │         │
-│  └─────────────┘  └──────────────────────────────────────┘         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │ airbyte-mcp │  │ api-gateway │  │ flower      │  │ jupyter    │ │
+│  │ :9228/9229  │  │ (internal)  │  │ :5555       │  │ :8888      │ │
+│  │             │  │             │  │             │  │            │ │
+│  │ Airbyte MCP │  │ nginx       │  │ Celery      │  │ scipy      │ │
+│  │ connector   │  │ stable /api │  │ monitor     │  │ notebook   │ │
+│  │             │  │ upstream    │  │             │  │ scratchpad │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐                                   │
+│  │ social-     │  │ dmr-        │  Host-level (not Compose):        │
+│  │ metrics     │  │ watchdog    │  ┌──────────────────────────┐     │
+│  │ :9390       │  │             │  │ Docker Model Runner      │     │
+│  │             │  │ docker CLI  │  │ :12435                   │     │
+│  │ nginx       │  │ restarts    │  │ Text: qwen3:8b           │     │
+│  │ /metrics    │  │ DMR on fail │  │ Vision: qwen3-vl         │     │
+│  │ exporter    │  │             │  │ Embeddings: qwen3-embed. │     │
+│  └─────────────┘  └─────────────┘  └──────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+**Jupyter scratchpad (`social-jupyter`)** — ad-hoc analytics against
+`social-postgres` via the injected `DATABASE_URL` (psycopg2). Bound to
+`127.0.0.1:8888` with `JUPYTER_TOKEN` auth — reach it over SSH tunnel or
+Tailscale only; it is remote code execution and must never be exposed
+publicly. `jupyter/start-notebook.d/` installs DB drivers at container
+start; shared notebooks live in `./notebooks/` (bind-mounted). The stack
+`.env` is intentionally **not** mounted — inject specific env vars in
+compose instead.
 
 ## Data Flow Architecture
 
@@ -1322,6 +1342,7 @@ or managed later from the **Discount tab** on `/settings/billing`:
 | `SMTP_*` | Transactional email |
 | `POLAR_MAILBOX_*` | polar@cloudless.gr mailbox on OMV-HA |
 | `OMV_SSH_*` | OMV-HA mail server admin (key-based SSH) |
+| `JUPYTER_TOKEN` | Jupyter notebook login (localhost-only, never expose publicly) |
 
 ## Quota Tiers
 
@@ -1338,8 +1359,8 @@ Admin team is auto-set to Enterprise with unlimited everything.
 
 | Network | Purpose | Services |
 |---------|---------|----------|
-| `backend` | Main internal | API, workers, Redis, Postgres, n8n |
-| `db` | Database | Postgres instances |
+| `backend` | Main internal | API, workers, Redis, Postgres, n8n, jupyter |
+| `db` | Database | Postgres instances, jupyter |
 | `frontend` | Frontend | social-frontend, env-manager |
 | `gpu` | GPU services | ComfyUI, local-diffusers |
 | `default` | Tunnel/misc | cloudflared |
@@ -1367,6 +1388,8 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 8083 | social-api | FastAPI |
 | 9000 | portainer | Container mgmt |
 | 5555 | flower | Celery monitor |
+| 8888 | jupyter | Analytics notebook (token auth) |
+| 9390 | social-metrics | nginx /metrics exporter |
 | 9100/9101 | minio | S3 storage |
 | 9223 | browser-novnc | CDP bridge |
 | 9224 | tiktok-browser-sidecar | TikTok |
@@ -1391,7 +1414,7 @@ All components verified live:
 | Celery workers | 4 nodes (publishing, media, default, messenger) |
 | Celery beat | running |
 | MCP tools | 27 registered |
-| Backend tests | 610 passed, 1 skipped |
+| Backend tests | 840 passed, 1 skipped |
 | MCP tests | 10/10 passed |
 | Ruff lint | All checks passed |
 | TypeScript | 0 errors |
