@@ -526,6 +526,59 @@ async def delete_brand_asset(
     await db.commit()
 
 
+class AdKitRequest(BaseModel):
+    headline: str
+    subline: str = ""
+    cta: str = "Learn more"
+    stat: str | None = None
+    stat_label: str | None = None
+    image_prompt: str | None = None
+
+
+class AdKitAssetOut(BaseModel):
+    id: uuid.UUID
+    filename: str | None
+    public_url: str | None
+    width: int | None
+    height: int | None
+
+
+@router.post("/ad-kit", response_model=list[AdKitAssetOut])
+async def generate_ad_brand_kit(
+    data: AdKitRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a full branded ad-creative kit in all LinkedIn ad sizes
+    (1200x627 landscape, 1080x1080 square, 1080x1350 portrait), persist each
+    at full resolution in the media library, and register them as brand assets.
+    """
+    from app.services.carousel_pipeline import build_ad_brand_kit
+
+    team = await _get_team(current_user, db)
+    brand = (await db.execute(select(Brand).where(Brand.team_id == team.id))).scalars().first()
+
+    assets = await build_ad_brand_kit(
+        db,
+        team_id=team.id, user_id=current_user.id,
+        headline=data.headline, subline=data.subline, cta=data.cta,
+        stat=data.stat, stat_label=data.stat_label,
+        image_prompt=data.image_prompt,
+    )
+    if brand:
+        for a in assets:
+            db.add(BrandAsset(
+                brand_id=brand.id,
+                asset_type=BrandAssetType.social_template,
+                name=a.filename,
+                media_asset_id=a.id,
+                file_url=a.public_url,
+                asset_metadata={"kit": "linkedin-ad", "width": a.width, "height": a.height},
+            ))
+    await db.commit()
+    return assets
+
+
 # ── AI Brand Kit Extractor ────────────────────────────────────────────────────
 
 

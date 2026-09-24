@@ -425,6 +425,173 @@ async def _fetch_linkedin_ad_stats(
     return out
 
 
+async def _fetch_linkedin_follower_stats(
+    client: httpx.AsyncClient,
+    token: str,
+    org_urn: str,
+    *,
+    days: int = 30,
+) -> dict[str, Any]:
+    """Follower analytics for the org page (r_organization_social).
+
+    Lifetime call returns demographic breakdowns (country, industry, function,
+    seniority, company size). Time-bound call returns daily organic/paid
+    follower counts. Total live followers come from networkSizes.
+    """
+    headers = _linkedin_headers(token)
+    org_q = quote(org_urn, safe="")
+    base = "https://api.linkedin.com/rest/organizationalEntityFollowerStatistics"
+    out: dict[str, Any] = {}
+
+    resp = await client.get(
+        f"{base}?q=organizationalEntity&organizationalEntity={org_q}",
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        el = ((resp.json() or {}).get("elements") or [{}])[0]
+        out["demographics"] = {
+            k: v for k, v in el.items() if k.startswith("followerCountsBy")
+        }
+    else:
+        out["demographics_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+
+    # Time-bound gains — LinkedIn accepts raw Rest.li object syntax in the
+    # query string (encoding the parens breaks it). Data lags ~2 days, so the
+    # range ends 3 days back.
+    end_ms = int(datetime.now(UTC).timestamp() * 1000) - 3 * 86400_000
+    start_ms = end_ms - days * 86400_000
+    tr = f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
+    resp = await client.get(
+        f"{base}?q=organizationalEntity&organizationalEntity={org_q}&timeIntervals={tr}",
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        daily = []
+        organic = paid = 0
+        for el in (resp.json() or {}).get("elements") or []:
+            fc = el.get("followerGains") or {}
+            o = int(fc.get("organicFollowerGain") or 0)
+            p = int(fc.get("paidFollowerGain") or 0)
+            organic += o
+            paid += p
+            daily.append({
+                "range": el.get("timeRange"),
+                "organic": o,
+                "paid": p,
+            })
+        out["follower_gains"] = {"organic": organic, "paid": paid, "days": days}
+        out["daily"] = daily
+    else:
+        out["gains_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+
+    # Total follower count — networkSizes (Organization Lookup). Enum is
+    # COMPANY_FOLLOWED_BY_MEMBER on API versions >= 202305.
+    resp = await client.get(
+        f"https://api.linkedin.com/rest/networkSizes/{org_q}"
+        f"?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        out["total_followers"] = int(
+            (resp.json() or {}).get("firstDegreeSize") or 0
+        )
+    else:
+        out["total_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+    return out
+
+
+async def _fetch_linkedin_page_stats(
+    client: httpx.AsyncClient,
+    token: str,
+    org_urn: str,
+    *,
+    days: int = 30,
+) -> dict[str, Any]:
+    """Page view/click statistics for the org page (r_organization_social)."""
+    headers = _linkedin_headers(token)
+    org_q = quote(org_urn, safe="")
+    base = "https://api.linkedin.com/rest/organizationPageStatistics"
+    out: dict[str, Any] = {}
+
+    resp = await client.get(
+        f"{base}?q=organization&organization={org_q}", headers=headers
+    )
+    if resp.status_code < 400:
+        out["lifetime"] = (resp.json() or {}).get("elements") or []
+    else:
+        out["lifetime_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+
+    end_ms = int(datetime.now(UTC).timestamp() * 1000) - 3 * 86400_000
+    start_ms = end_ms - days * 86400_000
+    tr = f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
+    resp = await client.get(
+        f"{base}?q=organization&organization={org_q}&timeIntervals={tr}",
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        elements = (resp.json() or {}).get("elements") or []
+        out["period"] = {"days": days, "daily": elements}
+    else:
+        out["period_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+    return out
+
+
+_MEMBER_POST_QUERY_TYPES = (
+    "IMPRESSION",
+    "MEMBERS_REACHED",
+    "RESHARE",
+    "REACTION",
+    "COMMENT",
+)
+
+
+async def _fetch_member_post_analytics(
+    client: httpx.AsyncClient,
+    token: str,
+    post_urn: str,
+) -> dict[str, Any]:
+    """Creator post analytics for the authenticated member's own posts.
+
+    Requires the ``r_member_postAnalytics`` scope (Community Management API).
+    If the dev app doesn't carry it this returns a 403 — callers treat that
+    as "not granted", not an outage. ``entity`` takes the bare post URN.
+    """
+    headers = _linkedin_headers(token)
+    base = (
+        "https://api.linkedin.com/rest/memberCreatorPostAnalytics"
+        f"?q=entity&entity={quote(post_urn, safe='')}"
+    )
+    metrics: dict[str, Any] = {}
+    for query_type in _MEMBER_POST_QUERY_TYPES:
+        resp = await client.get(
+            f"{base}&queryType={query_type}&aggregation=TOTAL",
+            headers=headers,
+        )
+        if resp.status_code >= 400:
+            if resp.status_code in (401, 403):
+                return {"error": f"HTTP {resp.status_code}", "status": resp.status_code}
+            metrics[query_type] = f"HTTP {resp.status_code}"
+            continue
+        elements = (resp.json() or {}).get("elements") or []
+        total = sum(
+            int(dp.get("metricValue") or 0)
+            for el in elements
+            for dp in (el.get("metricDataResults") or [])
+        ) or sum(int(el.get("value") or 0) for el in elements)
+        metrics[query_type] = total
+        metrics[f"{query_type}_raw"] = elements
+    # Daily impression trend for charts.
+    resp = await client.get(
+        f"{base}&queryType=IMPRESSION&aggregation=DAILY",
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        metrics["IMPRESSION_DAILY"] = (resp.json() or {}).get("elements") or []
+    if not metrics:
+        return {"error": "no metrics returned", "status": 200}
+    return {"data": metrics}
+
+
 async def _fetch_org_lifetime_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -661,6 +828,8 @@ async def sync_linkedin_account(
             all_urns = list(urn_to_post_id.keys())
             stats_map = await _fetch_linkedin_org_stats(client, token, org, all_urns)
             org_lifetime = await _fetch_org_lifetime_stats(client, token, org)
+            follower_stats = await _fetch_linkedin_follower_stats(client, token, org)
+            page_stats = await _fetch_linkedin_page_stats(client, token, org)
         else:
             stats_map = {}
             org_lifetime = MetricBundle(notes="member_account_no_org_stats")
@@ -715,6 +884,23 @@ async def sync_linkedin_account(
                 stats_map.setdefault(
                     urn, MetricBundle(notes="member_stats_not_implemented")
                 )
+            # Creator post analytics (r_member_postAnalytics, dev-tier product).
+            # Probe once — a 403 means the scope isn't granted, so skip the rest.
+            member_api_ok = True
+            for urn in all_urns:
+                if not member_api_ok:
+                    break
+                res = await _fetch_member_post_analytics(client, token, urn)
+                if res.get("status") in (401, 403):
+                    member_api_ok = False
+                    for u in all_urns:
+                        bundle = stats_map.setdefault(u, MetricBundle())
+                        bundle.notes = "member_postAnalytics_scope_missing"
+                    break
+                if res.get("data"):
+                    bundle = stats_map.setdefault(urn, MetricBundle())
+                    bundle.raw = {**(bundle.raw or {}), "creator_analytics": res["data"]}
+                    bundle.notes = None
 
         for urn in all_urns:
             metrics = stats_map.get(urn) or MetricBundle(notes="missing_stats")
@@ -772,6 +958,45 @@ async def sync_linkedin_account(
                     "comments_lifetime": org_lifetime.comments,
                     "shares_lifetime": org_lifetime.shares,
                     "engagement_lifetime": org_lifetime.engagement,
+                },
+            )
+
+            # Follower demographics + growth (r_organization_social).
+            total_followers = int(follower_stats.get("total_followers") or 0)
+            if total_followers:
+                db.add(FollowerSnapshot(
+                    team_id=account.team_id, social_account_id=account.id,
+                    platform="linkedin", followers=total_followers,
+                ))
+            await _persist_snapshot(
+                db, account=account, post_id=None,
+                platform_post_id=org,
+                metrics=MetricBundle(raw=follower_stats),
+                captured_at=captured_at,
+                source="linkedin_follower_stats",
+                result=result,
+            )
+            _persist_account_event(
+                db, account, captured_at, "follower_insights", {
+                    "total_followers": total_followers,
+                    "follower_gains": follower_stats.get("follower_gains"),
+                    "demographics": follower_stats.get("demographics"),
+                },
+            )
+
+            # Page view/click statistics.
+            await _persist_snapshot(
+                db, account=account, post_id=None,
+                platform_post_id=org,
+                metrics=MetricBundle(raw=page_stats),
+                captured_at=captured_at,
+                source="linkedin_page_stats",
+                result=result,
+            )
+            _persist_account_event(
+                db, account, captured_at, "page_insights", {
+                    "daily_period_days": (page_stats.get("period") or {}).get("days"),
+                    "lifetime_facets": page_stats.get("lifetime"),
                 },
             )
 
