@@ -885,14 +885,10 @@ async def sync_linkedin_account(
                     urn, MetricBundle(notes="member_stats_not_implemented")
                 )
             # Creator post analytics (r_member_postAnalytics, dev-tier product).
-            # Probe once — a 403 means the scope isn't granted, so skip the rest.
-            member_api_ok = True
+            # A 403 means the scope isn't granted — mark all and stop.
             for urn in all_urns:
-                if not member_api_ok:
-                    break
                 res = await _fetch_member_post_analytics(client, token, urn)
                 if res.get("status") in (401, 403):
-                    member_api_ok = False
                     for u in all_urns:
                         bundle = stats_map.setdefault(u, MetricBundle())
                         bundle.notes = "member_postAnalytics_scope_missing"

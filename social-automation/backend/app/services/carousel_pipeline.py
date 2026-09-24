@@ -564,10 +564,10 @@ def compose_ad_creative(
             bg_img.resize((width, height), Image.Resampling.LANCZOS).convert("RGB"),
             alpha=0.25,
         )
-    draw = ImageDraw.Draw(img)
 
     # Legibility scrim — a second pass of brand canvas darkens the photo so
-    # copy always reads (effective photo contribution ≈ 19%).
+    # copy always reads (effective photo contribution ≈ 19%). Draw on the
+    # blended result, not the pre-scrim image.
     img = Image.blend(img, Image.new("RGB", (width, height), bg_c), alpha=0.25)
     draw = ImageDraw.Draw(img)
 
