@@ -147,8 +147,11 @@ class InstagrapiClient:
         try:
             settings = json.loads(self._session_file.read_text())
             cl.set_settings(settings)
-            # Re-login using saved session cookies; avoids a full password handshake.
-            cl.relogin()
+            # Canonical restore flow: login() validates the loaded session via
+            # account_info() and only falls back to a password handshake when
+            # Instagram rejects it. relogin() would unconditionally clear the
+            # cookies we just restored and force a fresh password login.
+            cl.login(self._username, self._password)
             logger.info("instagrapi: restored session for %s", self._username)
             return True
         except Exception as exc:
