@@ -205,6 +205,24 @@ async def _notify_human_handoff(
     except Exception:
         logger.debug("DM handoff Slack notify failed (non-fatal)", exc_info=True)
 
+    try:
+        if not (settings.DIGEST_EMAIL_TO or "").strip():
+            return
+        from app.services.email_digest import send_email
+
+        await send_email(
+            subject=f"[SocialAuto] IG DM needs a human: {convo_name}",
+            text_body=(
+                "The Instagram bot paused a thread for human takeover.\n\n"
+                f"Account: {account.display_name or account.id}\n"
+                f"From: {convo_name} (thread {thread_id[:24]}…)\n"
+                f"Message: {inbound_text[:300]}\n\n"
+                "Resume the bot from the SocialAuto admin inbox when done."
+            ),
+        )
+    except Exception:
+        logger.debug("DM handoff email notify failed (non-fatal)", exc_info=True)
+
 
 async def _process_account(
     db: AsyncSession,
