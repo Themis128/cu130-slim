@@ -210,6 +210,35 @@ async def resume_thread(account_id: str, thread_id: str) -> None:
         pass
 
 
+# ── Frustration / human-handoff detection ─────────────────────────
+
+_FRUSTRATION_MARKERS = (
+    # English — explicit escalation requests + frustration
+    "talk to a human", "real person", "human please", "speak to someone",
+    "talk to someone", "actual person", "stop messaging", "stop texting",
+    "stop replying", "stop it", "annoying", "relentless", "useless bot",
+    "stupid bot", "spam", "leave me alone", "wasting my time",
+    "not helpful", "you're not listening", "you are not listening",
+    "answer my question", "frustrat",
+    # Greek
+    "άνθρωπο", "πραγματικό άτομο", "σταμάτα", "ενοχλείς", "ενόχληση",
+    "σπαμ", "άστο με ήσυχο", "δεν απαντάς",
+)
+
+
+def is_frustrated_message(text: str) -> bool:
+    """Detect frustrated/escalation-seeking messages that should be handed
+    to a human rather than answered by the bot.
+
+    Deterministic keyword match (fast, testable). Complements the AI
+    intent classifier — frustration is a routing decision, not a topic.
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    return any(marker in t for marker in _FRUSTRATION_MARKERS)
+
+
 # ── First-contact disclosure (Meta policy) ──────────────────────────
 
 

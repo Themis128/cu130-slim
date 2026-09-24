@@ -46,7 +46,9 @@ from app.services.messenger_chatbot import (
     check_cooldown,
     detect_intent,
     generate_contextual_reply,
+    is_frustrated_message,
     is_thread_paused,
+    pause_thread,
     retrieve_brand_context,
     set_cooldown,
     store_message_memory,
@@ -162,6 +164,46 @@ async def _poll_instagram_messenger_async() -> dict:
 
     logger.info("Instagram DM poll complete: %s", stats)
     return stats
+
+
+async def _notify_human_handoff(
+    account: SocialAccount,
+    convo_name: str,
+    thread_id: str,
+    inbound_text: str,
+) -> None:
+    """Slack alert when the bot pauses a thread for human takeover."""
+    settings = get_settings()
+    try:
+        from app.services.slack_notifications import _post_slack_text
+
+        webhook = (
+            (getattr(settings, "SLACK_LEADS_WEBHOOK_URL", "") or "").strip()
+            or (settings.SLACK_WEBHOOK_URL or "").strip()
+        )
+        token = (settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip()
+        channel = (
+            (getattr(settings, "SLACK_LEADS_CHANNEL_ID", "") or "").strip()
+            or (settings.SLACK_CHANNEL_ID or "").strip()
+        )
+        if not webhook and not (token and channel):
+            return
+        text = (
+            "*IG DM needs a human* :rotating_light:\n"
+            f"- Account: `{account.display_name or account.id}`\n"
+            f"- From: `{convo_name}` (thread `{thread_id[:24]}…`)\n"
+            f"- Message: {inbound_text[:300]}\n"
+            "- Bot is paused on this thread until resumed."
+        )
+        await _post_slack_text(
+            text=text,
+            webhook_url=webhook,
+            token=token,
+            channel_id=channel,
+            purpose="dm-handoff",
+        )
+    except Exception:
+        logger.debug("DM handoff Slack notify failed (non-fatal)", exc_info=True)
 
 
 async def _process_account(
@@ -351,6 +393,14 @@ async def _process_account(
 
             # 6. Check human handoff
             if await is_thread_paused(account.id, seen_key):
+                continue
+
+            # 6b. Frustrated message → pause the bot on this thread and
+            # alert a human on Slack. A bot answering an angry user makes
+            # things worse; silence + fast human response is correct.
+            if is_frustrated_message(text):
+                await pause_thread(account.id, seen_key, reason="negative_sentiment")
+                await _notify_human_handoff(account, convo_name, seen_key, text)
                 continue
 
             # Lead capture (scaffold): intercept and run a simple qualification flow.
