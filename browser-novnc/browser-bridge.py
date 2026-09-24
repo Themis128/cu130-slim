@@ -233,47 +233,6 @@ async def _ensure_live_page():
     to treat a non-None ``_state['page']`` as valid and then hit
     ``Target page, context or browser has been closed``.
     """
-    # #region agent log
-    def _dbg(message: str, data: dict) -> None:
-        try:
-            import json as _json
-            import time as _t
-            import urllib.request as _urlreq
-
-            payload = _json.dumps(
-                {
-                    "sessionId": "ce3429",
-                    "runId": "post-fix",
-                    "hypothesisId": "H2",
-                    "location": "browser-bridge._ensure_live_page",
-                    "message": message,
-                    "data": data,
-                    "timestamp": int(_t.time() * 1000),
-                }
-            ).encode()
-            req = _urlreq.Request(
-                "http://host.docker.internal:7498/ingest/539d7b50-953d-4771-ac13-21f8bcf3a397",
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Debug-Session-Id": "ce3429",
-                },
-                method="POST",
-            )
-            _urlreq.urlopen(req, timeout=1).read()
-        except Exception:
-            pass
-
-    _dbg(
-        "ensure_live_page entry",
-        {
-            "has_page": _state.get("page") is not None,
-            "has_context": _state.get("context") is not None,
-            "status": _state.get("status"),
-        },
-    )
-    # #endregion
-
     # Busy-hold enforcement: while a platform is actively using the
     # browser, only requests tagged with that platform (X-Platform header)
     # may touch the page. Foreign-platform and untagged calls get 409 —
@@ -318,17 +277,11 @@ async def _ensure_live_page():
                 continue
             _state["page"] = candidate
             _touch()
-            # #region agent log
-            _dbg("recovered existing open page from context", {})
-            # #endregion
             return candidate
 
         page = await context.new_page()
         _state["page"] = page
         _touch()
-        # #region agent log
-        _dbg("opened new page on existing context", {})
-        # #endregion
         return page
     except HTTPException:
         raise
@@ -340,14 +293,38 @@ async def _ensure_live_page():
         _state["busy_until"] = 0.0
         _state["busy_owner"] = None
         _state["message"] = f"Browser session died: {exc}"
-        # #region agent log
-        _dbg("context dead; cleared state", {"error": str(exc)[:200]})
-        # #endregion
         raise HTTPException(
             400,
             "Browser session closed — restart via /session/start",
         ) from exc
 
+
+async def _pick_visible(locator, timeout_ms: int = 10000):
+    """Return the first *visible* match for a locator, waiting for mounts.
+
+    React Native Web dialogs (Threads, IG edit sheets) render duplicate
+    nodes — a hidden copy often precedes the live one, so ``.first`` can
+    hit an element that is permanently disabled/invisible. We poll briefly
+    for async mounts, then prefer the first candidate that reports visible.
+    """
+    deadline = time.time() + timeout_ms / 1000
+    while True:
+        try:
+            count = await locator.count()
+        except Exception:
+            count = 0
+        for i in range(min(count, 10)):
+            candidate = locator.nth(i)
+            try:
+                if await candidate.is_visible():
+                    return candidate
+            except Exception:
+                continue
+        if count and time.time() >= deadline:
+            return locator.first  # nothing visible — let the caller fail naturally
+        if time.time() >= deadline:
+            return None
+        await asyncio.sleep(0.25)
 
 
 class StartRequest(BaseModel):
@@ -680,6 +657,15 @@ async def extract_cookies_now():
     except Exception as e:
         _state["status"] = "error"
         _state["message"] = f"Extraction error: {e}"
+        # If the context died mid-extraction (TargetClosedError — tab or
+        # browser crash), drop the dead refs so the next /session/start
+        # launches cleanly instead of reusing a corpse.
+        if "closed" in str(e).lower():
+            _state["context"] = None
+            _state["browser"] = None
+            _state["page"] = None
+            _state["busy_until"] = 0.0
+            _state["busy_owner"] = None
         raise HTTPException(500, str(e))
 
 
@@ -706,9 +692,7 @@ async def login_session(req: LoginRequest):
     Works for Instagram, Facebook, LinkedIn, etc. — finds username/password
     fields by common selectors and submits the form.
     """
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session — start one first")
+    page = await _ensure_live_page()
 
     try:
         # Wait for page to be ready
@@ -892,19 +876,17 @@ async def click_element(req: ClickRequest):
 
     Use ``selector`` for a CSS selector, or ``text`` to click by text content.
     """
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         if req.text:
             # Click by text within the selector
-            locator = page.locator(req.selector, has_text=req.text).first
+            locator = page.locator(req.selector, has_text=req.text)
         else:
-            locator = page.locator(req.selector).first
-        count = await locator.count()
-        if count == 0:
+            locator = page.locator(req.selector)
+        el = await _pick_visible(locator)
+        if el is None:
             raise HTTPException(404, f"Element not found: {req.selector}")
-        await locator.click(force=True, timeout=10000)
+        await el.click(force=True, timeout=10000)
         return {"status": "ok", "clicked": True}
     except HTTPException:
         raise
@@ -920,15 +902,19 @@ class FillRequest(BaseModel):
 @app.post("/session/fill")
 async def fill_field(req: FillRequest):
     """Fill an input field using Playwright's native fill (handles React)."""
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
-        locator = page.locator(req.selector).first
-        count = await locator.count()
-        if count == 0:
+        locator = page.locator(req.selector)
+        el = await _pick_visible(locator)
+        if el is None:
             raise HTTPException(404, f"Element not found: {req.selector}")
-        await locator.fill(req.value, timeout=10000)
+        try:
+            await el.fill(req.value, timeout=10000)
+        except Exception:
+            # Some RN-web fields reject programmatic fill — fall back to
+            # real keystrokes, which React's synthetic events accept.
+            await el.click(timeout=5000)
+            await el.press_sequentially(req.value, timeout=10000)
         return {"status": "ok", "filled": True, "value": req.value}
     except HTTPException:
         raise
@@ -944,9 +930,7 @@ class MouseClickRequest(BaseModel):
 @app.post("/session/mouse-click")
 async def mouse_click(req: MouseClickRequest):
     """Click at exact viewport coordinates using Playwright mouse."""
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         await page.mouse.click(req.x, req.y)
         return {"status": "ok", "clicked": True, "x": req.x, "y": req.y}
@@ -968,9 +952,7 @@ async def upload_file(req: FileUploadRequest):
     the resulting filechooser event (needed for Instagram's photo upload).
     Otherwise, uses set_input_files directly on the selector.
     """
-    page = _state.get("page")
-    if not page:
-        raise HTTPException(400, "No active browser session")
+    page = await _ensure_live_page()
     try:
         if req.click_selector:
             # Set up filechooser listener BEFORE clicking
@@ -980,19 +962,17 @@ async def upload_file(req: FileUploadRequest):
             page.on("filechooser", lambda fc: asyncio.create_task(fc.set_files(req.file_path)))
 
             # Click the element that triggers the file picker
-            click_locator = page.locator(req.click_selector).first
-            count = await click_locator.count()
-            if count == 0:
+            click_el = await _pick_visible(page.locator(req.click_selector))
+            if click_el is None:
                 raise HTTPException(404, f"Click element not found: {req.click_selector}")
-            await click_locator.click()
+            await click_el.click()
             await page.wait_for_timeout(5000)
             return {"status": "ok", "uploaded": True, "method": "filechooser", "click_selector": req.click_selector, "file": req.file_path}
         else:
-            locator = page.locator(req.selector).first
-            count = await locator.count()
-            if count == 0:
+            el = await _pick_visible(page.locator(req.selector))
+            if el is None:
                 raise HTTPException(404, f"Element not found: {req.selector}")
-            await locator.set_input_files(req.file_path)
+            await el.set_input_files(req.file_path)
             return {"status": "ok", "uploaded": True, "method": "set_input_files", "selector": req.selector, "file": req.file_path}
     except HTTPException:
         raise
