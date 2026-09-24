@@ -70,8 +70,8 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
             if len(h) == 3:
                 h = "".join(c * 2 for c in h)
             return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
-        accent = _hex_rgb(visual.primary_color) or ACCENT
-        accent2 = _hex_rgb(visual.accent_color) or ACCENT2
+        accent = _hex_rgb(visual.accent_color) or ACCENT
+        accent2 = _hex_rgb(visual.primary_color) or ACCENT2
         return {
             "bg": BG,
             "accent": accent,
@@ -287,13 +287,18 @@ def _draw_infographic(
 
     if motif == "calendar":
         # Deployment timeline — numbered milestones
-        draw.text((110, 555), "Go live in days, not months", font=_font(24, "bold"), fill=SUB)
-        steps = [
-            ("Day 1", "Sign up & configure"),
-            ("Day 2", "Connect your repo"),
-            ("Day 3", "First deploy live"),
-            ("Week 2", "Production traffic"),
-        ]
+        heading = _ascii_safe((chart_data or {}).get("heading") or "Go live in days, not months")
+        draw.text((110, 555), heading[:48], font=_font(24, "bold"), fill=SUB)
+        custom_steps = (chart_data or {}).get("steps")
+        if isinstance(custom_steps, list) and len(custom_steps) >= 2:
+            steps = [(str(s.get("when", "")), str(s.get("what", ""))) for s in custom_steps[:4]]
+        else:
+            steps = [
+                ("Day 1", "Sign up & configure"),
+                ("Day 2", "Connect your repo"),
+                ("Day 3", "First deploy live"),
+                ("Week 2", "Production traffic"),
+            ]
         for i, (when, what) in enumerate(steps):
             y = 630 + i * 72
             # Number circle
@@ -310,7 +315,8 @@ def _draw_infographic(
         return
 
     if motif == "rocket":
-        draw.text((110, 555), "By the numbers", font=_font(24, "bold"), fill=SUB)
+        heading = _ascii_safe((chart_data or {}).get("heading") or "By the numbers")
+        draw.text((110, 555), heading[:48], font=_font(24, "bold"), fill=SUB)
         if chart_data and isinstance(chart_data.get("items"), list) and len(chart_data["items"]) >= 2:
             kpis = [(str(item.get("value", "")), str(item.get("label", ""))) for item in chart_data["items"][:3]]
         else:
@@ -353,7 +359,8 @@ def _draw_infographic(
         quote = highlight or "We cut our infra time by 80% and ship twice as fast."
         quote = _ascii_safe(quote)
         _draw_wrapped(draw, f'"{quote}"', (130, 660), _font(26), TEXT, 800)
-        draw.text((130, 840), "- cloudless.gr customer", font=_font(22, "semibold"), fill=SUB)
+        attribution = _ascii_safe((chart_data or {}).get("attribution") or "— cloudless.gr")
+        draw.text((130, 840), attribution, font=_font(22, "semibold"), fill=SUB)
         return
 
     if motif == "stat":
@@ -397,7 +404,7 @@ def _draw_infographic(
     if motif == "cta":
         # CTA centred with pill button
         draw.rounded_rectangle((150, 600, 930, 800), radius=36, fill=ACCENT)
-        cta_text = "Start free at cloudless.gr"
+        cta_text = _ascii_safe(highlight)[:40] if highlight else "Get started at cloudless.gr"
         cta_w = int(draw.textlength(cta_text, font=_font(38, "bold")))
         draw.text(((1080 - cta_w) // 2, 666), cta_text, font=_font(38, "bold"), fill=BG)
         sub = "Quick setup. No contracts. Cancel anytime."
@@ -500,6 +507,224 @@ def compose_branded_slide(
     tw = int(draw.textlength(tagline, font=_font(20)))
     draw.text((1080 - PAD - tw, 1054), tagline, font=_font(20), fill=SUB)
     return img
+
+# ── Ad creative composer (all LinkedIn aspect ratios) ─────────────────────────
+
+LINKEDIN_AD_SIZES: dict[str, tuple[int, int]] = {
+    "landscape": (1200, 627),   # 1.91:1 — LinkedIn recommended single image
+    "square": (1080, 1080),     # 1:1 — feed
+    "portrait": (1080, 1350),   # 4:5 — mobile feed
+}
+
+
+def _draw_gradient_bar(draw: ImageDraw.ImageDraw, w: int, thickness: int,
+                       accent: tuple, accent2: tuple) -> None:
+    for x in range(w):
+        t = x / max(1, w - 1)
+        color = tuple(int(accent[i] * (1 - t) + accent2[i] * t) for i in range(3))
+        draw.line([(x, 0), (x, thickness - 1)], fill=color)
+
+
+def compose_ad_creative(
+    *,
+    width: int,
+    height: int,
+    headline: str,
+    subline: str = "",
+    cta: str = "Learn more",
+    stat: str | None = None,
+    stat_label: str | None = None,
+    bg_img: Image.Image | None = None,
+    brand: dict | None = None,
+) -> Image.Image:
+    """Branded ad creative at any LinkedIn ad size.
+
+    Landscape canvases get a two-column layout (copy left, stat card right);
+    square/portrait stack copy above a centered stat card. Pure vector + PIL
+    text — no AI glyphs, so spelling is always correct.
+    """
+    b = brand or {}
+    bg_c = b.get("bg", BG)
+    accent = b.get("accent", ACCENT)
+    accent2 = b.get("accent2", ACCENT2)
+    text_c = b.get("text", TEXT)
+    sub_c = b.get("sub", SUB)
+    brand_name = b.get("brand_name", "cloudless")
+    domain = b.get("domain", "cloudless.gr")
+    tagline = b.get("tagline") or "Clear skies. Zero friction."
+
+    headline = _ascii_safe(headline)
+    subline = _ascii_safe(subline)
+    cta = _ascii_safe(cta)
+
+    img = Image.new("RGB", (width, height), bg_c)
+    if bg_img is not None:
+        img = Image.blend(
+            img,
+            bg_img.resize((width, height), Image.Resampling.LANCZOS).convert("RGB"),
+            alpha=0.25,
+        )
+    draw = ImageDraw.Draw(img)
+
+    # Legibility scrim — a second pass of brand canvas darkens the photo so
+    # copy always reads (effective photo contribution ≈ 19%).
+    img = Image.blend(img, Image.new("RGB", (width, height), bg_c), alpha=0.25)
+    draw = ImageDraw.Draw(img)
+
+    # Scale factor — layouts are authored against a 1080-tall reference.
+    s = height / 1080
+    pad = int(70 * s)
+    landscape = width > height
+
+    # Atmosphere: dot grid + glow orbs (positions relative to canvas).
+    step = max(40, int(54 * s))
+    for gx in range(0, width, step):
+        for gy in range(0, height, step):
+            draw.ellipse((gx - 1, gy - 1, gx + 1, gy + 1), fill=GRID)
+    for fx, fy, fr, fill in (
+        (0.92, 0.16, 0.16, (0, 42, 40)),
+        (0.08, 0.9, 0.2, (20, 20, 48)),
+        (0.15, 0.18, 0.08, (0, 38, 36)),
+    ):
+        cx, cy, r = int(width * fx), int(height * fy), int(height * fr)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
+
+    _draw_gradient_bar(draw, width, max(8, int(12 * s)), accent, accent2)
+
+    # Logo lockup — "cloudless" accent + ".gr" muted.
+    logo_f = _font(max(22, int(38 * s)), "bold")
+    dot_f = _font(max(22, int(38 * s)), "regular")
+    lw = draw.textlength(brand_name, font=logo_f)
+    draw.text((pad, pad), brand_name, font=logo_f, fill=accent)
+    draw.text((pad + lw, pad), domain[len(brand_name):] or ".gr", font=dot_f, fill=sub_c)
+
+    # Tagline pill.
+    tag_f = _font(max(16, int(21 * s)), "semibold")
+    tw = int(draw.textlength(tagline, font=tag_f)) + int(34 * s)
+    ty = pad + int(64 * s)
+    draw.rounded_rectangle(
+        (pad, ty, pad + tw, ty + int(38 * s)),
+        radius=int(19 * s), outline=accent, width=max(1, int(2 * s)),
+    )
+    draw.text((pad + int(17 * s), ty + int(7 * s)), tagline, font=tag_f, fill=accent)
+
+    # Copy block — left ~62% on landscape, full width otherwise.
+    copy_w = int(width * 0.60) if landscape and stat else width - 2 * pad
+    y = ty + int(66 * s)
+    hlen = len(headline)
+    hsize = int((48 if hlen > 60 else 58 if hlen > 40 else 68 if hlen > 26 else 80) * s)
+    y = _draw_wrapped(draw, headline, (pad, y), _font(hsize, "bold"), text_c, copy_w)
+    if subline:
+        y += int(16 * s)
+        y = _draw_wrapped(
+            draw, subline, (pad, y), _font(max(18, int(28 * s))), sub_c, copy_w,
+        )
+
+    # CTA button — accent pill.
+    cta_f = _font(max(18, int(30 * s)), "bold")
+    cta_w = int(draw.textlength(cta, font=cta_f)) + int(56 * s)
+    cta_h = int(58 * s)
+    cta_y = min(y + int(30 * s), height - int(120 * s) - cta_h)
+    draw.rounded_rectangle(
+        (pad, cta_y, pad + cta_w, cta_y + cta_h), radius=cta_h // 2, fill=accent,
+    )
+    draw.text(
+        (pad + int(28 * s), cta_y + int(12 * s)), cta, font=cta_f, fill=bg_c,
+    )
+
+    # Stat card — right column on landscape, centered band otherwise.
+    if stat:
+        stat_f = _font(max(40, int(96 * s)), "bold")
+        sl_f = _font(max(16, int(24 * s)))
+        stat_w = int(draw.textlength(stat, font=stat_f))
+        sl_text = _ascii_safe(stat_label or "")
+        sl_w = int(draw.textlength(sl_text, font=sl_f)) if sl_text else 0
+        card_w = max(stat_w, sl_w) + int(70 * s)
+        card_h = int(220 * s)
+        if landscape:
+            card_x = width - pad - card_w
+            card_y = (height - card_h) // 2
+        else:
+            card_x = (width - card_w) // 2
+            card_y = min(cta_y + cta_h + int(30 * s), height - card_h - int(110 * s))
+        draw.rounded_rectangle(
+            (card_x, card_y, card_x + card_w, card_y + card_h),
+            radius=int(18 * s), fill=CARD, outline=accent, width=max(1, int(2 * s)),
+        )
+        draw.text(
+            (card_x + (card_w - stat_w) // 2, card_y + int(36 * s)),
+            stat, font=stat_f, fill=accent,
+        )
+        if sl_text:
+            draw.text(
+                (card_x + (card_w - sl_w) // 2, card_y + card_h - int(62 * s)),
+                sl_text, font=sl_f, fill=sub_c,
+            )
+
+    # Footer strip — domain left, website right.
+    fh = int(40 * s)
+    draw.rectangle((0, height - fh, width, height), fill=(10, 12, 20))
+    draw.line([(0, height - fh), (width, height - fh)], fill=accent, width=1)
+    foot_f = _font(max(14, int(20 * s)), "bold")
+    draw.text((pad, height - fh + int(8 * s)), domain, font=foot_f, fill=accent)
+    url = "www." + domain.lstrip("www.")
+    uw = int(draw.textlength(url, font=_font(max(13, int(18 * s)))))
+    draw.text(
+        (width - pad - uw, height - fh + int(10 * s)),
+        url, font=_font(max(13, int(18 * s))), fill=sub_c,
+    )
+    return img
+
+
+async def build_ad_brand_kit(
+    db: AsyncSession,
+    *,
+    team_id,
+    user_id,
+    headline: str,
+    subline: str = "",
+    cta: str = "Learn more",
+    stat: str | None = None,
+    stat_label: str | None = None,
+    image_prompt: str | None = None,
+    sizes: dict[str, tuple[int, int]] | None = None,
+) -> list:
+    """Generate a complete branded ad-creative kit and persist every asset.
+
+    Returns the list of MediaAsset rows (full resolution — ad creatives must
+    not hit the 768px library downscale).
+    """
+    brand = await _load_brand_colors(db, team_id)
+    brand["domain"] = "cloudless.gr"
+
+    bg_img = None
+    if image_prompt:
+        try:
+            bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+        except Exception as exc:  # noqa: BLE001 — brand canvas alone is fine
+            logger.warning("ad-kit background generation failed: %s", exc)
+
+    assets = []
+    for name, (w, h) in (sizes or LINKEDIN_AD_SIZES).items():
+        img = compose_ad_creative(
+            width=w, height=h,
+            headline=headline, subline=subline, cta=cta,
+            stat=stat, stat_label=stat_label,
+            bg_img=bg_img, brand=brand,
+        )
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        asset = await persist_generated_image(
+            db,
+            team_id=team_id, user_id=user_id,
+            image_bytes=buf.getvalue(),
+            prompt=f"ad-kit {name} {w}x{h}: {headline}",
+            source="carousel", extension=".png", max_edge=0,
+            folder="brand-kit",
+        )
+        assets.append(asset)
+    return assets
+
 
 def _dedupe_slide_copy(slides: list[dict]) -> list[dict]:
     """Drop near-duplicate titles/bodies across slides; keep first unique idea."""

@@ -587,3 +587,26 @@ async def send_linkedin_dm(
         return result
     except LinkedInSidecarError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+class AdsControlRequest(BaseModel):
+    action: str  # "pause" | "resume" | "status"
+
+
+@router.post("/ads-control")
+async def linkedin_ads_control(
+    body: AdsControlRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Pause/resume/status for the tracked LinkedIn ad set via the CM sidecar.
+
+    Enqueues the control task — the sidecar toggle is slow, so callers get the
+    queued ack and the outcome is posted to Slack by the task.
+    """
+    from app.worker.tasks.linkedin_ads_control import linkedin_ads_control as task
+
+    action = body.action.strip().lower()
+    if action not in ("pause", "resume", "status"):
+        raise HTTPException(status_code=400, detail="action must be pause|resume|status")
+    task.delay(action=action, response_url=None, user=current_user.email or "admin")
+    return {"ok": True, "queued": action}

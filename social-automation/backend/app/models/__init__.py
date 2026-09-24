@@ -6,6 +6,7 @@ from app.models.brand_monitoring import BrandMention, CompetitorSnapshot  # noqa
 from app.models.content import ContentBrief, MediaAsset, MediaCollection, Pillar, Post, PostComment, PostTarget, StorageBackend
 from app.models.digital_card import DigitalCard
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
+from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
@@ -38,6 +39,7 @@ __all__ = [
     "FollowerSnapshot",
     "AIUsageLog",
     "BillingEvent",
+    "AdCampaignSnapshot",
     "Lead",
     "LeadSource",
     "LeadInterest",

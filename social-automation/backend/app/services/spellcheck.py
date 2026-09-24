@@ -67,6 +67,45 @@ def preprocess_for_render(text: str) -> str:
     return text
 
 
+# Spans LanguageTool must never "correct": LinkedIn mention/hashtag markup,
+# URLs, bare domains, and @/# handles. Proper nouns get mangled otherwise —
+# "Kakkava" → "Baklava", "cloudless.gr" → "cloudless. Gr", and
+# `@[Name](urn:li:person:X)` markup gets re-cased (`urn:LI:`) which breaks
+# LinkedIn's mention parser.
+_PROTECTED_PATTERNS = (
+    re.compile(r"[@#]\[[^\]]*\]\([^)]*\)"),  # @[Name](urn:li:...) / #[tag](...)
+    re.compile(r"https?://\S+|www\.\S+"),  # URLs
+    re.compile(r"\b[\w-]+(?:\.[\w-]+)+\b"),  # bare domains / dotted tokens
+    re.compile(r"[@#]\w+"),  # @handles and #hashtags
+)
+
+
+def _protected_spans(text: str) -> list[tuple[int, int]]:
+    """Sorted, merged (start, end) ranges that LanguageTool must not touch."""
+    spans: list[tuple[int, int]] = []
+    for pat in _PROTECTED_PATTERNS:
+        spans.extend((m.start(), m.end()) for m in pat.finditer(text))
+    spans.sort()
+    merged: list[list[int]] = []
+    for s, e in spans:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return [(s, e) for s, e in merged]
+
+
+def _mask(text: str, spans: list[tuple[int, int]]) -> str:
+    """Replace protected spans with spaces, preserving length so LT offsets
+    in the masked text stay valid for the original."""
+    chars = list(text)
+    for s, e in spans:
+        for i in range(s, e):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
+
+
 async def auto_correct(text: str, language: str = "en-US") -> str:
     """Return spell/grammar-corrected text after proper pre-processing.
 
@@ -77,6 +116,8 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
 
     # Pre-process before sending so LanguageTool offsets are stable.
     normalized = _normalize(text)
+    protected = _protected_spans(normalized)
+    masked = _mask(normalized, protected) if protected else normalized
 
     settings = get_settings()
     lt_url = settings.LANGUAGETOOL_URL.rstrip("/")
@@ -85,7 +126,7 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.post(
                 f"{lt_url}/v2/check",
-                data={"text": normalized, "language": language},
+                data={"text": masked, "language": language},
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         resp.raise_for_status()
@@ -98,6 +139,7 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
         return normalized
 
     # Apply replacements from end → start so earlier offsets stay valid.
+    # Masked text has identical length, so offsets map 1:1 onto `normalized`.
     matches.sort(key=lambda m: m.get("offset", 0), reverse=True)
     corrected = normalized
     applied = 0
@@ -107,6 +149,8 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
             continue
         offset = m.get("offset", 0)
         length = m.get("length", 0)
+        if any(offset < e and offset + length > s for s, e in protected):
+            continue  # match touches a protected span — never apply
         best = replacements[0]["value"]
         corrected = corrected[:offset] + best + corrected[offset + length:]
         applied += 1

@@ -33,6 +33,8 @@ celery_app = Celery(
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.linkedin_invites",
+        "app.worker.tasks.linkedin_ads_report",
+        "app.worker.tasks.linkedin_ads_control",
     ],
 )
 
@@ -160,6 +162,8 @@ celery_app.conf.update(
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
+        "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
+        "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
@@ -254,6 +258,13 @@ celery_app.conf.update(
             "task": "app.worker.tasks.linkedin_invites.send_linkedin_invites",
             "schedule": crontab(hour=10, minute=30),
             "kwargs": {"batch_size": 40},
+        },
+        # Daily LinkedIn Ads report → Slack ads channel + email (10:00
+        # Europe/Athens). Scrapes Campaign Manager via the LinkedIn sidecar,
+        # snapshots metrics, and self-terminates after LINKEDIN_ADS_END_DATE.
+        "linkedin-ads-daily-report": {
+            "task": "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report",
+            "schedule": crontab(hour=10, minute=0),
         },
         # Reconcile TikTok MEDIA_UPLOAD inbox drafts — upgrade publish_ids to
         # real video ids when the draft is finished in-app, flag stale drafts
