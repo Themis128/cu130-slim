@@ -305,14 +305,34 @@ async def update_post(
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(require_editor), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id))
+async def delete_post(
+    post_id: uuid.UUID,
+    team_id: TeamId,
+    current_user: User = Depends(require_editor),
+    db: AsyncSession = Depends(get_db),
+    delete_external: bool = False,
+):
+    result = await db.execute(
+        select(Post)
+        .where(Post.id == post_id, Post.team_id == team_id)
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+    )
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
     if post.status == PostStatus.PUBLISHED:
-        raise HTTPException(status_code=400, detail="Cannot delete published post")
+        if not delete_external:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete published post. Pass delete_external=true to remove it from the platforms first.",
+            )
+        errors = await _delete_external_targets(post, db)
+        if errors:
+            raise HTTPException(
+                status_code=502,
+                detail={"error": "External delete failed", "platforms": errors},
+            )
     # Allow deleting posts stuck in PUBLISHING — they haven't actually
     # been published yet and may be stuck due to missing targets or
     # worker errors.
@@ -320,6 +340,47 @@ async def delete_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
     await log_action(db, user=current_user, action="delete", resource_type="post", resource_id=str(post_id), detail=(post.content_text or "")[:100])
     await db.delete(post)
     await db.commit()
+
+
+async def _delete_external_targets(post: Post, db: AsyncSession) -> dict[str, str]:
+    """Delete a published post on each target platform. Returns {platform: error}
+    for targets that could not be removed (empty dict = all cleared)."""
+    from app.core.security import decrypt_token
+
+    errors: dict[str, str] = {}
+    for target in post.targets:
+        if not target.platform_post_id or target.status not in ("published",):
+            continue
+        account = target.social_account
+        platform = account.platform
+        try:
+            token = decrypt_token(bytes(account.access_token_enc))
+            ok = False
+            if platform == "threads":
+                from app.services.threads_api import ThreadsAPIClient
+                ok = await ThreadsAPIClient(access_token=token, user_id=account.account_id).delete_post(target.platform_post_id)
+            elif platform == "facebook":
+                from app.services.facebook_api import FacebookAPIClient
+                from app.services.publishing import _facebook_page_token
+                page_token = await _facebook_page_token(token, account.account_id)
+                ok = await FacebookAPIClient(access_token=page_token, page_id=account.account_id).delete_post(target.platform_post_id)
+            elif platform == "linkedin":
+                from app.services.linkedin_api import LinkedInAPIClient
+                res = await LinkedInAPIClient(access_token=token).delete_post(target.platform_post_id)
+                ok = bool(res.success)
+            elif platform == "twitter":
+                from app.services.twitter_api import TwitterAPIClient
+                ok = await TwitterAPIClient(access_token=token).delete_tweet(target.platform_post_id)
+            else:
+                errors[platform] = "platform does not support API delete — remove it in the app"
+                continue
+            if ok:
+                target.status = "deleted"
+            else:
+                errors[platform] = "platform delete returned failure"
+        except Exception as e:
+            errors[platform] = str(e)[:300]
+    return errors
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)

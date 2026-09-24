@@ -1108,18 +1108,21 @@ async def run_cloudless_carousel_pipeline(
 
     # ── SEO scoring on the final caption + hashtags ────────────────────
     seo_score: dict | None = None
-    try:
-        from app.services import seo as _seo_service
-        seo_result = await _seo_service.analyze_seo(
-            text=full_caption,
-            platform=account.platform,
-            db=db,
-            team_id=team.id,
-        )
-        seo_score = (seo_result or {}).get("score", {}) or {}
-        logger.info(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100")
-    except Exception as exc:
-        logger.warning(f"[n8n-pipeline] SEO scoring failed (non-fatal): {exc}")
+    for _seo_attempt in (1, 2):
+        try:
+            from app.services import seo as _seo_service
+            seo_result = await _seo_service.analyze_seo(
+                text=full_caption,
+                platform=account.platform,
+                db=db,
+                team_id=team.id,
+            )
+            seo_score = (seo_result or {}).get("score", {}) or {}
+            logger.info(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100")
+            break
+        except Exception as exc:
+            if _seo_attempt == 2:
+                logger.warning(f"[n8n-pipeline] SEO scoring failed after retry (non-fatal): {exc}")
 
     post = Post(
         team_id=team.id,
