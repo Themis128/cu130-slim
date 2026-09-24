@@ -183,13 +183,21 @@ WAITING_TIMEOUT = float(os.environ.get("BRIDGE_WAITING_TIMEOUT", "300"))
 # Interactive sessions (a human is logging in via noVNC) get a much longer
 # abandoned-login window — typing creds, solving a captcha, or fetching a
 # 2FA code legitimately takes longer than a poller's automated attempt.
-INTERACTIVE_WAITING_TIMEOUT = float(os.environ.get("BRIDGE_INTERACTIVE_TIMEOUT", "1800"))
+# One hour covers long troubleshooting flows; an abandoned session still
+# frees itself within the hour.
+INTERACTIVE_WAITING_TIMEOUT = float(os.environ.get("BRIDGE_INTERACTIVE_TIMEOUT", "3600"))
 
 # Seconds the login-detection loop waits for a success URL before tearing
 # down the browser. Interactive sessions get INTERACTIVE_WAITING_TIMEOUT
 # instead — a human doing 2FA/captcha or driving the browser to a
 # non-platform site must not have the page killed mid-flow.
 LOGIN_DETECT_SECONDS = float(os.environ.get("BRIDGE_LOGIN_DETECT_SECONDS", "600"))
+
+# Busy-hold length for interactive sessions. While a human/agent is
+# troubleshooting they pause to read and think — a 180s hold lets a poller
+# steal the browser mid-thought. 15 min per interaction is long enough to
+# protect real work, short enough that a forgotten session still frees.
+INTERACTIVE_BUSY_HOLD = float(os.environ.get("BRIDGE_INTERACTIVE_BUSY_HOLD", "900"))
 
 # Callers identify themselves with the X-Platform header; while the
 # busy-hold is active only requests tagged with the owning platform may
@@ -279,7 +287,12 @@ async def _ensure_live_page():
 
     def _touch() -> None:
         if req_plat:
-            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+            hold = (
+                INTERACTIVE_BUSY_HOLD
+                if _state.get("interactive")
+                else BUSY_HOLD_SECONDS
+            )
+            _state["busy_until"] = time.time() + hold
             _state["busy_owner"] = req_plat
 
     page = _state.get("page")
@@ -474,7 +487,9 @@ async def start_session(req: StartRequest):
         # poller's /session/start tear down a brand-new session.
         caller = _req_platform.get()
         if caller and caller == platform:
-            _state["busy_until"] = time.time() + BUSY_HOLD_SECONDS
+            _state["busy_until"] = time.time() + (
+                INTERACTIVE_BUSY_HOLD if req.interactive else BUSY_HOLD_SECONDS
+            )
             _state["busy_owner"] = caller
         else:
             _state["busy_until"] = 0.0

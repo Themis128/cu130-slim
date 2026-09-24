@@ -240,15 +240,18 @@ bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
   a hard block (short-lived cookie extraction). Without this a stale
   poller login page starved publishers for the full 10-min detect loop.
 - **Interactive sessions**: `POST /session/start` with `"interactive": true`
-  grants `INTERACTIVE_WAITING_TIMEOUT` (1800s) preemption protection AND a
-  30-min login-detection window (instead of the default 600s). If the
-  operator navigates off the platform's domain the detect loop switches to
+  grants `INTERACTIVE_WAITING_TIMEOUT` (3600s) preemption protection, a
+  60-min login-detection window (instead of the default 600s), and a
+  15-min busy-hold per interaction (instead of 180s) — pauses during
+  troubleshooting won't let pollers steal the browser. If the operator
+  navigates off the platform's domain the detect loop switches to
   **manual-drive mode** — status `active`, browser stays alive until
   `/session/stop` or a new `/session/start`. Use this for arbitrary-site
   driving (e.g. Slack console) and human noVNC logins.
 - **Watchdog tuning via env** (browser-novnc container):
   `BRIDGE_BUSY_HOLD_SECONDS` (180), `BRIDGE_WAITING_TIMEOUT` (300),
-  `BRIDGE_INTERACTIVE_TIMEOUT` (1800), `BRIDGE_LOGIN_DETECT_SECONDS` (600).
+  `BRIDGE_INTERACTIVE_TIMEOUT` (3600), `BRIDGE_LOGIN_DETECT_SECONDS` (600),
+  `BRIDGE_INTERACTIVE_BUSY_HOLD` (900).
 - **Start is synchronous-ready**: `session/start` waits (≤20s) for the
   page to exist before returning — callers can evaluate/navigate
   immediately. It also takes an immediate busy-hold when the caller's

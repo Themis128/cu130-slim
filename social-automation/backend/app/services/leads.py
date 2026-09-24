@@ -435,6 +435,30 @@ async def notify_lead_created(lead: Lead) -> None:
         except Exception:
             logger.debug("Slack lead notify failed (non-fatal)", exc_info=True)
 
+    # 1b) Email (optional) — same alert to the digest mailbox via SMTP.
+    if (settings.DIGEST_EMAIL_TO or "").strip():
+        try:
+            from app.services.email_digest import send_email
+
+            interest = lead.interest.value if lead.interest else "—"
+            size = lead.company_size.value if lead.company_size else "—"
+            body = (
+                "New lead captured\n\n"
+                f"Source: {lead.source.value}\n"
+                f"Name: {lead.name}\n"
+                f"Email: {lead.email}\n"
+                f"Company size: {size}\n"
+                f"Interest: {interest}\n"
+            )
+            if lead.notes:
+                body += f"Notes: {lead.notes[:500]}\n"
+            await send_email(
+                subject=f"[SocialAuto] New lead: {lead.name} ({lead.source.value})",
+                text_body=body,
+            )
+        except Exception:
+            logger.debug("Email lead notify failed (non-fatal)", exc_info=True)
+
     # 2) Generic webhook (optional) — ideal for n8n workflows.
     webhook_url = (getattr(settings, "LEAD_CREATED_WEBHOOK_URL", "") or "").strip()
     if webhook_url:
