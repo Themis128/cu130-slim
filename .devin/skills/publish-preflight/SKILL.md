@@ -29,7 +29,24 @@ Exit code 1 if any post FAILs — safe for CI-style gating.
 
 - `account status=expired` — the OAuth token is dead (preflight verifies it,
   not just the flag). Reconnect via SocialAuto Accounts page (OAuth) or the
-  platform's noVNC login, then re-run.
+  platform's noVNC login, then re-run. **Instagram exception:** IG publishing
+  uses the web-API session (`private_api_session_id`/`private_api_csrf_token`/
+  `private_api_ds_user_id` in `meta_data`), not the OAuth token — the flag can
+  be stale either way. If the bridge's IG session is live (feed loads, not the
+  login form), refresh meta_data from it:
+
+  1. `maintenance_window.sh start` (or grab the bridge between pollers)
+  2. `POST :9223/session/start {"platform":"instagram","force":true,
+     "interactive":true}` then `POST /session/extract` (X-Platform: instagram)
+  3. Update `social_accounts.meta_data`: `private_api_session_id` =
+     `encrypt_field(sessionid)` (encrypted), `private_api_csrf_token` =
+     csrftoken **plaintext** (publisher reads it raw), `private_api_ds_user_id`
+     = ds_user_id plaintext; set `status='active'`
+  4. `POST /session/stop`, `maintenance_window.sh stop`, re-run preflight
+
+  Verify `ds_user_id` from the extract matches the account before writing —
+  a mismatched session posts to the wrong profile. instagrapi login is not a
+  fallback: it hits the "version out of date" wall.
 - `token expires before schedule, no refresh token` — reconnect before the
   slot or the publish will fail.
 - `URL unreachable` — R2/storage link is broken; regenerate or re-attach media.
