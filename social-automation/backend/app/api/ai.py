@@ -2500,10 +2500,15 @@ async def generate_carousel_pipeline(
     1. LLM slide copy
     2. NLP checker + plain-English fixer
     3. FLUX schnell txt2img background generation
-    4. Persist to media library
+    4. Branded slide compose (PIL text render over the background)
+    5. Persist to media library
     """
     import base64
+    import io
 
+    from PIL import Image
+
+    from app.services.carousel_pipeline import compose_branded_slide
     from app.services.plain_english import run_nlp_check_and_fix
 
     team = await get_user_team(db, current_user)
@@ -2564,19 +2569,41 @@ async def generate_carousel_pipeline(
             f"stronger visual metaphor for: {body}. No text, no logos."
         )
         logger.info(f"[carousel-pipeline] slide {i + 1}/{len(cleaned_slides)} txt2img")
-        pipe = await _call_cf_image_pipeline(
-            prompt=visual,
-            enhance_prompt=enhance,
-            txt2img_model=request.txt2img_model,
-            allow_fallback=False,
+        bg_img = None
+        try:
+            pipe = await _call_cf_image_pipeline(
+                prompt=visual,
+                enhance_prompt=enhance,
+                txt2img_model=request.txt2img_model,
+                allow_fallback=False,
+            )
+            bg_img = Image.open(io.BytesIO(base64.b64decode(pipe["image_base64"]))).convert("RGB")
+        except Exception as e:
+            # Textless-background failures must not kill the carousel —
+            # compose_branded_slide renders the brand canvas without a photo bg.
+            logger.warning(f"[carousel-pipeline] slide {i + 1} bg failed, using brand canvas: {e}")
+
+        # Persist the *composed* branded slide (title/body rendered via PIL) —
+        # never the raw txt2img background, or slides ship without any text.
+        slide_img = compose_branded_slide(
+            bg_img,
+            index=i,
+            total=len(cleaned_slides),
+            slide_type=slide.get("slide_type") or "content",
+            title=title,
+            body=body,
+            highlight=slide.get("highlight"),
         )
+        buf = io.BytesIO()
+        slide_img.save(buf, format="JPEG", quality=92)
         asset = await persist_generated_image(
             db,
             team_id=team.id,
             user_id=current_user.id,
-            image_bytes=base64.b64decode(pipe["image_base64"]),
+            image_bytes=buf.getvalue(),
             prompt=f"carousel-pipeline:{title}",
             source="cf-carousel-pipeline",
+            max_edge=0,
         )
         media_ids.append(asset.id)
         slide_results.append(
@@ -2602,20 +2629,23 @@ async def generate_carousel_pipeline(
         pass  # spellcheck is advisory
 
     seo_score = None
-    try:
-        full_text = cleaned_caption
-        if copy.hashtags:
-            tag_str = " ".join(f"#{h.lstrip('#')}" for h in copy.hashtags)
-            full_text = f"{full_text}\n\n{tag_str}"
-        seo_result = await _seo_service.analyze_seo(
-            text=full_text,
-            platform=request.platform,
-            db=db,
-            team_id=team.id,
-        )
-        seo_score = seo_result.get("score", {})
-    except Exception:
-        pass  # SEO is advisory
+    full_text = cleaned_caption
+    if copy.hashtags:
+        tag_str = " ".join(f"#{h.lstrip('#')}" for h in copy.hashtags)
+        full_text = f"{full_text}\n\n{tag_str}"
+    for attempt in (1, 2):
+        try:
+            seo_result = await _seo_service.analyze_seo(
+                text=full_text,
+                platform=request.platform,
+                db=db,
+                team_id=team.id,
+            )
+            seo_score = seo_result.get("score", {})
+            break
+        except Exception as exc:
+            if attempt == 2:
+                logger.warning(f"[carousel-pipeline] SEO scoring failed after retry: {exc}")
 
     pipeline_response = GenerateCarouselPipelineResponse(
         slides=slide_results,
