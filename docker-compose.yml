@@ -1516,7 +1516,6 @@ services:
     volumes:
       - ./notebooks:/home/jovyan/work
       - ./jupyter/start-notebook.d:/usr/local/bin/start-notebook.d:ro
-      - ./.env:/home/jovyan/.env:ro
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
