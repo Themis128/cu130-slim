@@ -149,6 +149,14 @@ class Settings(BaseSettings):
     LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/linkedin/callback"
     LINKEDIN_USERNAME: str = ""
     LINKEDIN_PASSWORD: str = ""
+    # Sponsored ad account for paid/boost analytics (Advertising Reporting
+    # API). Baltzakis Ad Account = 512642510.
+    LINKEDIN_AD_ACCOUNT_ID: str = ""
+    # Extra OAuth scopes appended to the LinkedIn connect flow. Only set
+    # "r_ads_reporting" AFTER the Advertising Reporting API product is enabled
+    # on the developer app — requesting an unapproved scope degrades the
+    # consent screen.
+    LINKEDIN_EXTRA_SCOPES: str = ""
 
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
