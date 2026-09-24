@@ -518,7 +518,18 @@ async def session_cookies():
 
 @app.post("/session/stop")
 async def stop_session():
-    """Stop the current browser session."""
+    """Stop the current browser session.
+
+    While a busy-hold is active only the owning platform (X-Platform) may
+    stop the session — otherwise any poller could tear down an in-flight
+    login or troubleshooting session. Once the hold expires, anyone may stop.
+    """
+    req_plat = _req_platform.get()
+    busy_owner = _state.get("busy_owner")
+    if time.time() < _state.get("busy_until", 0.0) and req_plat != busy_owner:
+        raise HTTPException(
+            409, f"Browser busy with {busy_owner or 'another'} session — try again shortly"
+        )
     async with _state["lock"]:
         if _state["context"]:
             try:
@@ -527,6 +538,7 @@ async def stop_session():
                 pass
             _state["context"] = None
             _state["browser"] = None
+            _state["page"] = None
         _state["status"] = "idle"
         _state["platform"] = None
         _state["busy_until"] = 0.0
@@ -842,6 +854,10 @@ async def navigate_session(req: NavigateRequest):
 
 class EvaluateRequest(BaseModel):
     expression: str
+    # Optional substring match against frame URLs — evaluates inside the
+    # matching iframe instead of the main frame (needed for reCAPTCHA and
+    # other embedded challenges).
+    frame_url: str | None = None
 
 
 @app.post("/session/evaluate")
@@ -849,10 +865,41 @@ async def evaluate_session(req: EvaluateRequest):
     """Run JavaScript in the active browser page and return the result."""
     page = await _ensure_live_page()
     try:
-        result = await page.evaluate(req.expression)
+        target: Any = page
+        if req.frame_url:
+            target = next(
+                (f for f in page.frames if req.frame_url in (f.url or "")),
+                None,
+            )
+            if target is None:
+                raise HTTPException(
+                    404,
+                    f"No frame matching '{req.frame_url}'. "
+                    f"Frames: {[f.url[:80] for f in page.frames]}",
+                )
+        result = await target.evaluate(req.expression)
         return {"status": "ok", "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Evaluate failed: {e}")
+
+
+@app.get("/session/screenshot")
+async def session_screenshot():
+    """Return a PNG screenshot of the current page.
+
+    Driving the browser blind via innerText is slow and error-prone — this
+    gives callers (and humans checking on a session) the actual viewport.
+    """
+    from fastapi import Response
+
+    page = await _ensure_live_page()
+    try:
+        png = await page.screenshot(type="png")
+        return Response(content=png, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(500, f"Screenshot failed: {e}")
 
 
 @app.get("/session/page-info")
@@ -1005,9 +1052,9 @@ async def get_instagram_profile():
     bio, category, follower counts).  Falls back to the edit page form
     fields if available.
     """
-    page = _state.get("page")
+    page = await _ensure_live_page()
     context = _state.get("context")
-    if not page or not context:
+    if not context:
         raise HTTPException(400, "No active browser session — start one first")
 
     try:
@@ -1199,9 +1246,9 @@ async def update_instagram_profile(req: ProfileUpdateRequest):
     Instagram's __coig_login redirect guard.  Fills in the provided fields
     and clicks Submit.  Only fields that are provided (non-None) are changed.
     """
-    page = _state.get("page")
+    page = await _ensure_live_page()
     context = _state.get("context")
-    if not page or not context:
+    if not context:
         raise HTTPException(400, "No active browser session — start one first")
 
     try:
