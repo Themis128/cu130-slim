@@ -150,7 +150,7 @@ docker compose exec -T social-worker-messenger celery -A app.worker.celery_app c
 |----------|---------------------|-------------|
 | Instagram Business | c1e2d99b | @cloudless.gr |
 | Instagram Personal | d4e670ac | Themistoklis |
-| LinkedIn Personal | 2de16fca | Themistoklis |
+| LinkedIn Personal | 18d5cd59 | Themistoklis |
 | LinkedIn Business | 58706dd3 | cloudless.gr |
 | Twitter | 8af5fe23 | Themistoklis |
 | TikTok | 08418574 | cloudless.gr |
