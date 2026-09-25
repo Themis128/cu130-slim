@@ -1,6 +1,6 @@
 # SocialAuto (social.cloudless.gr) — Codemap
 
-Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-22 (hardware + compose ports re-checked on OFFICE/WSL).
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-25 (notebook reporting, growth initiatives, ad-campaign analytics added).
 
 ## What it is
 
@@ -54,7 +54,7 @@ Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails o
 | flower | 5555 | Celery UI |
 | social-metrics | 9390→80 | Prometheus/nginx metrics |
 | dmr-watchdog | — | restarts docker-model-runner when wedged |
-| jupyter | 8888 | scipy notebook scratchpad — `social-postgres` analytics, `JUPYTER_TOKEN` auth, localhost-only |
+| jupyter | 8888 | scipy notebook UI — `social-postgres` analytics + report templates (`notebooks/reports/`), `JUPYTER_TOKEN` auth, localhost-only |
 | api-gateway | (internal) | nginx stable `/api/v1` upstream for blue/green deploys |
 | n8n-sandbox | — | AI code sandbox for n8n |
 | portainer | 9000 | container management |
@@ -90,7 +90,7 @@ Measured on this machine (do not invent different HW — re-measure if the host 
 
 ```
 main.py            FastAPI app, mounts api_router at /api/v1, init_db() on startup
-api/               35 routers — auth (OAuth + data-deletion), accounts, publishing,
+api/               37 routers — auth (OAuth + data-deletion), accounts, publishing,
                    messenger, whatsapp, telegram, instagram, inbox, media, ai,
                    ai_providers, brand, billing, leads, secrets, teams, cf_db, mcp…
 services/          platform clients + infra — facebook_api, instagram_api
@@ -107,7 +107,12 @@ models/            SQLAlchemy — social_account (access_token_enc, scopes, meta
 worker/celery_app.py   queues + beat_schedule
 worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
                    analytics, digest, recurring, media, workflows, dmr_health,
-                   datalake_export (→ cloudless.gr R2 datalake)
+                   datalake_export (→ cloudless.gr R2 datalake),
+                   linkedin_ads_{report,control}, linkedin_invites,
+                   notebook_reports (papermill report runner)
+notebooks/         report templates (reports/) executed by the worker via
+                   papermill; rendered artifacts land in output/ (same dir
+                   is mounted into social-jupyter → visible in Jupyter UI)
 mcp/server.py      MCP server exposing social tools
 ```
 
@@ -163,6 +168,34 @@ Snapshot `notes` carry sync outcomes; `analytics_sync` codes X free-tier
 `needs paid tier`, LinkedIn `activityids`, and `stats_unavailable` notes as
 expected states — they are skipped, not surfaced as warnings.
 
+Additional analytics endpoints:
+
+- `GET /analytics/ad-campaigns` — LinkedIn Ads dashboard data from
+  `ad_campaign_snapshots` (written by `linkedin_ads_report`). Per-day `max`
+  aggregation — LinkedIn metrics are cumulative-to-date, so a zeroed
+  scrape must never erase real spend. Snapshots attribute to the team
+  owning the active LinkedIn `SocialAccount`.
+- `GET /analytics/initiatives` + `POST /analytics/initiative-events` —
+  growth-initiative tracking (LinkedIn Page invitation credits): sends
+  recorded as `analytics_events` (`linkedin_page_invite`), impact =
+  `follower_snapshots` delta on the org page account (auto-resolved).
+  Summary models LinkedIn's credit mechanics (Help a547492): monthly pool
+  renews on the 1st, accepted invites refund credits (≤72h), declined/
+  withdrawn stay spent → surfaces sent/accepted/pending/declined,
+  acceptance %, `credits_left`, `monthly_cap`. Events export to the
+  datalake via account-events.
+
+## Notebook-generated reports
+
+Report templates are Jupyter notebooks under `notebooks/reports/`. Beat
+task `notebook_reports.run_notebook_report` papermill-executes them **in
+the worker** (inherits env + `import app.*`), the notebook writes
+html/txt/PNGs + `*.manifest.json` to `notebooks/output/`, and the task
+emails each manifest report (charts as `cid:` inline images). Failure →
+`fallback_to_code` re-runs the equivalent code-path report. The daily
+strategy brief (21:00 EEST) runs this way; `send_email*` accepts
+`attachments=[{name,data,cid,mime}]`.
+
 ## Fallback chains (see AGENTS.md for detail)
 
 - DB: D1 → Postgres · Cache: KV → Redis · Vector: Vectorize → Chroma
@@ -170,7 +203,7 @@ expected states — they are skipped, not surfaced as warnings.
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 21:00 EEST · LinkedIn ads report daily · LinkedIn invites daily
 
 ## cloudless.gr datalake export (`datalake_export.export_datalake`)
 

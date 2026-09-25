@@ -137,6 +137,10 @@ x-worker-volumes: &worker-volumes
   - ./social-automation/backend/app:/app/app
   - ./social-automation/uploads:/app/uploads
   - tunnel_url:/run/tunnel
+  # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
+  # workers; rendered outputs go to /notebooks/output (visible in Jupyter
+  # at work/output since the same host dir is mounted there).
+  - ./notebooks:/notebooks
 
 # Shared depends_on for all worker containers.
 x-worker-depends: &worker-depends

@@ -68,6 +68,13 @@ dependencies = [
     "pdfplumber>=0.11.0",     # text/table extraction from PDFs
     "pdf2image>=1.17.0",      # PDF page -> PIL Image (needs poppler-utils)
     "mcp>=2.2.0",             # MCP stdio server (app.mcp.server)
+    # Notebook-driven reporting — papermill executes report notebooks in the
+    # worker env (inherits DATABASE_URL, AI + Slack secrets, /app imports);
+    # executed outputs land in ./notebooks/output for the Jupyter UI.
+    "papermill>=2.6.0,<3.0.0",
+    "ipykernel>=6.29.0,<7.0.0",
+    "pandas>=2.2.0,<3.0.0",
+    "matplotlib>=3.8.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
