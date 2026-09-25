@@ -881,6 +881,9 @@ export const analyticsApi = {
     social_account_id?: string
     units?: number
     note?: string
+    credits_left?: number
+    declined?: number
+    monthly_cap?: number
   }) => api.post('/analytics/initiative-events', body),
 }
 

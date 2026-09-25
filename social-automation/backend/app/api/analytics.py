@@ -2089,6 +2089,13 @@ class InitiativeEventIn(BaseModel):
     social_account_id: uuid.UUID | None = None
     units: int = 1
     note: str | None = None
+    # LinkedIn invite-window readings (all optional — see LinkedIn Help
+    # a547492): the credit balance shown in the page admin "Invite
+    # connections" window, invites known declined/withdrawn, and the
+    # monthly pool size (bigger on Premium Company Pages).
+    credits_left: int | None = None
+    declined: int | None = None
+    monthly_cap: int | None = None
 
 
 class InitiativeOut(BaseModel):
@@ -2098,12 +2105,18 @@ class InitiativeOut(BaseModel):
     social_account_id: str | None
     events: int
     units: int
+    units_this_month: int
     first_at: datetime | None
     last_at: datetime | None
     followers_start: int | None
     followers_now: int | None
     followers_delta: int | None
     conversion_pct: float | None
+    accepted_est: int | None
+    declined: int
+    pending_est: int | None
+    monthly_cap: int
+    credits_left: int | None
 
 
 @router.post("/initiative-events", response_model=InitiativeOut)
@@ -2169,6 +2182,9 @@ async def record_initiative_event(
         account_id=body.social_account_id,
         units=body.units,
         note=body.note,
+        credits_left=body.credits_left,
+        declined=body.declined,
+        monthly_cap=body.monthly_cap,
     )
     summary = await initiative_summary(db, team.id)
     return next(s for s in summary if s["event_type"] == body.event_type and s["platform"] == body.platform)

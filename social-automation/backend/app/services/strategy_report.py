@@ -372,52 +372,96 @@ class StrategyReport:
         )
 
     def _initiatives_text(self) -> list[str]:
-        """GROWTH INITIATIVES section — units sent and follower impact."""
+        """GROWTH INITIATIVES section — sent / accepted / pending / credits."""
         if not self.initiatives:
             return []
         lines = ["", "GROWTH INITIATIVES"]
         for i in self.initiatives:
             label = i.get("initiative") or i["event_type"]
-            sent = (
-                f"{i['units']} sent"
-                if i.get("units")
-                else f"{i['events']} event{'s' if i['events'] != 1 else ''}"
-            )
-            impact = ""
-            if i.get("followers_delta") is not None:
-                impact = (
-                    f" → {i['followers_start']} → {i['followers_now']} followers "
-                    f"({i['followers_delta']:+d})"
+            if i.get("units"):
+                sent = f"{i['units']} sent"
+                if i.get("units_this_month") is not None and (
+                    i["units_this_month"] != i["units"]
+                ):
+                    sent += f" ({i['units_this_month']} this month)"
+            else:
+                sent = f"{i['events']} event{'s' if i['events'] != 1 else ''}"
+            lines.append(f"  {label} ({i['platform']}): {sent}")
+            funnel = []
+            if i.get("accepted_est") is not None:
+                funnel.append(f"~{i['accepted_est']} accepted (new followers)")
+            if i.get("pending_est"):
+                funnel.append(f"~{i['pending_est']} still waiting")
+            if i.get("declined"):
+                funnel.append(f"{i['declined']} declined")
+            if i.get("conversion_pct") is not None:
+                funnel.append(f"{i['conversion_pct']}% acceptance rate")
+            if funnel:
+                lines.append(f"    {' · '.join(funnel)}")
+            if i.get("followers_start") is not None:
+                lines.append(
+                    f"    Page followers: {i['followers_start']} → "
+                    f"{i['followers_now']} ({i['followers_delta']:+d})"
                 )
-                if i.get("conversion_pct") is not None:
-                    impact += f", {i['conversion_pct']}% converted"
-            lines.append(f"  {label} ({i['platform']}): {sent}{impact}")
+            if i.get("credits_left") is not None:
+                lines.append(
+                    f"    Invitation credits: ~{i['credits_left']} of "
+                    f"{i['monthly_cap']} left this month — every accepted "
+                    "invite refunds one credit (≤72h), so good targeting "
+                    "stretches the pool."
+                )
         return lines
 
     def _initiatives_html(self, esc) -> str:
         if not self.initiatives:
             return ""
-        rows = ""
+        cards = ""
         for i in self.initiatives:
             delta = i.get("followers_delta")
             conv = i.get("conversion_pct")
-            rows += (
-                "<tr>"
-                f"<td><b>{esc(i.get('initiative') or i['event_type'])}</b></td>"
-                f"<td>{esc(i['platform'])}</td>"
-                f"<td>{i['units']}</td>"
-                f"<td>{i['followers_start'] if i.get('followers_start') is not None else '—'}</td>"
-                f"<td>{i['followers_now'] if i.get('followers_now') is not None else '—'}</td>"
-                f"<td>{f'{delta:+d}' if delta is not None else '—'}</td>"
-                f"<td>{f'{conv}%' if conv is not None else '—'}</td>"
-                "</tr>"
+            funnel = []
+            if i.get("accepted_est") is not None:
+                funnel.append(f"<b>{i['accepted_est']}</b> accepted")
+            if i.get("pending_est"):
+                funnel.append(f"<b>{i['pending_est']}</b> waiting")
+            if i.get("declined"):
+                funnel.append(f"<b>{i['declined']}</b> declined")
+            stats = " · ".join(funnel)
+            if conv is not None:
+                stats += f" — <b>{conv}%</b> acceptance"
+            followers = ""
+            if i.get("followers_start") is not None:
+                followers = (
+                    "<br>Page followers: "
+                    f"{i['followers_start']} → <b>{i['followers_now']}</b> "
+                    f"({f'{delta:+d}' if delta is not None else '—'})"
+                )
+            credits = ""
+            if i.get("credits_left") is not None:
+                pct = round(i["credits_left"] / i["monthly_cap"] * 100)
+                credits = (
+                    f"<br>Credits: <b>~{i['credits_left']}</b> of "
+                    f"{i['monthly_cap']} left this month "
+                    f'<span style="display:inline-block;width:80px;height:8px;'
+                    'background:#e5e7eb;border-radius:4px;vertical-align:middle">'
+                    f'<span style="display:block;width:{pct}%;height:8px;'
+                    'background:#10b981;border-radius:4px"></span></span>'
+                )
+            cards += (
+                '<div style="margin:8px 0;padding:10px;border:1px solid #e5e7eb;'
+                'border-radius:8px">'
+                f"<b>{esc(i.get('initiative') or i['event_type'])}</b> "
+                f"<span style='color:#6b7280'>({esc(i['platform'])})</span><br>"
+                f"{i['units']} invites sent &nbsp;→&nbsp; {stats}"
+                f"{followers}{credits}</div>"
             )
         return (
             "<h3>Growth initiatives</h3>"
-            '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
-            "<tr><th align='left'>Initiative</th><th>Platform</th><th>Units sent</th>"
-            "<th>Followers start</th><th>Now</th><th>Δ</th><th>Conv.</th></tr>"
-            f"{rows}</table>"
+            '<p style="color:#6b7280;font-size:13px;margin:4px 0">'
+            "LinkedIn refunds one invitation credit for every accepted "
+            "invite (up to 72h) — high acceptance stretches the monthly "
+            "pool. Credits renew on the 1st.</p>"
+            f"{cards}"
         )
 
     def _pulse_takeaway(self) -> str:

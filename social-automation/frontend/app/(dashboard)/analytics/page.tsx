@@ -85,13 +85,15 @@ export default function AnalyticsPage() {
   const { data: initiativesRaw } = useInitiatives(90)
   const initiatives = initiativesRaw as GrowthInitiative[] | undefined
   const [inviteBatch, setInviteBatch] = useState('')
+  const [inviteCredits, setInviteCredits] = useState('')
   const queryClient = useQueryClient()
   const recordInitiative = useMutation({
-    mutationFn: (units: number) =>
-      analyticsApi.recordInitiativeEvent({ event_type: 'linkedin_page_invite', platform: 'linkedin', units }),
+    mutationFn: (body: { units: number; credits_left?: number }) =>
+      analyticsApi.recordInitiativeEvent({ event_type: 'linkedin_page_invite', platform: 'linkedin', ...body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analytics', 'initiatives'] })
       setInviteBatch('')
+      setInviteCredits('')
       toast.success('Invites logged')
     },
     onError: (err: unknown) => toast.error(formatErrorToast('Couldn’t log invites.', err)),
@@ -805,51 +807,75 @@ export default function AnalyticsPage() {
               Growth initiatives
             </CardTitle>
             <CardDescription>
-              Effort sent vs. follower impact on the linked account
+              LinkedIn gives every accepted invite its credit back (within ~72h) — high
+              acceptance means you can invite more people this month. Credits renew on the 1st.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Initiative</TableHead>
-                  <TableHead>Platform</TableHead>
-                  <TableHead className="text-right">Units sent</TableHead>
-                  <TableHead className="text-right">Followers at start</TableHead>
-                  <TableHead className="text-right">Now</TableHead>
-                  <TableHead className="text-right">Gained</TableHead>
-                  <TableHead className="text-right">Conversion</TableHead>
-                  <TableHead>Last activity</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {initiatives.map((i) => (
-                  <TableRow key={`${i.event_type}-${i.platform}`}>
-                    <TableCell className="font-medium">{i.initiative}</TableCell>
-                    <TableCell className="capitalize">{i.platform}</TableCell>
-                    <TableCell className="text-right">{i.units.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">{i.followers_start ?? '—'}</TableCell>
-                    <TableCell className="text-right">{i.followers_now ?? '—'}</TableCell>
-                    <TableCell className="text-right">
-                      {i.followers_delta !== null ? (
-                        <span className={i.followers_delta > 0 ? 'text-emerald-500' : ''}>
-                          {i.followers_delta > 0 ? '+' : ''}{i.followers_delta}
-                        </span>
-                      ) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {i.conversion_pct !== null ? `${i.conversion_pct}%` : '—'}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {i.last_at ? formatRelativeTime(i.last_at) : '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            {initiatives.map((i) => (
+              <div
+                key={`${i.event_type}-${i.platform}`}
+                className="rounded-lg border p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{i.initiative}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {i.last_at ? `last logged ${formatRelativeTime(i.last_at)}` : ''}
+                  </span>
+                </div>
+
+                {/* Invite funnel: sent → accepted / waiting / declined */}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                  <span>
+                    <b>{i.units.toLocaleString()}</b> invites sent
+                    {i.units_this_month !== i.units && (
+                      <span className="text-muted-foreground"> ({i.units_this_month} this month)</span>
+                    )}
+                  </span>
+                  <span className="text-muted-foreground">→</span>
+                  {i.accepted_est !== null && (
+                    <span><b className="text-emerald-500">{i.accepted_est}</b> accepted</span>
+                  )}
+                  {i.pending_est !== null && i.pending_est > 0 && (
+                    <span><b>{i.pending_est}</b> waiting for a reply</span>
+                  )}
+                  {i.declined > 0 && (
+                    <span><b className="text-red-400">{i.declined}</b> declined</span>
+                  )}
+                  {i.conversion_pct !== null && (
+                    <Badge variant="outline">{i.conversion_pct}% acceptance</Badge>
+                  )}
+                </div>
+
+                {/* Follower outcome + credit balance */}
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+                  {i.followers_start !== null && (
+                    <span className="text-muted-foreground">
+                      Page followers: {i.followers_start} →{' '}
+                      <b className="text-foreground">{i.followers_now}</b>
+                      {i.followers_delta !== null && i.followers_delta !== 0 && (
+                        <span className="text-emerald-500"> ({i.followers_delta > 0 ? '+' : ''}{i.followers_delta})</span>
+                      )}
+                    </span>
+                  )}
+                  {i.credits_left !== null && (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      Credits: <b className="text-foreground">~{i.credits_left}</b> of{' '}
+                      {i.monthly_cap} left
+                      <span className="inline-block h-2 w-24 rounded-full bg-muted overflow-hidden">
+                        <span
+                          className="block h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.round((i.credits_left / i.monthly_cap) * 100)}%` }}
+                        />
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
 
             {/* Log an invite batch — sends happen on LinkedIn, we track the count */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <input
                 type="number"
                 min={1}
@@ -858,16 +884,30 @@ export default function AnalyticsPage() {
                 onChange={(e) => setInviteBatch(e.target.value)}
                 className="h-9 w-32 rounded-md border bg-background px-3 text-sm"
               />
+              <input
+                type="number"
+                min={0}
+                placeholder="Credits left (optional)"
+                value={inviteCredits}
+                onChange={(e) => setInviteCredits(e.target.value)}
+                className="h-9 w-40 rounded-md border bg-background px-3 text-sm"
+                title="The balance LinkedIn shows at the top of the Invite connections window — the most accurate credit reading"
+              />
               <Button
                 variant="outline"
                 size="sm"
                 disabled={recordInitiative.isPending || !inviteBatch || Number(inviteBatch) <= 0}
-                onClick={() => recordInitiative.mutate(Number(inviteBatch))}
+                onClick={() =>
+                  recordInitiative.mutate({
+                    units: Number(inviteBatch),
+                    credits_left: inviteCredits ? Number(inviteCredits) : undefined,
+                  })
+                }
               >
                 {recordInitiative.isPending ? 'Logging…' : 'Log LinkedIn invites'}
               </Button>
               <span className="text-xs text-muted-foreground">
-                Invite connections on LinkedIn, then log the count here — follower impact shows above.
+                Invite connections on LinkedIn, then log the count — optionally the credit balance LinkedIn shows.
               </span>
             </div>
           </CardContent>

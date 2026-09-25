@@ -419,10 +419,16 @@ export interface GrowthInitiative {
   social_account_id: string | null
   events: number
   units: number
+  units_this_month: number
   first_at: string | null
   last_at: string | null
   followers_start: number | null
   followers_now: number | null
   followers_delta: number | null
   conversion_pct: number | null
+  accepted_est: number | null
+  declined: number
+  pending_est: number | null
+  monthly_cap: number
+  credits_left: number | null
 }
