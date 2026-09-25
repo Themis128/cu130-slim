@@ -87,7 +87,7 @@ async def save_session():
     # Save to SocialAuto account
     async with async_session_maker() as db:
         r = await db.execute(select(SocialAccount).where(
-            SocialAccount.id == '2de16fca-90e6-4d2f-abf9-b02678df8eda'
+            SocialAccount.id == '18d5cd59-f0c2-4fc4-986e-03601734c7a5'
         ))
         acc = r.scalars().first()
         meta = acc.meta_data or {}
@@ -113,7 +113,7 @@ from sqlalchemy import select
 async def restore():
     async with async_session_maker() as db:
         r = await db.execute(select(SocialAccount).where(
-            SocialAccount.id == '2de16fca-90e6-4d2f-abf9-b02678df8eda'
+            SocialAccount.id == '18d5cd59-f0c2-4fc4-986e-03601734c7a5'
         ))
         acc = r.scalars().first()
         storage = (acc.meta_data or {}).get('browser_storage_state')
@@ -142,7 +142,7 @@ POST /api/v1/profile/{account_id}/cover     — Upload cover photo
 ### LinkedIn personal account ID
 
 ```
-2de16fca-90e6-4d2f-abf9-b02678df8eda
+18d5cd59-f0c2-4fc4-986e-03601734c7a5
 ```
 
 ### LinkedIn company page account ID
