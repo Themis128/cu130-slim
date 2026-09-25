@@ -411,3 +411,18 @@ export interface AdCampaignsResponse {
     cpc_eur: number
   }
 }
+
+export interface GrowthInitiative {
+  event_type: string
+  initiative: string
+  platform: string
+  social_account_id: string | null
+  events: number
+  units: number
+  first_at: string | null
+  last_at: string | null
+  followers_start: number | null
+  followers_now: number | null
+  followers_delta: number | null
+  conversion_pct: number | null
+}

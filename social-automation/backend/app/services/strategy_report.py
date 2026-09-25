@@ -174,6 +174,7 @@ class StrategyReport:
     emailed: bool = False
     email_error: str | None = None
     recent_posts_by_platform: dict[str, list[BriefPost]] = field(default_factory=dict)
+    initiatives: list[dict[str, Any]] = field(default_factory=list)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -240,6 +241,7 @@ class StrategyReport:
             lines.append(_agent_playbook_block(items, self.timezone))
         else:
             lines.append("  No actions generated — publish consistently and re-check tomorrow.")
+        lines.extend(self._initiatives_text())
         issues = (self.digest.issues if self.digest else [])
         if issues:
             lines.append("")
@@ -332,6 +334,8 @@ class StrategyReport:
             else "<p><i>No actions generated — publish consistently and re-check tomorrow.</i></p>"
         )
 
+        initiatives_block = self._initiatives_html(esc)
+
         issues = self.digest.issues if self.digest else []
         issues_block = ""
         if issues:
@@ -351,6 +355,7 @@ class StrategyReport:
   {platform_block}
   {recent_block}
   {actions_block}
+  {initiatives_block}
   {issues_block}
   <p style="color:#666;font-size:12px">Sources: SocialAuto insights engine · ops digest in Slack #socialauto</p>
 </body></html>"""
@@ -364,6 +369,51 @@ class StrategyReport:
         return sorted(
             platforms.items(),
             key=lambda kv: (tier_rank.get(kv[1].get("focus_tier", "last"), 3), kv[0]),
+        )
+
+    def _initiatives_text(self) -> list[str]:
+        """GROWTH INITIATIVES section — units sent and follower impact."""
+        if not self.initiatives:
+            return []
+        lines = ["", "GROWTH INITIATIVES"]
+        for i in self.initiatives:
+            label = i.get("initiative") or i["event_type"]
+            sent = f"{i['units']} sent" if i.get("units") else f"{i['events']} events"
+            impact = ""
+            if i.get("followers_delta") is not None:
+                impact = (
+                    f" → {i['followers_start']} → {i['followers_now']} followers "
+                    f"({i['followers_delta']:+d})"
+                )
+                if i.get("conversion_pct") is not None:
+                    impact += f", {i['conversion_pct']}% converted"
+            lines.append(f"  {label} ({i['platform']}): {sent}{impact}")
+        return lines
+
+    def _initiatives_html(self, esc) -> str:
+        if not self.initiatives:
+            return ""
+        rows = ""
+        for i in self.initiatives:
+            delta = i.get("followers_delta")
+            conv = i.get("conversion_pct")
+            rows += (
+                "<tr>"
+                f"<td><b>{esc(i.get('initiative') or i['event_type'])}</b></td>"
+                f"<td>{esc(i['platform'])}</td>"
+                f"<td>{i['units']}</td>"
+                f"<td>{i['followers_start'] if i.get('followers_start') is not None else '—'}</td>"
+                f"<td>{i['followers_now'] if i.get('followers_now') is not None else '—'}</td>"
+                f"<td>{f'{delta:+d}' if delta is not None else '—'}</td>"
+                f"<td>{f'{conv}%' if conv is not None else '—'}</td>"
+                "</tr>"
+            )
+        return (
+            "<h3>Growth initiatives</h3>"
+            '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
+            "<tr><th align='left'>Initiative</th><th>Platform</th><th>Units sent</th>"
+            "<th>Followers start</th><th>Now</th><th>Δ</th><th>Conv.</th></tr>"
+            f"{rows}</table>"
         )
 
     def _pulse_takeaway(self) -> str:
@@ -795,6 +845,10 @@ async def build_strategy_report(
     insights = await build_team_insights(db, team.id, days=insight_days)
     recent = await _load_recent_posts_by_platform(db, team.id)
 
+    from app.services.growth_initiatives import initiative_summary
+
+    initiatives = await initiative_summary(db, team.id)
+
     report = StrategyReport(
         generated_at=datetime.now(UTC),
         timezone=tz_name,
@@ -802,6 +856,7 @@ async def build_strategy_report(
         insights=insights,
         digest=digest,
         recent_posts_by_platform=recent,
+        initiatives=initiatives,
     )
 
     actions = await _llm_actions(db, team.id, insights, digest)

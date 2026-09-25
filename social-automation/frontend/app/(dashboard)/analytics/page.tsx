@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
   Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
   Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive, Eye,
-  Megaphone, MousePointerClick,
+  Megaphone, MousePointerClick, UserPlus,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -16,8 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview, usePublishPipeline, useAdCampaigns } from '@/hooks/useQueries'
-import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview, PublishPipeline, AdCampaignsResponse } from '@/types'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview, usePublishPipeline, useAdCampaigns, useInitiatives } from '@/hooks/useQueries'
+import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview, PublishPipeline, AdCampaignsResponse, GrowthInitiative } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { analyticsApi } from '@/services/api'
 import {
@@ -81,6 +82,20 @@ export default function AnalyticsPage() {
   const { data: pipeline } = usePublishPipeline(days) as { data: PublishPipeline | undefined }
   const { data: adCampaignsRaw } = useAdCampaigns(days)
   const adCampaigns = adCampaignsRaw as AdCampaignsResponse | undefined
+  const { data: initiativesRaw } = useInitiatives(90)
+  const initiatives = initiativesRaw as GrowthInitiative[] | undefined
+  const [inviteBatch, setInviteBatch] = useState('')
+  const queryClient = useQueryClient()
+  const recordInitiative = useMutation({
+    mutationFn: (units: number) =>
+      analyticsApi.recordInitiativeEvent({ event_type: 'linkedin_page_invite', platform: 'linkedin', units }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'initiatives'] })
+      setInviteBatch('')
+      toast.success('Invites logged')
+    },
+    onError: (err: unknown) => toast.error(formatErrorToast('Couldn’t log invites.', err)),
+  })
   const botSummary = botSummaryRaw as BotAnalyticsSummary | undefined
   const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
@@ -777,6 +792,84 @@ export default function AnalyticsPage() {
                 })}
               </TableBody>
             </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Growth initiatives — off-platform pushes (e.g. LinkedIn Page invites) vs follower delta */}
+      {initiatives && initiatives.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-[#0077b5]" />
+              Growth initiatives
+            </CardTitle>
+            <CardDescription>
+              Effort sent vs. follower impact on the linked account
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Initiative</TableHead>
+                  <TableHead>Platform</TableHead>
+                  <TableHead className="text-right">Units sent</TableHead>
+                  <TableHead className="text-right">Followers at start</TableHead>
+                  <TableHead className="text-right">Now</TableHead>
+                  <TableHead className="text-right">Gained</TableHead>
+                  <TableHead className="text-right">Conversion</TableHead>
+                  <TableHead>Last activity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {initiatives.map((i) => (
+                  <TableRow key={`${i.event_type}-${i.platform}`}>
+                    <TableCell className="font-medium">{i.initiative}</TableCell>
+                    <TableCell className="capitalize">{i.platform}</TableCell>
+                    <TableCell className="text-right">{i.units.toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{i.followers_start ?? '—'}</TableCell>
+                    <TableCell className="text-right">{i.followers_now ?? '—'}</TableCell>
+                    <TableCell className="text-right">
+                      {i.followers_delta !== null ? (
+                        <span className={i.followers_delta > 0 ? 'text-emerald-500' : ''}>
+                          {i.followers_delta > 0 ? '+' : ''}{i.followers_delta}
+                        </span>
+                      ) : '—'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {i.conversion_pct !== null ? `${i.conversion_pct}%` : '—'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {i.last_at ? formatRelativeTime(i.last_at) : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {/* Log an invite batch — sends happen on LinkedIn, we track the count */}
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                min={1}
+                placeholder="Invites sent"
+                value={inviteBatch}
+                onChange={(e) => setInviteBatch(e.target.value)}
+                className="h-9 w-32 rounded-md border bg-background px-3 text-sm"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={recordInitiative.isPending || !inviteBatch || Number(inviteBatch) <= 0}
+                onClick={() => recordInitiative.mutate(Number(inviteBatch))}
+              >
+                {recordInitiative.isPending ? 'Logging…' : 'Log LinkedIn invites'}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Invite connections on LinkedIn, then log the count here — follower impact shows above.
+              </span>
+            </div>
           </CardContent>
         </Card>
       )}
