@@ -231,7 +231,10 @@ class StrategyReport:
         if self.actions:
             for i, a in enumerate(self.actions, 1):
                 lines.append(f"  {i}. {a}")
-            items = [_parse_playbook_item(a) for a in self.actions]
+            items = sorted(
+                (_parse_playbook_item(a) for a in self.actions),
+                key=lambda it: it.time_athens or "99:99",
+            )
             lines.append("")
             lines.append("AGENT DEPLOYMENT BLOCK — paste to your Devin agent")
             lines.append(_agent_playbook_block(items, self.timezone))
@@ -296,7 +299,10 @@ class StrategyReport:
         action_rows = ""
         agent_block_html = ""
         if self.actions:
-            items = [_parse_playbook_item(a) for a in self.actions]
+            items = sorted(
+                (_parse_playbook_item(a) for a in self.actions),
+                key=lambda it: it.time_athens or "99:99",
+            )
             action_rows = "".join(
                 "<tr>"
                 f"<td><b>{esc(it.time_athens or '—')}</b></td>"
