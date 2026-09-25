@@ -544,7 +544,7 @@ async def _render_report_notebook(
                 )
         logger.info(
             "linkedin_ads_daily notebook rendered in %ss (artifact %s)",
-            result.get("duration_s"), result.get("artifact"),
+            result.get("duration_s"), result.get("notebook"),
         )
         return (
             text_f.read_text(),
