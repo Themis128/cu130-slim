@@ -1117,13 +1117,18 @@ async def _publish_facebook(
 async def _instagram_public_urls(
     storage_paths: list[str],
     post: Post,
+    db: AsyncSession | None = None,
 ) -> list[str]:
     """Resolve public URLs for media assets.
 
     Priority:
     1. platform_specific.instagram.image_urls (manual override)
-    2. MEDIA_PUBLIC_BASE_URL + /api/v1/media/view?path=...
-    3. Empty list (image posting not available)
+    2. R2_PUBLIC_URL + storage_path for R2 assets already JPEG/PNG —
+       pub-*.r2.dev has no Access/bot layer between Meta's media fetcher
+       and the bytes, so it survives the challenges that intermittently
+       fail /media/view fetches (Meta 9004 "media download failed")
+    3. MEDIA_PUBLIC_BASE_URL + /api/v1/media/view?path=...
+    4. Empty list (image posting not available)
     """
     override: list[str] = (post.platform_specific or {}).get("instagram", {}).get("image_urls", [])
     single: str | None = (post.platform_specific or {}).get("instagram", {}).get("image_url")
@@ -1132,8 +1137,26 @@ async def _instagram_public_urls(
     if override:
         return override
 
+    meta_by_path: dict[str, MediaAsset] = {}
+    if db is not None and post.media_ids:
+        assets = (
+            await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))
+        ).scalars().all()
+        meta_by_path = {a.storage_path: a for a in assets if a.storage_path}
+    r2_base = (_settings.R2_PUBLIC_URL or "").rstrip("/")
+
     urls: list[str] = []
     for sp in storage_paths:
+        asset = meta_by_path.get(sp)
+        if (
+            asset is not None
+            and r2_base
+            and (asset.storage_backend or "").lower() == "r2"
+            and (asset.mime_type or "").lower() in ("image/jpeg", "image/png")
+            and not sp.startswith("/")
+        ):
+            urls.append(f"{r2_base}/{sp}")
+            continue
         # Always request JPEG from /media/view so Graph never sees WebP/HEIC/AVIF.
         url = _media_public_url(sp, force_jpeg=True)
         if url:
@@ -1495,6 +1518,7 @@ async def _publish_instagram_via_graph(
     post: Post,
     media_paths: list[str],
     storage_paths: list[str] | None,
+    db: AsyncSession | None = None,
 ) -> PublishResult:
     """Publish via the Instagram Graph API (fallback)."""
     ig_user_id = account.account_id
@@ -1517,7 +1541,7 @@ async def _publish_instagram_via_graph(
                     ),
                 )
 
-    image_urls = await _instagram_public_urls(storage_paths or [], post)
+    image_urls = await _instagram_public_urls(storage_paths or [], post, db)
     caption = text[:2200]
 
     if not image_urls:
@@ -1676,7 +1700,7 @@ async def _publish_instagram(
     # and does NOT require a Facebook Page to be linked.
     if meta.get("login_type") == "business_login":
         graph_result = await _publish_instagram_via_graph(
-            access_token, text, account, post, media_paths, storage_paths,
+            access_token, text, account, post, media_paths, storage_paths, db,
         )
         if graph_result.success:
             return graph_result
@@ -1712,7 +1736,7 @@ async def _publish_instagram(
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
             graph_token = await _resolve_ig_user_token(access_token, account, db)
             graph_result = await _publish_instagram_via_graph(
-                graph_token, text, account, post, media_paths, storage_paths,
+                graph_token, text, account, post, media_paths, storage_paths, db,
             )
             if graph_result.success:
                 return graph_result
@@ -1721,13 +1745,13 @@ async def _publish_instagram(
             return result
         graph_token = await _resolve_ig_user_token(access_token, account, db)
         return await _publish_instagram_via_graph(
-            graph_token, text, account, post, media_paths, storage_paths,
+            graph_token, text, account, post, media_paths, storage_paths, db,
         )
 
     # 5. Facebook Login Graph API (last resort)
     graph_token = await _resolve_ig_user_token(access_token, account, db)
     return await _publish_instagram_via_graph(
-        graph_token, text, account, post, media_paths, storage_paths,
+        graph_token, text, account, post, media_paths, storage_paths, db,
     )
 
 
