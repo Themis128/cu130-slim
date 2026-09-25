@@ -196,6 +196,45 @@ https://cloudless.gr
   developer-access@linkedin.com separately)
 - LinkedIn will follow up with status updates
 
+## Community Management API — `r_member_postAnalytics` (requested 2026-09-25)
+
+`r_member_postAnalytics` (member-post impressions/reactions/comments/shares,
+`memberCreatorPostAnalytics` endpoint, API version ≥ 202506) **cannot** be added
+to the existing "Cloudless API App" (227354605): CMA must be the *only* product
+on an app for legal/security reasons, and that app already has Advertising API +
+Share on LinkedIn provisioned. LinkedIn's portal directs you to create a new app.
+
+### Dedicated app (created & verified 2026-09-25)
+
+- App: **Cloudless Analytics App** — App ID `264925843`, Client ID `77j8kzfi1a6jn8`
+- Standalone app, associated with Page `cloudless.gr` (108614163)
+- Page association **verified** via Settings → Verify (admin self-serve confirm)
+- Products requested: **Community Management API — Development Tier**
+- Business email verification: `polar@cloudless.gr` (IMAP on omv-ha; the
+  6-digit code arrives in `text/html` — parse both MIME parts, take the
+  *freshest* message; several stale codes accumulate)
+- Qualtrics access form submitted 2026-09-25 with:
+  legal name `Themistoklis Baltzakis`, alternate `Cloudless`,
+  website `https://cloudless.gr`, HQ `Koropi, Attica 19400, Greece`
+  (matches the Page's declared location), primary use case
+  **Direct Advertiser**, secondary: Page management, Page analytics,
+  Profile management.
+- Status: **pending LinkedIn review** — decision arrives by email.
+  Note: once submitted, the Qualtrics link shows "already completed" in the
+  same browser; the portal keeps a static "Access request form" link.
+
+### After approval
+
+1. The new app gets its own OAuth credentials — it is NOT the SocialAuto app.
+   `r_member_postAnalytics` tokens must come from THIS app's client id/secret.
+2. Decide: add a second LinkedIn OAuth config in `app/api/auth.py` for the
+   analytics app (separate client credentials + `r_member_postAnalytics`
+   scope), then reconnect the personal LinkedIn account through it.
+3. Re-verify `_fetch_member_post_analytics` returns real per-post
+   impressions/reactions/comments instead of `member_postAnalytics_scope_missing`.
+4. Keep `LINKEDIN_EXTRA_SCOPES` unset on the main app — adding the scope there
+   produces `unauthorized_scope_error` (verified 2026-09-25).
+
 ## Tool scripts
 
 ```bash
