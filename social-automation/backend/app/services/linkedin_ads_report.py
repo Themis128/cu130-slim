@@ -496,6 +496,66 @@ async def _final_sent(db: AsyncSession, campaign_id: str) -> bool:
     return row is not None
 
 
+async def _render_report_notebook(
+    *, campaign_id: str, status: str, end_date: date | None, is_final: bool
+) -> tuple[str, str | None, list[dict[str, Any]]] | None:
+    """Render the report via the ``linkedin_ads_daily`` notebook (papermill).
+
+    The notebook reads ``ad_campaign_snapshots`` (the row just committed),
+    emits plain text + HTML + trend-chart PNGs, and writes a manifest.
+    Returns ``(text, html, attachments)`` or ``None`` on any failure so the
+    caller falls back to the code-path renderer.
+    """
+    import asyncio
+    from pathlib import Path
+
+    try:
+        from app.services.notebook_runner import run_report_notebook
+
+        result = await asyncio.to_thread(
+            run_report_notebook,
+            "linkedin_ads_daily",
+            {
+                "campaign_id": campaign_id,
+                "status_hint": status,
+                "is_final": is_final,
+                "end_date": end_date.isoformat() if end_date else "",
+            },
+        )
+        manifest = result.get("manifest") or {}
+        base = Path(result["manifest_path"]).parent
+
+        def _res(f: str | None) -> Path | None:
+            if not f:
+                return None
+            p = Path(f)
+            return p if p.is_absolute() else base / p
+
+        text_f, html_f = _res(manifest.get("text_file")), _res(manifest.get("html_file"))
+        if not text_f or not text_f.exists():
+            logger.warning("ads notebook manifest missing text_file: %s", manifest)
+            return None
+        attachments = []
+        for a in manifest.get("attachments") or []:
+            p = _res(a.get("file"))
+            if p and p.exists():
+                attachments.append(
+                    {"name": p.name, "data": p.read_bytes(), "cid": a.get("cid"), "mime": a.get("mime")}
+                )
+        logger.info(
+            "linkedin_ads_daily notebook rendered in %ss (artifact %s)",
+            result.get("duration_s"), result.get("notebook"),
+        )
+        return (
+            text_f.read_text(),
+            html_f.read_text() if html_f and html_f.exists() else None,
+            attachments,
+        )
+    except Exception as exc:  # noqa: BLE001 — code-path renderer is the fallback
+        logger.warning("LinkedIn ads notebook render failed, using code path: %s", exc)
+        return None
+
+
 async def run_daily_report() -> dict[str, Any]:
     """Collect → snapshot → report → deliver. Runs daily until campaign end."""
     settings = get_settings()
@@ -540,14 +600,28 @@ async def run_daily_report() -> dict[str, Any]:
             raw={**metrics.raw, "final": is_final},
         )
         db.add(snapshot)
+        # Persist before rendering — the notebook reads snapshots in its own
+        # session, so the row must be committed for it to see today's metrics.
+        await db.commit()
 
-        report = build_report_text(metrics, prev, end_date)
-        try:
-            report += await build_org_section(db)
-        except Exception as exc:  # noqa: BLE001 — organic section is best-effort
-            logger.warning("LinkedIn org insights section failed: %s", exc)
-        if is_final:
-            report += "\n\n🏁 *Final report* — the campaign schedule has ended."
+        rendered = await _render_report_notebook(
+            campaign_id=campaign_id,
+            status=metrics.status,
+            end_date=end_date,
+            is_final=is_final,
+        )
+        report_html: str | None = None
+        report_attachments: list[dict[str, Any]] = []
+        if rendered is not None:
+            report, report_html, report_attachments = rendered
+        else:
+            report = build_report_text(metrics, prev, end_date)
+            try:
+                report += await build_org_section(db)
+            except Exception as exc:  # noqa: BLE001 — organic section is best-effort
+                logger.warning("LinkedIn org insights section failed: %s", exc)
+            if is_final:
+                report += "\n\n🏁 *Final report* — the campaign schedule has ended."
 
         # Slack: dedicated ads channel webhook/token, falling back to the
         # default digest webhook so reports are never lost. Interactive
@@ -567,6 +641,8 @@ async def run_daily_report() -> dict[str, Any]:
             send_email_smtp(
                 subject=f"LinkedIn ad report — {today.isoformat()}",
                 text_body=_to_email_text(report),
+                html_body=report_html,
+                attachments=report_attachments or None,
                 to_addrs=[a for a in (settings.LINKEDIN_ADS_EMAIL_TO or settings.DIGEST_EMAIL_TO).split(",") if a.strip()],
             )
         except Exception as exc:  # noqa: BLE001
