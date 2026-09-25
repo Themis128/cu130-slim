@@ -378,7 +378,11 @@ class StrategyReport:
         lines = ["", "GROWTH INITIATIVES"]
         for i in self.initiatives:
             label = i.get("initiative") or i["event_type"]
-            sent = f"{i['units']} sent" if i.get("units") else f"{i['events']} events"
+            sent = (
+                f"{i['units']} sent"
+                if i.get("units")
+                else f"{i['events']} event{'s' if i['events'] != 1 else ''}"
+            )
             impact = ""
             if i.get("followers_delta") is not None:
                 impact = (
