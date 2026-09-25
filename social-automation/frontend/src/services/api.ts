@@ -871,6 +871,8 @@ export const analyticsApi = {
     api.get('/analytics/bots/cloudflare-overview', { params }),
   getPublishPipeline: (params?: { days?: number }) =>
     api.get('/analytics/pipeline', { params }),
+  getAdCampaigns: (params?: { days?: number }) =>
+    api.get('/analytics/ad-campaigns', { params }),
 }
 
 // AI endpoints

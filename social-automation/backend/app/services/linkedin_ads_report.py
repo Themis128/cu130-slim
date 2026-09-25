@@ -17,7 +17,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import desc, select
+from sqlalchemy import case, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -443,7 +443,32 @@ async def build_org_section(db: AsyncSession) -> str:
 
 
 async def _get_team_id(db: AsyncSession) -> Any:
-    return (await db.execute(select(Team.id).limit(1))).scalar_one()
+    """Resolve the team that owns the LinkedIn workspace — the ad account
+    belongs to it, so snapshots must be attributed there or the campaign
+    is invisible to that team's analytics. Falls back to the highest-plan
+    team, then any team."""
+    linkedin_team = (
+        await db.execute(
+            select(SocialAccount.team_id)
+            .where(
+                SocialAccount.platform == "linkedin",
+                SocialAccount.status == "active",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if linkedin_team:
+        return linkedin_team
+    tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    return (
+        await db.execute(select(Team.id).order_by(desc(tier_rank)).limit(1))
+    ).scalar_one_or_none()
 
 
 async def _latest_snapshot(db: AsyncSession, campaign_id: str) -> AdCampaignSnapshot | None:

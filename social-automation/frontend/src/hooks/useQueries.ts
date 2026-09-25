@@ -715,6 +715,16 @@ export function usePublishPipeline(days?: number) {
   })
 }
 
+/** LinkedIn ad campaign snapshots (daily Campaign Manager scrape) */
+export function useAdCampaigns(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'ad-campaigns', days],
+    queryFn: () => analyticsApi.getAdCampaigns({ days }),
+    select: (response) => response.data,
+    refetchInterval: 300000,
+  })
+}
+
 // AI hooks
 export function useGenerateContent() {
   return useMutation({

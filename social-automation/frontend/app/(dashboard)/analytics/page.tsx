@@ -5,6 +5,7 @@ import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
   Users, Heart, UserCheck, Send, RefreshCw, FileText, Clock, Calendar,
   Bot, Cloud, Zap, AlertTriangle, Globe, Database, HardDrive, Eye,
+  Megaphone, MousePointerClick,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -15,8 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview, usePublishPipeline } from '@/hooks/useQueries'
-import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview, PublishPipeline } from '@/types'
+import { useOverviewMetrics, usePlatformMetrics, useTopPosts, useEngagementTrends, useFollowerGrowth, useLinkedinBestTime, useBotSummary, useCloudflareOverview, usePublishPipeline, useAdCampaigns } from '@/hooks/useQueries'
+import type { PlatformMetrics, TopPost, BotAnalyticsSummary, CloudflareOverview, PublishPipeline, AdCampaignsResponse } from '@/types'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { analyticsApi } from '@/services/api'
 import {
@@ -78,6 +79,8 @@ export default function AnalyticsPage() {
   const { data: botSummaryRaw, isLoading: botLoading } = useBotSummary(days)
   const { data: cfOverviewRaw, isLoading: cfLoading } = useCloudflareOverview(7)
   const { data: pipeline } = usePublishPipeline(days) as { data: PublishPipeline | undefined }
+  const { data: adCampaignsRaw } = useAdCampaigns(days)
+  const adCampaigns = adCampaignsRaw as AdCampaignsResponse | undefined
   const botSummary = botSummaryRaw as BotAnalyticsSummary | undefined
   const cfOverview = cfOverviewRaw as CloudflareOverview | undefined
 
@@ -602,6 +605,178 @@ export default function AnalyticsPage() {
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* LinkedIn Ads — campaign metrics from daily Campaign Manager scrape */}
+      {adCampaigns && adCampaigns.campaigns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Megaphone className="h-5 w-5 text-[#0077b5]" />
+              LinkedIn Ads
+            </CardTitle>
+            <CardDescription>
+              {adCampaigns.totals.campaigns} campaign{adCampaigns.totals.campaigns > 1 ? 's' : ''} — daily Campaign Manager snapshots
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* KPI strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { name: 'Spend', value: `€${adCampaigns.totals.spend_eur.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, icon: TrendingUp },
+                { name: 'Impressions', value: adCampaigns.totals.impressions.toLocaleString(), icon: Eye },
+                { name: 'Clicks', value: adCampaigns.totals.clicks.toLocaleString(), icon: MousePointerClick },
+                { name: 'CTR', value: `${adCampaigns.totals.ctr.toFixed(2)}%`, icon: BarChart3 },
+                { name: 'CPC', value: `€${adCampaigns.totals.cpc_eur.toFixed(2)}`, icon: TrendingDown },
+                { name: 'Engagements', value: adCampaigns.totals.engagements.toLocaleString(), icon: Heart },
+              ].map((kpi) => (
+                <div key={kpi.name} className="rounded-lg border bg-card p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <kpi.icon className="h-3.5 w-3.5" />
+                    {kpi.name}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold">{kpi.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Spend + reach charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <p className="text-sm font-medium mb-2">Cumulative spend (€)</p>
+                <div style={{ height: '14rem' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={(() => {
+                      const byDay = new Map<string, number>()
+                      for (const c of adCampaigns.campaigns) {
+                        const perDay = new Map<string, number>()
+                        for (const p of c.series) {
+                          const d = p.captured_at.slice(0, 10)
+                          perDay.set(d, Math.max(perDay.get(d) ?? 0, p.spend_eur))
+                        }
+                        for (const [d, v] of perDay) byDay.set(d, (byDay.get(d) ?? 0) + v)
+                      }
+                      return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, spend]) => ({ date, spend: Math.round(spend * 100) / 100 }))
+                    })()}>
+                      <defs>
+                        <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0077b5" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#0077b5" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                      <XAxis dataKey="date" tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }} className="text-xs" />
+                      <YAxis className="text-xs" />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                        formatter={(value: number) => [`€${Number(value).toFixed(2)}`, 'Spend']}
+                        labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
+                      />
+                      <Area type="monotone" dataKey="spend" stroke="#0077b5" strokeWidth={2} fillOpacity={1} fill="url(#spendGrad)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">Impressions &amp; clicks</p>
+                <div style={{ height: '14rem' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={(() => {
+                      const byDay = new Map<string, { impressions: number; clicks: number }>()
+                      for (const c of adCampaigns.campaigns) {
+                        const perDay = new Map<string, { impressions: number; clicks: number }>()
+                        for (const p of c.series) {
+                          const d = p.captured_at.slice(0, 10)
+                          const cur = perDay.get(d) ?? { impressions: 0, clicks: 0 }
+                          perDay.set(d, { impressions: Math.max(cur.impressions, p.impressions), clicks: Math.max(cur.clicks, p.clicks) })
+                        }
+                        for (const [d, v] of perDay) {
+                          const cur = byDay.get(d) ?? { impressions: 0, clicks: 0 }
+                          byDay.set(d, { impressions: cur.impressions + v.impressions, clicks: cur.clicks + v.clicks })
+                        }
+                      }
+                      return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date, ...v }))
+                    })()}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                      <XAxis dataKey="date" tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }} className="text-xs" />
+                      <YAxis className="text-xs" allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                        formatter={(value: number, name: string) => [Number(value).toLocaleString(), name === 'impressions' ? 'Impressions' : 'Clicks']}
+                        labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
+                      />
+                      <Area type="monotone" dataKey="impressions" stroke="#8b5cf6" strokeWidth={1.5} fill="#8b5cf6" fillOpacity={0.15} name="impressions" />
+                      <Area type="monotone" dataKey="clicks" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.15} name="clicks" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            {/* Campaign table */}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Campaign</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Budget</TableHead>
+                  <TableHead className="text-right">Impressions</TableHead>
+                  <TableHead className="text-right">Clicks</TableHead>
+                  <TableHead className="text-right">CTR</TableHead>
+                  <TableHead className="text-right">CPC</TableHead>
+                  <TableHead className="text-right">Engagements</TableHead>
+                  <TableHead>Last snapshot</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {adCampaigns.campaigns.map((c) => {
+                  const latest = c.latest
+                  const peak = c.series.reduce(
+                    (m, p) => ({
+                      spend_eur: Math.max(m.spend_eur, p.spend_eur),
+                      impressions: Math.max(m.impressions, p.impressions),
+                      clicks: Math.max(m.clicks, p.clicks),
+                      engagements: Math.max(m.engagements, p.engagements),
+                    }),
+                    { spend_eur: 0, impressions: 0, clicks: 0, engagements: 0 },
+                  )
+                  const budget = latest?.budget_eur ?? 0
+                  const pct = budget > 0 ? Math.min(100, (peak.spend_eur / budget) * 100) : null
+                  return (
+                    <TableRow key={c.campaign_id}>
+                      <TableCell>
+                        <div className="font-medium">{c.campaign_name || c.campaign_id}</div>
+                        <div className="text-xs text-muted-foreground">{c.campaign_id}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={c.status === 'active' ? 'success' : c.status === 'paused' ? 'warning' : 'secondary'} className="capitalize">
+                          {c.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">€{peak.spend_eur.toFixed(2)}{budget > 0 && ` / €${budget.toFixed(2)}`}</div>
+                        {pct !== null && (
+                          <div className="mt-1 h-1.5 w-24 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full', pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-[#0077b5]')}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{peak.impressions.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{peak.clicks.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{peak.impressions > 0 ? `${((peak.clicks / peak.impressions) * 100).toFixed(2)}%` : '—'}</TableCell>
+                      <TableCell className="text-right">{peak.clicks > 0 ? `€${(peak.spend_eur / peak.clicks).toFixed(2)}` : '—'}</TableCell>
+                      <TableCell className="text-right">{peak.engagements.toLocaleString()}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{latest ? formatRelativeTime(latest.captured_at) : '—'}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

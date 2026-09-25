@@ -1962,3 +1962,122 @@ async def get_cloudflare_overview(
     from app.services.cf_analytics import get_cf_overview
 
     return await get_cf_overview(days=days)
+
+
+class AdCampaignPoint(BaseModel):
+    captured_at: datetime
+    spend_eur: float
+    impressions: int
+    clicks: int
+    engagements: int
+    ctr: float
+    cpc_eur: float
+    engagement_rate: float
+
+
+class AdCampaignLatest(AdCampaignPoint):
+    budget_eur: float
+
+
+class AdCampaignOut(BaseModel):
+    campaign_id: str
+    campaign_name: str
+    platform: str
+    status: str
+    latest: AdCampaignLatest | None
+    series: list[AdCampaignPoint]
+
+
+class AdCampaignTotals(BaseModel):
+    campaigns: int
+    spend_eur: float
+    impressions: int
+    clicks: int
+    engagements: int
+    ctr: float
+    cpc_eur: float
+
+
+class AdCampaignsOut(BaseModel):
+    campaigns: list[AdCampaignOut]
+    totals: AdCampaignTotals
+
+
+@router.get("/ad-campaigns", response_model=AdCampaignsOut)
+async def get_ad_campaigns(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ad campaign metrics from ``ad_campaign_snapshots`` (LinkedIn Campaign
+    Manager daily scrape). Returns latest metrics + full time series per
+    campaign so the dashboard can chart spend/CTR/CPC over time."""
+    from app.models.linkedin_ads import AdCampaignSnapshot
+
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = (
+        await db.execute(
+            select(AdCampaignSnapshot)
+            .where(
+                AdCampaignSnapshot.team_id == team.id,
+                AdCampaignSnapshot.captured_at >= since,
+            )
+            .order_by(AdCampaignSnapshot.campaign_id, AdCampaignSnapshot.captured_at)
+        )
+    ).scalars().all()
+
+    grouped: dict[str, list[AdCampaignSnapshot]] = {}
+    for s in rows:
+        grouped.setdefault(s.campaign_id, []).append(s)
+
+    campaigns: list[AdCampaignOut] = []
+    tot_spend = tot_imp = tot_clicks = tot_eng = 0.0
+    for cid, snaps in grouped.items():
+        series = [
+            AdCampaignPoint(
+                captured_at=s.captured_at,
+                spend_eur=s.spend_eur,
+                impressions=s.impressions,
+                clicks=s.clicks,
+                engagements=s.engagements,
+                ctr=s.ctr,
+                cpc_eur=s.cpc_eur,
+                engagement_rate=s.engagement_rate,
+            )
+            for s in snaps
+        ]
+        last = snaps[-1]
+        latest = AdCampaignLatest(**series[-1].model_dump(), budget_eur=last.budget_eur)
+        campaigns.append(
+            AdCampaignOut(
+                campaign_id=cid,
+                campaign_name=last.campaign_name,
+                platform=last.platform,
+                status=last.status,
+                latest=latest,
+                series=series,
+            )
+        )
+        # Metrics are cumulative-to-date on LinkedIn — a failed/transferred
+        # scrape can record zeros as the last row, so aggregate the campaign
+        # maximum, not the last snapshot.
+        tot_spend += max(s.spend_eur for s in snaps)
+        tot_imp += max(s.impressions for s in snaps)
+        tot_clicks += max(s.clicks for s in snaps)
+        tot_eng += max(s.engagements for s in snaps)
+
+    campaigns.sort(key=lambda c: (c.latest.captured_at if c.latest else datetime.min.replace(tzinfo=UTC)), reverse=True)
+    totals = AdCampaignTotals(
+        campaigns=len(campaigns),
+        spend_eur=round(tot_spend, 2),
+        impressions=int(tot_imp),
+        clicks=int(tot_clicks),
+        engagements=int(tot_eng),
+        ctr=round(tot_clicks / tot_imp * 100, 2) if tot_imp else 0.0,
+        cpc_eur=round(tot_spend / tot_clicks, 2) if tot_clicks else 0.0,
+    )
+    return AdCampaignsOut(campaigns=campaigns, totals=totals)
