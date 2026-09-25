@@ -261,6 +261,35 @@ and creator accounts do.
 **Fix**: Include URLs in the bio text instead. Use `↓ cloudless.gr` format
 with a downward arrow (proven to increase CTR per 2025 research).
 
+### "Editing your links is only available on mobile" — verified 2026-09-25
+
+Professional accounts see this message on web Edit Profile — it is a
+**server-side feature gate**, not just hidden UI. Verified on cloudless.gr:
+
+- Mobile-UA + touch Playwright context still gets the desktop message —
+  there is no separate mobile-web edit UI; "mobile" means the mobile APP.
+- `POST /api/v1/web/accounts/edit/` returns `{"status":"ok"}` and accepts
+  `external_url` / `bio_links`, but the server **silently drops the URL**
+  (stores a title-only, non-clickable entry) — `web_profile_info` still
+  shows `external_url: ""`, `bio_links: []`.
+- `https://i.instagram.com/api/v1/accounts/update_bio_links/` (the mobile
+  app endpoint) returns `403 login_required logout_reason:8` with a web
+  sessionid — even with a correct `Bearer IGT:2:` token, Android headers,
+  and `signed_body`. Web sessionids do not auth the mobile API surface.
+- Fresh password login to the private API is blocked by Instagram's
+  "app version outdated" checkpoint, so no mobile session can be minted.
+- **The web edit endpoint overwrites omitted fields** — a partial POST
+  wiped the bio once. Always send the complete field set
+  (`username`, `first_name`, `biography`, `gender`, `chaining_enabled`,
+  `bio_links` to preserve/clear links).
+- Result: adding the website link **requires the phone app** (Edit
+  profile → Links). Session transplant into a standalone Playwright
+  context works though: export `twitter_storage_state.json` via
+  `/session/extract` (contains all origins incl. IG one-tap data), create
+  a context with it, navigate to instagram.com, click the saved-profile
+  card (`text="cloudless.gr"`) → logged in. Useful for bio/name reads
+  without fighting bridge contention.
+
 ## Tool scripts
 
 | Script | Location | Purpose |
