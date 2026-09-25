@@ -52,6 +52,11 @@ class BriefMedia:
     is_image: bool = False
 
 
+# Platforms that cannot publish media-less posts — a published target with
+# zero assets here means media was genuinely lost, not a text post.
+_MEDIA_REQUIRED_PLATFORMS = {"instagram", "tiktok", "pinterest", "youtube", "snapchat"}
+
+
 @dataclass
 class BriefPost:
     """A published post summary for the strategy brief media section."""
@@ -907,7 +912,9 @@ async def _load_recent_posts_by_platform(
                     published_at=target.published_at or post.published_at,
                     platform_url=target.platform_url,
                     media=list(media),
-                    missing_media=missing,
+                    # Missing media is only a defect where the platform
+                    # requires it — text/link posts elsewhere are valid.
+                    missing_media=missing and platform in _MEDIA_REQUIRED_PLATFORMS,
                     pending_inbox=pending_inbox,
                 )
             )
