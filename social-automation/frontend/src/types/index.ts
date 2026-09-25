@@ -373,3 +373,41 @@ export interface UnifiedInboxResponse {
   total: number
   by_platform: Record<string, number>
 }
+
+/** Ad campaign metrics — GET /analytics/ad-campaigns (LinkedIn Campaign Manager scrape) */
+export interface AdCampaignPoint {
+  captured_at: string
+  spend_eur: number
+  impressions: number
+  clicks: number
+  engagements: number
+  ctr: number
+  cpc_eur: number
+  engagement_rate: number
+}
+
+export interface AdCampaignLatest extends AdCampaignPoint {
+  budget_eur: number
+}
+
+export interface AdCampaign {
+  campaign_id: string
+  campaign_name: string
+  platform: string
+  status: string
+  latest: AdCampaignLatest | null
+  series: AdCampaignPoint[]
+}
+
+export interface AdCampaignsResponse {
+  campaigns: AdCampaign[]
+  totals: {
+    campaigns: number
+    spend_eur: number
+    impressions: number
+    clicks: number
+    engagements: number
+    ctr: number
+    cpc_eur: number
+  }
+}
