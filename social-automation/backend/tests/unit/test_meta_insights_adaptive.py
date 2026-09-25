@@ -110,3 +110,56 @@ async def test_meta_insights_get_drops_metric_index():
     )
     assert resp.status_code == 200
     assert client.calls[1]["params"]["metric"] == "views,likes"
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_bare_100_probes_metrics_individually():
+    """'(#100) The value must be a valid insights metric' rejects the whole
+    batch without naming offenders (post-type doesn't support some metrics) —
+    recover by probing each metric alone and merging the ones that work."""
+    client = _FakeClient(
+        [
+            _FakeResponse(
+                400,
+                {"error": {"message": "(#100) The value must be a valid insights metric"}},
+            ),
+            # post_media_view invalid for this post type → 400
+            _FakeResponse(400, {"error": {"message": "(#100) nope"}}),
+            # post_clicks works → 200
+            _FakeResponse(200, {"data": [{"name": "post_clicks", "values": [{"value": 3}]}]}),
+        ]
+    )
+    resp = await _meta_insights_get(
+        client,  # type: ignore[arg-type]
+        "https://graph.facebook.com/v26.0/1/insights",
+        ["post_media_view", "post_clicks"],
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "data": [{"name": "post_clicks", "values": [{"value": 3}]}]
+    }
+    assert [c["params"]["metric"] for c in client.calls] == [
+        "post_media_view,post_clicks",
+        "post_media_view",
+        "post_clicks",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_bare_100_all_invalid_returns_last_error():
+    client = _FakeClient(
+        [
+            _FakeResponse(
+                400,
+                {"error": {"message": "(#100) The value must be a valid insights metric"}},
+            ),
+            _FakeResponse(400, {"error": {"message": "(#100) nope"}}),
+            _FakeResponse(400, {"error": {"message": "(#100) nope"}}),
+        ]
+    )
+    resp = await _meta_insights_get(
+        client,  # type: ignore[arg-type]
+        "https://graph.facebook.com/v26.0/1/insights",
+        ["post_media_view", "post_video_views"],
+    )
+    assert resp.status_code == 400
