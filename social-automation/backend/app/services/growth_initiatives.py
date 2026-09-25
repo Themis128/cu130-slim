@@ -24,6 +24,7 @@ from uuid import UUID
 from sqlalchemy import Integer, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.log_sanitize import sanitize_log_text
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,12 @@ async def record_initiative_event(
     )
     db.add(event)
     await db.commit()
-    logger.info("Initiative event %s recorded: %s units on %s", event_type, units, platform)
+    logger.info(
+        "Initiative event %s recorded: %s units on %s",
+        sanitize_log_text(event_type, 80),
+        units,
+        sanitize_log_text(platform, 40),
+    )
     return event
 
 
