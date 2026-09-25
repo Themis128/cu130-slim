@@ -35,6 +35,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
+        "app.worker.tasks.notebook_reports",
     ],
 )
 
