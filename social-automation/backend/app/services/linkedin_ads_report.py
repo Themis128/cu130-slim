@@ -87,6 +87,17 @@ async def _sidecar_page_text(url: str) -> str:
         import asyncio
 
         await asyncio.sleep(10)
+        # Dismiss the cookie-consent banner (shown after fresh SSO logins) —
+        # it can cover the metrics tables and break parsing.
+        await client.post(
+            f"{base}/debug/eval",
+            json={
+                "script": "(()=>{const b=[...document.querySelectorAll('button')]"
+                ".find(b=>/^(Accept|Accept cookies|Allow all)$/i.test(b.innerText.trim()));"
+                "if(b){b.click();return 'dismissed'}return 'none'})()"
+            },
+        )
+        await asyncio.sleep(2)
         r = await client.get(f"{base}/debug/page-text")
         r.raise_for_status()
         return (r.json() or {}).get("text", "")

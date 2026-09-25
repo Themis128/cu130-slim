@@ -41,7 +41,9 @@ credit only, no payment details.
 | Thing | Value |
 |---|---|
 | Ad account | `512642510` ("Baltzakis Ad Account") |
-| Coupon campaign/ad set | `907024926` — "Cloudless boost - Sep 2026 - coupon" |
+| Campaign group | `692134846` — "New Campaign Group" (schedule 6/12/2024–10/23/2026) |
+| Coupon ad set (active) | `907100946` — "Cloudless boost - Sep 2026 - coupon — carousel" (`LINKEDIN_ADS_CAMPAIGN_ID`) |
+| Paused ad sets | `857622786` "Shop Online · A · Insights hook · GR" (€80 lifetime — drains same credit if resumed) |
 | Creative (direct ad) | `1573649544` — "Ad_1_24Sep2026" |
 | Company page (numeric) | `108614163` |
 | Company page SocialAuto account | `9c4451bb-e820-489f-8676-76ddbc788ffe` |
@@ -95,6 +97,25 @@ scripts/linkedin_cm.py shot /tmp/cm.png
   Inject via base64 → `File` → `DataTransfer` → `input[type=file]`.
   Payloads >~100KB blow the shell arg limit — `linkedin_cm.py upload`
   sends the JSON body via a temp file.
+- **`GET /debug/page-text` truncates ~2000 chars** — ad set detail pages are
+  ~6-7K. Use `eval document.body.innerText` for the full page, and read
+  `input.value` via eval for form fields (values never appear in innerText).
+- **CM SSO re-auth (learned 2026-09-27)**: a live linkedin.com feed session
+  does NOT guarantee CM access — `/campaignmanager/*` can redirect to
+  `/campaignmanager/login`, an iframe (`uas/login`) showing a "Welcome back"
+  wall with only `input[name=session_password]` visible. Fill it via
+  `document.querySelector("iframe").contentDocument` + native setter, click
+  the iframe's "Sign in" button → SSO passes straight through to the target
+  URL, no 2FA when feed cookies are fresh.
+- **Ad set edit page** (`.../campaigns/{adsetId}/details?businessId=personal`):
+  inputs are addressed by label regex (`/Daily budget/`, `/Lifetime Budget/`,
+  `Start date`); checkboxes by label (`Enable Audience Expansion`,
+  `LinkedIn Audience Network`). **"Save and exit" opens a political-ad
+  attestation dialog — you must click "Confirm"** or nothing persists.
+  Verify afterwards by reloading and re-reading `input.value`s.
+- **Don't poll `/session` mid-login** — it navigates the browser to `/feed`
+  and destroys a pending checkpoint/2FA page. Poll `location.href` via
+  `debug/eval` only (read-only).
 
 ## Promotional-credit safety (from LinkedIn docs)
 
