@@ -154,6 +154,7 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
         "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "default"},
         "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "default"},
+        "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
@@ -202,11 +203,18 @@ celery_app.conf.update(
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_week=1),
             "kwargs": {"days": 7, "post_to_slack": True, "post_to_email": False},
         },
-        # End-of-day strategy brief → email (insights engine + LLM playbook)
+        # End-of-day strategy brief → email. Notebook-generated (papermill in
+        # the worker env) so the report layout/charts are editable from the
+        # Jupyter UI; falls back to the code-path report on notebook failure.
         "daily-strategy-report": {
-            "task": "app.worker.tasks.digest.send_daily_strategy_report",
+            "task": "app.worker.tasks.notebook_reports.run_notebook_report",
             "schedule": crontab(hour=settings.STRATEGY_REPORT_HOUR, minute=0),
-            "kwargs": {"insight_days": 30, "send": True},
+            "kwargs": {
+                "notebook": "daily_strategy_brief",
+                "parameters": {"insight_days": 30},
+                "send": True,
+                "fallback_to_code": True,
+            },
         },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {

@@ -19,6 +19,7 @@ import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -148,12 +149,29 @@ def _recipients(settings) -> list[str]:
     ]
 
 
+def _attach_files(msg: EmailMessage, attachments: list[dict]) -> None:
+    """Attach files to a message; items with a ``cid`` are inline images."""
+    for att in attachments:
+        data = att["data"] if isinstance(att["data"], bytes) else Path(att["data"]).read_bytes()
+        maintype, _, subtype = (att.get("mime") or "image/png").partition("/")
+        cid = att.get("cid")
+        msg.add_attachment(
+            data,
+            maintype=maintype,
+            subtype=subtype,
+            filename=att["name"],
+            cid=f"<{cid}>" if cid else None,
+            disposition="inline" if cid else "attachment",
+        )
+
+
 def send_email_smtp(
     *,
     subject: str,
     text_body: str,
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """Send via local/host SMTP (free Postfix on :25)."""
     settings = get_settings()
@@ -177,6 +195,8 @@ def send_email_smtp(
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
+    if attachments:
+        _attach_files(msg, attachments)
 
     context = ssl.create_default_context()
     if not getattr(settings, "SMTP_SSL_VERIFY", True):
@@ -205,6 +225,7 @@ def send_email_cloudflare_smtp(
     text_body: str,
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """CF Email Sending over authenticated SMTP (smtp.mx.cloudflare.net:465)."""
     settings = get_settings()
@@ -224,6 +245,8 @@ def send_email_cloudflare_smtp(
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
+    if attachments:
+        _attach_files(msg, attachments)
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(CF_SMTP_HOST, CF_SMTP_PORT, timeout=45, context=context) as smtp:
@@ -237,6 +260,7 @@ async def send_email_cloudflare_verified(
     text_body: str,
     html_body: str,
     to_addrs: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """Free Cloudflare Email Sending to verified Email Routing destinations only."""
     settings = get_settings()
@@ -284,6 +308,7 @@ async def send_email_cloudflare_verified(
             text_body=text_body,
             html_body=html_body,
             to_addrs=to_addrs,
+            attachments=attachments,
         )
     except Exception as smtp_exc:  # noqa: BLE001
         raise RuntimeError(
@@ -301,12 +326,25 @@ async def send_email(
     text_body: str,
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     settings = get_settings()
     html = html_body or f"<pre>{_html_escape(text_body)}</pre>"
     provider = (settings.EMAIL_PROVIDER or "local").strip().lower()
 
     if provider in {"cloudflare", "cf"}:
+        # The REST API carries no attachments — SMTP submit (its built-in
+        # fallback) does. Skip REST entirely when attachments are present.
+        if attachments:
+            await asyncio.to_thread(
+                send_email_cloudflare_smtp,
+                subject=subject,
+                text_body=text_body,
+                html_body=html,
+                to_addrs=to_addrs,
+                attachments=attachments,
+            )
+            return
         await send_email_cloudflare_verified(
             subject=subject,
             text_body=text_body,
@@ -321,6 +359,7 @@ async def send_email(
         text_body=text_body,
         html_body=html,
         to_addrs=to_addrs,
+        attachments=attachments,
     )
 
 
