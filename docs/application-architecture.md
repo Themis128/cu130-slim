@@ -253,7 +253,7 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (491 endpoints across 35 route files)
+### API Modules (498 endpoints across 37 route files)
 
 ```
 app/api/
@@ -318,7 +318,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (95 services)
+### Service Layer (103 services)
 
 ```
 app/services/
@@ -490,7 +490,7 @@ app/mcp/server.py
     └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
-### Celery Tasks (23 task modules, 17 beat schedules)
+### Celery Tasks (29 task modules, 27 beat schedules)
 
 ```
 app/worker/tasks/
@@ -500,12 +500,30 @@ app/worker/tasks/
 ├── media_enhance.py        — batch_enhance
 ├── token_refresh.py        — refresh_expiring_tokens
 ├── recurring.py            — process_recurring_posts
-├── digest.py               — send_daily_slack_digest, send_weekly_slack_digest
-├── instagram_session_check.py — check_instagram_sessions
+├── digest.py               — send_daily_slack_digest, send_weekly_slack_digest,
+│                             send_daily_strategy_report (code-path fallback)
+├── notebook_reports.py     — run_notebook_report: papermill-executes
+│                             notebooks/reports/*.ipynb in the worker env and
+│                             emails the rendered manifest (see "Notebook-
+│                             generated reports" under Jupyter below)
+├── datalake_export.py      — export_datalake: JSON snapshots → R2
+├── linkedin_ads_report.py  — send_linkedin_ads_report: Campaign Manager
+│                             scrape → ad_campaign_snapshots → Slack/email
+├── linkedin_ads_control.py — linkedin_ads_control: Slack pause/resume/status
+├── linkedin_invites.py     — send_linkedin_invites: Page invitation batches
+├── instagram_session_check.py — check_instagram_sessions (business_login
+│                             accounts validate the Graph OAuth token first;
+│                             sidecar probe is fallback only)
 ├── instagram_token_refresh.py — refresh_instagram_tokens
 ├── linkedin_session_check.py  — check_linkedin_sessions
 ├── linkedin_session_refresh.py — refresh_linkedin_sessions
 ├── workflows.py            — execute_workflow, deploy_workflow
+├── telegram_digest.py      — send_telegram_group_digests
+├── paddle_digest.py        — send_paddle_slack_digest (billing digest)
+├── dodo_live_check.py      — check_dodo_live (billing live-check)
+├── whatsapp_verify.py      — check_whatsapp_verification
+├── tiktok_inbox_reconcile.py — reconcile_tiktok_inbox
+├── dmr_health.py           — check_dmr_health
 ├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
 ├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator)
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
@@ -523,6 +541,13 @@ Beat Schedule:
 │ check-scheduled-posts    │ publishing.check_scheduled_posts│ 60s      │
 │ sync-analytics           │ analytics.sync_all_analytics   │ 300s     │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
+│ export-datalake          │ datalake_export.export_datalake │ 6h :10   │
+│ daily-strategy-report    │ notebook_reports.               │ daily    │
+│                          │  run_notebook_report            │ 21:00    │
+│                          │  (papermill → email; falls back │ EEST     │
+│                          │   to code-path brief on failure)│          │
+│ linkedin-ads-daily-report│ linkedin_ads_report             │ daily    │
+│ send-linkedin-invites    │ linkedin_invites                │ daily    │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
 │                         │  (bot: memory+RAG+intent+cooldown)│          │
 │ poll-instagram-messenger │ instagram_messenger.poll       │ 120s     │
@@ -688,14 +713,41 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Jupyter scratchpad (`social-jupyter`)** — ad-hoc analytics against
-`social-postgres` via the injected `DATABASE_URL` (psycopg2). Bound to
-`127.0.0.1:8888` with `JUPYTER_TOKEN` auth — reach it over SSH tunnel or
-Tailscale only; it is remote code execution and must never be exposed
-publicly. `jupyter/start-notebook.d/` installs DB drivers at container
-start; shared notebooks live in `./notebooks/` (bind-mounted). The stack
-`.env` is intentionally **not** mounted — inject specific env vars in
-compose instead.
+**Jupyter (`social-jupyter`)** — two roles:
+
+- **Ad-hoc analytics** against `social-postgres` via the injected
+  `DATABASE_URL` (psycopg2). Bound to `127.0.0.1:8888` with `JUPYTER_TOKEN`
+  auth — reach it over SSH tunnel or Tailscale only; it is remote code
+  execution and must never be exposed publicly. `jupyter/start-notebook.d/`
+  installs DB drivers at container start; notebooks live in `./notebooks/`
+  (bind-mounted). The stack `.env` is intentionally **not** mounted —
+  inject specific env vars in compose instead.
+- **Notebook-generated reports** — `notebooks/reports/*.ipynb` are the
+  report templates. Celery beat triggers
+  `notebook_reports.run_notebook_report`, which executes the notebook via
+  **papermill inside `social-worker-default`** (the `./notebooks` dir is
+  mounted at `/notebooks` in workers too). The kernel inherits the worker
+  environment — `DATABASE_URL`, AI/Slack secrets, and `import app.*` all
+  work — so notebooks reuse the real service layer instead of duplicating
+  logic. The notebook writes `report.html`/`report.txt` + chart PNGs +
+  a `*.manifest.json` into `notebooks/output/` (visible in Jupyter at
+  `work/output/`); the task then emails each manifest report with charts
+  as `cid:` inline images (renders in Gmail, unlike base64 data-URIs).
+  On notebook failure the task falls back to the code-path report
+  (`digest.send_daily_strategy_report`) so a brief is never silently
+  skipped. The daily strategy brief at 21:00 EEST is generated this way.
+
+**Growth initiatives & ad-campaign analytics** — off-platform growth
+pushes (e.g. LinkedIn's monthly Page invitation credits) are recorded as
+`analytics_events` rows (`post_id=NULL` → exported to the datalake as
+account-events). `GET /analytics/initiatives` rolls up sent/accepted/
+pending/declined + follower delta from `follower_snapshots` + LinkedIn
+credit math (accepted invites refund their credit); `POST
+/analytics/initiative-events` logs a batch (auto-resolves the org page
+account). `GET /analytics/ad-campaigns` serves the LinkedIn Ads dashboard
+with per-day max aggregation so a zeroed scrape can't erase cumulative
+spend. Both power cards on the `/analytics` page and sections of the
+daily brief.
 
 ## Data Flow Architecture
 

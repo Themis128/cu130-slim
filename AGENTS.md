@@ -552,7 +552,7 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 |-------|-----------------|-------------|-----------------|-------|
 | `publishing` | `social-worker-publishing` | 3 | 200 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
 | `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
-| `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, unrouted tasks |
+| `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, `run_notebook_report` (papermill executes `/notebooks/reports/*.ipynb` — worker mounts `./notebooks`, needs papermill/ipykernel/pandas/matplotlib from `social-worker-latest`), `export_datalake`, `linkedin_ads_*`, unrouted tasks |
 | `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
