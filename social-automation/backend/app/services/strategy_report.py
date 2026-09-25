@@ -203,26 +203,26 @@ class StrategyReport:
             ]
         lines.append("PLATFORM PULSE (30d)")
         for name, p in self._platform_rows():
-            mom = p.get("momentum_7d_engagement_pct")
-            mom_s = f"{mom:+}%" if isinstance(mom, int | float) else "n/a"
-            bench = p.get("benchmark") or {}
-            verdict = bench.get("verdict", "").replace("_", " ") or "no benchmark"
-            if bench.get("your_er_by_followers_pct") is not None and bench.get("benchmark_pct") is not None:
-                verdict = (
-                    f"ER {bench['your_er_by_followers_pct']}% vs "
-                    f"{bench['benchmark_pct']}% ({verdict})"
-                )
+            mom_s = self._mom_str(p)
+            verdict = self._bench_cell(p)
             window = self._best_window(p)
-            er = p.get("avg_engagement_rate")
-            er_s = f"{er}%" if isinstance(er, int | float) else "n/a"
+            er_s = self._er_str(p)
             imp = p.get("impressions")
             imp_s = str(imp) if isinstance(imp, int | float) else "n/a"
+            flag = " [sync⚠]" if p.get("data_warnings") else ""
             lines.append(
-                f"  {name}: {p.get('posts', 0)} posts · {imp_s} impressions · "
+                f"  {name}{flag}: {p.get('posts', 0)} posts · {imp_s} impressions · "
                 f"eng {p.get('engagement', 0)} · avg ER {er_s} · "
                 f"7d momentum {mom_s} · {verdict} · best {window} · "
                 f"confidence {p.get('confidence', 'low')}"
             )
+        warned = [
+            f"{n}: {p['data_warnings'][0]}"
+            for n, p in self._platform_rows()
+            if p.get("data_warnings")
+        ]
+        for w in warned:
+            lines.append(f"  ⚠ {w}")
         takeaway = self._pulse_takeaway()
         if takeaway:
             lines.append(f"  → {takeaway}")
@@ -271,7 +271,9 @@ class StrategyReport:
 
         rows = "".join(
             "<tr>"
-            f"<td><b>{esc(name)}</b></td>"
+            f"<td><b>{esc(name)}</b>"
+            + (" <span title='collection issues'>⚠</span>" if p.get("data_warnings") else "")
+            + "</td>"
             f"<td>{p.get('posts', 0)}</td>"
             f"<td>{p.get('impressions', 'n/a')}</td>"
             f"<td>{p.get('engagement', 0)}</td>"
@@ -283,6 +285,12 @@ class StrategyReport:
             "</tr>"
             for name, p in self._platform_rows()
         )
+        warn_notes = "; ".join(
+            f"{name}: {p['data_warnings'][0]}"
+            + (f" (+{len(p['data_warnings']) - 1} more)" if len(p["data_warnings"]) > 1 else "")
+            for name, p in self._platform_rows()
+            if p.get("data_warnings")
+        )
         takeaway = self._pulse_takeaway()
         platform_block = (
             "<h3>Platform pulse (30 days)</h3>"
@@ -292,6 +300,10 @@ class StrategyReport:
             "<th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
             f"{rows}</table>"
             + (f"<p style='color:#374151;font-size:13px'>→ {esc(takeaway)}</p>" if takeaway else "")
+            + (
+                f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>"
+                if warn_notes else ""
+            )
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
         )
@@ -625,22 +637,43 @@ class StrategyReport:
     def _bench_cell(p: dict) -> str:
         """Human-readable ER-by-followers vs baseline for email tables."""
         bench = p.get("benchmark") or {}
-        verdict = (bench.get("verdict") or "").replace("_", " ") or "—"
+        verdict = (bench.get("verdict") or "").replace("_", " ")
         yours = bench.get("your_er_by_followers_pct")
         base = bench.get("benchmark_pct")
-        if yours is None or base is None:
+        if yours is not None and base is not None:
+            return f"ER {yours}% vs {base}% ({verdict})"
+        if verdict:
             return verdict
-        return f"ER {yours}% vs {base}% ({verdict})"
+        # The comparison is gated on ≥50 followers — say so instead of
+        # showing a dead "—" that reads like missing infrastructure.
+        current = (p.get("follower_growth") or {}).get("current")
+        if current is not None:
+            return f"— (needs 50+ followers, has {current})"
+        return "—"
 
     @staticmethod
     def _er_str(p: dict[str, Any]) -> str:
         er = p.get("avg_engagement_rate")
-        return f"{er}%" if isinstance(er, int | float) else "n/a"
+        if not isinstance(er, int | float):
+            return "n/a"
+        if (p.get("impressions") or 0) < 50:
+            # A 1-engagement/7-impression platform would show "14.3%" —
+            # precision the data doesn't support.
+            return "low data"
+        return f"{er}%"
 
     @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:
         m = p.get("momentum_7d_engagement_pct")
-        return f"{m:+}%" if isinstance(m, int | float) else "n/a"
+        if isinstance(m, int | float):
+            return f"{m:+}%"
+        # No ratio (prior week was zero) — show the raw counts so the cell
+        # still carries information instead of an unexplained "n/a".
+        recent = p.get("engagement_7d") or 0
+        prior = p.get("engagement_prev_7d") or 0
+        if recent or prior:
+            return f"{prior}→{recent}"
+        return "—"
 
     @staticmethod
     def _best_window(p: dict[str, Any]) -> str:

@@ -222,6 +222,28 @@ async def _meta_insights_get(
             if len(remaining) < before:
                 continue
 
+        # Pattern 4: bare "(#100) The value must be a valid insights metric" —
+        # the batch was rejected without naming offenders, which happens when
+        # none (or only some) of the metrics apply to this object's type
+        # (e.g. post_media_view on a text/link post). Probe each metric alone
+        # and merge the ones this object actually supports.
+        if "(#100)" in msg or "valid insights metric" in msg.lower():
+            if len(remaining) <= 1:
+                return resp
+            merged: dict[str, Any] = {"data": []}
+            last_err = resp
+            for metric in remaining:
+                probe = await client.get(
+                    url, headers=headers, params={**base, "metric": metric}
+                )
+                if probe.status_code == 200:
+                    merged["data"].extend((probe.json() or {}).get("data", []))
+                else:
+                    last_err = probe
+            if merged["data"]:
+                return httpx.Response(200, json=merged)
+            return last_err
+
         return resp
     return resp if resp is not None else await client.get(
         url, headers=headers, params=base
@@ -1294,6 +1316,35 @@ async def sync_twitter_account(
 
 # ── Facebook ──────────────────────────────────────────────────────────────────
 
+async def _facebook_object_metrics(
+    client: httpx.AsyncClient, post_id: str, page_token: str
+) -> dict[str, int]:
+    """Engagement counters straight off the post object — works even when the
+    insights endpoint rejects every metric for the post's type."""
+    out = {"comments": 0, "shares": 0, "likes": 0}
+    obj = await client.get(
+        facebook_graph_url(post_id),
+        params={
+            "access_token": page_token,
+            "fields": (
+                "shares,comments.summary(true).limit(0),"
+                "reactions.summary(true).limit(0)"
+            ),
+        },
+    )
+    if obj.status_code != 200:
+        return out
+    body = obj.json() or {}
+    out["comments"] = int(
+        (body.get("comments", {}).get("summary", {}) or {}).get("total_count", 0) or 0
+    )
+    out["shares"] = int((body.get("shares", {}) or {}).get("count", 0) or 0)
+    out["likes"] = int(
+        (body.get("reactions", {}).get("summary", {}) or {}).get("total_count", 0) or 0
+    )
+    return out
+
+
 async def _fetch_facebook_post_metrics(
     client: httpx.AsyncClient, page_token: str, post_id: str,
 ) -> MetricBundle:
@@ -1318,9 +1369,12 @@ async def _fetch_facebook_post_metrics(
         params={"access_token": page_token},
     )
     if resp.status_code != 200:
-        return MetricBundle(
-            notes=f"facebook stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
-        )
+        # Insights can reject every metric for a post type the endpoint
+        # doesn't cover — the post object still carries real engagement
+        # counters, so salvage those instead of recording an all-zero row.
+        notes = f"facebook stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
+        obj_metrics = await _facebook_object_metrics(client, post_id, page_token)
+        return MetricBundle(notes=notes, **obj_metrics)
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -1349,24 +1403,15 @@ async def _fetch_facebook_post_metrics(
     # Comments/shares removed from post insights — read them off the object.
     comments = _breakdown("post_activity_by_action_type", "comment")
     shares = _breakdown("post_activity_by_action_type", "share")
-    obj = await client.get(
-        facebook_graph_url(post_id),
-        params={
-            "access_token": page_token,
-            "fields": "shares,comments.summary(true).limit(0)",
-        },
-    )
-    if obj.status_code == 200:
-        body = obj.json() or {}
-        comments = comments or int(
-            (body.get("comments", {}).get("summary", {}) or {}).get("total_count", 0) or 0
-        )
-        shares = shares or int((body.get("shares", {}) or {}).get("count", 0) or 0)
+    obj_metrics = await _facebook_object_metrics(client, post_id, page_token)
+    comments = comments or obj_metrics["comments"]
+    shares = shares or obj_metrics["shares"]
+    likes = _val("post_reactions_like_total") or obj_metrics["likes"]
 
     return MetricBundle(
         impressions=impressions,
         clicks=_val("post_clicks"),
-        likes=_val("post_reactions_like_total"),
+        likes=likes,
         comments=comments,
         shares=shares,
         reach=impressions,

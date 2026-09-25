@@ -151,14 +151,19 @@ PLATFORM_BENCHMARKS: dict[str, dict[str, Any]] = {
 }
 
 # Snapshot notes that mean "data collection is broken, not the content".
+# Covers the signatures the collectors actually emit: HTTP error notes,
+# missing scopes/products, unavailable endpoints, and dead platform objects.
 _DATA_GAP_NOTES = (
-    "insights_scope_missing",
+    "scope_missing",
     "stats_unavailable",
-    "quota_exhausted",
+    "missing_stats",
+    "not_implemented",
+    "not_found",
+    "quota",
     "session expired",
     "token",
-    "HTTP 401",
-    "HTTP 403",
+    "HTTP 4",
+    "HTTP 5",
 )
 
 # Minimum evidence before momentum recommendations fire (suppresses
@@ -413,6 +418,8 @@ def compute_insights(
             "weekdays": defaultdict(lambda: [0, 0.0]),  # weekday -> [n, er_sum]
             "media_posts": [0, 0.0],
             "text_posts": [0, 0.0],
+            "er_imp": 0,   # impressions on rows that have a denominator
+            "er_eng": 0,   # engagement on those same rows only
             "notes": set(),
             "top_post": None,
             "post_engagements": [],   # (post_id, engagement, er) — for outliers/medians
@@ -438,6 +445,12 @@ def compute_insights(
         p["posts"] += 1
         p["impressions"] += impressions
         p["engagement"] += engagement
+        if impressions > 0:
+            # ER-by-impressions needs a real denominator — posts whose source
+            # can't report impressions (member-profile scrapes, quota-dead
+            # APIs) would otherwise inflate the rate with free engagement.
+            p["er_imp"] += impressions
+            p["er_eng"] += engagement
         p["likes"] += likes
         p["comments"] += comments
         p["shares"] += shares
@@ -518,7 +531,7 @@ def compute_insights(
     platforms: dict[str, dict[str, Any]] = {}
     for name, p in plat.items():
         posts = p["posts"]
-        avg_er = round(p["engagement"] / p["impressions"] * 100, 2) if p["impressions"] else 0.0
+        avg_er = round(p["er_eng"] / p["er_imp"] * 100, 2) if p["er_imp"] else 0.0
 
         def _best(buckets: dict[int, list[int]], min_n: int = 2):
             """Winning bucket's avg ER must beat the platform mean ER by a
