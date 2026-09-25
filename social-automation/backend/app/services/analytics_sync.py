@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -256,6 +256,39 @@ def _meta_error_message(resp: httpx.Response) -> str:
         return (resp.json() or {}).get("error", {}).get("message", "") or resp.text[:200]
     except Exception:
         return resp.text[:200]
+
+
+async def _resolve_stale_note(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    platform: str,
+    platform_post_id: str,
+) -> None:
+    """Rewrite the newest snapshot's error note when a target is retired.
+
+    Retired targets stop syncing, so their last snapshot keeps an HTTP-error
+    note forever — and insights_engine surfaces it as a "sync gap" for the
+    whole reporting window. Marking it ``platform_deleted`` resolves the
+    warning while preserving the historical metrics row.
+    """
+    row = (
+        await db.execute(
+            select(PostAnalyticsSnapshot.id, PostAnalyticsSnapshot.notes)
+            .where(
+                PostAnalyticsSnapshot.social_account_id == account_id,
+                PostAnalyticsSnapshot.platform == platform,
+                PostAnalyticsSnapshot.platform_post_id == platform_post_id,
+            )
+            .order_by(PostAnalyticsSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if row and row.notes and row.notes != "platform_deleted":
+        await db.execute(
+            update(PostAnalyticsSnapshot)
+            .where(PostAnalyticsSnapshot.id == row.id)
+            .values(notes="platform_deleted")
+        )
 
 
 def _persist_account_event(
@@ -1927,6 +1960,7 @@ async def sync_threads_account(
                 # retire the target so future syncs skip it.
                 t.status = "deleted"
                 t.error_message = "Media deleted on Threads"
+                await _resolve_stale_note(db, account.id, "threads", media_id)
                 result.skipped += 1
                 continue
             await _persist_snapshot(
@@ -2272,6 +2306,7 @@ async def sync_tiktok_account(
                         # erroring every cycle forever.
                         t.status = "deleted"
                         t.error_message = "Video not found on TikTok Display API"
+                        await _resolve_stale_note(db, account.id, "tiktok", video_id)
                         result.skipped += 1
                         continue
                 await _persist_snapshot(
