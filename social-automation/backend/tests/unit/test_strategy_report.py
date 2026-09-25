@@ -13,6 +13,7 @@ from app.services.strategy_report import (
     _brief_media_from_assets,
     _is_image_asset,
     _parse_actions,
+    _parse_playbook_item,
     _preview_text,
     _rule_actions,
 )
@@ -160,8 +161,27 @@ def test_html_render_escapes_and_tables():
     html = _report().to_html()
     assert "Platform pulse" in html
     assert "Tomorrow's playbook" in html
-    assert "<li>Post a LinkedIn carousel" in html
+    assert "<td>Post a LinkedIn carousel" in html
+    assert "Agent deployment block" in html
+    assert "&quot;platform&quot;" in html
     assert "above median" in html
+
+
+def test_agent_block_parses_destination_platform():
+    # "repurpose a LinkedIn post ... on Threads" must land on Threads.
+    item = _parse_playbook_item(
+        "Repurpose a top LinkedIn post as a short text update on Threads at 17:00 Athens time"
+    )
+    assert item.platform == "threads"
+    assert item.time_athens == "17:00"
+    assert item.format == "text"
+    assert not item.media_required
+
+    item = _parse_playbook_item("Post a carousel on LinkedIn at 02:00 Athens time")
+    assert item.platform == "linkedin"
+    assert item.time_athens == "02:00"
+    assert item.format == "carousel"
+    assert item.media_required
 
 
 def test_empty_report_still_renders():
