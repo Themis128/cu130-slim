@@ -2106,6 +2106,33 @@ async def _fetch_tiktok_video_stats(
     return MetricBundle(notes="tiktok_video_not_found")
 
 
+async def _tiktok_consecutive_misses(
+    db: AsyncSession, account_id: uuid.UUID, video_id: str
+) -> int:
+    """Trailing count of tiktok_video_not_found snapshots for a video —
+    distinguishes a genuinely gone video (deleted, or orphaned by the
+    app→organization transfer) from a one-off API gap."""
+    rows = (
+        await db.execute(
+            select(PostAnalyticsSnapshot.notes)
+            .where(
+                PostAnalyticsSnapshot.social_account_id == account_id,
+                PostAnalyticsSnapshot.platform == "tiktok",
+                PostAnalyticsSnapshot.platform_post_id == video_id,
+            )
+            .order_by(PostAnalyticsSnapshot.captured_at.desc())
+            .limit(4)
+        )
+    ).scalars().all()
+    streak = 0
+    for note in rows:
+        if note == "tiktok_video_not_found":
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def _write_tiktok_cookie_file(cookies: dict[str, str]) -> str:
     """Build a Netscape cookies.txt from a name→value map; returns the path."""
     import tempfile
@@ -2234,6 +2261,19 @@ async def sync_tiktok_account(
                     continue
                 api_video_ids.add(video_id)
                 metrics = await _fetch_tiktok_video_stats(client, token, video_id)
+                if metrics.notes == "tiktok_video_not_found":
+                    misses = await _tiktok_consecutive_misses(
+                        db, account.id, video_id
+                    )
+                    if misses >= 2:
+                        # Persistent miss across syncs — gone from the API's
+                        # view (deleted or orphaned by the org transfer).
+                        # Retire it like Threads deleted media instead of
+                        # erroring every cycle forever.
+                        t.status = "deleted"
+                        t.error_message = "Video not found on TikTok Display API"
+                        result.skipped += 1
+                        continue
                 await _persist_snapshot(
                     db, account=account, post_id=t.post_id, platform_post_id=video_id,
                     metrics=metrics, captured_at=captured_at, source="tiktok_api",
