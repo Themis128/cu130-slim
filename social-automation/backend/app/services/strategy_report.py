@@ -70,6 +70,99 @@ class BriefPost:
 
 
 @dataclass
+class PlaybookItem:
+    """One scheduled action for tomorrow — parsed from the action text so it
+    can be rendered both as friendly prose and as a machine-readable
+    deployment block for an automation agent."""
+
+    instruction: str
+    platform: str = ""
+    time_athens: str = ""        # "HH:MM" Athens local
+    format: str = ""             # text | image | carousel | video
+    media_required: bool = False
+
+
+_KNOWN_PLATFORMS = (
+    "linkedin", "instagram", "facebook", "threads", "twitter", "x",
+    "tiktok", "telegram", "whatsapp", "youtube",
+)
+_TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
+
+
+def _parse_playbook_item(action: str) -> PlaybookItem:
+    """Extract platform / Athens time / format hints from an action line.
+
+    Anything not recognised is left blank — the full instruction text is
+    always carried through, so no detail is lost for the agent.
+    """
+    low = action.lower()
+    # The destination platform usually follows a preposition ("post on
+    # Threads", "share to LinkedIn"); a platform mentioned earlier may be the
+    # source ("repurpose a top LinkedIn post …"). Prefer preposition-led
+    # mentions, else the last mention.
+    prep_hits = [
+        m.group(1)
+        for m in re.finditer(
+            r"\b(?:on|to|for|via|over)\s+(?:the\s+)?("
+            + "|".join(_KNOWN_PLATFORMS)
+            + r")\b",
+            low,
+        )
+    ]
+    if prep_hits:
+        platform = prep_hits[0]
+    else:
+        mentions = [
+            m.group(0)
+            for m in re.finditer(
+                r"\b(" + "|".join(_KNOWN_PLATFORMS) + r")\b", low
+            )
+        ]
+        platform = mentions[-1] if mentions else ""
+    if platform == "x":
+        platform = "twitter"
+    m = _TIME_RE.search(action)
+    time_athens = f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
+    fmt = ""
+    if "carousel" in low:
+        fmt = "carousel"
+    elif "video" in low or "reel" in low:
+        fmt = "video"
+    elif re.search(r"\b(image|photo|media-rich|media)\b", low):
+        fmt = "image"
+    elif re.search(r"\btext\b", low):
+        fmt = "text"
+    return PlaybookItem(
+        instruction=action,
+        platform=platform,
+        time_athens=time_athens,
+        format=fmt,
+        media_required=fmt in {"image", "carousel", "video"},
+    )
+
+
+def _agent_playbook_block(items: list[PlaybookItem], tz_name: str) -> str:
+    """Machine-readable playbook for a Devin/automation agent — JSON fenced
+    block that can be pasted verbatim. Times are Athens local; the agent is
+    expected to convert to UTC when scheduling via the SocialAuto API."""
+    payload = {
+        "timezone": tz_name,
+        "source": "socialauto-daily-strategy-brief",
+        "actions": [
+            {
+                "platform": it.platform or None,
+                "time_local": it.time_athens or None,
+                "format": it.format or None,
+                "media_required": it.media_required,
+                "instruction": it.instruction,
+            }
+            for it in items
+        ],
+    }
+    return "```json\n" + json.dumps(payload, indent=2, ensure_ascii=False) + "\n```"
+
+
+@dataclass
 class StrategyReport:
     generated_at: datetime
     timezone: str
@@ -119,16 +212,29 @@ class StrategyReport:
                     f"{bench['benchmark_pct']}% ({verdict})"
                 )
             window = self._best_window(p)
+            er = p.get("avg_engagement_rate")
+            er_s = f"{er}%" if isinstance(er, int | float) else "n/a"
+            imp = p.get("impressions")
+            imp_s = str(imp) if isinstance(imp, int | float) else "n/a"
             lines.append(
-                f"  {name}: {p.get('posts', 0)} posts · eng {p.get('engagement', 0)} · "
-                f"7d momentum {mom_s} · {verdict} · best {window}"
+                f"  {name}: {p.get('posts', 0)} posts · {imp_s} impressions · "
+                f"eng {p.get('engagement', 0)} · avg ER {er_s} · "
+                f"7d momentum {mom_s} · {verdict} · best {window} · "
+                f"confidence {p.get('confidence', 'low')}"
             )
+        takeaway = self._pulse_takeaway()
+        if takeaway:
+            lines.append(f"  → {takeaway}")
         lines.append("")
         lines.extend(self._recent_posts_text(tz))
         lines.append("TOMORROW'S PLAYBOOK")
         if self.actions:
             for i, a in enumerate(self.actions, 1):
                 lines.append(f"  {i}. {a}")
+            items = [_parse_playbook_item(a) for a in self.actions]
+            lines.append("")
+            lines.append("AGENT DEPLOYMENT BLOCK — paste to your Devin agent")
+            lines.append(_agent_playbook_block(items, self.timezone))
         else:
             lines.append("  No actions generated — publish consistently and re-check tomorrow.")
         issues = (self.digest.issues if self.digest else [])
@@ -162,7 +268,9 @@ class StrategyReport:
             "<tr>"
             f"<td><b>{esc(name)}</b></td>"
             f"<td>{p.get('posts', 0)}</td>"
+            f"<td>{p.get('impressions', 'n/a')}</td>"
             f"<td>{p.get('engagement', 0)}</td>"
+            f"<td>{esc(self._er_str(p))}</td>"
             f"<td>{esc(self._mom_str(p))}</td>"
             f"<td>{esc(self._bench_cell(p))}</td>"
             f"<td>{esc(self._best_window(p))}</td>"
@@ -170,24 +278,51 @@ class StrategyReport:
             "</tr>"
             for name, p in self._platform_rows()
         )
+        takeaway = self._pulse_takeaway()
         platform_block = (
             "<h3>Platform pulse (30 days)</h3>"
             '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
-            "<tr><th align='left'>Platform</th><th>Posts</th><th>Engagement</th>"
-            "<th>7d momentum</th><th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
+            "<tr><th align='left'>Platform</th><th>Posts</th><th>Impressions</th>"
+            "<th>Engagement</th><th>Avg ER</th><th>7d momentum</th>"
+            "<th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
             f"{rows}</table>"
+            + (f"<p style='color:#374151;font-size:13px'>→ {esc(takeaway)}</p>" if takeaway else "")
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
         )
 
         recent_block = self._recent_posts_html(tz, esc)
 
-        action_items = "".join(f"<li>{esc(a)}</li>" for a in self.actions)
+        action_rows = ""
+        agent_block_html = ""
+        if self.actions:
+            items = [_parse_playbook_item(a) for a in self.actions]
+            action_rows = "".join(
+                "<tr>"
+                f"<td><b>{esc(it.time_athens or '—')}</b></td>"
+                f"<td>{esc(it.platform.capitalize() if it.platform else '—')}</td>"
+                f"<td>{esc(it.format.capitalize() if it.format else '—')}"
+                f"{' 📎' if it.media_required else ''}</td>"
+                f"<td>{esc(it.instruction)}</td>"
+                "</tr>"
+                for it in items
+            )
+            agent_block_html = (
+                "<details style='margin-top:14px'><summary style='cursor:pointer;"
+                "color:#374151;font-size:13px'>🤖 Agent deployment block — "
+                "expand and paste to your Devin agent</summary>"
+                f"<pre style='background:#f3f4f6;border:1px solid #e5e7eb;"
+                f"border-radius:6px;padding:10px;font-size:12px;overflow-x:auto'>"
+                f"{esc(_agent_playbook_block(items, self.timezone))}</pre></details>"
+            )
         actions_block = (
-            f"<h3>Tomorrow's playbook</h3><ol>{action_items}</ol>"
+            "<h3>Tomorrow's playbook</h3>"
+            '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
+            "<tr><th>Time (Athens)</th><th>Platform</th><th>Format</th><th align='left'>What &amp; why</th></tr>"
+            f"{action_rows}</table>{agent_block_html}"
             f"<p style='color:#666;font-size:12px'>"
             f"{'AI-written from your metrics' if self.llm_used else 'Rule-based recommendations (AI writer unavailable)'}</p>"
-            if action_items
+            if action_rows
             else "<p><i>No actions generated — publish consistently and re-check tomorrow.</i></p>"
         )
 
@@ -223,6 +358,27 @@ class StrategyReport:
         return sorted(
             platforms.items(),
             key=lambda kv: (tier_rank.get(kv[1].get("focus_tier", "last"), 3), kv[0]),
+        )
+
+    def _pulse_takeaway(self) -> str:
+        """One plain-English sentence summarising the platform pulse."""
+        rows = self._platform_rows()
+        if not rows:
+            return ""
+        top = max(rows, key=lambda kv: kv[1].get("engagement") or 0)
+        name, p = top
+        eng = p.get("engagement") or 0
+        if eng <= 0:
+            return ""
+        mom = p.get("momentum_7d_engagement_pct")
+        mom_s = (
+            f" and momentum is {mom:+.0f}% week-over-week"
+            if isinstance(mom, int | float) and abs(mom) >= 50
+            else ""
+        )
+        return (
+            f"{name.capitalize()} is your strongest channel this month "
+            f"({eng} engagements{mom_s}) — weight tomorrow's effort there."
         )
 
     def _recent_platform_sections(self) -> list[tuple[str, list[BriefPost]]]:
@@ -373,6 +529,11 @@ class StrategyReport:
         return f"ER {yours}% vs {base}% ({verdict})"
 
     @staticmethod
+    def _er_str(p: dict[str, Any]) -> str:
+        er = p.get("avg_engagement_rate")
+        return f"{er}%" if isinstance(er, int | float) else "n/a"
+
+    @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:
         m = p.get("momentum_7d_engagement_pct")
         return f"{m:+}%" if isinstance(m, int | float) else "n/a"
@@ -513,13 +674,19 @@ async def _llm_actions(
         f"Last 24h: impressions {digest.impressions_24h}, "
         f"engagement {digest.engagement_24h}.\n\n"
         f"Write {_MAX_ACTIONS} concrete actions for tomorrow as a numbered "
-        "list. Each action must be specific (which platform, what content "
-        "type, when to post, why based on the numbers). Do not repeat the "
-        "same platform+time action twice. Do not recommend posting between "
-        "00:00–06:00 Athens unless that hour's sample is explicitly strong — "
-        "a thin overnight bucket is noise; prefer the platform baseline "
-        "windows instead. No preamble, no closing remarks — only the "
-        "numbered list."
+        "list, in chronological order. Write like a friendly strategist "
+        "talking to a busy business owner — plain English, warm but direct, "
+        "no jargon or abbreviations (say 'engagement rate' not 'ER', say "
+        "'week-over-week growth' not 'momentum'). Every action MUST "
+        "explicitly state: the platform name, the Athens time as HH:MM, the "
+        "format (text / image / carousel / video), and one concrete reason "
+        "grounded in the numbers. Instagram cannot publish text-only posts "
+        "— for Instagram always specify image or carousel. TikTok needs "
+        "video. Do not repeat the same platform+time "
+        "action twice. Do not recommend posting between 00:00–06:00 Athens "
+        "unless that hour's sample is explicitly strong — a thin overnight "
+        "bucket is noise; prefer the platform baseline windows instead. "
+        "No preamble, no closing remarks — only the numbered list."
     )
     try:
         resp = await call_inference(
