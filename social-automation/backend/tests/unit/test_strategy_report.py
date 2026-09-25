@@ -163,7 +163,7 @@ def test_html_render_escapes_and_tables():
     assert "Tomorrow's playbook" in html
     assert "<td>Post a LinkedIn carousel" in html
     assert "Agent deployment block" in html
-    assert '"platform"' in html
+    assert "&quot;platform&quot;" in html
     assert "above median" in html
 
 
