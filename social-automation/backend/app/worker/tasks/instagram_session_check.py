@@ -1,9 +1,10 @@
 """Celery task — check Instagram private-API sidecar session health.
 
-Runs every 6 hours. For each Instagram ``social_account`` that has a
-``private_api_session_id`` in its ``meta_data``, the task calls the
-aiograpi-rest sidecar's ``GET /account`` endpoint with the ``X-Session-ID``
-header. If the session is expired or the sidecar is unreachable, the account
+Runs every 6 hours. ``business_login`` accounts are validated against the
+Graph API with their OAuth token (the private-API sidecar is only a
+fallback for those). Other accounts with a ``private_api_session_id`` in
+``meta_data`` are checked via the aiograpi-rest sidecar's ``GET /account``
+endpoint. If the relevant session is expired or unreachable, the account
 status is set to ``expired`` and an alert email is sent to the team owner.
 
 The task is non-fatal — a single account failure does not abort the loop.
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.core.security import decrypt_field
+from app.core.security import decrypt_field, decrypt_token
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.slack_notifications import post_alert_to_slack
@@ -67,6 +68,32 @@ async def _check_sidecar_health(sidecar_url: str) -> bool:
             resp = await client.get(f"{sidecar_url.rstrip('/')}/health")
             return resp.status_code == 200
     except Exception:
+        return False
+
+
+async def _check_graph_token(account: SocialAccount) -> bool:
+    """Return True if the account's Business Login OAuth token is valid.
+
+    ``business_login`` accounts publish via graph.instagram.com with their
+    OAuth access token — the private-API sidecar session is only a fallback,
+    so probing the sidecar would wrongly flag a healthy account as expired.
+    A cheap ``/me`` read is enough to prove the token works.
+    """
+    try:
+        token = decrypt_token(account.access_token_enc)
+    except Exception:
+        return False
+    if not token:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://graph.instagram.com/v26.0/me",
+                params={"fields": "id", "access_token": token},
+            )
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.warning("IG Graph token check failed for @%s: %s", account.username, exc)
         return False
 
 
@@ -141,14 +168,21 @@ async def _run_check() -> dict:
         for account in accounts:
             meta = account.meta_data or {}
             session_id_enc = meta.get("private_api_session_id")
-            if not session_id_enc:
-                continue
-            session_id = decrypt_field(session_id_enc) or ""
-            if not session_id:
+            session_id = (decrypt_field(session_id_enc) or "") if session_id_enc else ""
+
+            healthy: bool | None = None
+            if meta.get("login_type") == "business_login":
+                # Primary path is the Graph API OAuth token — check it first,
+                # then fall back to the sidecar session if one is stored.
+                healthy = await _check_graph_token(account)
+                if not healthy and session_id:
+                    healthy = await _check_sidecar_session(session_id, sidecar_url)
+            elif session_id:
+                healthy = await _check_sidecar_session(session_id, sidecar_url)
+            if healthy is None:
                 continue
 
             summary["checked"] += 1
-            healthy = await _check_sidecar_session(session_id, sidecar_url)
             if healthy:
                 summary["healthy"] += 1
                 if account.status == "expired":
@@ -168,7 +202,10 @@ async def _run_check() -> dict:
                 )
                 owner = owner_result.scalar_one_or_none()
                 if owner is not None:
-                    reason = "sidecar unreachable" if not summary["sidecar_up"] else "session rejected"
+                    if meta.get("login_type") == "business_login":
+                        reason = "OAuth token rejected by Instagram Graph API"
+                    else:
+                        reason = "sidecar unreachable" if not summary["sidecar_up"] else "session rejected"
                     await _send_alert(owner, account.username or "unknown", reason)
 
     logger.info("Instagram session check complete: %s", summary)
