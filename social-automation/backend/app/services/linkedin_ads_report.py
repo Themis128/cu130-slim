@@ -540,14 +540,28 @@ async def run_daily_report() -> dict[str, Any]:
             raw={**metrics.raw, "final": is_final},
         )
         db.add(snapshot)
+        # Persist before rendering — the notebook reads snapshots in its own
+        # session, so the row must be committed for it to see today's metrics.
+        await db.commit()
 
-        report = build_report_text(metrics, prev, end_date)
-        try:
-            report += await build_org_section(db)
-        except Exception as exc:  # noqa: BLE001 — organic section is best-effort
-            logger.warning("LinkedIn org insights section failed: %s", exc)
-        if is_final:
-            report += "\n\n🏁 *Final report* — the campaign schedule has ended."
+        report_html: str | None = None
+        report_attachments: list[dict[str, Any]] = []
+        report = await _render_report_notebook(
+            campaign_id=campaign_id,
+            status=metrics.status,
+            end_date=end_date,
+            is_final=is_final,
+        )
+        if report is not None:
+            report, report_html, report_attachments = report  # type: ignore[misc]
+        else:
+            report = build_report_text(metrics, prev, end_date)
+            try:
+                report += await build_org_section(db)
+            except Exception as exc:  # noqa: BLE001 — organic section is best-effort
+                logger.warning("LinkedIn org insights section failed: %s", exc)
+            if is_final:
+                report += "\n\n🏁 *Final report* — the campaign schedule has ended."
 
         # Slack: dedicated ads channel webhook/token, falling back to the
         # default digest webhook so reports are never lost. Interactive
