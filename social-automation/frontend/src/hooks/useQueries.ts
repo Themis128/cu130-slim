@@ -725,6 +725,16 @@ export function useAdCampaigns(days?: number) {
   })
 }
 
+/** Growth-initiative rollup — units sent + follower delta per initiative */
+export function useInitiatives(days?: number) {
+  return useQuery({
+    queryKey: ['analytics', 'initiatives', days],
+    queryFn: () => analyticsApi.getInitiatives({ days }),
+    select: (response) => response.data,
+    refetchInterval: 300000,
+  })
+}
+
 // AI hooks
 export function useGenerateContent() {
   return useMutation({

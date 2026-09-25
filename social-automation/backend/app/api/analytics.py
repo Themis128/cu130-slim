@@ -2081,3 +2081,110 @@ async def get_ad_campaigns(
         cpc_eur=round(tot_spend / tot_clicks, 2) if tot_clicks else 0.0,
     )
     return AdCampaignsOut(campaigns=campaigns, totals=totals)
+
+
+class InitiativeEventIn(BaseModel):
+    event_type: str = "linkedin_page_invite"
+    platform: str = "linkedin"
+    social_account_id: uuid.UUID | None = None
+    units: int = 1
+    note: str | None = None
+
+
+class InitiativeOut(BaseModel):
+    event_type: str
+    initiative: str
+    platform: str
+    social_account_id: str | None
+    events: int
+    units: int
+    first_at: datetime | None
+    last_at: datetime | None
+    followers_start: int | None
+    followers_now: int | None
+    followers_delta: int | None
+    conversion_pct: float | None
+
+
+@router.post("/initiative-events", response_model=InitiativeOut)
+async def record_initiative_event(
+    body: InitiativeEventIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a growth-initiative action (e.g. "sent 40 LinkedIn page
+    invites"). Events land in ``analytics_events`` with ``post_id=NULL`` so
+    they export to the datalake as account-events automatically."""
+    from app.services.growth_initiatives import (
+        INITIATIVE_TYPES,
+        initiative_summary,
+        record_initiative_event,
+    )
+
+    if body.event_type not in INITIATIVE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event_type — expected one of {sorted(INITIATIVE_TYPES)}",
+        )
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if body.social_account_id:
+        account = (
+            await db.execute(
+                select(SocialAccount.id).where(
+                    SocialAccount.id == body.social_account_id,
+                    SocialAccount.team_id == team.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found in team")
+    else:
+        # Default to the team's org/business page for the platform —
+        # initiatives like Page invites always target the page account.
+        org = (
+            await db.execute(
+                select(SocialAccount.id)
+                .where(
+                    SocialAccount.team_id == team.id,
+                    SocialAccount.platform == body.platform,
+                    SocialAccount.status == "active",
+                )
+                .order_by(
+                    case(
+                        (SocialAccount.meta_data["account_type"].astext == "organization", 0),
+                        else_=1,
+                    )
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        body.social_account_id = org
+    await record_initiative_event(
+        db,
+        team.id,
+        body.event_type,
+        platform=body.platform,
+        account_id=body.social_account_id,
+        units=body.units,
+        note=body.note,
+    )
+    summary = await initiative_summary(db, team.id)
+    return next(s for s in summary if s["event_type"] == body.event_type and s["platform"] == body.platform)
+
+
+@router.get("/initiatives", response_model=list[InitiativeOut])
+async def list_initiatives(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Growth-initiative rollup: units sent and follower delta on the
+    linked account since the initiative started."""
+    from app.services.growth_initiatives import initiative_summary
+
+    team = await _team_for_user(db, current_user)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    return await initiative_summary(db, team.id, days=days)

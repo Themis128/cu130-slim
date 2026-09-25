@@ -873,6 +873,15 @@ export const analyticsApi = {
     api.get('/analytics/pipeline', { params }),
   getAdCampaigns: (params?: { days?: number }) =>
     api.get('/analytics/ad-campaigns', { params }),
+  getInitiatives: (params?: { days?: number }) =>
+    api.get('/analytics/initiatives', { params }),
+  recordInitiativeEvent: (body: {
+    event_type?: string
+    platform?: string
+    social_account_id?: string
+    units?: number
+    note?: string
+  }) => api.post('/analytics/initiative-events', body),
 }
 
 // AI endpoints
