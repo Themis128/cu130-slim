@@ -649,6 +649,7 @@ services:
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
       - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback}
+      - LINKEDIN_EXTRA_SCOPES=${LINKEDIN_EXTRA_SCOPES:-}
       - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
       - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
       - TWITTER_REDIRECT_URI=${TWITTER_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback}
@@ -1467,9 +1468,12 @@ services:
 
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
-          docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M || true
-          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M || true
-          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 || true
+          ok=1
+          docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M || ok=0
+          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M || ok=0
+          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 || ok=0
+          # Return 0 only if every push landed; a failed push retries next tick
+          return $$ok
         }
 
         while true; do
@@ -1478,8 +1482,11 @@ services:
           started=$$(docker inspect -f '{{.State.StartedAt}}' docker-model-runner 2>/dev/null)
           if [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; then
             if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
-              apply_configs
-              last_started=$$started
+              if apply_configs; then
+                last_started=$$started
+              else
+                echo "[dmr-watchdog] config apply failed - retrying next tick"
+              fi
             fi
           fi
 
@@ -1494,7 +1501,11 @@ services:
               fails=0
             fi
           fi
-          sleep 60
+          # 10s tick: after a runner restart the in-memory model configs are
+          # gone; loads in the window before apply_configs run at GGUF-default
+          # ctx (262144 on the 4B -> KV-alloc failures). Tight cadence keeps
+          # that window ~10s instead of ~60s.
+          sleep 10
         done
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

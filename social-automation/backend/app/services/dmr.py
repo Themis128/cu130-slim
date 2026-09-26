@@ -333,14 +333,48 @@ def _has_vram_for_model(model: str) -> bool:
 
 
 async def _unload_idle_models() -> None:
-    """Unload all running models to free VRAM (best effort)."""
+    """Unload all running models to free VRAM (best effort).
+
+    Tries the native /inference/unload endpoint first; on 404 (absent in the
+    current docker/model-runner build) falls back to the Ollama-compatible
+    API: list loaded models via /api/ps, then POST /api/chat with
+    keep_alive=0 per model, which evicts immediately.
+    """
     url = _dmr_base_url()
     try:
         client = await _get_client()
-        await client.post(f"{url}/inference/unload", json={"all": True}, timeout=5.0)
-        logger.info("DMR: unloaded idle models to free VRAM")
+        resp = await client.post(f"{url}/inference/unload", json={"all": True}, timeout=5.0)
+        if resp.status_code == 200:
+            logger.info("DMR: unloaded idle models to free VRAM")
+            return
     except Exception as exc:
         logger.debug("DMR unload failed (%s)", type(exc).__name__)
+    # Fallback: Ollama-compatible API (verified live on
+    # docker/model-runner:latest-vllm-cuda, 2026-09: /api/ps lists loaded
+    # models; /api/chat with keep_alive=0 evicts right after serving).
+    try:
+        client = await _get_client()
+        ps = await client.get(f"{url}/api/ps", timeout=5.0)
+        ps.raise_for_status()
+        loaded = [m.get("name") for m in ps.json().get("models", []) if m.get("name")]
+        for name in loaded:
+            try:
+                await client.post(
+                    f"{url}/api/chat",
+                    json={
+                        "model": name,
+                        "messages": [{"role": "user", "content": "."}],
+                        "options": {"num_predict": 1},
+                        "keep_alive": 0,
+                    },
+                    timeout=30.0,
+                )
+            except Exception:
+                logger.debug("DMR fallback unload failed for %s", name)
+        if loaded:
+            logger.info("DMR: unloaded %d model(s) via Ollama API fallback", len(loaded))
+    except Exception as exc:
+        logger.debug("DMR Ollama unload fallback failed (%s)", type(exc).__name__)
 
 
 # ── Per-request model routing (improvement #6) ────────────────────────────────
@@ -436,6 +470,7 @@ async def get_model_benchmark(model: str, force: bool = False) -> dict[str, floa
 # ── Keep-alive configuration (improvement #10) ────────────────────────────────
 
 _keep_alive_configured: set[str] = set()
+_keep_alive_endpoint_warned: set[str] = set()
 
 
 async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
@@ -459,6 +494,16 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
         if resp.status_code == 200:
             _keep_alive_configured.add(model)
             logger.info("DMR: keep_alive configured")
+        elif resp.status_code == 404 and model not in _keep_alive_endpoint_warned:
+            # The /inference/_configure endpoint is absent in the current
+            # docker/model-runner build (verified 2026-09). Runtime keep-alive
+            # is owned by dmr-watchdog's `docker model configure` calls.
+            _keep_alive_endpoint_warned.add(model)
+            logger.warning(
+                "DMR: /inference/_configure returns 404 on this runner build — "
+                "keep_alive for %s is owned by dmr-watchdog configs, not this call",
+                model,
+            )
     except Exception as exc:
         logger.debug("DMR keep_alive config failed (%s)", type(exc).__name__)
 
@@ -558,15 +603,17 @@ async def warmup_models() -> None:
 
         # Vision model is large — only warm if VRAM allows AND we have headroom
         if _has_vram_for_model(settings.DMR_VISION_MODEL):
-            free_mb = _state.vram.get("free_mb", 0)
+            free_mb = _state.vram.get("free", 0)
             if free_mb > 6000:  # Need ~5GB for vision model + headroom
                 models_to_warm.append(settings.DMR_VISION_MODEL)
 
         for model in models_to_warm:
             try:
-                # Keep-alive is already set via apply_best_practice_configs,
-                # but set it here too in case the config was reset.
-                await configure_keep_alive(model, keep_alive="5m")
+                # Keep-alive/context ownership belongs to dmr-watchdog's
+                # apply_configs: the /inference/_configure endpoint is absent in
+                # the current runner build (404), so setting it here would
+                # silently no-op — and a hardcoded 5m would fight the 4B's
+                # canonical 30m pin once the endpoint returns.
                 # Send a trivial prompt to trigger model load
                 await _call_dmr_chat_internal(
                     "Hi",
@@ -596,8 +643,9 @@ async def warmup_models() -> None:
 # - think mode for qwen3: enables reasoning mode (qwen3 is a thinking model)
 
 _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
-    # 8B thinking model — long-form + schema. keep_alive 5m (not 30m): chatbots
-    # moved to the mid model, so pinning this would waste VRAM between bursts.
+    # 8B thinking model — long-form + schema. keep_alive 5m: the 8B serves
+    # content bursts only (chatbots run on the mid model), and pinning it
+    # would waste ~5 GB VRAM between bursts.
     # ctx 6144 leaves headroom for the pinned 4B + KV on the 8GB card.
     "ai/qwen3:8b-q4_K_M": {
         "context_size": 6144,
