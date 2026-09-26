@@ -113,11 +113,11 @@ Supported parameters: `model`, `messages`, `max_tokens`, `temperature`,
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/inference/status` | GET | Backend health/status |
-| `/inference/ps` | GET | List running (loaded) models |
-| `/inference/df` | GET | Disk usage |
-| `/inference/unload` | POST | Unload models from memory |
-| `/inference/_configure` | POST | Configure model runtime |
+| `/api/ps` | GET | List running (loaded) models — **verified working** |
+| `/api/tags` | GET | List available models (Ollama-style) |
+| `/api/chat` | POST | Chat; `keep_alive: 0` in the body evicts the model right after serving |
+| `/models` | GET | Native model list |
+| `/inference/status`, `/inference/ps`, `/inference/df`, `/inference/unload`, `/inference/_configure` | — | **404 on the current runner build** (`docker/model-runner:latest-vllm-cuda`, Desktop 4.91; verified 2026-09-26) — use the Ollama-API equivalents above, or `docker model` CLI from the host |
 
 ## CLI commands
 

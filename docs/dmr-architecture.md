@@ -132,8 +132,13 @@ flowchart TB
 | OpenAI API | `/engines/v1/chat/completions`, `/engines/v1/models`, `/engines/v1/embeddings` |
 | Engine-pinned | `/engines/llama.cpp/v1/...`, `/engines/vllm/v1/...` |
 | Anthropic API | `/anthropic/v1/messages` |
-| Ollama API | `/api/chat`, `/api/tags` |
-| Native mgmt | `/models`, `/inference/status`, `/inference/ps`, `/inference/unload` |
+| Ollama API | `/api/chat`, `/api/tags`, `/api/ps` |
+| Native list | `/models` |
+| Native mgmt | `/inference/status`, `/inference/ps`, `/inference/unload`, `/inference/_configure` — **404 on the current runner build** (`docker/model-runner:latest-vllm-cuda` since Desktop 4.91; verified 2026-09-26). Use the Ollama API instead: `/api/ps` lists loaded models (tracks engine-path loads too), and `/api/chat` with `keep_alive: 0` evicts a model right after serving. |
+
+`docker model configure show <model>` is the source of truth for applied runtime
+configs. `docker model ls`'s CONTEXT column shows the GGUF/bundle default, not the
+applied override (e.g. it prints 262144 for the 4B even though 4096 is applied).
 
 ## App wiring
 
@@ -154,6 +159,18 @@ flowchart TB
 pool (loop-aware for Celery prefork), health-check cache, cold-start retry,
 model warm-up, platform-aware per-request routing, streaming, tool calling,
 VRAM-aware loading, and CLI fallback when HTTP is unreachable.
+
+Important client-side caveats (verified 2026-09-26):
+
+- **VRAM guards are dormant in containers.** `_get_vram_info()` shells out to
+  `nvidia-smi`, which does not exist inside the compose containers, so
+  `_has_vram_for_model()` always allows and `_unload_idle_models()`'s native
+  endpoint 404s. `_unload_idle_models()` now falls back to `/api/ps` +
+  per-model Ollama `keep_alive: 0` (tested working). `warmup_models()` no
+  longer calls `configure_keep_alive` (the 404 endpoint would silently no-op,
+  and a hardcoded 5m would fight the 4B's 30m pin).
+- **Real VRAM protection** comes from the watchdog's context/keep-alive
+  configs plus DMR's own idle eviction — keep those canonical.
 
 ### Platform-aware routing
 
@@ -236,8 +253,15 @@ Important gaps:
 - **Images**: local-diffusers (SD 1.5) → Cloudflare Workers AI.
 - **Circuit breaker**: 3 DMR failures → route to Cloudflare for 60 s.
 - **dmr-watchdog** (compose, `docker:27-cli` + host socket): polls
-  `/engines/v1/models` every 60 s, restarts the runner after 3 consecutive
-  failures. Handles "container up, engine wedged".
+  `/engines/v1/models` every **10 s**, restarts the runner after 3 consecutive
+  failures. Handles "container up, engine wedged". Reapplies canonical model
+  configs whenever the runner's `StartedAt` changes.
+- **Restart race (known, bounded)**: the runner's runtime-config store is
+  in-memory and lost on every runner restart; loads racing the watchdog's
+  re-apply run at GGUF defaults (262144 ctx on the 4B → KV-alloc failures).
+  Observed 2026-09-26: 138× "failed to fit params" + 21× "context canceled"
+  across two restart windows; the client's cold-start retry absorbs them and
+  the next load lands on the applied config. The 10 s tick bounds the window.
 - **dmr_health Celery task** (every 5 min, default queue): probes runner,
   validates expected models, publishes to Redis `dmr:status` (TTL 15 min).
 - **Persistence**: named volume `docker-model-runner-models`;

@@ -512,16 +512,17 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
             if "error" in cli_status:
                 return _error_result(f"DMR offline: {models['error']}")
             return _text_result(f"DMR: ONLINE (CLI)\n{cli_status.get('output', json.dumps(cli_status, indent=2))}")
-        loaded = [m.get("id", "?") for m in models.get("data", [])]
-        # Also get backend status
-        backends = _api_get("/inference/status")
-        backend_info = ""
-        if "error" not in backends:
-            backend_info = f"\nBackends: {json.dumps(backends, indent=2)}"
+        available = [m.get("id", "?") for m in models.get("data", [])]
+        # The /engines list is the *available* catalog; /api/ps reports what is
+        # actually loaded in VRAM right now.
+        loaded: list[str] = []
+        ps = _api_get("/api/ps")
+        if "error" not in ps:
+            loaded = [m.get("name", "?") for m in ps.get("models", [])]
         return _text_result(
             f"DMR: ONLINE at {DMR_BASE}\n"
-            f"Loaded models: {loaded if loaded else '(none — load on demand)'}"
-            f"{backend_info}"
+            f"Loaded models: {loaded if loaded else '(none — load on demand)'}\n"
+            f"Available models ({len(available)}): {available}"
         )
 
     elif name == "dmr_list":
@@ -760,8 +761,9 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     # --- Monitoring & management ---
 
     elif name == "dmr_ps":
-        # Try API first, fall back to CLI
-        result = _api_get("/inference/ps")
+        # /api/ps lists loaded models (the /inference/ps endpoint is absent in
+        # the current runner build); CLI fallback retained
+        result = _api_get("/api/ps")
         if "error" not in result:
             return _text_result(json.dumps(result, indent=2))
         # CLI fallback
@@ -797,6 +799,26 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
             result = _api_post("/inference/unload", body)
             if "error" not in result:
                 return _text_result(f"Unloaded.\n{json.dumps(result, indent=2)}")
+            # Ollama-API fallback: /inference/unload is 404 on the current
+            # runner build (verified 2026-09). /api/ps lists loaded models;
+            # /api/chat with keep_alive=0 evicts a model right after serving.
+            ps = _api_get("/api/ps")
+            if "error" not in ps:
+                targets = [m.get("name", "") for m in ps.get("models", []) if m.get("name")]
+                if not unload_all and models:
+                    targets = [t for t in targets if any(m in t for m in models)]
+                if targets:
+                    for name in targets:
+                        _api_post(
+                            "/api/chat",
+                            {
+                                "model": name,
+                                "messages": [{"role": "user", "content": "."}],
+                                "options": {"num_predict": 1},
+                                "keep_alive": 0,
+                            },
+                        )
+                    return _text_result(f"Unloaded {len(targets)} model(s) via Ollama API: {targets}")
         # CLI fallback
         cmd_args = ["unload"]
         if unload_all:
