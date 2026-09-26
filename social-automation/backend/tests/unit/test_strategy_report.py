@@ -192,6 +192,29 @@ def test_empty_report_still_renders():
     assert "Recent posts &amp; media" in r.to_html()
 
 
+def test_platform_limits_render_separate_from_sync_gaps():
+    import copy
+    insights = copy.deepcopy(INSIGHTS)
+    insights["platforms"]["twitter"]["platform_limits"] = ["quota_exhausted"]
+    insights["platforms"]["linkedin"]["data_warnings"] = [
+        "linkedin stats HTTP 500"]
+
+    text = _report(insights=insights).to_text()
+    warn_lines = [ln for ln in text.splitlines() if ln.strip().startswith("⚠")]
+    limit_lines = [ln for ln in text.splitlines() if "platform limits" in ln]
+    assert warn_lines and "linkedin stats HTTP 500" in warn_lines[0]
+    assert all("quota_exhausted" not in ln for ln in warn_lines)
+    assert len(limit_lines) == 1 and "twitter: quota_exhausted" in limit_lines[0]
+    # A platform with only a limit carries no [sync⚠] flag on its row.
+    tw_row = next(ln for ln in text.splitlines() if ln.strip().startswith("twitter"))
+    assert "[sync⚠]" not in tw_row
+
+    html = _report(insights=insights).to_html()
+    assert "platform limits (external, no action)" in html
+    assert "quota_exhausted" in html
+    assert "sync gaps" in html
+
+
 def test_preview_text_truncates():
     assert _preview_text("short") == "short"
     long = "x" * 120

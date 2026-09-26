@@ -166,6 +166,19 @@ _DATA_GAP_NOTES = (
     "HTTP 5",
 )
 
+# Gap notes that are external platform constraints rather than fixable
+# collection bugs — quota caps that reset on their own cycle, scopes
+# pending platform review, endpoints the platform does not expose for
+# member profiles. Surfaced separately from data_warnings so reports
+# don't flag them as actionable "sync gaps".
+_PLATFORM_LIMIT_NOTES = (
+    "quota_exhausted",
+    "member_postAnalytics_scope_missing",
+    "member_stats_not_implemented",
+    "member_account_no_org_stats",
+    "HTTP 402",
+)
+
 # Minimum evidence before momentum recommendations fire (suppresses
 # small-number noise like 1→2 engagements = +100%).
 _MOMENTUM_MIN_EVENTS = 5
@@ -608,9 +621,14 @@ def compute_insights(
                 "source": bench["source"],
             }
 
+        platform_limits = sorted(
+            n for n in p["notes"]
+            if n and any(sig in n for sig in _PLATFORM_LIMIT_NOTES)
+        )
         data_warnings = sorted(
             n for n in p["notes"]
             if n and any(sig in n for sig in _DATA_GAP_NOTES)
+            and not any(sig in n for sig in _PLATFORM_LIMIT_NOTES)
         )
 
         # Timing buckets need a real sample — a 2-post bucket's ER max is
@@ -658,6 +676,7 @@ def compute_insights(
                 else None
             ),
             "data_warnings": data_warnings,
+            "platform_limits": platform_limits,
             "data_quality": {
                 "snapshots": posts,
                 "sanitized_rows": p["sanitized_rows"],
@@ -704,6 +723,7 @@ def compute_insights(
                 if growth else None
             ),
             "data_warnings": [],
+            "platform_limits": [],
             "data_quality": {
                 "snapshots": 0,
                 "sanitized_rows": 0,
@@ -768,11 +788,6 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 text = (
                     f"{name} insights are permission-blocked — reconnect the "
                     f"account so it grants the insights scope ({w})."
-                )
-            elif "quota_exhausted" in w:
-                text = (
-                    f"{name} API read quota is exhausted — metrics will resume "
-                    "when the quota resets or the plan is upgraded."
                 )
             else:
                 text = f"{name} data collection issue: {w}"

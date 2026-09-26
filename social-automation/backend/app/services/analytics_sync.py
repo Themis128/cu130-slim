@@ -29,6 +29,19 @@ from app.services.meta_graph import facebook_graph_url
 LINKEDIN_VERSION = "202608"
 ENGAGEMENT_TYPES = ("impression", "click", "like", "comment", "share")
 
+# Notes describing external platform constraints (quota caps, scopes pending
+# platform review, endpoints the platform doesn't expose). The sync writes one
+# marker row per (account, post) and dedupes identical repeats — the limit
+# stays visible in reports without an hourly row per cycle. Keep aligned with
+# _PLATFORM_LIMIT_NOTES in app/services/insights_engine.py.
+_DEDUPED_LIMIT_NOTES = (
+    "quota_exhausted",
+    "member_postAnalytics_scope_missing",
+    "member_stats_not_implemented",
+    "member_account_no_org_stats",
+    "HTTP 402",
+)
+
 
 @dataclass
 class MetricBundle:
@@ -793,6 +806,21 @@ async def _persist_snapshot(
     if metrics.notes in ("stats_unavailable", "platform_deleted"):
         result.skipped += 1
         return
+    if metrics.notes and any(sig in metrics.notes for sig in _DEDUPED_LIMIT_NOTES):
+        latest_note = (
+            await db.execute(
+                select(PostAnalyticsSnapshot.notes)
+                .where(
+                    PostAnalyticsSnapshot.social_account_id == account.id,
+                    PostAnalyticsSnapshot.platform_post_id == platform_post_id,
+                )
+                .order_by(PostAnalyticsSnapshot.captured_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest_note == metrics.notes:
+            result.skipped += 1
+            return
     snap = PostAnalyticsSnapshot(
         team_id=account.team_id,
         post_id=post_id,

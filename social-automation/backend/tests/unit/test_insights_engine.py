@@ -98,6 +98,7 @@ def _plat(**over):
         "engagement_prev_7d": 0,
         "follower_growth": None,
         "data_warnings": [],
+        "platform_limits": [],
         "account_insights": None,
         "audience_demographics": None,
         "top_post": {"post_id": "x", "engagement_rate": 8.0, "impressions": 200},
@@ -313,6 +314,46 @@ def test_compute_data_warnings_collected():
     out = compute_insights(rows, [], [], [], now=NOW)
     assert "insights_scope_missing — reconnect" in (
         out["platforms"]["instagram"]["data_warnings"])
+
+
+def test_compute_platform_limits_split_from_warnings():
+    rows = [
+        _post_row("twitter", impressions=0, engagement=0,
+                  notes="quota_exhausted"),
+        _post_row("linkedin", impressions=0, engagement=0,
+                  notes="member_postAnalytics_scope_missing"),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    tw = out["platforms"]["twitter"]
+    li = out["platforms"]["linkedin"]
+    assert tw["data_warnings"] == []
+    assert tw["platform_limits"] == ["quota_exhausted"]
+    assert li["data_warnings"] == []
+    assert li["platform_limits"] == ["member_postAnalytics_scope_missing"]
+
+
+def test_compute_mixed_notes_keep_genuine_warnings():
+    rows = [
+        _post_row("twitter", impressions=0, engagement=0,
+                  notes="quota_exhausted"),
+        _post_row("twitter", impressions=0, engagement=0,
+                  notes="twitter stats HTTP 500"),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    tw = out["platforms"]["twitter"]
+    assert tw["platform_limits"] == ["quota_exhausted"]
+    assert tw["data_warnings"] == ["twitter stats HTTP 500"]
+
+
+def test_recommend_no_data_gap_rec_for_platform_limits():
+    plats = {
+        "twitter": _plat(posts=5, impressions=0, engagement=0,
+                         platform_limits=["quota_exhausted"]),
+    }
+    recs = _recommend(plats)
+    assert not any(
+        r["type"] == "data_gap" and r["platform"] == "twitter" for r in recs
+    )
 
 
 def test_compute_no_benchmark_without_followers():
