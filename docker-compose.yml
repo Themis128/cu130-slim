@@ -371,6 +371,9 @@ services:
       retries: 10
       start_period: 60s
     restart: unless-stopped
+    # Memory cap — Java heap is already bounded (Xmx384m); this bounds the JVM's non-heap overhead too.
+    mem_limit: 1536m
+    memswap_limit: 3072m
   local-diffusers:
     build:
       context: ./diffusers-server
@@ -405,6 +408,9 @@ services:
       retries: 10
       start_period: 180s
     restart: unless-stopped
+    # Memory cap — model load spikes are fine, runaway creep is not (VM-wide wedge risk).
+    mem_limit: 4608m
+    memswap_limit: 9216m
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
@@ -1225,6 +1231,9 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    # Memory cap — Chromium tabs multiply silently; cap matches runtime docker update 2026-09-26.
+    mem_limit: 2048m
+    memswap_limit: 4096m
 
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
   # RESTful HTTP wrapper around Playwright for TikTok profile settings that
