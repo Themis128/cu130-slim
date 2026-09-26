@@ -1,10 +1,10 @@
 """LinkedIn Ads campaign control — pause/resume ad sets via the LinkedIn
 browser sidecar (Campaign Manager UI automation).
 
-The Marketing API's ``r_ads_reporting`` / ``rw_ads`` scopes are not granted on
-this app, so status changes go through the same sidecar path as the daily
-report scraper. Triggered by Slack interactive buttons / slash commands via
-``app.api.slack``.
+The app now has ``r_ads`` + ``r_ads_reporting`` (read/reporting), but NOT
+``rw_ads`` — write operations like pause/resume still go through the same
+sidecar path as the daily report scraper. Triggered by Slack interactive
+buttons / slash commands via ``app.api.slack``.
 """
 from __future__ import annotations
 
