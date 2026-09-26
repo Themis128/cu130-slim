@@ -11,6 +11,9 @@ site's ``materialize-datalake-snapshots`` ETL can build gold sections:
     lake/socialauto-insights/<team>.json
     lake/socialauto-leads/leads.json
     lake/socialauto-web-events/events.json
+    lake/socialauto-ads/snapshots.json
+    lake/socialauto-ads/daily.json
+    lake/socialauto-ads/demographics.json
 
 Each run overwrites the whole table (snapshot-style export) — idempotent
 by construction, no dedup needed downstream. PII is minimized: leads keep
@@ -34,6 +37,11 @@ from app.core.config import get_settings
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostTarget
 from app.models.lead import Lead
+from app.models.linkedin_ads import (
+    AdCampaignSnapshot,
+    AdDailyMetric,
+    AdDemographicSegment,
+)
 from app.models.social_account import SocialAccount
 from app.models.user import Team
 from app.models.web_analytics import WebAnalyticsEvent
@@ -263,6 +271,104 @@ async def _export_web_events(db: AsyncSession) -> list[dict]:
     return out
 
 
+async def _export_ad_snapshots(db: AsyncSession) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(AdCampaignSnapshot).order_by(AdCampaignSnapshot.captured_at.desc())
+        )
+    ).scalars().all()
+    return [
+        {
+            "team_id": str(s.team_id),
+            "platform": s.platform,
+            "account_id": s.account_id,
+            "campaign_id": s.campaign_id,
+            "campaign_name": s.campaign_name,
+            "status": s.status,
+            "impressions": s.impressions,
+            "clicks": s.clicks,
+            "engagements": s.engagements,
+            "spend_eur": s.spend_eur,
+            "ctr": s.ctr,
+            "engagement_rate": s.engagement_rate,
+            "cpc_eur": s.cpc_eur,
+            "budget_eur": s.budget_eur,
+            "captured_at": _iso(s.captured_at),
+        }
+        for s in rows
+    ]
+
+
+async def _export_ad_daily(db: AsyncSession) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(AdDailyMetric).order_by(AdDailyMetric.day.desc())
+        )
+    ).scalars().all()
+    return [
+        {
+            "team_id": str(r.team_id),
+            "platform": r.platform,
+            "account_id": r.account_id,
+            "report_type": r.report_type,
+            "campaign_id": r.campaign_id,
+            "campaign_name": r.campaign_name,
+            "ad_set_id": r.ad_set_id,
+            "ad_set_name": r.ad_set_name,
+            "ad_id": r.ad_id,
+            "ad_name": r.ad_name,
+            "placement": r.placement,
+            "status": r.status,
+            "day": r.day.isoformat() if r.day else None,
+            "impressions": r.impressions,
+            "clicks": r.clicks,
+            "engagements": r.engagements,
+            "leads": r.leads,
+            "conversions": r.conversions,
+            "reach": r.reach,
+            "clicks_to_landing_page": r.clicks_to_landing_page,
+            "clicks_to_linkedin_page": r.clicks_to_linkedin_page,
+            "spend_eur": r.spend_eur,
+            "ctr": r.ctr,
+            "cpc_eur": r.cpc_eur,
+            "cpm_eur": r.cpm_eur,
+            "engagement_rate": r.engagement_rate,
+            "budget_eur": r.budget_eur,
+            "source": r.source,
+        }
+        for r in rows
+    ]
+
+
+async def _export_ad_demographics(db: AsyncSession) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(AdDemographicSegment).order_by(
+                AdDemographicSegment.impressions.desc()
+            )
+        )
+    ).scalars().all()
+    return [
+        {
+            "team_id": str(r.team_id),
+            "platform": r.platform,
+            "account_id": r.account_id,
+            "segment_type": r.segment_type,
+            "segment_value": r.segment_value,
+            "window_start": r.window_start.isoformat() if r.window_start else None,
+            "window_end": r.window_end.isoformat() if r.window_end else None,
+            "impressions": r.impressions,
+            "clicks": r.clicks,
+            "conversions": r.conversions,
+            "ctr": r.ctr,
+            "pct_impressions": r.pct_impressions,
+            "pct_clicks": r.pct_clicks,
+            "source": r.source,
+        }
+        for r in rows
+    ]
+
+
 @shared_task
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
@@ -285,6 +391,9 @@ async def _export_async() -> dict:
             "lake/socialauto-account-events/events.json": await _export_account_events(db),
             "lake/socialauto-leads/leads.json": await _export_leads(db),
             "lake/socialauto-web-events/events.json": await _export_web_events(db),
+            "lake/socialauto-ads/snapshots.json": await _export_ad_snapshots(db),
+            "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
+            "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
         }
 
         # Insights engine output — one gold-ready file per team.
