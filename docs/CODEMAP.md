@@ -209,6 +209,13 @@ publish queue 30s · scheduled posts 60s · analytics sync 30min · token refres
 
 Every 6h, snapshot-overwrites JSON tables in R2 `datalake-bucket` (`lake/socialauto-*`: accounts, posts, post-metrics history, followers, account-insight events, per-team insights-engine output, leads [sha256 email + domain only], 90d web events [UTM only, no IP/UA]). The site's `materialize-datalake-snapshots` ETL turns them into gold sections `socialauto_ops`, `social_engagement`, `social_outliers`, `social_recommendations`, `social_leads`, `social_attribution` for `/admin/analytics/datalake`. Uses `DATALAKE_R2_BUCKET` + the same `CLOUDFLARE_API_TOKEN` (verified cross-bucket write). Real-time leads still push via `CLOUDLESS_LEADS_WEBHOOK_URL` → EspoCRM.
 
+Return leg (verified 2026-09-26): the site relays browser web events
+**into** this platform — `POST /api/analytics/event` on cloudless.gr →
+`SOCIALAUTO_WEB_ANALYTICS_URL` (shared secret) → `web_analytics_events`
+table → re-exported to `lake/socialauto-web-events/` on the next 6h tick,
+closing the loop. Verified flowing (contact_submit events land in the
+table and round-trip to the lake).
+
 ## cloudless.gr → SocialAuto admin bridge (added 2026-09)
 
 The site's `/admin/postiz` console is backed by this API (not the retired
