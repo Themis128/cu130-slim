@@ -2,10 +2,11 @@
 sidecar, snapshot metrics to Postgres, deliver a human-friendly summary to a
 dedicated Slack channel and by email.
 
-Why sidecar scraping: the LinkedIn app only has Community Management + Share
-products — Marketing API ads-reporting (``r_ads_reporting``) is not granted, so
-the official analytics endpoint is unavailable. Campaign Manager numbers are
-read from the rendered overview/campaign pages instead.
+Why sidecar scraping: the primary metrics path is now the official
+``rest/adAnalytics`` endpoint (the app has Advertising API — Development tier
+with ``r_ads`` + ``r_ads_reporting`` granted via OAuth, verified 2026-09-26).
+The sidecar scrape remains as fallback for metrics the API doesn't expose
+(e.g. billing/credit ledger) and for resilience if the ad-scoped token lapses.
 """
 from __future__ import annotations
 
