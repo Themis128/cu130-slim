@@ -175,6 +175,7 @@ _PLATFORM_LIMIT_NOTES = (
     "quota_exhausted",
     "member_postAnalytics_scope_missing",
     "member_stats_not_implemented",
+    "member_account_no_org_stats",
     "HTTP 402",
 )
 
@@ -675,6 +676,7 @@ def compute_insights(
                 else None
             ),
             "data_warnings": data_warnings,
+            "platform_limits": platform_limits,
             "data_quality": {
                 "snapshots": posts,
                 "sanitized_rows": p["sanitized_rows"],
@@ -721,6 +723,7 @@ def compute_insights(
                 if growth else None
             ),
             "data_warnings": [],
+            "platform_limits": [],
             "data_quality": {
                 "snapshots": 0,
                 "sanitized_rows": 0,
@@ -785,11 +788,6 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 text = (
                     f"{name} insights are permission-blocked — reconnect the "
                     f"account so it grants the insights scope ({w})."
-                )
-            elif "quota_exhausted" in w:
-                text = (
-                    f"{name} API read quota is exhausted — metrics will resume "
-                    "when the quota resets or the plan is upgraded."
                 )
             else:
                 text = f"{name} data collection issue: {w}"

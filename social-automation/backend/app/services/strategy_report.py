@@ -228,6 +228,14 @@ class StrategyReport:
         ]
         for w in warned:
             lines.append(f"  ⚠ {w}")
+        limited = [
+            f"{n}: {p['platform_limits'][0]}"
+            + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
+            for n, p in self._platform_rows()
+            if p.get("platform_limits")
+        ]
+        if limited:
+            lines.append(f"  ℹ platform limits (external): {'; '.join(limited)}")
         takeaway = self._pulse_takeaway()
         if takeaway:
             lines.append(f"  → {takeaway}")
@@ -296,6 +304,12 @@ class StrategyReport:
             for name, p in self._platform_rows()
             if p.get("data_warnings")
         )
+        limit_notes = "; ".join(
+            f"{name}: {p['platform_limits'][0]}"
+            + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
+            for name, p in self._platform_rows()
+            if p.get("platform_limits")
+        )
         takeaway = self._pulse_takeaway()
         platform_block = (
             "<h3>Platform pulse (30 days)</h3>"
@@ -308,6 +322,10 @@ class StrategyReport:
             + (
                 f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>"
                 if warn_notes else ""
+            )
+            + (
+                f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>"
+                if limit_notes else ""
             )
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
