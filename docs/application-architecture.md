@@ -1455,6 +1455,18 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 12435 | DMR (host) | Local AI (not 12434) |
 | 5433 | social-postgres | App DB |
 
+## Container Resource Limits
+
+Hard `mem_limit`/`memswap_limit` caps in `docker-compose.yml` protect the VM from
+runaway processes (a single leaking container previously wedged the whole box).
+Compose values match the live `docker update` caps applied 2026-09-26 — without
+them, a compose recreate would silently drop the limits.
+
+| Service | mem_limit | memswap_limit | Rationale |
+|---------|-----------|---------------|-----------|
+| `local-diffusers` | 4608m | 9216m | Model-load spikes are legitimate; unbounded creep is not |
+| `browser-novnc` | 2048m | 4096m | Chromium tabs multiply silently during long sessions |
+
 ## Verification Status
 
 All components verified live:
