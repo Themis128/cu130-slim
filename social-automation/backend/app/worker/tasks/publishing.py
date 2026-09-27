@@ -199,6 +199,9 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
 def _content_preview(post: Post, limit: int = 140) -> str:
     """Short excerpt of the post copy for Slack context."""
     text = " ".join((getattr(post, "content_text", "") or "").split())
+    # Slack mrkdwn entity-escape: post copy containing `<!channel>`,
+    # `<@U…>`, or link syntax must not ping users or reformat as links.
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return text[: limit - 1] + "…" if len(text) > limit else text
 
 

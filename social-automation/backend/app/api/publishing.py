@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -105,7 +106,17 @@ async def add_to_queue(
         post.status = PostStatus.SCHEDULED
         post.scheduled_at = scheduled_at
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race: a concurrent request inserted an active row for the same
+        # (post, account) after our pre-check — the partial unique index
+        # rejected it. Same answer as the pre-check path.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A pending publish already exists for this post on this account",
+        ) from None
     await db.refresh(queue_item)
 
     return await _queue_to_response(queue_item, db)
