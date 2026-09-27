@@ -70,4 +70,5 @@ async def test_account_without_current_window_readings_is_skipped():
         db, "team-1", since, prev_since=prev_since, days=30
     )
 
-    assert growth["followers"] == []
+    # Helper returns {} when there is nothing to report.
+    assert growth.get("followers", []) == []
