@@ -67,6 +67,10 @@ enqueued twice. Three layers now prevent that:
 - **Worker** — before calling the platform, each claim re-checks its
   `post_target`: already `published` → the queue row completes without an
   external call. Same-batch duplicate rows collapse to the first.
+- **D1 mirror is read-only** for `publish_queue`/`post_targets` — they're
+  Postgres-write-owned and excluded from the D1→Postgres pull in
+  `db_sync.py`, so a lagging mirror can never resurrect a `cancelled`/
+  `completed` row back to `pending` (which would re-publish).
 
 ## Per-platform publish behavior
 
