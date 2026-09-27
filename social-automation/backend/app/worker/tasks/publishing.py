@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -117,26 +118,34 @@ async def _notify_publish_failure(
     account: SocialAccount | None,
     queue_item: PublishQueue | None,
     reason: str,
+    targets_summary: str | None = None,
 ) -> None:
     """Best-effort Slack alert for final publish failures (never raises)."""
     post_id = str(getattr(post, "id", "") or "unknown")
     platform = getattr(account, "platform", None) or "unknown"
     queue_id = str(getattr(queue_item, "id", "") or "unknown")
     reason_clean = (reason or "").replace("\n", " ").strip()
-    text = "\n".join(
-        [
-            "*We couldn’t publish a post*",
-            "• What to do next: open SocialAuto → Posts → Failed, then retry (or reconnect the account if needed).",
-            f"• What happened: {reason_clean[:300] or 'Unknown error'}",
-            "",
-            "*Details*",
-            f"• post: `{post_id}`",
-            f"• platform: `{platform}`",
-            f"• queue item: `{queue_id}`",
-            "_Cloudless · Clear skies. Zero friction._",
-        ]
-    )[:2000]
-    await post_alert_to_slack(text)
+    preview = _content_preview(post) if post else ""
+    lines = [
+        "*We couldn’t publish a post*",
+    ]
+    if preview:
+        lines.append(f"> {preview}")
+    lines.append(
+        "• What to do next: open SocialAuto → Posts → Failed, then retry (or reconnect the account if needed)."
+    )
+    lines.append(f"• What happened: {reason_clean[:300] or 'Unknown error'}")
+    if targets_summary:
+        lines.append(f"• Other platforms: {targets_summary}")
+    lines += [
+        "",
+        "*Details*",
+        f"• post: `{post_id}`",
+        f"• platform: `{platform}`",
+        f"• queue item: `{queue_id}`",
+        "_Cloudless · Clear skies. Zero friction._",
+    ]
+    await post_alert_to_slack("\n".join(lines)[:2000])
 
 
 async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:
@@ -186,23 +195,62 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
     except Exception:
         logger.warning("Failed to send post-published email for post %s", post.id)
 
-    # Slack publish-success notification (best-effort; non-fatal).
+
+def _content_preview(post: Post, limit: int = 140) -> str:
+    """Short excerpt of the post copy for Slack context."""
+    text = " ".join((getattr(post, "content_text", "") or "").split())
+    return text[: limit - 1] + "…" if len(text) > limit else text
+
+
+async def _post_publish_summary_to_slack(
+    post: Post, results: list[tuple[str, str | None]]
+) -> None:
+    """One aggregated Slack message per post — platforms + links on one line
+    each — instead of a fan-out of one message per platform target."""
     try:
-        url = platform_url or "n/a"
-        text = "\n".join(
-            [
-                "*Published*",
-                f"• Platform: *{account.platform}*",
-                f"• Link: {url}",
-                "",
-                "*Details*",
-                f"• post: `{post.id}`",
-                "_Cloudless · Clear skies. Zero friction._",
-            ]
-        )[:2000]
-        await post_publishing_to_slack(text)
+        lines = ["*Published*"]
+        preview = _content_preview(post)
+        if preview:
+            lines.append(f"> {preview}")
+        for platform, url in results:
+            link = url or "n/a"
+            lines.append(f"• *{platform}*: {link}")
+        lines += [
+            "",
+            "*Details*",
+            f"• post: `{post.id}`",
+            "_Cloudless · Clear skies. Zero friction._",
+        ]
+        await post_publishing_to_slack("\n".join(lines)[:2000])
     except Exception:
-        logger.debug("Slack publish-success notification failed (non-fatal)", exc_info=True)
+        logger.debug("Slack publish-summary notification failed (non-fatal)", exc_info=True)
+
+
+async def _target_status_line(post: Post, db: AsyncSession) -> str | None:
+    """Summarise the post's other targets for failure alerts — shows a partial
+    success ('published on linkedin, threads') instead of looking fully dead."""
+    try:
+        result = await db.execute(
+            select(PostTarget).where(PostTarget.post_id == post.id)
+        )
+        targets = result.scalars().all()
+    except Exception:
+        return None
+    buckets: dict[str, list[str]] = {}
+    acct_result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.id.in_([t.social_account_id for t in targets])
+        )
+    )
+    accts = {a.id: a.platform for a in acct_result.scalars().all()}
+    for t in targets:
+        buckets.setdefault(t.status, []).append(accts.get(t.social_account_id, "?"))
+    parts = []
+    for status in ("published", "failed", "skipped", "pending"):
+        names = buckets.get(status)
+        if names:
+            parts.append(f"{status}: {', '.join(sorted(set(names)))}")
+    return " · ".join(parts) if parts else None
 
 # Bind shared tasks in this process to the Redis-backed app (not default AMQP).
 celery_app.set_default()
@@ -251,12 +299,40 @@ async def _process_publish_queue_async() -> None:
         )
         items = result.scalars().all()
 
+        # Collapse duplicate active rows for the same (post, account) claimed in
+        # this batch — process the first, complete the rest. The partial unique
+        # index ux_publish_queue_active_target prevents new dupes; this guard
+        # also covers rows inserted before the index existed.
+        seen_pairs: set[tuple] = set()
+        dupes: list[PublishQueue] = []
+        kept: list[PublishQueue] = []
+        for item in items:
+            pair = (item.post_id, item.social_account_id)
+            if pair in seen_pairs:
+                dupes.append(item)
+            else:
+                seen_pairs.add(pair)
+                kept.append(item)
+        for dup in dupes:
+            dup.status = QueueStatus.COMPLETED
+        if dupes:
+            logger.warning(
+                "[publishing] collapsing %d duplicate queue row(s) this batch",
+                len(dupes),
+            )
+        items = kept
+
         worker_id = os.environ.get("HOSTNAME", "celery-worker")
         for item in items:
             item.status = QueueStatus.PROCESSING
             item.locked_at = now
             item.locked_by = worker_id
         await db.commit()  # commit once: releases row locks; status keeps them claimed
+
+        # Per-post aggregation for the Slack publish-success digest — one
+        # message per post instead of one per platform target.
+        published_links: dict[uuid.UUID, list[tuple[str, str | None]]] = {}
+        post_objs: dict[uuid.UUID, Post] = {}
 
         for item in items:
 
@@ -296,6 +372,17 @@ async def _process_publish_queue_async() -> None:
                     )
                 )
                 target = target_result.scalar_one_or_none()
+
+                # Idempotency guard: this target already published (e.g. a
+                # stale-lock reclaim or a retry after a lost commit). Never
+                # republish — a second external post is worse than a skipped
+                # queue row.
+                if target and target.status == "published":
+                    item.status = QueueStatus.COMPLETED
+                    await db.flush()
+                    await _rollup_post_status(post, db)
+                    await db.commit()
+                    continue
 
                 # Duplicate guard: two distinct Post rows with identical copy
                 # can land in the same slot (e.g. a re-generated draft). Don't
@@ -351,7 +438,14 @@ async def _process_publish_queue_async() -> None:
                                 ps[key] = value
                         post.platform_specific = ps
                         flag_modified(post, "platform_specific")
+                    # Webhook + author email stay per-target (downstream
+                    # systems correlate per platform). The Slack channel gets
+                    # one aggregated message per post after the batch.
                     await _notify_publish_success(post, account, pub.platform_url)
+                    published_links.setdefault(post.id, []).append(
+                        (account.platform, pub.platform_url)
+                    )
+                    post_objs[post.id] = post
                 elif getattr(pub, "skipped", False):
                     # Soft-skip: do not retry, do not fail the whole post.
                     item.status = QueueStatus.COMPLETED
@@ -386,6 +480,7 @@ async def _process_publish_queue_async() -> None:
                                 account=account,
                                 queue_item=item,
                                 reason=pub.error or "unknown publish error",
+                                targets_summary=await _target_status_line(post, db),
                             )
                     else:
                         item.status = QueueStatus.PENDING
@@ -448,7 +543,15 @@ async def _process_publish_queue_async() -> None:
                         account=err_account,
                         queue_item=item,
                         reason="Unhandled exception while publishing (see worker logs)",
+                        targets_summary=(
+                            await _target_status_line(err_post, db) if err_post else None
+                        ),
                     )
+
+        # One aggregated Slack message per post for all targets published in
+        # this batch — replaces the per-platform fan-out.
+        for post_id, results in published_links.items():
+            await _post_publish_summary_to_slack(post_objs[post_id], results)
 
 
 async def _check_scheduled_posts_async() -> None:

@@ -248,7 +248,9 @@ class BrowserBridgeClient:
         """
         probe_expr = (
             "() => ({url: location.href, loggedIn: !!document.querySelector("
-            "'[data-testid=SideNav_AccountSwitcher_Button]')})"
+            "'[data-testid=SideNav_AccountSwitcher_Button]'), "
+            "handle: (document.querySelector('a[data-testid=AppTabBar_Profile_Link]')"
+            "?.getAttribute('href') || '').replace(/^\\//, '').replace(/^@/, '') || null})"
         )
         try:
             probe = await self.evaluate(probe_expr)
@@ -268,7 +270,11 @@ class BrowserBridgeClient:
             res = probe.get("result", probe) if isinstance(probe, dict) else probe
             if not isinstance(res, dict):
                 return {"logged_in": False, "url": url}
-        return {"logged_in": bool(res.get("loggedIn")), "url": res.get("url")}
+        return {
+            "logged_in": bool(res.get("loggedIn")),
+            "url": res.get("url"),
+            "handle": res.get("handle"),
+        }
 
     async def _click_visible_continue(self) -> bool:
         """Find a visible Continue/Next/Log-in button and mouse-click it.

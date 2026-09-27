@@ -749,6 +749,28 @@ async def _publish_twitter_via_browser(
                         return _x_quota_skip_result(
                             f"browser login failed: {login_res.get('error')}"
                         )
+                    # Re-probe so the identity check below sees the fresh session.
+                    state = await client.is_twitter_logged_in()
+
+            # Identity check: posting under the wrong X account is brand damage.
+            # Fail (alert) rather than silently publishing as a foreign handle.
+            expected = (account.username or "").lstrip("@").lower()
+            actual = (state.get("handle") or "").lstrip("@").lower()
+            if expected and actual and actual != expected:
+                return PublishResult(
+                    success=False,
+                    error=(
+                        f"X browser session is logged in as @{actual}, "
+                        f"expected @{expected} — re-login the bridge session "
+                        "as the correct account before retrying"
+                    ),
+                )
+            if expected and not actual and state.get("logged_in"):
+                logger.warning(
+                    "[publishing] X browser session handle undetectable — "
+                    "posting without identity verification (expected @%s)",
+                    expected,
+                )
             res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:
         return _x_quota_skip_result(f"browser fallback failed: {exc}")
@@ -994,6 +1016,11 @@ async def _publish_facebook_via_sidecar(
 
         post_url = result.get("url")
         post_id = result.get("post_id") or (post_url.split("/")[-1] if post_url else None)
+        if not post_id and not post_url:
+            return PublishResult(
+                success=False,
+                error="Facebook sidecar returned no post id or URL — cannot confirm publish",
+            )
         return PublishResult(
             success=True,
             platform_post_id=post_id,
@@ -1044,10 +1071,15 @@ async def _publish_facebook(
         if not media_paths:
             result = await fb_client.create_post(message=text, link=post.link_url)
             fb_post_id = result.get("id", "")
+            if not fb_post_id:
+                return PublishResult(
+                    success=False,
+                    error="Facebook API returned no post id — cannot confirm publish",
+                )
             return PublishResult(
                 success=True,
                 platform_post_id=fb_post_id,
-                platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
+                platform_url=f"https://www.facebook.com/{fb_post_id}",
             )
 
         graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
@@ -1090,10 +1122,15 @@ async def _publish_facebook(
                 result = await fb_client.create_post(message=text, link=post.link_url)
                 fb_post_id = result.get("id", "")
 
+        if not fb_post_id:
+            return PublishResult(
+                success=False,
+                error="Facebook API returned no post id — cannot confirm publish",
+            )
         return PublishResult(
             success=True,
             platform_post_id=fb_post_id,
-            platform_url=f"https://www.facebook.com/{fb_post_id}" if fb_post_id else None,
+            platform_url=f"https://www.facebook.com/{fb_post_id}",
         )
     except Exception as exc:
         if _err_has(str(exc), _FB_GROUP_MARKERS):
@@ -2072,10 +2109,14 @@ async def _poll_tiktok_publish_status(
                 status_value,
             )
         if publish_mode == "MEDIA_UPLOAD" and status_value == "SEND_TO_USER_INBOX":
-            # Inbox drafts have no Display video id yet — keep publish_id.
+            # Inbox drafts have no public post URL yet — link the profile so
+            # the notification still lands somewhere meaningful.
             return PublishResult(
                 success=True,
                 platform_post_id=publish_id,
+                platform_url=(
+                    f"https://www.tiktok.com/@{username}" if username else None
+                ),
                 platform_meta=_meta({"status": status_value}),
             )
         if status_value == "PUBLISH_COMPLETE":
@@ -2088,7 +2129,7 @@ async def _poll_tiktok_publish_status(
                 platform_url=(
                     f"https://www.tiktok.com/@{username}/video/{tt_post_id}"
                     if tt_post_id and username
-                    else None
+                    else (f"https://www.tiktok.com/@{username}" if username else None)
                 ),
                 platform_meta=_meta(
                     {
