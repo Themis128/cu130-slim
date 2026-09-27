@@ -246,11 +246,17 @@ class BrowserBridgeClient:
         flow, jump to x.com/home first — the probe is only meaningful on
         twitter's own SPA.
         """
+        # Handle: primary = profile nav link href; fallback = the account
+        # switcher's aria-label/text ("… @handle") — DOM churn on one
+        # selector shouldn't leave the publisher unable to verify identity.
         probe_expr = (
-            "() => ({url: location.href, loggedIn: !!document.querySelector("
-            "'[data-testid=SideNav_AccountSwitcher_Button]'), "
-            "handle: (document.querySelector('a[data-testid=AppTabBar_Profile_Link]')"
-            "?.getAttribute('href') || '').replace(/^\\//, '').replace(/^@/, '') || null})"
+            "() => {"
+            "const p = document.querySelector('a[data-testid=AppTabBar_Profile_Link]');"
+            "const sw = document.querySelector('[data-testid=SideNav_AccountSwitcher_Button]');"
+            "const swTxt = ((sw?.getAttribute('aria-label') || '') + ' ' + (sw?.textContent || ''));"
+            "const h = (p?.getAttribute('href') || '').replace(/^\\//, '').replace(/^@/, '')"
+            " || (swTxt.match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || null;"
+            " return {url: location.href, loggedIn: !!sw, handle: h};}"
         )
         try:
             probe = await self.evaluate(probe_expr)

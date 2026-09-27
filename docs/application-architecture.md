@@ -537,7 +537,9 @@ Beat Schedule:
 │ process-publish-queue    │ publishing.process_publish_queue│ 30s      │
 │                          │  (claims via FOR UPDATE SKIP     │          │
 │                          │   LOCKED; stale locks >15min     │          │
-│                          │   auto-reclaimed)                │          │
+│                          │   auto-reclaimed; dedupe via     │          │
+│                          │   ux_publish_queue_active_target │          │
+│                          │   + already-published guard)     │          │
 │ check-scheduled-posts    │ publishing.check_scheduled_posts│ 60s      │
 │ sync-analytics           │ analytics.sync_all_analytics   │ 300s     │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
@@ -1193,7 +1195,7 @@ userdb is keyed by full email.
 |---------|----------|---------|
 | `#socialauto` | `SLACK_WEBHOOK_URL`, `SLACK_CHANNEL_ID` | Daily digest |
 | `#socialauto-alerts` | `SLACK_ALERTS_WEBHOOK_URL`, `SLACK_ALERTS_CHANNEL_ID` | Operational alerts |
-| `#socialauto-publishing` | `SLACK_PUBLISHING_WEBHOOK_URL` | Publish-success posts |
+| `#socialauto-publishing` | `SLACK_PUBLISHING_WEBHOOK_URL` | Aggregated publish summaries (one message per post: preview + platform links) |
 | `#polar-support` | `SLACK_SUPPORT_*`, `SLACK_BILLING_*` (pending webhook) | Polar user support / billing digest |
 
 - `app/services/slack_notifications.py` posts via Incoming Webhook

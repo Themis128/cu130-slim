@@ -658,6 +658,10 @@ async def _publish_twitter(
                 )
                 if browser_result.success:
                     return browser_result
+                if not browser_result.skipped:
+                    # Hard failure (e.g. wrong-account session) — surface it
+                    # through retries/alerts instead of a silent quota skip.
+                    return browser_result
                 return _x_quota_skip_result(browser_result.error or blob)
             if exc.status_code in (401, 403) and not refreshed:
                 refreshed = True
@@ -766,10 +770,16 @@ async def _publish_twitter_via_browser(
                     ),
                 )
             if expected and not actual and state.get("logged_in"):
-                logger.warning(
-                    "[publishing] X browser session handle undetectable — "
-                    "posting without identity verification (expected @%s)",
-                    expected,
+                # Fail-closed: an undetectable handle means we cannot rule
+                # out a foreign session — better an alerted failure than a
+                # post under the wrong account.
+                return PublishResult(
+                    success=False,
+                    error=(
+                        "X browser session handle undetectable — cannot "
+                        f"verify the logged-in account is @{expected}; "
+                        "re-login the bridge session before retrying"
+                    ),
                 )
             res = await client.post_tweet(_fit_x_limit(text), image_paths or None)
     except Exception as exc:

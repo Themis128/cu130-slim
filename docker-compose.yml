@@ -138,6 +138,9 @@ x-worker-env: &worker-env
 x-worker-volumes: &worker-volumes
   - ./.env:/app/.env:ro
   - ./social-automation/backend/app:/app/app
+  # Live test tree — lets pytest run against the mounted source instead of
+  # the stale copy baked into the image.
+  - ./social-automation/backend/tests:/app/tests
   - ./social-automation/uploads:/app/uploads
   - tunnel_url:/run/tunnel
   # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
@@ -793,6 +796,7 @@ services:
       - ./.env:/app/.env:ro
       - ./social-automation/backend/app:/app/app
       - ./social-automation/backend/alembic:/app/alembic
+      - ./social-automation/backend/tests:/app/tests
       - ./social-automation/uploads:/app/uploads
       - tunnel_url:/run/tunnel
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"

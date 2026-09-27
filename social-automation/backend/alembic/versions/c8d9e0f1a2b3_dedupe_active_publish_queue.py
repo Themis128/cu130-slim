@@ -41,7 +41,13 @@ def upgrade() -> None:
                         SELECT id,
                                ROW_NUMBER() OVER (
                                    PARTITION BY post_id, social_account_id
-                                   ORDER BY created_at ASC
+                                   ORDER BY
+                                       -- keep an in-flight row: cancelling a
+                                       -- 'processing' row cannot stop its
+                                       -- external call, but the retained
+                                       -- pending row could publish again
+                                       CASE WHEN status = 'processing' THEN 0 ELSE 1 END,
+                                       created_at ASC
                                ) AS rn
                         FROM publish_queue
                         WHERE status IN ('pending', 'processing')

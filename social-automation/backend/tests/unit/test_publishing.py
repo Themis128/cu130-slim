@@ -240,8 +240,11 @@ async def test_publish_twitter_thread(account, post):
 async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
     """402 credits-depleted falls back to browser; soft-skips if browser also fails."""
     fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
+    # Transient browser failures come back as skipped quota results.
     fallback = AsyncMock(
-        return_value=pub.PublishResult(success=False, error="browser down")
+        return_value=pub.PublishResult(
+            success=False, skipped=True, error="browser down"
+        )
     )
     monkeypatch.setattr(pub, "_publish_twitter_via_browser", fallback)
 
@@ -272,6 +275,27 @@ async def test_publish_twitter_quota_browser_fallback_succeeds(account, post, mo
 
     assert result.success is True
     assert result.platform_post_id == "999"
+
+
+@pytest.mark.asyncio
+async def test_publish_twitter_identity_mismatch_propagates(account, post, monkeypatch):
+    """A hard browser failure (wrong-account session) must NOT become a
+    quota skip — it has to surface so the worker retries and alerts."""
+    fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
+    fallback = AsyncMock(
+        return_value=pub.PublishResult(
+            success=False,
+            error="X browser session is logged in as @other, expected @them — re-login",
+        )
+    )
+    monkeypatch.setattr(pub, "_publish_twitter_via_browser", fallback)
+
+    with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
+
+    assert result.success is False
+    assert result.skipped is False
+    assert "logged in as @other" in (result.error or "")
 
 
 def test_fit_x_limit_counts_weighted_chars():

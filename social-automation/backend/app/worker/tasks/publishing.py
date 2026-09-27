@@ -1,13 +1,13 @@
 import asyncio
+import hashlib
 import logging
 import os
-import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import shared_task
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
@@ -199,6 +199,9 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
 def _content_preview(post: Post, limit: int = 140) -> str:
     """Short excerpt of the post copy for Slack context."""
     text = " ".join((getattr(post, "content_text", "") or "").split())
+    # Slack mrkdwn entity-escape: post copy containing `<!channel>`,
+    # `<@U…>`, or link syntax must not ping users or reformat as links.
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return text[: limit - 1] + "…" if len(text) > limit else text
 
 
@@ -224,6 +227,67 @@ async def _post_publish_summary_to_slack(
         await post_publishing_to_slack("\n".join(lines)[:2000])
     except Exception:
         logger.debug("Slack publish-summary notification failed (non-fatal)", exc_info=True)
+
+
+async def _maybe_send_publish_summary(db: AsyncSession, post: Post) -> None:
+    """Emit the aggregated '#socialauto-publishing' message once per post.
+
+    Runs after each successful publish, but only fires once the post has no
+    queue rows left in flight — so a post whose targets landed in different
+    batches (or on different workers) still gets ONE summary covering every
+    published platform. Claimed atomically via a conditional UPDATE on
+    posts.platform_specific, keyed on the set of published targets: a later
+    publish to a *new* account produces a new key and notifies again.
+    """
+    try:
+        active = await db.scalar(
+            select(func.count())
+            .select_from(PublishQueue)
+            .where(
+                PublishQueue.post_id == post.id,
+                PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+            )
+        )
+        if active:
+            return
+        rows = (
+            await db.execute(
+                select(PostTarget.platform_url, SocialAccount.id, SocialAccount.platform)
+                .join(
+                    SocialAccount,
+                    PostTarget.social_account_id == SocialAccount.id,
+                )
+                .where(PostTarget.post_id == post.id, PostTarget.status == "published")
+            )
+        ).all()
+        if not rows:
+            return
+        claim = hashlib.sha1(
+            ",".join(sorted(str(r.id) for r in rows)).encode()
+        ).hexdigest()[:16]
+        claimed = (
+            await db.execute(
+                text(
+                    "UPDATE posts SET platform_specific ="
+                    " COALESCE(platform_specific, '{}'::jsonb) ||"
+                    " jsonb_build_object('publish_summary_claim', :claim)"
+                    " WHERE id = :pid"
+                    " AND platform_specific->>'publish_summary_claim'"
+                    " IS DISTINCT FROM :claim"
+                ),
+                {"claim": claim, "pid": post.id},
+            )
+        ).rowcount
+        await db.commit()
+        if not claimed:
+            return  # another worker already sent this exact summary
+        await _post_publish_summary_to_slack(
+            post, [(r.platform, r.platform_url) for r in rows]
+        )
+    except Exception:
+        logger.warning(
+            "publish summary skipped for post %s", post.id, exc_info=True
+        )
 
 
 async def _target_status_line(post: Post, db: AsyncSession) -> str | None:
@@ -328,11 +392,6 @@ async def _process_publish_queue_async() -> None:
             item.locked_at = now
             item.locked_by = worker_id
         await db.commit()  # commit once: releases row locks; status keeps them claimed
-
-        # Per-post aggregation for the Slack publish-success digest — one
-        # message per post instead of one per platform target.
-        published_links: dict[uuid.UUID, list[tuple[str, str | None]]] = {}
-        post_objs: dict[uuid.UUID, Post] = {}
 
         for item in items:
 
@@ -439,13 +498,9 @@ async def _process_publish_queue_async() -> None:
                         post.platform_specific = ps
                         flag_modified(post, "platform_specific")
                     # Webhook + author email stay per-target (downstream
-                    # systems correlate per platform). The Slack channel gets
-                    # one aggregated message per post after the batch.
+                    # systems correlate per platform). The aggregated Slack
+                    # summary fires after commit via _maybe_send_publish_summary.
                     await _notify_publish_success(post, account, pub.platform_url)
-                    published_links.setdefault(post.id, []).append(
-                        (account.platform, pub.platform_url)
-                    )
-                    post_objs[post.id] = post
                 elif getattr(pub, "skipped", False):
                     # Soft-skip: do not retry, do not fail the whole post.
                     item.status = QueueStatus.COMPLETED
@@ -491,6 +546,11 @@ async def _process_publish_queue_async() -> None:
                 await db.flush()
                 await _rollup_post_status(post, db)
                 await db.commit()
+                if pub.success:
+                    # Aggregated Slack summary — one per post, deferred until
+                    # no queue rows remain in flight so split batches/workers
+                    # still produce a single all-platform message.
+                    await _maybe_send_publish_summary(db, post)
 
             except Exception:
                 await db.rollback()
@@ -548,10 +608,6 @@ async def _process_publish_queue_async() -> None:
                         ),
                     )
 
-        # One aggregated Slack message per post for all targets published in
-        # this batch — replaces the per-platform fan-out.
-        for post_id, results in published_links.items():
-            await _post_publish_summary_to_slack(post_objs[post_id], results)
 
 
 async def _check_scheduled_posts_async() -> None:
