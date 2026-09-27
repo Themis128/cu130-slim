@@ -22,14 +22,15 @@ const resolveFromMedia = (t: Theme): 'light' | 'dark' => {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light')
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  const [theme, setThemeState] = useState<Theme>('dark')
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark')
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
     const stored = localStorage.getItem('theme') as Theme | null
-    const initialTheme = stored || 'system'
+    // Brand-first: new visitors land on the Cloudless dark theme.
+    const initialTheme = stored || 'dark'
     const resolved = resolveFromMedia(initialTheme)
     setThemeState(initialTheme)
     setResolvedTheme(resolved)

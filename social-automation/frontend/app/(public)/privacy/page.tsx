@@ -19,7 +19,7 @@ export default function PrivacyPolicyPage() {
             SocialAuto ("we", "us", "our") is a social media automation platform
             operated by Cloudless, headquartered in Greece. This privacy policy explains how we
             collect, use, and protect your data when you use our platform at
-            <a href="https://social.cloudless.gr" className="text-blue-500 hover:underline"> social.cloudless.gr</a>.
+            <a href="https://social.cloudless.gr" className="text-primary hover:underline"> social.cloudless.gr</a>.
           </p>
         </section>
 
@@ -130,8 +130,8 @@ export default function PrivacyPolicyPage() {
             For privacy questions or data requests, contact us at:
           </p>
           <ul className="list-none pl-6 space-y-1">
-            <li>Email: <a href="mailto:privacy@cloudless.gr" className="text-blue-500 hover:underline">privacy@cloudless.gr</a></li>
-            <li>Website: <a href="https://cloudless.gr" className="text-blue-500 hover:underline">cloudless.gr</a></li>
+            <li>Email: <a href="mailto:privacy@cloudless.gr" className="text-primary hover:underline">privacy@cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
 

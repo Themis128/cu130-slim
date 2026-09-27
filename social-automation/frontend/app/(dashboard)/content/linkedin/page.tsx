@@ -65,7 +65,7 @@ function LinkedInPreview({ content, accountName }: { content: string; accountNam
           {content ? display : <span className="text-zinc-400 italic">Start typing to preview...</span>}
         </p>
         {truncated && !expanded && (
-          <button onClick={() => setExpanded(true)} className="text-blue-600 font-medium mt-0.5 hover:underline text-[12px]">...more</button>
+          <button onClick={() => setExpanded(true)} className="text-primary font-medium mt-0.5 hover:underline text-[12px]">...more</button>
         )}
       </div>
       <div className="px-4 py-2 border-t flex gap-1 text-zinc-500 text-[11px]">

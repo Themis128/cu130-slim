@@ -87,8 +87,8 @@ export default function DashboardPage() {
       name: 'Drafts',
       value: metrics?.draft_posts ?? 0,
       icon: PenLine,
-      color: 'text-blue-500',
-      bg: 'bg-blue-500/10',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
       href: '/content',
     },
     {

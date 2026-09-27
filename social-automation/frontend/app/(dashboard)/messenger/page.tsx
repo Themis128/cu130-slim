@@ -201,8 +201,8 @@ export default function MessengerPage() {
               <div className="flex items-center gap-2 text-sm">
                 {orchestratorData.data.lock_held ? (
                   <>
-                    <Lock className="h-4 w-4 text-blue-500" />
-                    <span className="font-medium text-blue-600">
+                    <Lock className="h-4 w-4 text-primary" />
+                    <span className="font-medium text-primary">
                       Browser held by {orchestratorData.data.current_platform}
                     </span>
                   </>

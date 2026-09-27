@@ -90,8 +90,8 @@ export default function AIUsagePage() {
                     {(usage?.summary || []).reduce((acc, s) => acc + s.total_calls, 0).toLocaleString()}
                   </p>
                 </div>
-                <div className="p-2 rounded-full bg-blue-500/10">
-                  <Activity className="h-4 w-4 text-blue-500" />
+                <div className="p-2 rounded-full bg-primary/10">
+                  <Activity className="h-4 w-4 text-primary" />
                 </div>
               </div>
             </CardContent>

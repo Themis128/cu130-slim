@@ -574,7 +574,7 @@ export default function MediaPage() {
                       {/* Select checkbox */}
                       {selectMode && (
                         <div className={`absolute top-2 left-2 z-10 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
-                          isSelected ? 'bg-primary border-primary text-primary-foreground' : 'bg-white/90 border-muted-foreground/40'
+                          isSelected ? 'bg-primary border-primary text-primary-foreground' : 'bg-card/90 border-muted-foreground/40'
                         }`}>
                           {isSelected && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                         </div>
@@ -597,7 +597,7 @@ export default function MediaPage() {
                             </div>
                           </>
                         ) : isPdf ? (
-                          <div className="relative w-full h-full overflow-hidden bg-white">
+                          <div className="relative w-full h-full overflow-hidden bg-card">
                             <iframe
                               src={`${mediaDisplayUrl(item.storage_path)}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
                               className="absolute top-0 left-0 border-none pointer-events-none"
@@ -654,7 +654,7 @@ export default function MediaPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="bg-white/90 h-8 w-8"
+                            className="bg-card/90 h-8 w-8"
                             title="View (zoom & pan)"
                             onClick={(e) => { e.stopPropagation(); setViewerItem(item) }}
                           >
@@ -664,7 +664,7 @@ export default function MediaPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="bg-white/90 h-8 w-8"
+                              className="bg-card/90 h-8 w-8"
                               title="AI Enhance"
                             >
                               <Wand2 className="h-4 w-4 text-primary" />
@@ -673,7 +673,7 @@ export default function MediaPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="bg-white/90 h-8 w-8"
+                            className="bg-card/90 h-8 w-8"
                             title="Delete"
                             onClick={(e) => { e.stopPropagation(); deleteWithUndo(item, item.filename || 'Media') }}
                           >

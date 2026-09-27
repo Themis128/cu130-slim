@@ -18,7 +18,7 @@ export default function TermsOfServicePage() {
           <p>
             SocialAuto ("the Service") is a social media automation platform operated by
             Cloudless ("we", "us", "our"), headquartered in Greece, available at
-            <a href="https://social.cloudless.gr" className="text-blue-500 hover:underline"> social.cloudless.gr</a>.
+            <a href="https://social.cloudless.gr" className="text-primary hover:underline"> social.cloudless.gr</a>.
             The Service provides AI-assisted content generation, multi-platform publishing,
             scheduling, analytics, and opt-in inbound message auto-replies for your connected
             social media accounts.
@@ -46,7 +46,7 @@ export default function TermsOfServicePage() {
           <ul className="list-disc pl-6 space-y-1">
             <li>Subscriptions renew automatically each billing period until cancelled.</li>
             <li>You can cancel at any time from Settings → Billing or the hosted customer portal; access continues until the end of the paid period.</li>
-            <li>Plan quotas (posts, AI calls, connected accounts) are described on the <a href="/pricing" className="text-blue-500 hover:underline">pricing page</a>.</li>
+            <li>Plan quotas (posts, AI calls, connected accounts) are described on the <a href="/pricing" className="text-primary hover:underline">pricing page</a>.</li>
             <li>Failed renewal payments place the subscription in a grace (past-due) state; the plan downgrades to Free if payment is not resolved.</li>
           </ul>
         </section>
@@ -55,7 +55,7 @@ export default function TermsOfServicePage() {
           <h2 className="text-xl font-semibold mb-2">4. Acceptable Use</h2>
           <p>
             Use of the Service is subject to our
-            <a href="/acceptable-use" className="text-blue-500 hover:underline"> Acceptable Use Policy</a>.
+            <a href="/acceptable-use" className="text-primary hover:underline"> Acceptable Use Policy</a>.
             In summary: no spam, no platform manipulation, no unlawful content, and you remain
             responsible for complying with each social network's own terms when publishing or
             automating through SocialAuto.
@@ -96,7 +96,7 @@ export default function TermsOfServicePage() {
             You may delete your account at any time. We may suspend or terminate accounts that
             violate these Terms or the Acceptable Use Policy. Upon termination, your right to use
             the Service ends; data deletion follows our
-            <a href="/data-deletion" className="text-blue-500 hover:underline"> Data Deletion Policy</a>.
+            <a href="/data-deletion" className="text-primary hover:underline"> Data Deletion Policy</a>.
           </p>
         </section>
 
@@ -127,8 +127,8 @@ export default function TermsOfServicePage() {
             Questions about these Terms:
           </p>
           <ul className="list-none pl-6 space-y-1">
-            <li>Email: <a href="mailto:support@cloudless.gr" className="text-blue-500 hover:underline">support@cloudless.gr</a></li>
-            <li>Website: <a href="https://cloudless.gr" className="text-blue-500 hover:underline">cloudless.gr</a></li>
+            <li>Email: <a href="mailto:support@cloudless.gr" className="text-primary hover:underline">support@cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
       </div>

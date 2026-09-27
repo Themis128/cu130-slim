@@ -28,12 +28,12 @@ export default function DataDeletionPage() {
           <ol className="list-decimal pl-6 space-y-2 mt-2">
             <li>
               <strong>In-app:</strong> Log in at
-              <a href="https://social.cloudless.gr" className="text-blue-500 hover:underline"> social.cloudless.gr</a>,
+              <a href="https://social.cloudless.gr" className="text-primary hover:underline"> social.cloudless.gr</a>,
               go to Settings → Account → Delete Account. This immediately removes all your data.
             </li>
             <li>
               <strong>Email:</strong> Send a deletion request to
-              <a href="mailto:privacy@cloudless.gr" className="text-blue-500 hover:underline"> privacy@cloudless.gr</a>
+              <a href="mailto:privacy@cloudless.gr" className="text-primary hover:underline"> privacy@cloudless.gr</a>
               with the subject "Data Deletion Request". Include your registered email address.
             </li>
             <li>
@@ -97,8 +97,8 @@ export default function DataDeletionPage() {
           <h2 className="text-xl font-semibold mb-2">Contact</h2>
           <p>For data deletion questions:</p>
           <ul className="list-none pl-6 space-y-1">
-            <li>Email: <a href="mailto:privacy@cloudless.gr" className="text-blue-500 hover:underline">privacy@cloudless.gr</a></li>
-            <li>Website: <a href="https://cloudless.gr" className="text-blue-500 hover:underline">cloudless.gr</a></li>
+            <li>Email: <a href="mailto:privacy@cloudless.gr" className="text-primary hover:underline">privacy@cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
       </div>

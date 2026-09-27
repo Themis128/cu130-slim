@@ -326,8 +326,8 @@ export default function MCPStackPage() {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-blue-500/10 p-2">
-                <Monitor className="h-5 w-5 text-blue-500" />
+              <div className="rounded-lg bg-primary/10 p-2">
+                <Monitor className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{sidecars.length}</p>

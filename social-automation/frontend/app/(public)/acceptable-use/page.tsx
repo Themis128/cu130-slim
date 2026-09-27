@@ -19,7 +19,7 @@ export default function AcceptableUsePage() {
             This Acceptable Use Policy ("AUP") defines what is and is not permitted on SocialAuto,
             operated by Cloudless. It protects our users, the social platforms we integrate with,
             and the public. Violations may result in content removal, suspension, or account
-            termination under our <a href="/terms" className="text-blue-500 hover:underline">Terms of Service</a>.
+            termination under our <a href="/terms" className="text-primary hover:underline">Terms of Service</a>.
           </p>
         </section>
 
@@ -69,7 +69,7 @@ export default function AcceptableUsePage() {
         <section>
           <h2 className="text-xl font-semibold mb-2">6. Reporting</h2>
           <p>
-            Report violations to <a href="mailto:support@cloudless.gr" className="text-blue-500 hover:underline">support@cloudless.gr</a>.
+            Report violations to <a href="mailto:support@cloudless.gr" className="text-primary hover:underline">support@cloudless.gr</a>.
             We acknowledge reports within 48 hours.
           </p>
         </section>

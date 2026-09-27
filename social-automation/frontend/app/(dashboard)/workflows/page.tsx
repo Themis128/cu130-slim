@@ -278,7 +278,7 @@ export default function WorkflowsPage() {
   const runStatusIcon = (status: 'success' | 'failed' | 'running') => {
     if (status === 'success') return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
     if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-destructive" />
-    return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+    return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />
   }
 
   return (
