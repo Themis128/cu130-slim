@@ -1629,12 +1629,22 @@ async def sync_facebook_account(
             # {"paid": n, "non_paid": m}, not ints, so it needs its own
             # call outside the flat-int aggregator above.
             try:
+                # Bound the window — an unbounded request returns ~93 daily
+                # buckets and Meta intermittently 500s with "reduce the
+                # amount of data". 8 days covers the weekly digest's day-key
+                # merge; older days persist in earlier events.
+                attr_since = int(
+                    (captured_at - timedelta(days=8)).timestamp()
+                )
+                attr_until = int(captured_at.timestamp())
                 resp = await client.get(
                     facebook_graph_url(f"{page_id}/insights"),
                     params={
                         "access_token": page_token,
                         "metric": "page_fan_adds_by_paid_non_paid_unique",
                         "period": "day",
+                        "since": attr_since,
+                        "until": attr_until,
                     },
                 )
                 if resp.status_code == 200:

@@ -485,6 +485,8 @@ async def build_daily_digest(
             PostAnalyticsSnapshot.team_id == team.id,
             PostAnalyticsSnapshot.captured_at >= since,
             PostAnalyticsSnapshot.platform_post_id.isnot(None),
+            # Campaign-level ad rows aren't posts — ads have their own digest.
+            PostAnalyticsSnapshot.source != "linkedin_ads",
         )
         .subquery()
     )
@@ -492,6 +494,7 @@ async def build_daily_digest(
         select(
             PostAnalyticsSnapshot.post_id,
             PostAnalyticsSnapshot.platform_post_id,
+            PostAnalyticsSnapshot.platform,
             PostAnalyticsSnapshot.impressions,
             PostAnalyticsSnapshot.engagement,
             Post.content_text,
@@ -503,10 +506,10 @@ async def build_daily_digest(
         .limit(5)
     )
     top_posts: list[dict[str, Any]] = []
-    for post_id, platform_post_id, imps, eng, text in top_q.all():
+    for post_id, platform_post_id, platform, imps, eng, text in top_q.all():
         snippet = (text or "").strip()
         if not snippet and platform_post_id:
-            snippet = f"post {platform_post_id[-12:]}"
+            snippet = f"{platform} post {platform_post_id[-8:]}"
         top_posts.append(
             {
                 "post_id": str(post_id) if post_id else None,
