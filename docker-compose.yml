@@ -411,6 +411,9 @@ services:
       retries: 10
       start_period: 180s
     restart: unless-stopped
+    # Memory cap — model load spikes are fine, runaway creep is not (VM-wide wedge risk).
+    mem_limit: 4608m
+    memswap_limit: 9216m
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
@@ -1236,6 +1239,9 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    # Memory cap — Chromium tabs multiply silently; matches runtime docker update 2026-09-26.
+    mem_limit: 2048m
+    memswap_limit: 4096m
 
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
   # RESTful HTTP wrapper around Playwright for TikTok profile settings that
