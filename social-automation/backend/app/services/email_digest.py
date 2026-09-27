@@ -105,6 +105,42 @@ def digest_to_html(report: DigestReport) -> str:
         )
         top = f"<h3>Top posts</h3><ol>{items}</ol>"
 
+    growth_html = ""
+    g = report.growth
+    if g:
+        items = "".join(
+            f"<li>{_html_escape(str(f['platform']))}: "
+            f"<b>{f['end']}</b> followers · <b>{f['delta']:+d}</b>"
+            + (
+                f" ({f['rate']:+.1f}%)"
+                if f.get("rate") is not None
+                else ""
+            )
+            + "</li>"
+            for f in g.get("followers", [])
+        )
+        if g.get("non_follower_reach_pct") is not None:
+            items += (
+                "<li>IG non-follower reach: "
+                f"<b>{g['non_follower_reach_pct']:.0f}%</b> this month</li>"
+            )
+        fa = g.get("follower_adds")
+        if fa:
+            items += (
+                f"<li>New followers: <b>{fa['organic']}</b> organic · "
+                f"<b>{fa['paid']}</b> paid</li>"
+            )
+        if g.get("peak_hours"):
+            items += (
+                "<li>Best posting window (UTC): "
+                f"<b>{_html_escape(', '.join(str(h) for h in g['peak_hours']))}</b>"
+                "</li>"
+            )
+        if items:
+            growth_html = (
+                f"<h3>Growth (last {report.days}d)</h3><ul>{items}</ul>"
+            )
+
     issue_html = "<p><strong>Issues:</strong> none</p>"
     if errors or warnings:
         parts: list[str] = []
@@ -135,6 +171,7 @@ def digest_to_html(report: DigestReport) -> str:
     {rows}
   </table>
   {top}
+  {growth_html}
   {issue_html}
   <p style="color:#666;font-size:12px">Also posted to Slack #socialauto · cloudless.gr Social Automation</p>
 </body></html>
