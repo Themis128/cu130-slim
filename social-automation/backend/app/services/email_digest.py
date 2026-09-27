@@ -121,6 +121,16 @@ def digest_to_html(report: DigestReport) -> str:
                 if f.get("rate") is not None
                 else ""
             )
+            + (
+                f" (prev {f['prev_delta']:+d})"
+                if f.get("prev_delta") is not None
+                else ""
+            )
+            + (
+                f" · next ~<b>{f['forecast']}</b>"
+                if f.get("forecast")
+                else ""
+            )
             + "</li>"
             for f in g.get("followers", [])
         )
@@ -140,6 +150,18 @@ def digest_to_html(report: DigestReport) -> str:
                 "<li>Best posting window (UTC): "
                 f"<b>{_html_escape(', '.join(str(h) for h in g['peak_hours']))}</b>"
                 "</li>"
+            )
+        for p in g.get("funnel", []):
+            er = (
+                f" · ER <b>{p['er_pct']}%</b>"
+                if p.get("er_pct") is not None
+                else ""
+            )
+            items += (
+                f"<li>{_html_escape(str(p['platform']))}: "
+                f"<b>{p['impressions']}</b> imp → "
+                f"<b>{p['engagement']}</b> eng → "
+                f"<b>{p['clicks']}</b> clicks{er}</li>"
             )
         if items:
             growth_html = (

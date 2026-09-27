@@ -205,6 +205,16 @@ celery_app.conf.update(
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_week=1),
             "kwargs": {"days": 7, "post_to_slack": True, "post_to_email": True},
         },
+        # Monthly rollup → Slack + owner email (1st of month). The 30-day
+        # window adds MoM follower deltas, a linear next-month forecast,
+        # and the impressions→engagement→clicks funnel per platform.
+        "monthly-slack-rollup": {
+            "task": "app.worker.tasks.digest.send_weekly_slack_digest",
+            "schedule": crontab(
+                hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_month=1
+            ),
+            "kwargs": {"days": 30, "post_to_slack": True, "post_to_email": True},
+        },
         # End-of-day strategy brief → email. Notebook-generated (papermill in
         # the worker env) so the report layout/charts are editable from the
         # Jupyter UI; falls back to the code-path report on notebook failure.

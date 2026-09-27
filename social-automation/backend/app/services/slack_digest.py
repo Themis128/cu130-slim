@@ -119,12 +119,18 @@ class DigestReport:
                     if f.get("rate") is not None
                     else ""
                 )
+                prev = (
+                    f" (prev {f['prev_delta']:+d})"
+                    if f.get("prev_delta") is not None
+                    else ""
+                )
+                fc = f" · next ~*{f['forecast']}*" if f.get("forecast") else ""
                 label = f["platform"]
                 if f.get("account"):
                     label += f" @{f['account']}"
                 lines.append(
                     f"• {label}: *{f['end']}* followers · "
-                    f"*{f['delta']:+d}*{rate}"
+                    f"*{f['delta']:+d}*{rate}{prev}{fc}"
                 )
             if g.get("non_follower_reach_pct") is not None:
                 lines.append(
@@ -141,6 +147,12 @@ class DigestReport:
                 lines.append(
                     "• Best posting window (UTC): "
                     f"*{', '.join(g['peak_hours'])}*"
+                )
+            for p in g.get("funnel", []):
+                er = f" · ER *{p['er_pct']}%*" if p.get("er_pct") is not None else ""
+                lines.append(
+                    f"• {p['platform']}: *{p['impressions']}* imp → "
+                    f"*{p['engagement']}* eng → *{p['clicks']}* clicks{er}"
                 )
 
         errors = [i for i in self.issues if i.severity == "error"]
@@ -194,9 +206,18 @@ _GROWTH_EVENT_TYPES = (
 
 
 async def _growth_stats(
-    db: AsyncSession, team_id: Any, since: datetime
+    db: AsyncSession,
+    team_id: Any,
+    since: datetime,
+    prev_since: datetime | None = None,
+    days: int = 7,
 ) -> dict[str, Any]:
-    """Follower deltas + audience events over the digest window."""
+    """Follower deltas + audience events + funnel over the digest window.
+
+    When prev_since is set (monthly reports), each account also carries the
+    prior window's delta for month-over-month comparison and a naive linear
+    forecast of next month's count.
+    """
     rows = (
         await db.execute(
             select(
@@ -212,7 +233,7 @@ async def _growth_stats(
             )
             .where(
                 FollowerSnapshot.team_id == team_id,
-                FollowerSnapshot.captured_at >= since,
+                FollowerSnapshot.captured_at >= (prev_since or since),
             )
             .order_by(FollowerSnapshot.captured_at)
         )
@@ -223,7 +244,7 @@ async def _growth_stats(
     # window — early snapshots may record 0 before the platform metric is
     # available, which would turn the current count into a fake "+N".
     per: dict[Any, dict[str, Any]] = {}
-    for platform, followers, _ts, account_id, username in rows:
+    for platform, followers, ts, account_id, username in rows:
         key = account_id or f"{platform}:?"
         e = per.setdefault(
             key,
@@ -232,27 +253,94 @@ async def _growth_stats(
                 "username": username,
                 "start": int(followers),
                 "end": int(followers),
+                "prev_start": 0,
+                "prev_end": 0,
+                "has_prev": False,
             },
         )
-        if e["start"] == 0 and followers:
-            e["start"] = int(followers)
-        e["end"] = int(followers)
+        if ts >= since:
+            if e["start"] == 0 and followers:
+                e["start"] = int(followers)
+            e["end"] = int(followers)
+        else:
+            e["has_prev"] = True
+            if e["prev_start"] == 0 and followers:
+                e["prev_start"] = int(followers)
+            e["prev_end"] = int(followers)
 
     growth: dict[str, Any] = {"followers": []}
     for e in per.values():
         start, end = e["start"], e["end"]
         delta = end - start
-        growth["followers"].append(
-            {
-                "platform": e["platform"],
-                "account": e["username"],
-                "start": start,
-                "end": end,
-                "delta": delta,
-                "rate": round(delta / start * 100, 1) if start else None,
-            }
-        )
+        row: dict[str, Any] = {
+            "platform": e["platform"],
+            "account": e["username"],
+            "start": start,
+            "end": end,
+            "delta": delta,
+            "rate": round(delta / start * 100, 1) if start else None,
+        }
+        if e["has_prev"]:
+            row["prev_delta"] = e["prev_end"] - e["prev_start"]
+            row["forecast"] = end + round(delta * 30 / days)
+        growth["followers"].append(row)
     growth["followers"].sort(key=lambda f: -abs(f["delta"]))
+
+    # Post-level funnel for the window: impressions → engagement → clicks,
+    # summed per-post deltas (greatest clamps counter resets at 0).
+    funnel_delta = (
+        select(
+            PostAnalyticsSnapshot.platform.label("platform"),
+            func.greatest(
+                func.max(PostAnalyticsSnapshot.impressions)
+                - func.min(PostAnalyticsSnapshot.impressions),
+                0,
+            ).label("imp"),
+            func.greatest(
+                func.max(PostAnalyticsSnapshot.engagement)
+                - func.min(PostAnalyticsSnapshot.engagement),
+                0,
+            ).label("eng"),
+            func.greatest(
+                func.max(PostAnalyticsSnapshot.clicks)
+                - func.min(PostAnalyticsSnapshot.clicks),
+                0,
+            ).label("clk"),
+        )
+        .where(
+            PostAnalyticsSnapshot.team_id == team_id,
+            PostAnalyticsSnapshot.captured_at >= since,
+            PostAnalyticsSnapshot.platform_post_id.isnot(None),
+        )
+        .group_by(
+            PostAnalyticsSnapshot.platform_post_id,
+            PostAnalyticsSnapshot.platform,
+        )
+        .subquery()
+    )
+    funnel_rows = (
+        await db.execute(
+            select(
+                funnel_delta.c.platform,
+                func.sum(funnel_delta.c.imp),
+                func.sum(funnel_delta.c.eng),
+                func.sum(funnel_delta.c.clk),
+            ).group_by(funnel_delta.c.platform)
+        )
+    ).all()
+    funnel = [
+        {
+            "platform": p,
+            "impressions": int(i or 0),
+            "engagement": int(e or 0),
+            "clicks": int(c or 0),
+            "er_pct": round(int(e or 0) / int(i) * 100, 1) if i else None,
+        }
+        for p, i, e, c in funnel_rows
+    ]
+    funnel.sort(key=lambda f: -f["impressions"])
+    if funnel:
+        growth["funnel"] = funnel
 
     ev_rows = (
         await db.execute(
@@ -589,7 +677,12 @@ async def build_daily_digest(
         "by_provider": by_provider,
     }
 
-    growth = await _growth_stats(db, team.id, since) if days >= 7 else {}
+    growth: dict[str, Any] = {}
+    if days >= 7:
+        prev_since = since - timedelta(days=days) if days >= 28 else None
+        growth = await _growth_stats(
+            db, team.id, since, prev_since=prev_since, days=days
+        )
 
     return DigestReport(
         generated_at=now,
