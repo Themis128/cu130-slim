@@ -239,12 +239,14 @@ celery_app.conf.update(
             ),
             "kwargs": {"post_to_slack": True},
         },
-        # Auto-refresh expiring OAuth tokens every hour (TikTok expires in 24h,
+        # Auto-refresh expiring OAuth tokens (TikTok expires in 24h,
         # Twitter in 2h, Meta/Threads in ~60 days). Refreshes tokens expiring
         # within the next 4 hours so accounts never go offline unexpectedly.
+        # Runs at :15 and :45 — a failed run retries in 30min instead of
+        # leaving a 2h-lifetime X token to lapse into 401s for a full hour.
         "refresh-expiring-tokens": {
             "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
-            "schedule": crontab(minute=15),  # at :15 past every hour
+            "schedule": crontab(minute="15,45"),
         },
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric

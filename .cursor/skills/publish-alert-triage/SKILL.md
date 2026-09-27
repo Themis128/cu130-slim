@@ -74,7 +74,8 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 
 | Signature | Meaning | Action |
 |---|---|---|
-| `Session has expired` / `Cannot parse access token` / `stats HTTP 401` / `REVOKED_ACCESS_TOKEN` | Dead OAuth token | Reconnect in Accounts UI; verify `refresh_expiring_tokens` rotates what it can. Note: X tokens live 2h (`expires_in:7200`) and refresh tokens are single-use — a skipped boundary run leaves ~1h of 401s; `_skip_for_recent_update` in token_refresh.py guards this |
+| `Session has expired` / `Cannot parse access token` / `stats HTTP 401` / `REVOKED_ACCESS_TOKEN` | Dead OAuth token | Reconnect in Accounts UI; verify `refresh_expiring_tokens` rotates what it can. Note: X tokens live 2h (`expires_in:7200`) and refresh tokens are single-use — a skipped boundary run leaves ~1h of 401s; `_skip_for_recent_update` in token_refresh.py guards this; beat runs at :15+:45 so a failed run retries in 30min |
+| `cannot access the app` (Meta 190/459) | Facebook login checkpoint on an app admin account | Manual: log into facebook.com as the FB user, complete the security prompt (often a password change or identity confirm), then reconnect the account in Accounts UI. No API fix exists — the token stays 190/459 until the checkpoint clears. Observed 2026-09-26 on `Cloudless.gr` page |
 | `Browser session not logged in` | Bridge/sidecar session dead | noVNC re-login or `session-transplant` skill (cookie move) |
 | `does not exist, cannot be loaded due to missing permissions` | Stale media id or missing scope | Usually media deleted on platform or wrong account — check |
 | `publish_cancelled` (TikTok) | MEDIA_UPLOAD inbox draft dismissed | Republish; DIRECT_POST needs approved app audit |
