@@ -119,8 +119,11 @@ class DigestReport:
                     if f.get("rate") is not None
                     else ""
                 )
+                label = f["platform"]
+                if f.get("account"):
+                    label += f" @{f['account']}"
                 lines.append(
-                    f"• {f['platform']}: *{f['end']}* followers · "
+                    f"• {label}: *{f['end']}* followers · "
                     f"*{f['delta']:+d}*{rate}"
                 )
             if g.get("non_follower_reach_pct") is not None:
@@ -200,6 +203,12 @@ async def _growth_stats(
                 FollowerSnapshot.platform,
                 FollowerSnapshot.followers,
                 FollowerSnapshot.captured_at,
+                FollowerSnapshot.social_account_id,
+                SocialAccount.username,
+            )
+            .outerjoin(
+                SocialAccount,
+                SocialAccount.id == FollowerSnapshot.social_account_id,
             )
             .where(
                 FollowerSnapshot.team_id == team_id,
@@ -209,18 +218,34 @@ async def _growth_stats(
         )
     ).all()
 
-    per: dict[str, dict[str, int]] = {}
-    for platform, followers, _ts in rows:
-        e = per.setdefault(platform, {"start": int(followers), "end": int(followers)})
+    # Group per account (platform alone conflates e.g. a LinkedIn org page
+    # with a personal profile). Baseline = first non-zero reading in the
+    # window — early snapshots may record 0 before the platform metric is
+    # available, which would turn the current count into a fake "+N".
+    per: dict[Any, dict[str, Any]] = {}
+    for platform, followers, _ts, account_id, username in rows:
+        key = account_id or f"{platform}:?"
+        e = per.setdefault(
+            key,
+            {
+                "platform": platform,
+                "username": username,
+                "start": int(followers),
+                "end": int(followers),
+            },
+        )
+        if e["start"] == 0 and followers:
+            e["start"] = int(followers)
         e["end"] = int(followers)
 
     growth: dict[str, Any] = {"followers": []}
-    for platform, e in per.items():
+    for e in per.values():
         start, end = e["start"], e["end"]
         delta = end - start
         growth["followers"].append(
             {
-                "platform": platform,
+                "platform": e["platform"],
+                "account": e["username"],
                 "start": start,
                 "end": end,
                 "delta": delta,
@@ -256,7 +281,10 @@ async def _growth_stats(
         if etype == "audience_reach_split" and platform == "instagram":
             ft = meta.get("by_follow_type") or {}
             total = sum(int(v or 0) for v in ft.values())
-            nf = int(ft.get("NON_FOLLOWERS") or ft.get("non_followers") or 0)
+            nf = next(
+                (int(ft[k]) for k in ft if "non_follower" in str(k).lower()),
+                0,
+            )
             if total:
                 non_follower_pct = nf / total * 100
         elif etype == "follower_attribution":
