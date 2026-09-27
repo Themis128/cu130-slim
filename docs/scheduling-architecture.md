@@ -12,6 +12,8 @@ Post.status:  draft ──(scheduled_at set)──▶ scheduled ──▶ publis
                                      │                            └──▶ failed / partial
                                      ▼
 PostTarget.status (per account): pending ──▶ published | failed | skipped
+
+PublishQueue.status: pending ──▶ processing ──▶ completed | failed | cancelled
 ```
 
 Creating a post with `scheduled_at` sets `PostStatus.SCHEDULED` and one
@@ -36,12 +38,35 @@ Creating a post with `scheduled_at` sets `PostStatus.SCHEDULED` and one
 - `PROCESSING` rows stale >15 min are reclaimed (crash recovery).
 - On success → queue `COMPLETED`, target `published` (+`platform_post_id`,
   `platform_url`, `published_at`), `platform_specific` merged with returned
-  platform meta, success notification sent.
-- On soft-skip (`pub.skipped`) → `COMPLETED` + target `skipped` (e.g. platform
-  deliberately bypassed; no retry).
+  platform meta. Per-target webhook + author email fire immediately; the
+  Slack success post is aggregated per post (see Notifications below).
+- On soft-skip (`pub.skipped`) → `COMPLETED` + target `skipped` — reserved
+  for deliberate bypasses (platform quota/cap, deprecated API surface). Hard
+  failures such as a wrong-account X session are NOT skipped; they retry and
+  alert like any other error.
 - On failure → `attempts += 1`; at `max_attempts` the row is `FAILED`, target
   `failed` with `error_message`, failure notification sent.
 - Post text passes `auto_correct` (LanguageTool) right before publish.
+
+### Idempotency & dedupe (migration `c8d9e0f1a2b3`)
+
+Duplicate external posts used to slip through when a queue row was retried
+after a crash, a stale lock was reclaimed, or the same `(post, account)` was
+enqueued twice. Three layers now prevent that:
+
+- **DB constraint** — partial unique index `ux_publish_queue_active_target`
+  on `(post_id, social_account_id) WHERE status IN ('pending','processing')`.
+  A second active row for the same pair is rejected outright; terminal rows
+  (completed/failed/cancelled) don't collide, so re-queues stay possible.
+  The migration collapses pre-existing dupes — keeps a `processing` row over
+  a `pending` one (cancelling a running row can't stop its external call,
+  but a retained pending row could publish again), ties broken by
+  `created_at`.
+- **API** — `POST /publishing/queue` returns `409` for an existing active
+  row (pre-check + `IntegrityError` fallback for the check/insert race).
+- **Worker** — before calling the platform, each claim re-checks its
+  `post_target`: already `published` → the queue row completes without an
+  external call. Same-batch duplicate rows collapse to the first.
 
 ## Per-platform publish behavior
 
@@ -49,8 +74,9 @@ Creating a post with `scheduled_at` sets `PostStatus.SCHEDULED` and one
 |---|---|
 | LinkedIn | `.pdf` media → `create_document_post` (native carousel). Images → multi-image post. Org + member targets both supported. |
 | Threads / Facebook / Instagram | Public `image_url` fetch — media must be reachable (see media-creation-architecture → Serving). |
-| TikTok | `platform_specific.tiktok.publish_mode`: `MEDIA_UPLOAD` (default — lands in the TikTok app inbox for manual publish; works pre-audit) or `DIRECT_POST` (auto-publishes; requires app audit approval for public posts + `privacy_level` from `creator_info.privacy_level_options`). Photo posts always use `PULL_FROM_URL` → media URL must be on a TikTok-verified domain. |
-| Twitter/X | OAuth2 user context + OAuth1 media upload; publish-time token refresh on 401/403 (`_refresh_oauth2_token`). |
+| TikTok | `platform_specific.tiktok.publish_mode`: `MEDIA_UPLOAD` (default — lands in the TikTok app inbox for manual publish; works pre-audit) or `DIRECT_POST` (auto-publishes; requires app audit approval for public posts + `privacy_level` from `creator_info.privacy_level_options`). Photo posts always use `PULL_FROM_URL` → media URL must be on a TikTok-verified domain. When no public post URL exists (inbox draft / missing id), `platform_url` falls back to `tiktok.com/@<username>`. |
+| Twitter/X | OAuth2 user context + OAuth1 media upload; publish-time token refresh on 401/403 (`_refresh_oauth2_token`). On quota (402/credits-depleted) the browser bridge fallback runs — but only after an **identity check**: the logged-in handle (profile nav link, fallback: account-switcher label) must match `social_account.username`. A mismatch or an undetectable handle is a **hard failure** (retries → alert), never a silent skip and never a post under a foreign account. |
+| Facebook | A Graph/sidecar response with no `post_id` is treated as failure — the target is never marked `published` with an empty external id. |
 
 ## Token refresh interplay
 
@@ -70,9 +96,24 @@ Scheduled posts depend on tokens staying alive:
 ## Failure visibility
 
 Failures surface via `_notify_publish_failure` (Slack `#socialauto` + the
-daily digest email) and `post_targets.error_message`. The daily digest
-(`send_daily_slack_digest`, 09:00 Europe/Athens) summarizes failed/queued
-posts — see `publish-alert-triage` skill for the error-signature runbook.
+daily digest email) and `post_targets.error_message`. Failure alerts include
+the post's other outcomes — `published: linkedin, threads · failed:
+instagram` — so a partially published post doesn't read as fully dead.
+The daily digest (`send_daily_slack_digest`, 09:00 Europe/Athens) summarizes
+failed/queued posts — see `publish-alert-triage` skill for the
+error-signature runbook.
+
+## Notifications
+
+One aggregated Slack message per post goes to `#socialauto-publishing`
+(`SLACK_PUBLISHING_WEBHOOK_URL`) after each publish batch — content preview
+(≤140 chars, mrkdwn-escaped so post copy can't inject `<!channel>`/`<@U>`
+mentions) plus one `• *platform*: url` line per published target. This
+replaced the old fan-out of one message per platform. Per-target
+integrations (webhook, author email) still fire per platform.
+
+Note: aggregation is per worker batch — if two workers claim targets of the
+same post in the same window, each emits its own partial summary.
 
 ## What "accepts scheduling" requires per platform
 

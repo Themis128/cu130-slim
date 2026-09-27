@@ -36,7 +36,8 @@ production-grade. This plan covers the missing **business layer** and
 | API docs (Swagger/ReDoc) | `EXPOSE_API_DOCS=true`, `DEBUG=false` — docs accessible, no stack traces |
 | Instagram session health check | Celery beat task every 6h, alert email on expiry |
 | Facebook sidecar session validation | Hardened — detects profile picker, c_user cookie, deep-check endpoint |
-| Alembic head | `t2c4d5e6f7a8` (onboarding + plan_tier + email_logs) |
+| Publish-queue dedupe + idempotency | Unique index `ux_publish_queue_active_target`, API 409, already-published guard, X identity check, aggregated Slack summaries (PR #123/#124) |
+| Alembic head | `c8d9e0f1a2b3` (publish_queue active-target dedupe index) |
 | Users in DB | 1 |
 | Teams in DB | 1 |
 
