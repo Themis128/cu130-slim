@@ -349,7 +349,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
                         )}
                       </span>
                       {conv.unread && (
-                        <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-0.5">
+                        <span className="text-xs bg-primary text-primary-foreground rounded-full px-2 py-0.5">
                           ●
                         </span>
                       )}
@@ -397,7 +397,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
                         <div
                           className={`max-w-[70%] rounded-lg p-2 text-sm ${
                             msg.isMe
-                              ? 'bg-blue-500 text-white'
+                              ? 'bg-primary text-primary-foreground'
                               : 'bg-accent'
                           }`}
                         >

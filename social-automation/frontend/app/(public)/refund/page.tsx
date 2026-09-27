@@ -21,7 +21,7 @@ export default function RefundPolicyPage() {
           <ul className="list-disc pl-6 space-y-1">
             <li><strong>In-app:</strong> Settings → Billing → Cancel subscription.</li>
             <li><strong>Customer portal:</strong> Use the hosted billing portal linked from Settings → Billing to manage or cancel your plan directly.</li>
-            <li><strong>Email:</strong> Contact <a href="mailto:support@cloudless.gr" className="text-blue-500 hover:underline">support@cloudless.gr</a> from your account email.</li>
+            <li><strong>Email:</strong> Contact <a href="mailto:support@cloudless.gr" className="text-primary hover:underline">support@cloudless.gr</a> from your account email.</li>
           </ul>
           <p className="mt-2">
             Cancellation takes effect at the end of your current billing period — you keep full
@@ -43,7 +43,7 @@ export default function RefundPolicyPage() {
           <h2 className="text-xl font-semibold mb-2">3. What Is Not Refundable</h2>
           <ul className="list-disc pl-6 space-y-1">
             <li>Partial-month use after the first 14 days, except where required by law or covered by Section 2.</li>
-            <li>Accounts suspended or terminated for violations of our <a href="/acceptable-use" className="text-blue-500 hover:underline">Acceptable Use Policy</a> or <a href="/terms" className="text-blue-500 hover:underline">Terms of Service</a>.</li>
+            <li>Accounts suspended or terminated for violations of our <a href="/acceptable-use" className="text-primary hover:underline">Acceptable Use Policy</a> or <a href="/terms" className="text-primary hover:underline">Terms of Service</a>.</li>
             <li>Third-party platform actions outside our control (e.g. a social network restricting your account).</li>
           </ul>
         </section>
@@ -66,8 +66,8 @@ export default function RefundPolicyPage() {
         <section>
           <h2 className="text-xl font-semibold mb-2">5. Contact</h2>
           <ul className="list-none pl-6 space-y-1">
-            <li>Email: <a href="mailto:support@cloudless.gr" className="text-blue-500 hover:underline">support@cloudless.gr</a> (we reply within 48 hours)</li>
-            <li>Website: <a href="https://cloudless.gr" className="text-blue-500 hover:underline">cloudless.gr</a></li>
+            <li>Email: <a href="mailto:support@cloudless.gr" className="text-primary hover:underline">support@cloudless.gr</a> (we reply within 48 hours)</li>
+            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
       </div>

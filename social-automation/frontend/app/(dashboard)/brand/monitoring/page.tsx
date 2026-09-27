@@ -92,7 +92,7 @@ export default function BrandMonitoringPage() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       {m.author && <span>by {m.author}</span>}
                       {m.mentioned_at && <span>• {new Date(m.mentioned_at).toLocaleDateString()}</span>}
-                      {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">View</a>}
+                      {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>}
                     </div>
                   </div>
                   <div className="flex-shrink-0">{sentimentIcon(m.sentiment)}</div>

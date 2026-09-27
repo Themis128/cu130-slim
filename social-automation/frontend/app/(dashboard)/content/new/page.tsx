@@ -110,7 +110,7 @@ function LinkedInPreview({ content, media, identity }: PreviewProps) {
           {content ? display : <span className="text-zinc-400 italic">Start typing to preview...</span>}
         </p>
         {truncated && !expanded && (
-          <button onClick={() => setExpanded(true)} className="text-blue-600 font-medium mt-0.5 hover:underline text-[12px]">...more</button>
+          <button onClick={() => setExpanded(true)} className="text-primary font-medium mt-0.5 hover:underline text-[12px]">...more</button>
         )}
       </div>
       {media.length > 0 && (
@@ -204,7 +204,7 @@ function InstagramPreview({ content, media, identity }: PreviewProps) {
           {parts.map((p, i) => (
             <span key={i}>
               {p}
-              {tags[i] && <span className="text-blue-500 font-medium">{tags[i]}</span>}
+              {tags[i] && <span className="text-primary font-medium">{tags[i]}</span>}
             </span>
           ))}
           {!content && <span className="text-zinc-400 italic">Start typing to preview...</span>}
@@ -312,7 +312,7 @@ function TikTokPreview({ content, media, identity }: PreviewProps) {
           <AccountAvatar
             identity={identity}
             className="w-8 h-8 rounded-full flex-shrink-0 text-[10px]"
-            fallbackClass="bg-white text-black"
+            fallbackClass="bg-card text-card-foreground"
           />
           <span className="font-semibold text-[12px]">{identity.handle}</span>
         </div>

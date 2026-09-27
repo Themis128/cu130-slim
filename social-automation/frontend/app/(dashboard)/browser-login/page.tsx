@@ -143,14 +143,14 @@ export default function BrowserLoginPage() {
   const statusColor = (status: string) => {
     if (status === 'done') return 'text-green-500'
     if (status === 'error') return 'text-red-500'
-    if (status === 'waiting' || status === 'extracting') return 'text-blue-500'
+    if (status === 'waiting' || status === 'extracting') return 'text-primary'
     return 'text-muted-foreground'
   }
 
   const StatusIcon = ({ status }: { status: string }) => {
     if (status === 'done') return <CheckCircle2 className="h-5 w-5 text-green-500" />
     if (status === 'error') return <AlertCircle className="h-5 w-5 text-red-500" />
-    if (status === 'waiting' || status === 'extracting') return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+    if (status === 'waiting' || status === 'extracting') return <Loader2 className="h-5 w-5 animate-spin text-primary" />
     return <Monitor className="h-5 w-5 text-muted-foreground" />
   }
 

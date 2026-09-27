@@ -124,7 +124,7 @@ export default function BrandAssetsPage() {
                       <Badge variant="secondary">{asset.asset_type?.replace('_', ' ')}</Badge>
                     </div>
                     {asset.file_url && (
-                      <a href={asset.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-500 hover:underline">
+                      <a href={asset.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">
                         View file
                       </a>
                     )}

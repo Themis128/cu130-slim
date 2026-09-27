@@ -79,7 +79,7 @@ export default function AuditLogsPage() {
             <div className="space-y-1">
               {entries.map((e) => (
                 <div key={e.id} className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/30 transition-colors">
-                  <Badge className={`capitalize text-xs ${ACTION_COLORS[e.action] ?? 'bg-gray-100 text-gray-700'}`}>
+                  <Badge className={`capitalize text-xs ${ACTION_COLORS[e.action] ?? 'bg-muted text-muted-foreground'}`}>
                     {e.action.replace('_', ' ')}
                   </Badge>
                   <div className="flex-1 min-w-0">

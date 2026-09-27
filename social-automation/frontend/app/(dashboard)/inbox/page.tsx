@@ -176,7 +176,7 @@ export default function InboxPage() {
                         <Lock className="h-3 w-3 text-muted-foreground" />
                       </span>
                     )}
-                    {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
+                    {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
                   </div>
                   <p className={cn('truncate text-sm', c.unread ? 'text-foreground' : 'text-muted-foreground')}>
                     {c.preview || 'No preview available'}

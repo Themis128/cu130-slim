@@ -235,7 +235,7 @@ export function SeoPanel({
                   <Globe className="h-3 w-3" />
                   Open Graph / Twitter Card Preview
                 </p>
-                <div className="rounded-lg border overflow-hidden bg-white">
+                <div className="rounded-lg border overflow-hidden bg-card">
                   <div className="bg-muted/30 h-24 flex items-center justify-center">
                     <span className="text-xs text-muted-foreground">og:image preview</span>
                   </div>

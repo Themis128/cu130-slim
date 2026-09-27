@@ -226,8 +226,8 @@ export default function AnalyticsPage() {
       value: (overview?.published_posts ?? 0).toLocaleString(),
       change: null as number | null,
       icon: Send,
-      color: 'text-blue-500',
-      bg: 'bg-blue-500/10',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       name: 'Avg Eng / Post',
@@ -429,7 +429,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="rounded-lg border px-4 py-2.5">
                 <p className="text-xs text-muted-foreground">Publishing now</p>
-                <p className="text-xl font-bold tabular-nums text-blue-500">{pipeline.queue.processing}</p>
+                <p className="text-xl font-bold tabular-nums text-primary">{pipeline.queue.processing}</p>
               </div>
               <div className="rounded-lg border px-4 py-2.5">
                 <p className="text-xs text-muted-foreground">Stuck</p>
@@ -1336,7 +1336,7 @@ export default function AnalyticsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-blue-500" />
+            <Bot className="h-5 w-5 text-primary" />
             <div>
               <CardTitle>Bot Reply Analytics</CardTitle>
               <CardDescription>
@@ -1410,7 +1410,7 @@ export default function AnalyticsPage() {
                       <div key={p.provider} className="flex items-center justify-between rounded-lg border p-3">
                         <div className="flex items-center gap-2">
                           {p.provider === 'cloudflare' && <Cloud className="h-4 w-4 text-orange-500" />}
-                          {p.provider === 'dmr' && <HardDrive className="h-4 w-4 text-blue-500" />}
+                          {p.provider === 'dmr' && <HardDrive className="h-4 w-4 text-primary" />}
                           {p.provider === 'deterministic' && <Zap className="h-4 w-4 text-amber-500" />}
                           <span className="font-medium capitalize">{p.provider}</span>
                         </div>
@@ -1514,7 +1514,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <Globe className="h-3.5 w-3.5 text-blue-500" />
+                    <Globe className="h-3.5 w-3.5 text-primary" />
                     <p className="text-xs text-muted-foreground">Worker Requests</p>
                   </div>
                   <p className="text-2xl font-bold tabular-nums">{cfOverview.workers.total_requests.toLocaleString()}</p>

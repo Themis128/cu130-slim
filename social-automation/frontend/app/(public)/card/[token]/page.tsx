@@ -362,7 +362,7 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
         {card.card_url && (
           <div className="px-8 py-6 flex flex-col items-center">
             <div
-              className="p-3 rounded-2xl bg-white"
+              className="p-3 rounded-2xl bg-card"
               style={{ border: `1px solid ${accent}33` }}
             >
               <img
