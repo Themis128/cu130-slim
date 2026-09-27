@@ -74,6 +74,22 @@ async def add_to_queue(
     if not account or account.team_id != post.team_id:
         raise HTTPException(status_code=404, detail="Social account not found")
 
+    # Don't create a second active row for the same (post, account) — the
+    # partial unique index ux_publish_queue_active_target enforces this too,
+    # but a pre-check returns a friendlier 409 than an IntegrityError 500.
+    existing = await db.execute(
+        select(PublishQueue).where(
+            PublishQueue.post_id == post_id,
+            PublishQueue.social_account_id == social_account_id,
+            PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="A pending publish already exists for this post on this account",
+        )
+
     # Create queue item
     queue_item = PublishQueue(
         post_id=post_id,
