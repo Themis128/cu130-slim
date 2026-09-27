@@ -161,17 +161,28 @@ def render_post_text(post: Post, platform: str) -> str:
     elif post.content_text:
         parts.append(sanitize_generated_text(post.content_text))
 
-    # Hashtags
+    body = parts[0] if parts else ""
+
+    # Hashtags — skip tags already embedded in the body. AI-generated copy
+    # often includes its own hashtag line; appending again duplicates it.
     if post.hashtags and platform in _HASHTAG_IN_BODY:
         lo, hi = _ideal_hashtag_count(platform)
         tags = post.hashtags[:hi] if hi > 0 else []
-        if tags:
-            tag_str = " ".join(f"#{t.lstrip('#')}" for t in tags)
+        missing = [
+            t
+            for t in tags
+            if not re.search(rf"#{re.escape(t.lstrip('#'))}\b", body, re.IGNORECASE)
+        ]
+        if missing:
+            tag_str = " ".join(f"#{t.lstrip('#')}" for t in missing)
             parts.append(tag_str)
 
-    # Link URL
+    # Link URL — skip when the body already links to the same host. The
+    # generator frequently ends copy with the bare domain, so compare on
+    # the host rather than the exact URL string.
     if post.link_url and platform in _LINK_IN_BODY:
-        parts.append(post.link_url)
+        if not _link_already_present(body, post.link_url):
+            parts.append(post.link_url)
 
     text = "\n\n".join(p for p in parts if p)
 
@@ -181,6 +192,40 @@ def render_post_text(post: Post, platform: str) -> str:
         text = text[: max_len - 1].rstrip() + "…"
 
     return text
+
+
+def _link_already_present(body: str, link_url: str) -> bool:
+    """True when ``body`` already links to ``link_url``'s host.
+
+    Normalises scheme + ``www.`` so ``https://cloudless.gr/x`` matches a
+    body that ends with ``www.cloudless.gr/x`` or ``cloudless.gr/x``.
+    """
+    if not link_url or not body:
+        return False
+
+    def _norm(url: str) -> str:
+        u = url.strip().lower()
+        u = re.sub(r"^https?://", "", u)
+        u = re.sub(r"^www\.", "", u)
+        return u.rstrip("/")
+
+    host = _norm(link_url).split("/", 1)[0]
+    if not host or "." not in host:
+        return False
+    # Normalise the body the same way — strip mid-string schemes and a
+    # standalone "www." so "www.cloudless.gr" compares as "cloudless.gr".
+    body_norm = _norm(body)
+    body_norm = re.sub(r"https?://", "", body_norm)
+    body_norm = re.sub(r"(?<![\w])www\.", "", body_norm)
+    # Match host+path first, then the bare host — e.g. body
+    # "...cloudless.gr/pricing" hits link "cloudless.gr/pricing", and body
+    # "...cloudless.gr" hits either form. Boundary anchors keep
+    # "mycloudless.gr" or "sub.cloudless.gr" from counting as the same link.
+    path = _norm(link_url)
+    for needle in {path, host}:
+        if re.search(rf"(?<![\w.-]){re.escape(needle)}(?![\w-])", body_norm):
+            return True
+    return False
 
 
 def render_hashtags(post: Post, platform: str) -> list[str]:

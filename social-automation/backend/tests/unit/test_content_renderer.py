@@ -1,5 +1,10 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
-from app.services.content_renderer import sanitize_generated_text, strip_embedded_metadata
+from app.models.content import Post
+from app.services.content_renderer import (
+    render_post_text,
+    sanitize_generated_text,
+    strip_embedded_metadata,
+)
 
 
 class TestSanitizeGeneratedText:
@@ -84,3 +89,91 @@ class TestStripEmbeddedMetadata:
     def test_empty_and_none(self):
         assert strip_embedded_metadata("", ["a"], None) == ""
         assert strip_embedded_metadata(None, ["a"], None) is None
+
+
+class TestRenderPostTextDedupe:
+    """Generated copy that already ends with the URL/hashtags must not get
+    them appended a second time at publish (regression: duplicated
+    cloudless.gr + hashtag block on LinkedIn)."""
+
+    TAGS = ["cloudless", "Cloudflare", "websitebuilding", "webdevelopment", "digitaltools"]
+    BODY = (
+        "Deploy a site in just 18 minutes. Cloudflare makes it quick, safe, and simple to use.\n\n"
+        "www.cloudless.gr\n\n"
+        "#cloudless #Cloudflare #websitebuilding #webdevelopment #digitaltools"
+    )
+
+    def _post(self, **kw) -> Post:
+        kw.setdefault("content_text", self.BODY)
+        kw.setdefault("hashtags", self.TAGS)
+        kw.setdefault("link_url", "https://www.cloudless.gr")
+        return Post(**kw)
+
+    def test_embedded_url_and_tags_not_duplicated_linkedin(self):
+        text = render_post_text(self._post(), "linkedin")
+        assert text.lower().count("cloudless.gr") == 1
+        assert text.count("#cloudless") == 1
+        assert text == self.BODY
+
+    def test_embedded_url_and_tags_not_duplicated_facebook(self):
+        text = render_post_text(self._post(), "facebook")
+        assert text.lower().count("cloudless.gr") == 1
+        assert text.count("#webdevelopment") == 1
+
+    def test_missing_tags_still_appended(self):
+        post = self._post(
+            content_text="Body only.\n\nwww.cloudless.gr\n\n#cloudless #Cloudflare"
+        )
+        text = render_post_text(post, "linkedin")
+        assert "#websitebuilding" in text
+        assert "#webdevelopment" in text
+        assert "#digitaltools" in text
+        assert text.count("#cloudless") == 1
+
+    def test_tag_prefix_does_not_block_append(self):
+        # "#devops" in the body must not satisfy a stored "dev" tag.
+        post = self._post(
+            content_text="Shipping daily #devops",
+            hashtags=["dev"],
+            link_url=None,
+        )
+        text = render_post_text(post, "linkedin")
+        assert "#dev" in text
+
+    def test_no_embeds_appends_normally(self):
+        post = self._post(content_text="Plain copy with no embeds.")
+        text = render_post_text(post, "linkedin")
+        assert "https://www.cloudless.gr" in text
+        assert "#cloudless" in text
+
+    def test_scheme_and_www_variants_match(self):
+        for body_url in ("cloudless.gr", "www.cloudless.gr", "https://cloudless.gr/"):
+            post = self._post(content_text=f"Check {body_url} today")
+            text = render_post_text(post, "linkedin")
+            assert text.count("cloudless.gr") == 1, body_url
+
+    def test_different_host_still_appended(self):
+        post = self._post(content_text="Mentions example.com only.")
+        text = render_post_text(post, "linkedin")
+        assert "example.com" in text
+        assert "https://www.cloudless.gr" in text
+
+    def test_similar_host_does_not_match(self):
+        post = self._post(
+            content_text="mycloudless.gr and blog.cloudless.gr are other sites",
+            link_url="https://cloudless.gr",
+        )
+        text = render_post_text(post, "linkedin")
+        assert "https://cloudless.gr" in text
+
+    def test_instagram_never_appends_link(self):
+        text = render_post_text(self._post(content_text="No link here."), "instagram")
+        assert "cloudless.gr" not in text
+        assert "#cloudless" in text
+
+    def test_platform_override_also_deduped(self):
+        post = self._post(
+            platform_specific={"linkedin": {"content_text": self.BODY}}
+        )
+        text = render_post_text(post, "linkedin")
+        assert text.lower().count("cloudless.gr") == 1
