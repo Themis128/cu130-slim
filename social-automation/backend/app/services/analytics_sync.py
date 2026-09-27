@@ -1611,6 +1611,39 @@ async def sync_facebook_account(
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"facebook page insights: {exc}")
 
+            # Paid-vs-organic follower attribution — values are dicts
+            # {"paid": n, "non_paid": m}, not ints, so it needs its own
+            # call outside the flat-int aggregator above.
+            try:
+                resp = await client.get(
+                    facebook_graph_url(f"{page_id}/insights"),
+                    params={
+                        "access_token": page_token,
+                        "metric": "page_fan_adds_by_paid_non_paid_unique",
+                        "period": "day",
+                    },
+                )
+                if resp.status_code == 200:
+                    # Key by end_time date so repeated syncs of the same
+                    # day dedupe at read time instead of double-counting.
+                    by_day: dict[str, dict[str, int]] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        for v in item.get("values") or []:
+                            val = v.get("value")
+                            if isinstance(val, dict):
+                                day = str(v.get("end_time") or "")[:10]
+                                by_day[day] = {
+                                    "paid": int(val.get("paid") or 0),
+                                    "organic": int(val.get("non_paid") or 0),
+                                }
+                    if by_day:
+                        _persist_account_event(
+                            db, account, captured_at,
+                            "follower_attribution", {"by_day": by_day},
+                        )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"facebook follower attribution: {exc}")
+
     if result.synced == 0:
         result.skipped = len(targets)
     await db.commit()
@@ -1852,6 +1885,65 @@ async def sync_instagram_account(
                         )
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"instagram demographics: {exc}")
+
+            # Non-follower reach share — `views` split by follower type is
+            # the discovery metric that predicts follower growth.
+            try:
+                resp = await client.get(
+                    insights_base,
+                    params={
+                        "access_token": token,
+                        "metric": "views",
+                        "period": "day",
+                        "metric_type": "total_value",
+                        "timeframe": "this_month",
+                        "breakdown": "follow_type",
+                    },
+                )
+                if resp.status_code == 200:
+                    by_ft: dict[str, int] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        for bd in (item.get("total_value") or {}).get("breakdowns") or []:
+                            for r in bd.get("results") or []:
+                                key = str((r.get("dimension_values") or ["?"])[0])
+                                by_ft[key] = int(r.get("value", 0) or 0)
+                    if by_ft:
+                        _persist_account_event(
+                            db, account, captured_at, "audience_reach_split",
+                            {"breakdown": "follow_type", "by_follow_type": by_ft},
+                        )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"instagram follow_type split: {exc}")
+
+            # Online-follower activity heatmap — `online_followers` returns
+            # per-hour audience counts; the peak hours are the posting window.
+            try:
+                resp = await client.get(
+                    insights_base,
+                    params={
+                        "access_token": token,
+                        "metric": "online_followers",
+                        "period": "day",
+                    },
+                )
+                if resp.status_code == 200:
+                    heatmap: dict[str, int] = {}
+                    for item in (resp.json() or {}).get("data", []):
+                        for v in item.get("values") or []:
+                            val = v.get("value")
+                            if isinstance(val, dict):
+                                for hour, n in val.items():
+                                    heatmap[hour] = max(
+                                        heatmap.get(hour, 0), int(n or 0)
+                                    )
+                    if heatmap:
+                        peak = sorted(heatmap.items(), key=lambda kv: -kv[1])[:4]
+                        _persist_account_event(
+                            db, account, captured_at, "audience_activity",
+                            {"by_hour": heatmap, "peak_hours": [h for h, _ in peak]},
+                        )
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(f"instagram online_followers: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)

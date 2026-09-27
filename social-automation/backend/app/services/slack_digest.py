@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.ai_usage import AIUsageLog
-from app.models.analytics import PostAnalyticsSnapshot
+from app.models.analytics import (
+    AnalyticsEvent,
+    FollowerSnapshot,
+    PostAnalyticsSnapshot,
+)
 from app.models.content import Post, PostStatus
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
@@ -47,6 +51,7 @@ class DigestReport:
     impressions_24h: int = 0
     engagement_24h: int = 0
     top_posts: list[dict[str, Any]] = field(default_factory=list)
+    growth: dict[str, Any] = field(default_factory=dict)
     issues: list[DigestIssue] = field(default_factory=list)
     ai_usage: dict[str, Any] = field(default_factory=dict)
     posted_to_slack: bool = False
@@ -64,6 +69,7 @@ class DigestReport:
             "impressions_24h": self.impressions_24h,
             "engagement_24h": self.engagement_24h,
             "top_posts": self.top_posts,
+            "growth": self.growth,
             "ai_usage": self.ai_usage,
             "issues": [
                 {"severity": i.severity, "title": i.title, "detail": i.detail}
@@ -102,6 +108,36 @@ class DigestReport:
                 lines.append(
                     f"{i}. eng *{p.get('engagement', 0)}* · "
                     f"imp *{p.get('impressions', 0)}* — {snippet or p.get('post_id')}"
+                )
+        g = self.growth
+        if g:
+            lines.append("")
+            lines.append(f"*Growth (last {self.days}d)*")
+            for f in g.get("followers", []):
+                rate = (
+                    f" ({f['rate']:+.1f}%)"
+                    if f.get("rate") is not None
+                    else ""
+                )
+                lines.append(
+                    f"• {f['platform']}: *{f['end']}* followers · "
+                    f"*{f['delta']:+d}*{rate}"
+                )
+            if g.get("non_follower_reach_pct") is not None:
+                lines.append(
+                    "• IG non-follower reach: "
+                    f"*{g['non_follower_reach_pct']:.0f}%* this month"
+                )
+            fa = g.get("follower_adds")
+            if fa:
+                lines.append(
+                    f"• New followers: *{fa['organic']}* organic · "
+                    f"*{fa['paid']}* paid"
+                )
+            if g.get("peak_hours"):
+                lines.append(
+                    "• Best posting window (UTC): "
+                    f"*{', '.join(g['peak_hours'])}*"
                 )
 
         errors = [i for i in self.issues if i.severity == "error"]
@@ -144,6 +180,116 @@ class DigestReport:
         lines.append("")
         lines.append("_Cloudless · Clear skies. Zero friction._")
         return "\n".join(lines)
+
+
+_GROWTH_EVENT_TYPES = (
+    "audience_reach_split",
+    "follower_attribution",
+    "audience_activity",
+    "follower_insights",
+)
+
+
+async def _growth_stats(
+    db: AsyncSession, team_id: Any, since: datetime
+) -> dict[str, Any]:
+    """Follower deltas + audience events over the digest window."""
+    rows = (
+        await db.execute(
+            select(
+                FollowerSnapshot.platform,
+                FollowerSnapshot.followers,
+                FollowerSnapshot.captured_at,
+            )
+            .where(
+                FollowerSnapshot.team_id == team_id,
+                FollowerSnapshot.captured_at >= since,
+            )
+            .order_by(FollowerSnapshot.captured_at)
+        )
+    ).all()
+
+    per: dict[str, dict[str, int]] = {}
+    for platform, followers, _ts in rows:
+        e = per.setdefault(platform, {"start": int(followers), "end": int(followers)})
+        e["end"] = int(followers)
+
+    growth: dict[str, Any] = {"followers": []}
+    for platform, e in per.items():
+        start, end = e["start"], e["end"]
+        delta = end - start
+        growth["followers"].append(
+            {
+                "platform": platform,
+                "start": start,
+                "end": end,
+                "delta": delta,
+                "rate": round(delta / start * 100, 1) if start else None,
+            }
+        )
+    growth["followers"].sort(key=lambda f: -abs(f["delta"]))
+
+    ev_rows = (
+        await db.execute(
+            select(
+                AnalyticsEvent.platform,
+                AnalyticsEvent.event_type,
+                AnalyticsEvent.meta_data,
+                AnalyticsEvent.occurred_at,
+            )
+            .where(
+                AnalyticsEvent.team_id == team_id,
+                AnalyticsEvent.occurred_at >= since,
+                AnalyticsEvent.event_type.in_(_GROWTH_EVENT_TYPES),
+            )
+            .order_by(AnalyticsEvent.occurred_at)
+        )
+    ).all()
+
+    adds = {"paid": 0, "organic": 0}
+    fb_days: dict[str, dict[str, int]] = {}
+    peak_hours: list[str] = []
+    non_follower_pct: float | None = None
+    li_gains: dict[str, int] | None = None
+    for platform, etype, meta, _ts in ev_rows:
+        meta = meta or {}
+        if etype == "audience_reach_split" and platform == "instagram":
+            ft = meta.get("by_follow_type") or {}
+            total = sum(int(v or 0) for v in ft.values())
+            nf = int(ft.get("NON_FOLLOWERS") or ft.get("non_followers") or 0)
+            if total:
+                non_follower_pct = nf / total * 100
+        elif etype == "follower_attribution":
+            # Per-day dict keyed by end_time — repeated syncs overwrite,
+            # never double-count.
+            for day, split in (meta.get("by_day") or {}).items():
+                if str(day) >= since.date().isoformat():
+                    fb_days[str(day)] = split or {}
+        elif etype == "follower_insights" and platform == "linkedin":
+            gains = (meta.get("follower_gains") or {}) or {}
+            li_gains = {
+                "paid": int(gains.get("paid") or 0),
+                "organic": int(gains.get("organic") or 0),
+            }
+        elif etype == "audience_activity" and meta.get("peak_hours"):
+            peak_hours = [str(h) for h in meta["peak_hours"]]
+
+    for split in fb_days.values():
+        adds["paid"] += int(split.get("paid") or 0)
+        adds["organic"] += int(split.get("organic") or 0)
+    if li_gains:
+        adds["paid"] += li_gains["paid"]
+        adds["organic"] += li_gains["organic"]
+
+    if non_follower_pct is not None:
+        growth["non_follower_reach_pct"] = round(non_follower_pct, 1)
+    if adds["paid"] or adds["organic"]:
+        growth["follower_adds"] = adds
+    if peak_hours:
+        growth["peak_hours"] = peak_hours
+    if not growth["followers"] and len(growth) == 1:
+        return {}
+    return growth
 
 
 async def build_daily_digest(
@@ -415,6 +561,8 @@ async def build_daily_digest(
         "by_provider": by_provider,
     }
 
+    growth = await _growth_stats(db, team.id, since) if days >= 7 else {}
+
     return DigestReport(
         generated_at=now,
         timezone=tz_name,
@@ -424,6 +572,7 @@ async def build_daily_digest(
         impressions_24h=impressions_24h,
         engagement_24h=engagement_24h,
         top_posts=top_posts,
+        growth=growth,
         issues=issues,
         ai_usage=ai_usage,
     )
