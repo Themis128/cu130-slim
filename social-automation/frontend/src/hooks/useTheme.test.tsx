@@ -26,11 +26,11 @@ afterEach(() => {
 const wrapper = ({ children }: { children: ReactNode }) => <ThemeProvider>{children}</ThemeProvider>
 
 describe('useTheme', () => {
-  it('initializes with system theme by default (no localStorage)', async () => {
+  it('initializes with dark theme by default (no localStorage)', async () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
     await waitFor(() => {
-      expect(result.current.theme).toBe('system')
-      expect(result.current.resolvedTheme).toBe('light')
+      expect(result.current.theme).toBe('dark')
+      expect(result.current.resolvedTheme).toBe('dark')
     })
   })
 
@@ -64,21 +64,21 @@ describe('useTheme', () => {
 
   it('toggles theme between light and dark', async () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
-    await waitFor(() => expect(result.current.theme).toBe('system'))
+    await waitFor(() => expect(result.current.theme).toBe('dark'))
 
     act(() => {
       result.current.toggleTheme()
     })
 
     await waitFor(() => {
-      expect(result.current.theme).toBe('dark')
-      expect(localStorage.getItem('theme')).toBe('dark')
+      expect(result.current.theme).toBe('light')
+      expect(localStorage.getItem('theme')).toBe('light')
     })
   })
 
   it('sets specific theme', async () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
-    await waitFor(() => expect(result.current.theme).toBe('system'))
+    await waitFor(() => expect(result.current.theme).toBe('dark'))
 
     act(() => {
       result.current.setTheme('dark')
@@ -92,7 +92,7 @@ describe('useTheme', () => {
 
   it('sets system theme', async () => {
     const { result } = renderHook(() => useTheme(), { wrapper })
-    await waitFor(() => expect(result.current.theme).toBe('system'))
+    await waitFor(() => expect(result.current.theme).toBe('dark'))
 
     act(() => {
       result.current.setTheme('system')
@@ -105,21 +105,15 @@ describe('useTheme', () => {
   })
 
   it('applies dark class to document when resolved theme is dark', async () => {
+    document.documentElement.classList.remove('dark')
     const { result } = renderHook(() => useTheme(), { wrapper })
-    await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(false))
-
-    act(() => {
-      result.current.setTheme('dark')
-    })
-
+    await waitFor(() => expect(result.current.theme).toBe('dark'))
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))
   })
 
   it('removes dark class when resolved theme is light', async () => {
     const { result, rerender } = renderHook(() => useTheme(), { wrapper })
-    await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(false))
-
-    document.documentElement.classList.add('dark')
+    await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))
 
     act(() => {
       result.current.setTheme('light')
