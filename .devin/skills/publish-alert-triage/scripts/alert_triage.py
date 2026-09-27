@@ -101,6 +101,8 @@ SIGNATURES: list[tuple[str, str, str, str]] = [
      "Token lacks scope or app unreviewed — reconnect; see meta-app-review skill"),
     (r"stats HTTP 401", "session", "Token expired during sync",
      "Refresh/reconnect the account — refresh_expiring_tokens should rotate it"),
+    (r"cannot access the app", "session", "Meta login checkpoint (190/459)",
+     "User must log into facebook.com, complete the checkpoint prompt, then reconnect"),
     (r"stats HTTP 5|unknown error has occurred", "transient", "Platform API 5xx",
      "Transient platform error — retried automatically"),
     (r"stats HTTP 404|video_not_found|_not_found", "info", "Media deleted/missing on platform",

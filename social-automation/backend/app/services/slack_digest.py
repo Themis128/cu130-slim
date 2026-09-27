@@ -575,13 +575,20 @@ async def build_daily_digest(
             )
         )
 
-    # Snapshot notes that look like errors (24h)
+    # Snapshot notes that look like errors (24h). Notes on disconnected
+    # accounts are skipped — the account status already tells the user to
+    # reconnect; repeating its sync errors daily adds no signal.
     bad_snaps = await db.execute(
         select(PostAnalyticsSnapshot)
+        .join(
+            SocialAccount,
+            SocialAccount.id == PostAnalyticsSnapshot.social_account_id,
+        )
         .where(
             PostAnalyticsSnapshot.team_id == team.id,
             PostAnalyticsSnapshot.captured_at >= since_24h,
             PostAnalyticsSnapshot.notes.isnot(None),
+            SocialAccount.status != "disconnected",
         )
         .order_by(PostAnalyticsSnapshot.captured_at.desc())
         .limit(30)
@@ -598,6 +605,21 @@ async def build_daily_digest(
             or "quota_exhausted" in note
             or "needs paid tier" in note
         ):
+            continue
+        # Meta checkpoint (OAuthException 190/459) — needs a human to log
+        # into facebook.com and complete the prompt, then reconnect.
+        if "cannot access the app" in note:
+            issues.append(
+                DigestIssue(
+                    severity="warning",
+                    title="Reconnect a social account",
+                    detail=(
+                        "Facebook requires a login checkpoint — open "
+                        "facebook.com, complete the prompt, then reconnect "
+                        "the account in SocialAuto → Accounts."
+                    ),
+                )
+            )
             continue
         if any(k in note for k in ("http 5", "denied", "quota", "unauthorized", "forbidden")):
             issues.append(
