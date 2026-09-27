@@ -27,26 +27,30 @@ def upgrade() -> None:
     # Collapse existing duplicate active rows before adding the index:
     # keep the earliest-created row per (post_id, social_account_id),
     # cancel the rest.
-    op.execute(
-        sa.text(
-            """
-            UPDATE publish_queue
-            SET status = 'cancelled', locked_at = NULL, locked_by = NULL
-            WHERE id IN (
-                SELECT id FROM (
-                    SELECT id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY post_id, social_account_id
-                               ORDER BY created_at ASC
-                           ) AS rn
-                    FROM publish_queue
-                    WHERE status IN ('pending', 'processing')
-                ) dup
-                WHERE dup.rn > 1
+    # 'cancelled' may have been added to the queuestatus enum earlier in
+    # this same migration transaction — Postgres rejects using a new enum
+    # value before it commits, so run the UPDATE in an autocommit block.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                UPDATE publish_queue
+                SET status = 'cancelled', locked_at = NULL, locked_by = NULL
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY post_id, social_account_id
+                                   ORDER BY created_at ASC
+                               ) AS rn
+                        FROM publish_queue
+                        WHERE status IN ('pending', 'processing')
+                    ) dup
+                    WHERE dup.rn > 1
+                )
+                """
             )
-            """
         )
-    )
     op.execute(
         sa.text(
             """
