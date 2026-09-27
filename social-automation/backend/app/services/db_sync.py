@@ -86,6 +86,15 @@ POSTGRES_ONLY_TABLES = frozenset({
 # interpolated into raw SQL.
 _ALLOWED_TABLES = frozenset(t["table"] for t in SYNC_TABLES)
 
+# Tables written exclusively by Postgres-side services (publishing worker,
+# queue API) and mirrored to D1 for reads only. They must never sync
+# D1 → Postgres: the D1 copy lags up to _SYNC_MIN_INTERVAL behind, and an
+# ON CONFLICT upsert would resurrect stale states — e.g. a publish_queue
+# row Postgres cancelled could flip back to pending and publish a second
+# external post, or a published post_target could revert to pending and
+# lose its platform_post_id.
+POSTGRES_WRITE_OWNED = frozenset({"publish_queue", "post_targets"})
+
 
 class SyncService:
     """Bidirectional D1 ↔ PostgreSQL sync service."""
@@ -495,10 +504,21 @@ class SyncService:
         """Sync all rows from D1 to local PostgreSQL.
 
         Reads from D1 and upserts into Postgres using INSERT ... ON CONFLICT.
+
+        Postgres-write-owned tables (publish_queue, post_targets) are
+        skipped — a lagging D1 mirror must never overwrite their states.
         """
         if table not in _ALLOWED_TABLES:
             logger.error("Refusing to sync unrecognised table %r (not in SYNC_TABLES)", table)
             return {"synced": 0, "errors": 1, "skipped": 0}
+        if table in POSTGRES_WRITE_OWNED:
+            logger.info(
+                "Skipping D1→Postgres sync for %r — Postgres-write-owned; "
+                "the D1 mirror is read-only and must not resurrect stale rows",
+                table,
+            )
+            stats = {"synced": 0, "errors": 0, "skipped": 1}
+            return stats
 
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine

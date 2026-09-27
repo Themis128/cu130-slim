@@ -106,14 +106,19 @@ error-signature runbook.
 ## Notifications
 
 One aggregated Slack message per post goes to `#socialauto-publishing`
-(`SLACK_PUBLISHING_WEBHOOK_URL`) after each publish batch — content preview
-(≤140 chars, mrkdwn-escaped so post copy can't inject `<!channel>`/`<@U>`
-mentions) plus one `• *platform*: url` line per published target. This
-replaced the old fan-out of one message per platform. Per-target
-integrations (webhook, author email) still fire per platform.
+(`SLACK_PUBLISHING_WEBHOOK_URL`) — content preview (≤140 chars,
+mrkdwn-escaped so post copy can't inject `<!channel>`/`<@U>` mentions) plus
+one `• *platform*: url` line per published target. This replaced the old
+fan-out of one message per platform.
 
-Note: aggregation is per worker batch — if two workers claim targets of the
-same post in the same window, each emits its own partial summary.
+`_maybe_send_publish_summary` fires it **after a post has no active queue
+rows left**, so targets that land in different batches or on different
+workers are still covered by a single all-platform message. Delivery is
+claimed atomically (`posts.platform_specific.publish_summary_claim`, a
+hash of the published-target set): retries and concurrent finishers cannot
+double-post, and publishing to a *new* account later produces a new claim
+key and notifies again. Per-target integrations (webhook, author email)
+still fire per platform.
 
 ## What "accepts scheduling" requires per platform
 
