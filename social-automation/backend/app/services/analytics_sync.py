@@ -951,10 +951,24 @@ async def sync_linkedin_account(
                 # A logged-out scrape yields 0, not None — persisting it would
                 # poison the series (first real count then reads as a huge gain).
                 if followers:
-                    db.add(FollowerSnapshot(
-                        team_id=account.team_id, social_account_id=account.id,
-                        platform="linkedin", followers=int(followers),
-                    ))
+                    # The activity scrape occasionally picks a different page
+                    # metric (e.g. network size ~952k instead of followers) —
+                    # reject implausible upward jumps vs the last real reading.
+                    prev = await db.scalar(
+                        select(FollowerSnapshot.followers)
+                        .where(
+                            FollowerSnapshot.social_account_id == account.id,
+                            FollowerSnapshot.followers > 0,
+                        )
+                        .order_by(FollowerSnapshot.captured_at.desc())
+                        .limit(1)
+                    )
+                    if prev is None or int(followers) <= max(prev * 5, 100):
+                        db.add(FollowerSnapshot(
+                            team_id=account.team_id,
+                            social_account_id=account.id,
+                            platform="linkedin", followers=int(followers),
+                        ))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
                 stats_map.update({
                     urn: MetricBundle(notes="member_stats_not_implemented")

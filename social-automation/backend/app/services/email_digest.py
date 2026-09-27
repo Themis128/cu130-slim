@@ -109,8 +109,13 @@ def digest_to_html(report: DigestReport) -> str:
     g = report.growth
     if g:
         items = "".join(
-            f"<li>{_html_escape(str(f['platform']))}: "
-            f"<b>{f['end']}</b> followers · <b>{f['delta']:+d}</b>"
+            f"<li>{_html_escape(str(f['platform']))}"
+            + (
+                f" @{_html_escape(str(f['account']))}"
+                if f.get("account")
+                else ""
+            )
+            + f": <b>{f['end']}</b> followers · <b>{f['delta']:+d}</b>"
             + (
                 f" ({f['rate']:+.1f}%)"
                 if f.get("rate") is not None
