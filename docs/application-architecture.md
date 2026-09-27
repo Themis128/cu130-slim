@@ -562,6 +562,9 @@ Beat Schedule:
 │ check-linkedin-sessions  │ linkedin_session_check          │ 12h      │
 │ daily-slack-digest       │ digest.send_daily_slack_digest  │ daily 9am│
 │ weekly-slack-digest      │ digest.send_weekly_slack_digest │ weekly   │
+│ monthly-slack-rollup     │ digest.send_weekly_slack_digest │ 1st 9am  │
+│                          │   (days=30 → MoM + forecast +   │          │
+│                          │    funnel, Slack + email)       │          │
 └──────────────────────────┴────────────────────────────────┴──────────┘
 ```
 

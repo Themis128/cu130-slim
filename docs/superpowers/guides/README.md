@@ -16,6 +16,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 10. [TikTok content posting](10-tiktok-content-posting.md) — upload drafts, direct publishing, media transfer, privacy, and status tracking.
 11. [Meta lead capture](11-meta-lead-capture.md) — WhatsApp Flows + Messenger + Instagram DM lead capture into SocialAuto Leads.
 12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send messages, and AI auto-reply.
+13. [Analytics digests](13-analytics-digests.md) — daily/weekly/monthly Slack + email reports: growth, MoM, forecast, funnel, and manual triggers.
 
 ## Product plans
 

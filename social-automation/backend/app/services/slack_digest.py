@@ -243,6 +243,8 @@ async def _growth_stats(
     # with a personal profile). Baseline = first non-zero reading in the
     # window — early snapshots may record 0 before the platform metric is
     # available, which would turn the current count into a fake "+N".
+    # Prior-window rows feed only the MoM comparison — they must not seed
+    # the current baseline, or current growth would include prior gains.
     per: dict[Any, dict[str, Any]] = {}
     for platform, followers, ts, account_id, username in rows:
         key = account_id or f"{platform}:?"
@@ -251,14 +253,16 @@ async def _growth_stats(
             {
                 "platform": platform,
                 "username": username,
-                "start": int(followers),
-                "end": int(followers),
+                "start": 0,
+                "end": 0,
                 "prev_start": 0,
                 "prev_end": 0,
                 "has_prev": False,
+                "has_current": False,
             },
         )
         if ts >= since:
+            e["has_current"] = True
             if e["start"] == 0 and followers:
                 e["start"] = int(followers)
             e["end"] = int(followers)
@@ -270,6 +274,8 @@ async def _growth_stats(
 
     growth: dict[str, Any] = {"followers": []}
     for e in per.values():
+        if not e["has_current"]:
+            continue
         start, end = e["start"], e["end"]
         delta = end - start
         row: dict[str, Any] = {
