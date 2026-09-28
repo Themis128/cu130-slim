@@ -182,6 +182,9 @@ class StrategyReport:
     initiatives: list[dict[str, Any]] = field(default_factory=list)
     # 3P pillar coverage — {name, posts} per pillar over the insight window
     pillar_coverage: list[dict[str, Any]] = field(default_factory=list)
+    # Connected messaging-only channels (whatsapp/telegram) — they publish
+    # nothing, so they get an explicit note instead of a silent absence.
+    messaging_channels: list[str] = field(default_factory=list)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -238,6 +241,10 @@ class StrategyReport:
         ]
         if limited:
             lines.append(f"  ℹ platform limits (external): {'; '.join(limited)}")
+        if self.messaging_channels:
+            lines.append(
+                f"  ℹ messaging (connected, no post metrics): {', '.join(self.messaging_channels)}"
+            )
         takeaway = self._pulse_takeaway()
         if takeaway:
             lines.append(f"  → {takeaway}")
@@ -337,6 +344,11 @@ class StrategyReport:
             + (
                 f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>"
                 if limit_notes else ""
+            )
+            + (
+                f"<p style='color:#6b7280;font-size:12px'>ℹ messaging (connected, no post metrics) — "
+                f"{esc(', '.join(self.messaging_channels))}</p>"
+                if self.messaging_channels else ""
             )
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
@@ -1025,6 +1037,24 @@ async def build_strategy_report(
     recent = await _load_recent_posts_by_platform(db, team.id)
     pillar_coverage = await _load_pillar_coverage(db, team.id, days=insight_days)
 
+    # Messaging-only channels get an explicit note so their absence from
+    # the pulse doesn't look like a disconnect.
+    from app.models.social_account import SocialAccount
+
+    messaging_channels = [
+        f"{p} {t}"
+        for p, t in (
+            await db.execute(
+                select(SocialAccount.platform, SocialAccount.account_type)
+                .where(
+                    SocialAccount.team_id == team.id,
+                    SocialAccount.status == "active",
+                    SocialAccount.platform.in_(["whatsapp", "telegram", "messenger"]),
+                )
+            )
+        ).all()
+    ]
+
     from app.services.growth_initiatives import initiative_summary
 
     initiatives = await initiative_summary(db, team.id)
@@ -1038,6 +1068,7 @@ async def build_strategy_report(
         recent_posts_by_platform=recent,
         initiatives=initiatives,
         pillar_coverage=pillar_coverage,
+        messaging_channels=messaging_channels,
     )
 
     actions = await _llm_actions(db, team.id, insights, digest)
