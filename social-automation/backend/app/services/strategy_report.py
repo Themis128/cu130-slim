@@ -657,8 +657,18 @@ class StrategyReport:
         return f"<div style='margin-top:8px'>{''.join(tiles)}</div>"
 
     @staticmethod
-    def _bench_cell(p: dict) -> str:
+    @staticmethod
+    def _metrics_partial(p: dict) -> bool:
+        """True when a platform can't report per-post metrics for some
+        accounts (e.g. LinkedIn member_postAnalytics_scope_missing) — any
+        engagement-rate figure derived from partial counts is unreliable."""
+        return any("scope_missing" in n for n in (p.get("platform_limits") or []))
+
+    @classmethod
+    def _bench_cell(cls, p: dict) -> str:
         """Human-readable ER-by-followers vs baseline for email tables."""
+        if cls._metrics_partial(p):
+            return "— (member metrics scope missing)"
         bench = p.get("benchmark") or {}
         verdict = (bench.get("verdict") or "").replace("_", " ")
         yours = bench.get("your_er_by_followers_pct")
@@ -674,8 +684,8 @@ class StrategyReport:
             return f"— (needs 50+ followers, has {current})"
         return "—"
 
-    @staticmethod
-    def _er_str(p: dict[str, Any]) -> str:
+    @classmethod
+    def _er_str(cls, p: dict[str, Any]) -> str:
         er = p.get("avg_engagement_rate")
         if not isinstance(er, int | float):
             return "n/a"
@@ -683,7 +693,10 @@ class StrategyReport:
             # A 1-engagement/7-impression platform would show "14.3%" —
             # precision the data doesn't support.
             return "low data"
-        return f"{er}%"
+        # Member-scoped platforms count engagement but not impressions —
+        # the ratio is inflated (e.g. 72 eng / 227 imp = a fake 31.7%).
+        suffix = " (partial)" if cls._metrics_partial(p) else ""
+        return f"{er}%{suffix}"
 
     @staticmethod
     def _mom_str(p: dict[str, Any]) -> str:
