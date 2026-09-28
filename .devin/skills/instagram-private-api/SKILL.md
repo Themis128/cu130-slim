@@ -223,3 +223,41 @@ After a successful login:
 - **Graph API** requires Meta App Review for `instagram_content_publish`.
   In development mode, only app admins/testers can publish. The app
   `1936126137016578` is currently in development mode.
+
+## Known dead ends (verified 2026-09-28)
+
+- **`needs_upgrade` ("Your version of Instagram is out of date")** blocks
+  password login on instagrapi 2.18.x AND aiograpi 2.0.11/2.0.13 — both
+  `login()` (CAA path) and `login_by_sessionid`. Upstream fix
+  (instagrapi ≥3.0.9 / aiograpi ≥2.0.8 CAA retry) did NOT unblock this
+  account — the block is credential/IP-level at Instagram's edge, not
+  library-version-level. Do not burn cycles on library bumps alone.
+- **Web `sessionid` ≠ mobile session.** `login_by_sessionid` accepts a
+  `sessionid` cookie lifted from instagram.com but the resulting session
+  fails on every private call (`login_required`). Instagram no longer
+  honors web sessionids on the private mobile API.
+- **`POST /api/v1/media/{id}/delete/` is not the web delete endpoint**
+  (returns 200 + HTML, deletes nothing). There is no Graph API media
+  delete. Working path: browser UI — post page → `⋯` More options →
+  Delete → confirm; a successful delete redirects to the profile.
+
+## `media_publish` false-negative (subcode 2207051)
+
+Meta returns `403 code 4 subcode 2207051` ("Application request limit
+reached") **after** the post already went live server-side. Retrying
+publishes duplicates (one post landed 6 copies before the fix).
+`publishing.py` now: pre-checks recent media before publishing, waits
+~4s after any `InstagramAPIError`/`TimeoutError`, then verifies the feed
+via `InstagramAPIClient.list_recent_media()` and returns success with
+the real media id/permalink when the post is live. Never retry a
+`media_publish` failure without this feed check.
+
+## Session-of-record: the browser bridge
+
+The shared browser bridge (9223) holds a logged-in `cloudless.gr` web
+session (restored via Accounts-Center "Continue as" — no password
+needed). It is the reliable session for profile edits, post deletion,
+and any flow the private API cannot do. `GET /session/cookies` extracts
+`sessionid`/`csrftoken`/`ds_user_id`. Tag requests with the current
+`busy_owner` platform or they 409 while another platform's poller holds
+the browser.
