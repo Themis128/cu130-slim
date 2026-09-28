@@ -33,6 +33,15 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# novnc-server.cjs is the container's real entrypoint (compose `command`). It
+# needs http-proxy at runtime, which standalone output tracing never includes
+# (the launcher sits outside the Next.js module graph). Copy the package plus
+# its three runtime deps from the builder.
+COPY --from=builder /app/node_modules/http-proxy ./node_modules/http-proxy
+COPY --from=builder /app/node_modules/eventemitter3 ./node_modules/eventemitter3
+COPY --from=builder /app/node_modules/follow-redirects ./node_modules/follow-redirects
+COPY --from=builder /app/node_modules/requires-port ./node_modules/requires-port
+
 # Remove bundled npm and test-only packages from the runtime image; the
 # standalone server does not need them and they carry CVE-heavy dependencies.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
