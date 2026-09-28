@@ -11,6 +11,7 @@ from app.services.strategy_report import (
     BriefPost,
     StrategyReport,
     _brief_media_from_assets,
+    _compact_insights,
     _is_image_asset,
     _parse_actions,
     _parse_playbook_item,
@@ -308,3 +309,52 @@ def test_recent_section_empty_when_no_posts():
     r = _report(recent_posts_by_platform={})
     assert "No published posts in the last 7 days" in r.to_text()
     assert "No published posts in the last 7 days" in r.to_html()
+
+
+def test_compact_insights_withholds_dead_night_best_hour():
+    insights = {
+        "window_days": 30,
+        "platforms": {
+            "linkedin": {
+                "posts": 34,
+                "best_weekday_athens": (4, 3.0),
+                "best_hour_athens": (2, 9.9),
+                "best_hour_sample": 3,
+            },
+        },
+    }
+    compact = _compact_insights(insights)
+    li = compact["platforms"]["linkedin"]
+    assert li["best_hour_athens"] is None
+    assert li["best_hour_sample"] == 3
+    # weekday is kept — it isn't an overnight artifact
+    assert li["best_weekday_athens"] == (4, 3.0)
+
+
+def test_compact_insights_keeps_daytime_best_hour():
+    insights = {
+        "platforms": {
+            "instagram": {
+                "posts": 16,
+                "best_hour_athens": (17, 4.2),
+                "best_hour_sample": 5,
+            },
+        },
+    }
+    compact = _compact_insights(insights)
+    ig = compact["platforms"]["instagram"]
+    assert ig["best_hour_athens"] == (17, 4.2)
+    assert ig["best_hour_sample"] == 5
+
+
+def test_best_window_dead_night_renders_baseline():
+    import copy
+    insights = copy.deepcopy(INSIGHTS)
+    insights["platforms"]["linkedin"]["best_hour_athens"] = (2, 9.9)
+    insights["platforms"]["linkedin"]["best_weekday_athens"] = (4, 3.0)
+    html = _report(insights=insights).to_html()
+    row = next(
+        ln for ln in html.splitlines()
+        if "linkedin" in ln and "baseline" in ln
+    )
+    assert "02:00" not in row
