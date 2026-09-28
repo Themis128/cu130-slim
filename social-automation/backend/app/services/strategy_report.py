@@ -330,28 +330,29 @@ class StrategyReport:
         )
         takeaway = self._pulse_takeaway()
         platform_block = (
-            "<h3>Platform pulse (30 days)</h3>"
-            '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
-            "<tr><th align='left'>Platform</th><th>Posts</th><th>Impressions</th>"
-            "<th>Engagement</th><th>Avg ER</th><th>7d momentum</th>"
-            "<th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
-            f"{rows}</table>"
-            + (f"<p style='color:#374151;font-size:13px'>→ {esc(takeaway)}</p>" if takeaway else "")
-            + (
-                f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>"
-                if warn_notes else ""
-            )
-            + (
-                f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>"
-                if limit_notes else ""
-            )
-            + (
-                f"<p style='color:#6b7280;font-size:12px'>ℹ messaging (connected, no post metrics) — "
-                f"{esc(', '.join(self.messaging_channels))}</p>"
-                if self.messaging_channels else ""
+            (
+                "<h3>Platform pulse (30 days)</h3>"
+                '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
+                "<tr><th align='left'>Platform</th><th>Posts</th><th>Impressions</th>"
+                "<th>Engagement</th><th>Avg ER</th><th>7d momentum</th>"
+                "<th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
+                f"{rows}</table>"
+                + (f"<p style='color:#374151;font-size:13px'>→ {esc(takeaway)}</p>" if takeaway else "")
+                + (
+                    f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>"
+                    if warn_notes else ""
+                )
+                + (
+                    f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>"
+                    if limit_notes else ""
+                )
             )
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
+        ) + (
+            f"<p style='color:#6b7280;font-size:12px'>ℹ messaging (connected, no post metrics) — "
+            f"{esc(', '.join(self.messaging_channels))}</p>"
+            if self.messaging_channels else ""
         )
 
         recent_block = self._recent_posts_html(tz, esc)
@@ -1038,21 +1039,35 @@ async def build_strategy_report(
     pillar_coverage = await _load_pillar_coverage(db, team.id, days=insight_days)
 
     # Messaging-only channels get an explicit note so their absence from
-    # the pulse doesn't look like a disconnect.
+    # the pulse doesn't look like a disconnect. Facebook Pages count when
+    # Messenger is configured on them (meta_data.messenger_setup.subscribed).
     from app.models.social_account import SocialAccount
 
-    messaging_channels = [
-        f"{p} {t}"
-        for p, t in (
-            await db.execute(
-                select(SocialAccount.platform, SocialAccount.account_type)
-                .where(
-                    SocialAccount.team_id == team.id,
-                    SocialAccount.status == "active",
-                    SocialAccount.platform.in_(["whatsapp", "telegram", "messenger"]),
-                )
+    channel_rows = (
+        await db.execute(
+            select(
+                SocialAccount.platform,
+                SocialAccount.account_type,
+                SocialAccount.username,
+                SocialAccount.meta_data,
             )
-        ).all()
+            .where(
+                SocialAccount.team_id == team.id,
+                SocialAccount.status == "active",
+                SocialAccount.platform.in_(["whatsapp", "telegram", "messenger", "facebook"]),
+            )
+        )
+    ).all()
+    messaging_channels = [
+        f"messenger ({u} page)"
+        if p == "facebook" else f"{p} {t}"
+        for p, t, u, meta in channel_rows
+        if p in ("whatsapp", "telegram", "messenger")
+        or (
+            p == "facebook"
+            and t == "page"
+            and (meta or {}).get("messenger_setup", {}).get("subscribed")
+        )
     ]
 
     from app.services.growth_initiatives import initiative_summary
