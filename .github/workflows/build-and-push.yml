@@ -12,6 +12,8 @@ on:
       - master
     paths:
       - "**/Dockerfile*"
+      - "**/pyproject.toml"
+      - "**/requirements*.txt"
       - ".github/workflows/build-and-push.yml"
 
 permissions:
