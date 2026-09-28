@@ -109,10 +109,14 @@ async def upload_object(
     }
 
 
-async def get_object(key: str) -> bytes:
-    """Download an object from R2."""
+async def get_object(key: str, bucket: str | None = None) -> bytes:
+    """Download an object from R2.
+
+    ``bucket`` overrides the default media bucket (used to read back objects
+    written to the analytics datalake bucket).
+    """
     key = _validate_key(key)
-    url = _r2_object_url(key)
+    url = _r2_object_url(key, bucket=bucket)
     if not url:
         raise HTTPException(status_code=500, detail="R2 is not configured")
 

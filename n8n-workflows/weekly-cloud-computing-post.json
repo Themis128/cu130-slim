@@ -31,7 +31,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    target_account_id: body.target_account_id || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n    publish: body.publish === false ? false : true,\n  }\n}];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    article_topic: body.article_topic || 'Weekly Cloud Computing Trends',\n    target_account_id: body.target_account_id || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n    publish: body.publish !== undefined ? body.publish : true\n  }\n}];"
       },
       "typeVersion": 2,
       "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
@@ -119,13 +119,13 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.title + '\\n\\n' + $('Resolve Weekly Post Config').item.json.description) }},\n  \"link_url\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Blog Article').item.json.social_post || (($('Generate Blog Article').item.json.title || $('Resolve Weekly Post Config').item.json.title) + '\\n\\n' + ($('Generate Blog Article').item.json.excerpt || $('Resolve Weekly Post Config').item.json.description))) }},\n  \"link_url\": {{ JSON.stringify($('Generate Blog Article').item.json.url || $('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
         "options": {
           "timeout": 120000
         }
@@ -210,7 +210,7 @@
         -140
       ],
       "parameters": {
-        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: raw.status || (ok ? 'created' : 'failed'),\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nlet art = {};\ntry { art = $('Generate Blog Article').item.json || {}; } catch (e) {}\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: raw.status || (ok ? 'created' : 'failed'),\n    article_slug: art.slug || null,\n    article_url: art.url || null,\n    article_created: art.created === true,\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
       },
       "typeVersion": 2,
       "id": "0d298c35-5103-41b2-91eb-7aba9940a842"
@@ -262,6 +262,36 @@
         520,
         140
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-blog-article' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.article_topic) }},\n  \"publish\": true\n}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "a1b2c3d4-weekly-article-0001",
+      "name": "Generate Blog Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        300
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -302,7 +332,7 @@
       "main": [
         [
           {
-            "node": "Run Weekly Post",
+            "node": "Generate Blog Article",
             "type": "main",
             "index": 0
           }
@@ -361,6 +391,17 @@
         [
           {
             "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Blog Article": {
+      "main": [
+        [
+          {
+            "node": "Run Weekly Post",
             "type": "main",
             "index": 0
           }
