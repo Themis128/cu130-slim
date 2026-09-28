@@ -3684,3 +3684,141 @@ async def list_emoji_styles(
     }
 
 
+
+
+class GenerateBlogArticleRequest(BaseModel):
+    topic: str = Field(default="Weekly Cloud Computing Trends", max_length=200)
+    slug: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Article slug — defaults to {YYYY-MM-DD}-{slugified topic}.",
+    )
+    publish: bool = True
+    extra_context: str = Field(default="", max_length=2000)
+
+
+class GenerateBlogArticleResponse(BaseModel):
+    slug: str
+    url: str
+    title: str
+    excerpt: str
+    category: str
+    read_time: str
+    created: bool
+    social_post: str
+
+
+@router.post("/generate-blog-article", response_model=GenerateBlogArticleResponse)
+@limiter.limit("10/minute")
+async def generate_blog_article(
+    request: Request,
+    body: GenerateBlogArticleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a full blog article via DMR and publish it to the
+    cloudless.gr datalake so it appears at https://cloudless.gr/blog.
+
+    Idempotent per slug — re-running with the same slug returns the existing
+    article instead of regenerating (default slug is date-prefixed, so
+    same-day workflow retries don't duplicate or re-spend inference).
+    """
+    from app.services import blog_articles
+
+    slug = blog_articles.slugify(body.slug or "") or blog_articles.default_slug(body.topic)
+
+    existing = await blog_articles.get_published_article(slug)
+    if existing:
+        return GenerateBlogArticleResponse(
+            slug=slug,
+            url=f"https://cloudless.gr/blog/{slug}",
+            title=existing.get("title", ""),
+            excerpt=existing.get("excerpt", ""),
+            category=existing.get("category", "Cloud"),
+            read_time=existing.get("readTime", ""),
+            created=False,
+            social_post=(existing.get("socialPost") or "").strip(),
+        )
+
+    team = await get_user_team(db, current_user)
+
+    brand_context_str = ""
+    if team:
+        from app.models.brand import Brand
+        from app.services.brand_compliance import build_brand_system_prompt
+
+        brand_result = await db.execute(
+            select(Brand)
+            .options(selectinload(Brand.voice))
+            .where(Brand.team_id == team.id)
+        )
+        brand = brand_result.scalars().first()
+        if brand:
+            brand_dict = {
+                "name": brand.name,
+                "positioning_statement": brand.positioning_statement,
+                "mission": brand.mission,
+                "values": brand.values or [],
+                "tagline": brand.tagline,
+                "target_audience": brand.target_audience or {},
+            }
+            voice_dict = None
+            if brand.voice:
+                voice_dict = {
+                    "tone_dimensions": brand.voice.tone_dimensions or {},
+                    "messaging_pillars": brand.voice.messaging_pillars or [],
+                    "banned_phrases": brand.voice.banned_phrases or [],
+                    "preferred_phrases": brand.voice.preferred_phrases or [],
+                    "example_content": brand.voice.example_content,
+                    "voice_signature": brand.voice.voice_signature or {},
+                }
+            brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
+
+    prompt = blog_articles.build_article_prompt(body.topic, body.extra_context)
+    try:
+        result = await call_inference(
+            prompt,
+            provider_name="dmr",
+            db=db,
+            team_id=team.id if team else None,
+            schema=blog_articles.ARTICLE_SCHEMA,
+            max_tokens=3500,
+            brand_context=brand_context_str or None,
+            platform="blog",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}") from exc
+
+    generated = result if isinstance(result, dict) else None
+    if generated and isinstance(generated.get("json"), dict):
+        generated = generated["json"]
+    if not isinstance(generated, dict) or not generated:
+        # Some providers return raw text — try to parse JSON out of it.
+        raw = result.get("text", "") if isinstance(result, dict) else ""
+        match = re.search(r"\{.*\}", raw, re.S)
+        try:
+            generated = json.loads(match.group(0)) if match else None
+        except json.JSONDecodeError:
+            generated = None
+    if not generated:
+        raise HTTPException(status_code=502, detail="AI did not return a usable article")
+
+    article = blog_articles.assemble_article(slug, generated, body.topic)
+
+    if body.publish:
+        await blog_articles.publish_article(article)
+
+    # The canonical link travels via link_url — strip any URL the model
+    # invented inside the social copy so it can't post a wrong link.
+    social_post = blog_articles.clean_social_post(generated.get("socialPost") or "")
+
+    return GenerateBlogArticleResponse(
+        slug=slug,
+        url=f"https://cloudless.gr/blog/{slug}",
+        title=article["title"],
+        excerpt=article["excerpt"],
+        category=article["category"],
+        read_time=article["readTime"],
+        created=bool(body.publish),
+        social_post=social_post,
+    )
