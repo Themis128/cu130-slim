@@ -277,8 +277,8 @@ class StrategyReport:
         if issues:
             lines.append("")
             lines.append("DATA GAPS / ISSUES")
-            for i in issues[:6]:
-                lines.append(f"  [{i.severity}] {i.title}" + (f" — {i.detail}" if i.detail else ""))
+            for iss in issues[:6]:
+                lines.append(f"  [{iss.severity}] {iss.title}" + (f" — {iss.detail}" if iss.detail else ""))
         lines.append("")
         lines.append("Cloudless · Clear skies. Zero friction.")
         return "\n".join(lines)
@@ -412,12 +412,12 @@ class StrategyReport:
         issues = self.digest.issues if self.digest else []
         issues_block = ""
         if issues:
-            items = "".join(
-                f"<li><b>{esc(i.title)}</b>{(' — ' + esc(i.detail)) if i.detail else ''}</li>"
-                for i in issues[:6]
+            issue_items = "".join(
+                f"<li><b>{esc(iss.title)}</b>{(' — ' + esc(iss.detail)) if iss.detail else ''}</li>"
+                for iss in issues[:6]
             )
             issues_block = (
-                f"<h3 style='color:#a16207'>Data gaps / issues</h3><ul>{items}</ul>"
+                f"<h3 style='color:#a16207'>Data gaps / issues</h3><ul>{issue_items}</ul>"
             )
 
         return f"""<!DOCTYPE html>
@@ -1025,6 +1025,29 @@ async def _load_pillar_coverage(
     return [{"name": p.name, "posts": n} for p, n in rows]
 
 
+def _messaging_channel_label(
+    platform: str,
+    account_type: str,
+    username: str | None,
+    display_name: str | None,
+    account_id: str | None,
+    meta: dict[str, Any] | None,
+) -> str | None:
+    """Label a connected messaging channel, or None for non-messaging rows."""
+    if platform in ("whatsapp", "telegram", "messenger"):
+        return f"{platform} {account_type}"
+    if (
+        platform == "facebook"
+        and account_type == "page"
+        and isinstance(meta, dict)
+        and (meta.get("messenger_setup") or {}).get("subscribed")
+    ):
+        # username/display_name are nullable — fall back to the Page ID.
+        page_name = username or display_name or account_id
+        return f"messenger ({page_name} page)"
+    return None
+
+
 async def build_strategy_report(
     db: AsyncSession,
     *,
@@ -1060,18 +1083,11 @@ async def build_strategy_report(
             )
         )
     ).all()
-    messaging_channels: list[str] = []
-    for p, t, username, display_name, account_id, meta in channel_rows:
-        if p in ("whatsapp", "telegram", "messenger"):
-            messaging_channels.append(f"{p} {t}")
-        elif (
-            p == "facebook"
-            and t == "page"
-            and (meta or {}).get("messenger_setup", {}).get("subscribed")
-        ):
-            # username/display_name are nullable — fall back to the Page ID.
-            page_name = username or display_name or account_id
-            messaging_channels.append(f"messenger ({page_name} page)")
+    messaging_channels = [
+        label
+        for p, t, username, display_name, account_id, meta in channel_rows
+        if (label := _messaging_channel_label(p, t, username, display_name, account_id, meta))
+    ]
 
     from app.services.growth_initiatives import initiative_summary
 

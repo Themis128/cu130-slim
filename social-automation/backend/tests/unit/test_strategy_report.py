@@ -13,6 +13,7 @@ from app.services.strategy_report import (
     _brief_media_from_assets,
     _compact_insights,
     _is_image_asset,
+    _messaging_channel_label,
     _parse_actions,
     _parse_playbook_item,
     _preview_text,
@@ -345,6 +346,36 @@ def test_compact_insights_keeps_daytime_best_hour():
     ig = compact["platforms"]["instagram"]
     assert ig["best_hour_athens"] == (17, 4.2)
     assert ig["best_hour_sample"] == 5
+
+
+def test_messaging_channel_label_standalone_platforms():
+    assert _messaging_channel_label("telegram", "bot", None, None, None, None) == "telegram bot"
+    assert _messaging_channel_label("whatsapp", "business", None, None, None, None) == (
+        "whatsapp business"
+    )
+    assert _messaging_channel_label("messenger", "personal", None, None, None, None) == (
+        "messenger personal"
+    )
+
+
+def test_messaging_channel_label_facebook_page_fallbacks():
+    meta = {"messenger_setup": {"subscribed": True}}
+    # Named page uses its username.
+    assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "Cloudless", "1", meta) == (
+        "messenger (Cloudless.gr page)"
+    )
+    # Unnamed page falls back to display_name, then the Page ID — never "None".
+    assert _messaging_channel_label("facebook", "page", None, "Cloudless Page", "12345", meta) == (
+        "messenger (Cloudless Page page)"
+    )
+    assert _messaging_channel_label("facebook", "page", None, None, "12345", meta) == (
+        "messenger (12345 page)"
+    )
+    # A Page without Messenger subscribed is not a messaging channel.
+    assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "C", "1", {}) is None
+    assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "C", "1", None) is None
+    # Other rows never get a label.
+    assert _messaging_channel_label("linkedin", "organization", "cloudless", "C", "1", {}) is None
 
 
 def test_best_window_dead_night_renders_baseline():
