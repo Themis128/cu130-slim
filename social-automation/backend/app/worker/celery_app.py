@@ -143,6 +143,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.process_publish_queue": {"queue": "publishing"},
         "app.worker.tasks.publishing.check_scheduled_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.publish_post_now": {"queue": "publishing"},
+        "app.worker.tasks.publishing.reconcile_instagram_publish": {"queue": "publishing"},
         "app.worker.tasks.token_refresh.refresh_expiring_tokens": {"queue": "publishing"},
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},

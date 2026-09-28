@@ -13,12 +13,18 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.security import decrypt_token
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.duplicate_detector import is_duplicate
-from app.services.publishing import publish_to_platform
+from app.services.instagram_api import InstagramAPIClient
+from app.services.publishing import (
+    _instagram_find_live,
+    _resolve_ig_user_token,
+    publish_to_platform,
+)
 from app.services.slack_notifications import post_alert_to_slack, post_publishing_to_slack
 from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
@@ -537,6 +543,14 @@ async def _process_publish_queue_async() -> None:
                                 reason=pub.error or "unknown publish error",
                                 targets_summary=await _target_status_line(post, db),
                             )
+                        if getattr(pub, "ambiguous", False) and account.platform == "instagram":
+                            # The post may be live despite the error — feed
+                            # indexing can lag minutes beyond the in-path
+                            # checks. Re-verify a few times before settling.
+                            reconcile_instagram_publish.apply_async(
+                                args=[str(post.id), str(account.id)],
+                                countdown=300,
+                            )
                     else:
                         item.status = QueueStatus.PENDING
                         item.locked_at = None
@@ -751,3 +765,91 @@ def cleanup_publish_queue(days: int = 3) -> dict:
     if result["deleted"]:
         asyncio.run(sync_after_worker_task(["publish_queue"]))
     return result
+
+
+@shared_task(bind=True, max_retries=3)
+def reconcile_instagram_publish(self, post_id: str, social_account_id: str) -> dict:
+    """Re-check the IG feed ~5 min after a publish-boundary failure.
+
+    Covers the tail of the 2207051 false-negative: the post can be live
+    server-side while the /media list takes minutes to index it — too long
+    for the in-path settle checks. Retries at ~5/10/15/20 min; if a matching
+    recent caption is found the target (and post) are reconciled to
+    published with the real media id instead of staying failed.
+    """
+    outcome = asyncio.run(_reconcile_instagram_publish_async(post_id, social_account_id))
+    if outcome.get("recovered"):
+        asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+        return outcome
+    if outcome.get("retry"):
+        raise self.retry(countdown=300)
+    return outcome
+
+
+async def _reconcile_instagram_publish_async(post_id: str, social_account_id: str) -> dict:
+    async with _worker_db() as db:
+        post = (
+            await db.execute(select(Post).where(Post.id == post_id))
+        ).scalar_one_or_none()
+        account = (
+            await db.execute(select(SocialAccount).where(SocialAccount.id == social_account_id))
+        ).scalar_one_or_none()
+        if not post or not account or account.platform != "instagram":
+            return {"recovered": False, "reason": "post or instagram account not found"}
+        target = (
+            await db.execute(
+                select(PostTarget).where(
+                    PostTarget.post_id == post.id,
+                    PostTarget.social_account_id == account.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not target or target.status == "published":
+            return {"recovered": False, "reason": "nothing to reconcile"}
+
+        meta = account.meta_data or {}
+        try:
+            token = await _resolve_ig_user_token(
+                decrypt_token(account.access_token_enc), account, db
+            )
+            client = InstagramAPIClient(
+                access_token=token,
+                ig_user_id=account.account_id,
+                use_business_login_api=(meta.get("login_type") == "business_login"),
+            )
+            live = await _instagram_find_live(
+                client, post.content_text or "", within_minutes=60
+            )
+        except Exception as exc:
+            logger.warning("Instagram reconcile probe failed for post %s: %s", post_id, exc)
+            live = None
+        if not live:
+            # Still not on the feed — could be a real failure or very slow
+            # indexing; let the task retry a few times before giving up.
+            return {"recovered": False, "retry": True}
+
+        target.status = "published"
+        target.platform_post_id = str(live.get("id") or "")
+        target.platform_url = live.get("permalink")
+        target.published_at = datetime.now(UTC)
+        target.error_message = None
+        # A queue row left in terminal FAILED would keep the post flagged —
+        # the publish actually landed, so close it out too.
+        q = (
+            await db.execute(
+                select(PublishQueue).where(
+                    PublishQueue.post_id == post.id,
+                    PublishQueue.social_account_id == account.id,
+                    PublishQueue.status == QueueStatus.FAILED,
+                )
+            )
+        ).scalars().first()
+        if q:
+            q.status = QueueStatus.COMPLETED
+        await _rollup_post_status(post, db)
+        await db.commit()
+        logger.info(
+            "Instagram reconcile recovered post %s → media %s",
+            post_id, live.get("id"),
+        )
+        return {"recovered": True, "media_id": live.get("id")}

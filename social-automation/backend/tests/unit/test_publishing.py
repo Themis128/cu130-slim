@@ -687,7 +687,9 @@ async def test_publish_instagram_publish_error_post_not_live(ig_account_no_sessi
         _FakeResponse(200, {"status_code": "FINISHED"}),           # status poll
         _FakeResponse(403, {"error": {"code": 4, "error_subcode": 2207051,
                                      "message": "Application request limit reached"}}),
-        _FakeResponse(200, {"data": []}),                          # verify: nothing live
+        _FakeResponse(200, {"data": []}),                          # verify 1: nothing live
+        _FakeResponse(200, {"data": []}),                          # verify 2: nothing live
+        _FakeResponse(200, {"data": []}),                          # verify 3: nothing live
     ])
 
     with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake), \
@@ -699,6 +701,10 @@ async def test_publish_instagram_publish_error_post_not_live(ig_account_no_sessi
 
     assert result.success is False
     assert "publish failed" in (result.error or "")
+    # Publish-boundary failure must be flagged ambiguous so the queue worker
+    # schedules the delayed feed reconciliation (covers indexing lag minutes
+    # beyond the in-path poll).
+    assert result.ambiguous is True
 
 
 @pytest.mark.asyncio
