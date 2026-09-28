@@ -71,6 +71,12 @@ class PublishResult:
     # Merged into Post.platform_specific by the publishing worker (e.g. TikTok
     # publish_id kept alongside the public Display API video id).
     platform_meta: dict[str, Any] | None = None
+    # True when the failure happened at/after the platform's publish boundary
+    # and the post may actually be live despite the error (e.g. Instagram
+    # 2207051 "Application request limit reached" — a documented false
+    # negative). The queue worker schedules a delayed feed reconciliation
+    # for these instead of leaving the target failed forever.
+    ambiguous: bool = False
 
 
 
@@ -1643,6 +1649,7 @@ async def _publish_instagram_via_graph(
         ig_user_id=ig_user_id,
         use_business_login_api=is_business_login,
     )
+    publish_attempted = False
     try:
         if len(image_urls) == 1:
             creation_id = await client.create_image_container(
@@ -1662,36 +1669,53 @@ async def _publish_instagram_via_graph(
         # container reaches FINISHED fails with 9007 "Media ID is not
         # available". Poll until ready (images are usually quick).
         await client.wait_for_container_ready(creation_id, timeout=60.0)
+        publish_attempted = True
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:
         # 2207051 "Application request limit reached" is a documented false
-        # negative — the post frequently goes live server-side. Verify on
-        # the feed before failing so a retry can't publish a duplicate.
-        # The media list needs a few seconds to index a fresh publish.
-        await asyncio.sleep(4)
-        live = await _instagram_find_live(client, caption)
-        if live:
-            logger.info("Instagram media_publish errored but post is live: %s", live.get("id"))
-            return PublishResult(
-                success=True,
-                platform_post_id=str(live.get("id") or ""),
-                platform_url=live.get("permalink"),
-            )
+        # negative — the post frequently goes live server-side. Only errors
+        # at/after media_publish can mask a live post; earlier failures
+        # (container create/wait) cannot produce one.
+        if publish_attempted:
+            # The media list can take tens of seconds to index a fresh
+            # publish (observed lag beyond a single short settle), so poll
+            # with backoff; anything longer is left to the delayed reconcile.
+            for delay in (4, 10, 20):
+                await asyncio.sleep(delay)
+                live = await _instagram_find_live(client, caption)
+                if live:
+                    logger.info(
+                        "Instagram media_publish errored but post is live: %s",
+                        live.get("id"),
+                    )
+                    return PublishResult(
+                        success=True,
+                        platform_post_id=str(live.get("id") or ""),
+                        platform_url=live.get("permalink"),
+                    )
         return PublishResult(
             success=False,
             error=f"Instagram publish failed: {exc}",
+            ambiguous=publish_attempted,
         )
     except TimeoutError as exc:
-        live = await _instagram_find_live(client, caption)
-        if live:
-            return PublishResult(
-                success=True,
-                platform_post_id=str(live.get("id") or ""),
-                platform_url=live.get("permalink"),
-            )
+        # httpx.TimeoutException subclasses TimeoutError — this covers both the
+        # container-wait timeout (publish not attempted, not ambiguous) and a
+        # publish request timeout (ambiguous: the post may be live).
+        if publish_attempted:
+            for delay in (4, 10, 20):
+                await asyncio.sleep(delay)
+                live = await _instagram_find_live(client, caption)
+                if live:
+                    return PublishResult(
+                        success=True,
+                        platform_post_id=str(live.get("id") or ""),
+                        platform_url=live.get("permalink"),
+                    )
         return PublishResult(
             success=False,
             error=f"Instagram publish failed: {exc}",
+            ambiguous=publish_attempted,
         )
 
     return PublishResult(
@@ -1823,6 +1847,11 @@ async def _publish_instagram(
         )
         if graph_result.success:
             return graph_result
+        if graph_result.ambiguous:
+            # media_publish may have landed despite the error — trying the
+            # fallback chain now would publish a duplicate. The queue worker
+            # schedules a delayed feed reconciliation for ambiguous failures.
+            return graph_result
         logger.warning("Business Login Graph API failed: %s — trying fallback paths", graph_result.error)
 
     # 2. instagrapi (direct Python) — primary fallback when credentials are set
@@ -1857,7 +1886,7 @@ async def _publish_instagram(
             graph_result = await _publish_instagram_via_graph(
                 graph_token, text, account, post, media_paths, storage_paths, db,
             )
-            if graph_result.success:
+            if graph_result.success or graph_result.ambiguous:
                 return graph_result
             if web_result is not None and not web_result.success:
                 return web_result
