@@ -21,7 +21,7 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -180,6 +180,8 @@ class StrategyReport:
     email_error: str | None = None
     recent_posts_by_platform: dict[str, list[BriefPost]] = field(default_factory=dict)
     initiatives: list[dict[str, Any]] = field(default_factory=list)
+    # 3P pillar coverage — {name, posts} per pillar over the insight window
+    pillar_coverage: list[dict[str, Any]] = field(default_factory=list)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -240,6 +242,15 @@ class StrategyReport:
         if takeaway:
             lines.append(f"  → {takeaway}")
         lines.append("")
+        if self.pillar_coverage:
+            lines.append("CONTENT PILLARS (30d)")
+            for c in self.pillar_coverage:
+                tag = "  ⚠ starved" if c["posts"] == 0 else ""
+                lines.append(f"  {c['name']}: {c['posts']} posts{tag}")
+            starved = [c["name"] for c in self.pillar_coverage if c["posts"] == 0]
+            if starved:
+                lines.append(f"  → post from {starved[0]} next — it's had zero coverage")
+            lines.append("")
         lines.extend(self._recent_posts_text(tz))
         lines.append("TOMORROW'S PLAYBOOK")
         if self.actions:
@@ -369,6 +380,20 @@ class StrategyReport:
             else "<p><i>No actions generated — publish consistently and re-check tomorrow.</i></p>"
         )
 
+        pillar_block = ""
+        if self.pillar_coverage:
+            p_rows = "".join(
+                f"<tr><td><b>{esc(c['name'])}</b></td><td>{c['posts']}</td>"
+                f"<td>{'⚠ starved — post from this pillar next' if c['posts'] == 0 else ''}</td></tr>"
+                for c in self.pillar_coverage
+            )
+            pillar_block = (
+                "<h3>Content pillars (30d)</h3>"
+                '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
+                "<tr><th align='left'>Pillar</th><th>Posts</th><th align='left'>Note</th></tr>"
+                f"{p_rows}</table>"
+            )
+
         initiatives_block = self._initiatives_html(esc)
 
         issues = self.digest.issues if self.digest else []
@@ -388,6 +413,7 @@ class StrategyReport:
   <p>{esc(self.team_name)} · {esc(when)}</p>
   {digest_block}
   {platform_block}
+  {pillar_block}
   {recent_block}
   {actions_block}
   {initiatives_block}
@@ -964,6 +990,28 @@ async def _load_recent_posts_by_platform(
     return by_platform
 
 
+async def _load_pillar_coverage(
+    db: AsyncSession, team_id: UUID, *, days: int = 30
+) -> list[dict[str, Any]]:
+    """Posts per content pillar over the window — 3P coverage health."""
+    from app.models.content import Pillar
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = (
+        await db.execute(
+            select(Pillar, func.count(Post.id))
+            .outerjoin(
+                Post,
+                (Post.pillar_id == Pillar.id) & (Post.created_at >= since),
+            )
+            .where(Pillar.team_id == team_id)
+            .group_by(Pillar.id)
+            .order_by(Pillar.sort_order)
+        )
+    ).all()
+    return [{"name": p.name, "posts": n} for p, n in rows]
+
+
 async def build_strategy_report(
     db: AsyncSession,
     *,
@@ -975,6 +1023,7 @@ async def build_strategy_report(
     digest = await build_daily_digest(db, team=team, days=1)
     insights = await build_team_insights(db, team.id, days=insight_days)
     recent = await _load_recent_posts_by_platform(db, team.id)
+    pillar_coverage = await _load_pillar_coverage(db, team.id, days=insight_days)
 
     from app.services.growth_initiatives import initiative_summary
 
@@ -988,6 +1037,7 @@ async def build_strategy_report(
         digest=digest,
         recent_posts_by_platform=recent,
         initiatives=initiatives,
+        pillar_coverage=pillar_coverage,
     )
 
     actions = await _llm_actions(db, team.id, insights, digest)
