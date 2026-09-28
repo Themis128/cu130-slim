@@ -1072,10 +1072,20 @@ async def sync_linkedin_account(
             # Follower demographics + growth (r_organization_social).
             total_followers = int(follower_stats.get("total_followers") or 0)
             if total_followers:
-                db.add(FollowerSnapshot(
-                    team_id=account.team_id, social_account_id=account.id,
-                    platform="linkedin", followers=total_followers,
-                ))
+                prev = await db.scalar(
+                    select(FollowerSnapshot.followers)
+                    .where(
+                        FollowerSnapshot.social_account_id == account.id,
+                        FollowerSnapshot.followers > 0,
+                    )
+                    .order_by(FollowerSnapshot.captured_at.desc())
+                    .limit(1)
+                )
+                if _plausible_follower_count(prev, total_followers):
+                    db.add(FollowerSnapshot(
+                        team_id=account.team_id, social_account_id=account.id,
+                        platform="linkedin", followers=total_followers,
+                    ))
             await _persist_snapshot(
                 db, account=account, post_id=None,
                 platform_post_id=org,
@@ -2591,10 +2601,25 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
     and must not break the analytics sync.
     """
     try:
+        if account.platform == "linkedin":
+            # sync_linkedin_account already persists the authoritative row —
+            # networkSizes total for orgs, the sidecar scrape for members.
+            return
         from app.api.analytics import _follower_count
 
         followers = await _follower_count(account)
         if followers <= 0:
+            return
+        prev = await db.scalar(
+            select(FollowerSnapshot.followers)
+            .where(
+                FollowerSnapshot.social_account_id == account.id,
+                FollowerSnapshot.followers > 0,
+            )
+            .order_by(FollowerSnapshot.captured_at.desc())
+            .limit(1)
+        )
+        if not _plausible_follower_count(prev, followers):
             return
         snap = FollowerSnapshot(
             team_id=account.team_id,

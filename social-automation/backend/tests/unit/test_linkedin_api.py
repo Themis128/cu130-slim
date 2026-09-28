@@ -271,6 +271,31 @@ async def test_get_follower_count_404_returns_zero(monkeypatch, client):
 
 
 @pytest.mark.asyncio
+async def test_get_follower_count_rest_failure_falls_through_to_v2(monkeypatch, client):
+    """REST 400 must not abort the loop — v2 is tried next (firstDegreeSize)."""
+    fake = _FakeAsyncClient([
+        _FakeResponse(400, {"status": 400, "message": "Invalid param"}),
+        _FakeResponse(200, {"firstDegreeSize": 26}),
+    ])
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=30.0: fake)
+
+    count = await client.get_follower_count("urn:li:organization:12345")
+    assert count == 26
+    assert len(fake.calls) == 2
+    assert "/v2/" in fake.calls[1]["url"]
+    assert "edgeType=COMPANY_FOLLOWED_BY_MEMBER" in fake.calls[0]["url"]
+
+
+@pytest.mark.asyncio
+async def test_get_follower_count_parses_first_degree_size(monkeypatch, client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"firstDegreeSize": 841}))
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=30.0: fake)
+
+    count = await client.get_follower_count("urn:li:organization:12345")
+    assert count == 841
+
+
+@pytest.mark.asyncio
 async def test_create_post_success(monkeypatch, client):
     fake = _FakeAsyncClient(
         _FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:123"})

@@ -334,15 +334,16 @@ class LinkedInAPIClient:
     async def get_follower_count(self, org_urn: str) -> int:
         """Fetch the current follower count for a Company Page.
 
-        Uses ``networkSizes`` with ``edgeType=CompanyFollowedByMember``. If the
-        REST endpoint is unavailable, the method returns ``0`` and logs the
-        status code rather than raising.
+        Uses ``networkSizes`` with ``edgeType=COMPANY_FOLLOWED_BY_MEMBER``
+        (uppercase enum required on API versions >= 202305). The response
+        carries the total in ``firstDegreeSize``. If the REST endpoint is
+        unavailable, the method returns ``0`` rather than raising.
         """
         org_urn = unquote(org_urn.strip())
         encoded = quote(org_urn, safe="")
         urls = [
-            f"{LINKEDIN_REST_BASE}/networkSizes/{encoded}?edgeType=CompanyFollowedByMember&start=0&count=1",
-            f"{LINKEDIN_V2_BASE}/networkSizes/{encoded}?edgeType=CompanyFollowedByMember&start=0&count=1",
+            f"{LINKEDIN_REST_BASE}/networkSizes/{encoded}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
+            f"{LINKEDIN_V2_BASE}/networkSizes/{encoded}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
         ]
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -352,13 +353,21 @@ class LinkedInAPIClient:
                     data = resp.json() or {}
                     if isinstance(data, dict):
                         first = data.get("first") or {}
-                        return int(first.get("totalSize") or data.get("totalSize") or 0)
+                        return int(
+                            data.get("firstDegreeSize")
+                            or first.get("totalSize")
+                            or data.get("totalSize")
+                            or 0
+                        )
                     if isinstance(data, list) and data:
-                        return int(data[0].get("totalSize") or 0)
-                if resp.status_code in (403, 404):
-                    # Missing product access / route not found — try v2 next.
-                    continue
-                break
+                        return int(
+                            data[0].get("firstDegreeSize")
+                            or data[0].get("totalSize")
+                            or 0
+                        )
+                # Any non-2xx (400 bad param, 403 product access, 426 stale
+                # version, …) — fall through to the v2 URL.
+                continue
 
         return 0
 
