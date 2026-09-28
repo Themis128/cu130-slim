@@ -358,6 +358,7 @@ class Settings(BaseSettings):
     # Campaign tracked by the daily 10:00 report + the date reports stop.
     LINKEDIN_ADS_CAMPAIGN_ID: str = ""
     LINKEDIN_ADS_END_DATE: str = ""  # ISO date, e.g. "2026-10-01"
+    LINKEDIN_ADS_CREDIT_EUR: float = 0.0  # promo credit on the ad account (0 = hide)
     LINKEDIN_ADS_EMAIL_TO: str = ""  # falls back to DIGEST_EMAIL_TO
 
     # n8n: optional Slack Incoming Webhook URL for workflow failures.
