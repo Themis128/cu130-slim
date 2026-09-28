@@ -599,9 +599,40 @@ async def build_daily_digest(
         .order_by(PostAnalyticsSnapshot.captured_at.desc())
         .limit(30)
     )
+    # Latest snapshot note per account — a stale error note that has since
+    # recovered (a newer snapshot exists with a clean or benign note) is
+    # noise; warning on it for the rest of the 24h window adds no signal.
+    latest_note_rows = await db.execute(
+        select(
+            PostAnalyticsSnapshot.social_account_id,
+            PostAnalyticsSnapshot.notes,
+        )
+        .distinct(PostAnalyticsSnapshot.social_account_id)
+        .where(
+            PostAnalyticsSnapshot.team_id == team.id,
+            PostAnalyticsSnapshot.captured_at >= since_24h,
+        )
+        .order_by(
+            PostAnalyticsSnapshot.social_account_id,
+            PostAnalyticsSnapshot.captured_at.desc(),
+        )
+    )
+    latest_note = {acct: (n or "").lower() for acct, n in latest_note_rows.all()}
+    _err_keys = ("http 5", "denied", "quota", "unauthorized", "forbidden",
+                 "error", "http 4", "fail")
+    _info_markers = ("activityids", "stats_unavailable", "quota_exhausted",
+                     "needs paid tier", "organization_lifetime",
+                     "member_stats_not_implemented")
     for snap in bad_snaps.scalars().all():
         note = (snap.notes or "").lower()
         detail = (snap.notes or "")[:200]
+        latest = latest_note.get(snap.social_account_id, "")
+        # Recovered transient — skip if the account's newest snapshot is
+        # clean (or only carries an informational marker).
+        if any(m in latest for m in _info_markers) or not any(
+            k in latest for k in _err_keys
+        ):
+            continue
         # Soft misses that are expected states, not actionable warnings:
         # LinkedIn stale ids, no-activity markers, and X free-tier read quota
         # (persists until billing reset — a daily warning adds no signal).
