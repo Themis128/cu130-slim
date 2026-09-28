@@ -45,27 +45,31 @@ deleted server-side).
 
 | Var | Purpose |
 |---|---|
-| `CLOUDFLARE_ACCESS_TOKEN` | ⚠️ **DEAD since ~2026-09-28** (`9109 Invalid access token`). Account token `cloudless-access` (id `87bc6879…`) — Access apps/policies read+write + `Account API Tokens Write`. Regeneration recipe below. |
+| `CLOUDFLARE_ACCESS_TOKEN` | **Re-issued 2026-09-29** (id `935ef92e…`) — user token named `cloudless-access` with `Account API Tokens Write` + `Access: Apps and Policies Write` + `Access: Service Tokens Write` (account scope) + `API Tokens Write` (user scope). The workhorse credential; restores the ephemeral-minter pattern. Replaces the dead `87bc6879…`. |
 | `CLOUDFLARE_API_TOKEN` | Live but narrow: Zone Read + DNS + Workers read on `cloudless.gr` only. Cannot list/patch tokens, read zone settings, or touch Access/bots/Turnstile. |
 | `CLOUDFLARE_GLOBAL_KEY` + `CLOUDFLARE_EMAIL` | Global API Key — **absent from `.env`** (2026-09-29). Only needed for USER-token ops. Get: dash.cloudflare.com → My Profile → API Tokens → Global API Key → View. |
 
-## Regenerating `cloudless-access` (dashboard-only, ~2 min)
+## Regenerating `cloudless-access` — no dashboard needed
 
-Account tokens cannot be created by other tokens once the minter is dead —
-this MUST be done in the dashboard:
+Used 2026-09-29, verified working. `cf auth login --device` (OAuth device
+grant — user approves at dash.cloudflare.com/oauth2/device/verify) gives a
+user OAuth profile with full perms, then mint via API:
 
-1. dash.cloudflare.com → **Account** (cloudless.gr account
-   `fb7dc7b69b662480cd5961a4d1913c78`) → **API Tokens** → **Create Token**
-   → Custom token
-2. Permission groups:
-   - `Account` → `API Tokens` → **Edit** (restores the ephemeral-minter
-     pattern)
-   - `Account` → `Access: Apps and Policies` → **Edit**
-   - `Account` → `Access: Service Tokens` → **Edit** (the old token lacked
-     this — caused the silent-empty-list bug)
-3. Account resources: this account. TTL: none.
-4. Paste the value as `CLOUDFLARE_ACCESS_TOKEN=` in repo-root `.env`
-   (gitignored) — never in chat/commits.
+```bash
+cd /tmp && env -u CLOUDFLARE_API_TOKEN cf auth login --no-browser --device
+#   ↑ run from a dir WITHOUT .env — cf auto-loads CLOUDFLARE_API_TOKEN
+#     from cwd and it takes precedence over OAuth
+env -u CLOUDFLARE_API_TOKEN cf user tokens permission-groups list   # get IDs
+env -u CLOUDFLARE_API_TOKEN cf user tokens create --name cloudless-access \
+  --policies @policy.json   # see below; write response to ~/.cache/cf-ops/
+```
+
+Policy = one `allow` per scope; resources keyed `com.cloudflare.api.account.<id>`
+/ `com.cloudflare.api.user.<id>` with `"*"`. Perm group IDs (verified):
+Account API Tokens Write `5bc3f8b2…`, Access Apps+Policies Write (account)
+`1e13c512…`, Access Service Tokens Write `a1c0fec5…`, API Tokens Write (user)
+`686d18d5…`. Paste the minted value as `CLOUDFLARE_ACCESS_TOKEN=` in repo-root
+`.env` — never in chat/commits.
 
 ## MCP server (preferred)
 
