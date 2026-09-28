@@ -1,18 +1,19 @@
 """MinIO S3-compatible local object storage.
 
-Acts as a local failover between Cloudflare R2 and local disk. Uses boto3
-with the S3 API, which MinIO implements fully. The bucket is auto-created
-on first use if it does not exist.
+Acts as a local failover between Cloudflare R2 and local disk. Uses the
+stdlib SigV4 client in app.services.s3_sigv4 (no AWS SDK). The bucket is
+auto-created on first use if it does not exist.
 """
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import UTC, datetime
 
-import boto3
-from botocore.config import Config
 from fastapi import HTTPException
 
 from app.core.config import get_settings
+from app.services.s3_sigv4 import S3Error, S3LiteClient, presign_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -20,21 +21,19 @@ settings = get_settings()
 _state: dict[str, bool] = {"bucket_ready": False}
 
 
-def _client():
+def _endpoint() -> str:
     endpoint = (settings.MINIO_ENDPOINT or "").strip()
+    scheme = "https" if settings.MINIO_SECURE else "http"
+    return f"{scheme}://{endpoint}"
+
+
+def _client() -> S3LiteClient | None:
     access_key = (settings.MINIO_ACCESS_KEY or "").strip()
     secret_key = (settings.MINIO_SECRET_KEY or "").strip()
-    if not all([endpoint, access_key, secret_key]):
+    if not all([settings.MINIO_ENDPOINT, access_key, secret_key]):
         return None
-
-    scheme = "https" if settings.MINIO_SECURE else "http"
-    return boto3.client(
-        "s3",
-        endpoint_url=f"{scheme}://{endpoint}",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name="us-east-1",
-        config=Config(signature_version="s3v4", retries={"max_attempts": 2}),
+    return S3LiteClient(
+        _endpoint(), access_key, secret_key, region="us-east-1"
     )
 
 
@@ -53,14 +52,14 @@ def ensure_bucket() -> bool:
 
     bucket = _bucket()
     try:
-        client.head_bucket(Bucket=bucket)
+        client.head_bucket(bucket)
         _state["bucket_ready"] = True
         return True
     except Exception:
         pass
 
     try:
-        client.create_bucket(Bucket=bucket)
+        client.create_bucket(bucket)
         logger.info("MinIO bucket '%s' created", bucket)
         _state["bucket_ready"] = True
         return True
@@ -92,14 +91,8 @@ async def upload_object(
         raise HTTPException(status_code=500, detail="MinIO is not configured or unreachable")
 
     client = _client()
-    bucket = _bucket()
-
-    params: dict = {"Bucket": bucket, "Key": key, "Body": data, "ContentType": content_type}
-    if metadata:
-        params["Metadata"] = metadata
-
-    resp = client.put_object(**params)
-    etag = resp.get("ETag", "").strip('"')
+    assert client is not None
+    etag = client.put_object(_bucket(), key, data, content_type, metadata)
 
     # Route through the API /view endpoint so the browser can reach the object
     # without needing direct access to the internal MinIO hostname.
@@ -124,15 +117,16 @@ async def get_object(key: str) -> bytes:
         raise HTTPException(status_code=500, detail="MinIO is not configured or unreachable")
 
     client = _client()
-    bucket = _bucket()
+    assert client is not None
 
     try:
-        resp = client.get_object(Bucket=bucket, Key=key)
-        return resp["Body"].read()
-    except client.exceptions.NoSuchKey:
-        raise HTTPException(status_code=404, detail=f"MinIO object not found: {key}")
+        return client.get_object(_bucket(), key)
+    except S3Error as exc:
+        if exc.status == 404:
+            raise HTTPException(status_code=404, detail=f"MinIO object not found: {key}") from exc
+        raise HTTPException(status_code=502, detail=f"MinIO fetch failed: {exc}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"MinIO fetch failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"MinIO fetch failed: {exc}") from exc
 
 
 async def delete_object(key: str) -> bool:
@@ -141,15 +135,17 @@ async def delete_object(key: str) -> bool:
         return False
 
     client = _client()
-    bucket = _bucket()
+    assert client is not None
 
     try:
-        client.delete_object(Bucket=bucket, Key=key)
+        client.delete_object(_bucket(), key)
         return True
-    except client.exceptions.NoSuchKey:
-        return True
+    except S3Error as exc:
+        if exc.status == 404:
+            return True
+        raise HTTPException(status_code=502, detail=f"MinIO delete failed: {exc}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"MinIO delete failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"MinIO delete failed: {exc}") from exc
 
 
 async def object_exists(key: str) -> bool:
@@ -158,12 +154,14 @@ async def object_exists(key: str) -> bool:
         return False
 
     client = _client()
-    bucket = _bucket()
+    assert client is not None
 
     try:
-        client.head_object(Bucket=bucket, Key=key)
+        client.head_object(_bucket(), key)
         return True
-    except client.exceptions.NoSuchKey:
+    except S3Error as exc:
+        if exc.status == 404:
+            return False
         return False
     except Exception:
         return False
@@ -188,20 +186,15 @@ def presigned_upload_url(
     if not client:
         return None
 
-    bucket = _bucket()
     key = _team_key(team_id, filename, mime_type)
-
-    params = {
-        "Bucket": bucket,
-        "Key": key,
-        "ContentType": mime_type,
-        "ContentLength": size_bytes,
-    }
-    url = client.generate_presigned_url(
-        "put_object",
-        Params=params,
-        ExpiresIn=expiry,
-        HttpMethod="PUT",
+    url = presign_url(
+        "PUT",
+        f"{_endpoint()}/{_bucket()}/{key}",
+        access_key=client.access_key,
+        secret_key=client.secret_key,
+        region=client.region,
+        expires=expiry,
+        headers={"content-type": mime_type, "content-length": str(size_bytes)},
     )
 
     base = (settings.MEDIA_PUBLIC_BASE_URL or "").rstrip("/")
@@ -226,19 +219,18 @@ def presigned_download_url(key: str, expiry: int = 3600) -> str | None:
     if not client:
         return None
 
-    bucket = _bucket()
-    return client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": bucket, "Key": key},
-        ExpiresIn=expiry,
+    return presign_url(
+        "GET",
+        f"{_endpoint()}/{_bucket()}/{key}",
+        access_key=client.access_key,
+        secret_key=client.secret_key,
+        region=client.region,
+        expires=expiry,
     )
 
 
 def _team_key(team_id, filename: str, mime_type: str) -> str:
     """Generate a team-scoped storage key."""
-    import uuid
-    from datetime import UTC, datetime
-
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"

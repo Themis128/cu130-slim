@@ -31,7 +31,7 @@ async def test_minio_enabled_false_no_credentials():
 @pytest.mark.asyncio
 async def test_upload_object_success():
     fake_client = MagicMock()
-    fake_client.put_object.return_value = {"ETag": '"abc123"'}
+    fake_client.put_object.return_value = "abc123"
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
         patch.object(minio_storage, "ensure_bucket", return_value=True),
@@ -55,11 +55,8 @@ async def test_upload_object_no_bucket():
 
 @pytest.mark.asyncio
 async def test_get_object_success():
-    fake_body = MagicMock()
-    fake_body.read.return_value = b"file content"
     fake_client = MagicMock()
-    fake_client.get_object.return_value = {"Body": fake_body}
-    fake_client.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
+    fake_client.get_object.return_value = b"file content"
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
@@ -73,9 +70,7 @@ async def test_get_object_success():
 @pytest.mark.asyncio
 async def test_get_object_not_found():
     fake_client = MagicMock()
-    no_such_key = type("NoSuchKey", (Exception,), {})
-    fake_client.exceptions.NoSuchKey = no_such_key
-    fake_client.get_object.side_effect = no_such_key()
+    fake_client.get_object.side_effect = minio_storage.S3Error(404)
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
@@ -89,8 +84,7 @@ async def test_get_object_not_found():
 @pytest.mark.asyncio
 async def test_delete_object_success():
     fake_client = MagicMock()
-    fake_client.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
-    fake_client.delete_object.return_value = {}
+    fake_client.delete_object.return_value = None
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
@@ -104,9 +98,7 @@ async def test_delete_object_success():
 @pytest.mark.asyncio
 async def test_delete_object_not_found_returns_true():
     fake_client = MagicMock()
-    no_such_key = type("NoSuchKey", (Exception,), {})
-    fake_client.exceptions.NoSuchKey = no_such_key
-    fake_client.delete_object.side_effect = no_such_key()
+    fake_client.delete_object.side_effect = minio_storage.S3Error(404)
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
@@ -120,8 +112,7 @@ async def test_delete_object_not_found_returns_true():
 @pytest.mark.asyncio
 async def test_object_exists_true():
     fake_client = MagicMock()
-    fake_client.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
-    fake_client.head_object.return_value = {}
+    fake_client.head_object.return_value = None
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
@@ -135,9 +126,7 @@ async def test_object_exists_true():
 @pytest.mark.asyncio
 async def test_object_exists_false():
     fake_client = MagicMock()
-    no_such_key = type("NoSuchKey", (Exception,), {})
-    fake_client.exceptions.NoSuchKey = no_such_key
-    fake_client.head_object.side_effect = no_such_key()
+    fake_client.head_object.side_effect = minio_storage.S3Error(404)
 
     with (
         patch.object(minio_storage, "_client", return_value=fake_client),
