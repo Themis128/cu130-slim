@@ -527,9 +527,11 @@ async def test_publish_instagram_sidecar_photo(ig_account_with_session, ig_post,
     """Sidecar path: single photo upload via private API."""
     img = tmp_path / "img.jpg"
     img.write_bytes(b"\xff\xd8\xff\xe0")
-    # 1st response: login_by_sessionid (best-effort session restore)
-    # 2nd response: photo upload
+    # 1st response: pre-publish dedup check (recent media list — empty)
+    # 2nd response: login_by_sessionid (best-effort session restore)
+    # 3rd response: photo upload
     fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),
         _FakeResponse(200, {"ok": True}),
         _FakeResponse(200, {"id": "123456", "pk": 123456, "code": "Cabc123"}),
     ])
@@ -543,11 +545,11 @@ async def test_publish_instagram_sidecar_photo(ig_account_with_session, ig_post,
     assert result.success is True
     assert result.platform_post_id == "123456"
     assert result.platform_url == "https://www.instagram.com/p/Cabc123/"
-    assert len(fake.calls) == 2
-    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
-    assert fake.calls[1]["url"].endswith("/photo/upload")
-    assert fake.calls[1]["data"]["caption"] == "Nice photo!"
-    assert "file" in fake.calls[1]["files"]
+    assert len(fake.calls) == 3
+    assert fake.calls[1]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[2]["url"].endswith("/photo/upload")
+    assert fake.calls[2]["data"]["caption"] == "Nice photo!"
+    assert "file" in fake.calls[2]["files"]
 
 
 @pytest.mark.asyncio
@@ -555,9 +557,11 @@ async def test_publish_instagram_sidecar_video(ig_account_with_session, ig_post,
     """Sidecar path: single video upload via private API."""
     vid = tmp_path / "clip.mp4"
     vid.write_bytes(b"\x00\x00\x00\x18ftyp")
-    # 1st response: login_by_sessionid (best-effort session restore)
-    # 2nd response: video upload
+    # 1st response: pre-publish dedup check (recent media list — empty)
+    # 2nd response: login_by_sessionid (best-effort session restore)
+    # 3rd response: video upload
     fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),
         _FakeResponse(200, {"ok": True}),
         _FakeResponse(200, {"id": "vid-789", "pk": 789, "code": "Cvid456"}),
     ])
@@ -570,10 +574,10 @@ async def test_publish_instagram_sidecar_video(ig_account_with_session, ig_post,
 
     assert result.success is True
     assert result.platform_post_id == "vid-789"
-    assert len(fake.calls) == 2
-    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
-    assert fake.calls[1]["url"].endswith("/video/upload")
-    assert "file" in fake.calls[1]["files"]
+    assert len(fake.calls) == 3
+    assert fake.calls[1]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[2]["url"].endswith("/video/upload")
+    assert "file" in fake.calls[2]["files"]
 
 
 @pytest.mark.asyncio
@@ -584,9 +588,11 @@ async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post,
         p = tmp_path / name
         p.write_bytes(b"\xff\xd8\xff\xe0")
         paths.append(str(p))
-    # 1st response: login_by_sessionid (best-effort session restore)
-    # 2nd response: album upload
+    # 1st response: pre-publish dedup check (recent media list — empty)
+    # 2nd response: login_by_sessionid (best-effort session restore)
+    # 3rd response: album upload
     fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),
         _FakeResponse(200, {"ok": True}),
         _FakeResponse(200, {"id": "album-111", "pk": 111, "code": "Calb222"}),
     ])
@@ -599,11 +605,11 @@ async def test_publish_instagram_sidecar_album(ig_account_with_session, ig_post,
 
     assert result.success is True
     assert result.platform_post_id == "album-111"
-    assert len(fake.calls) == 2
-    assert fake.calls[0]["url"].endswith("/auth/login/by/sessionid")
-    assert fake.calls[1]["url"].endswith("/album/upload")
+    assert len(fake.calls) == 3
+    assert fake.calls[1]["url"].endswith("/auth/login/by/sessionid")
+    assert fake.calls[2]["url"].endswith("/album/upload")
     # files is a list of (field_name, (filename, file_obj, content_type)) tuples
-    assert len(fake.calls[1]["files"]) == 3
+    assert len(fake.calls[2]["files"]) == 3
 
 
 @pytest.mark.asyncio
@@ -613,6 +619,7 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
     ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
     monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
     fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),                  # dedup check: recent media list (empty)
         _FakeResponse(200, {"id": "17841460000000001"}),   # create container
         _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
         _FakeResponse(200, {"id": "17841460000000002"}),   # publish
@@ -626,8 +633,72 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
 
     assert result.success is True
     assert result.platform_post_id == "17841460000000002"
-    # Should have called Graph API (3 calls: container + status + publish)
-    assert len(fake.calls) == 3
+    # 4 calls: dedup media list + container + status + publish
+    assert len(fake.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_publish_2207051_post_is_live(ig_account_no_session, ig_post, monkeypatch):
+    """media_publish returns 403/2207051 but the post went live → success, no duplicate."""
+    from datetime import UTC, datetime
+
+    ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),                          # dedup check
+        _FakeResponse(200, {"id": "17841460000000005"}),           # create container
+        _FakeResponse(200, {"status_code": "FINISHED"}),           # status poll
+        _FakeResponse(403, {                                        # media_publish false-negative
+            "error": {
+                "code": 4,
+                "error_subcode": 2207051,
+                "message": "Application request limit reached",
+                "type": "OAuthException",
+            }
+        }),
+        _FakeResponse(200, {"data": [{                              # verify: post IS live
+            "id": "17841460000000009",
+            "caption": "Limit test",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "permalink": "https://www.instagram.com/p/Cok999/",
+        }]}),
+    ])
+
+    with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake), \
+         patch("app.services.publishing.asyncio.sleep", new=AsyncMock()):
+        result = await pub._publish_instagram(
+            "graph-token", "Limit test", ig_account_no_session, ig_post,
+            ["/tmp/img.png"], ["fake/img.png"],
+        )
+
+    assert result.success is True
+    assert result.platform_post_id == "17841460000000009"
+    assert result.platform_url == "https://www.instagram.com/p/Cok999/"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_publish_error_post_not_live(ig_account_no_session, ig_post, monkeypatch):
+    """media_publish errors and the post is NOT on the feed → real failure."""
+    ig_account_no_session.meta_data = {"account_type": "business", "ig_business_id": "17841463022505300"}
+    monkeypatch.setattr(pub, "_media_public_url", lambda path, **kwargs: "https://cdn.example.com/img.png")
+    fake = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),                          # dedup check
+        _FakeResponse(200, {"id": "17841460000000005"}),           # create container
+        _FakeResponse(200, {"status_code": "FINISHED"}),           # status poll
+        _FakeResponse(403, {"error": {"code": 4, "error_subcode": 2207051,
+                                     "message": "Application request limit reached"}}),
+        _FakeResponse(200, {"data": []}),                          # verify: nothing live
+    ])
+
+    with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake), \
+         patch("app.services.publishing.asyncio.sleep", new=AsyncMock()):
+        result = await pub._publish_instagram(
+            "graph-token", "Limit test", ig_account_no_session, ig_post,
+            ["/tmp/img.png"], ["fake/img.png"],
+        )
+
+    assert result.success is False
+    assert "publish failed" in (result.error or "")
 
 
 @pytest.mark.asyncio
@@ -661,6 +732,7 @@ async def test_publish_instagram_sidecar_session_expired(ig_account_with_session
 
     # Graph API mock for fallback (numeric IDs required by _validate_id)
     fake_graph = _FakeAsyncClient([
+        _FakeResponse(200, {"data": []}),                  # dedup check: recent media list (empty)
         _FakeResponse(200, {"id": "17841460000000003"}),   # create container
         _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
         _FakeResponse(200, {"id": "17841460000000004"}),   # publish
