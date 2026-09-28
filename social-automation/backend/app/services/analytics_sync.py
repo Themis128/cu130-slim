@@ -855,6 +855,24 @@ async def _persist_snapshot(
     result.snapshots.append(platform_post_id)
 
 
+def _plausible_follower_count(prev: int | None, new: int) -> bool:
+    """Reject follower readings that can't be organic.
+
+    The member-profile scrape occasionally reads a different page metric
+    (network size ~952k, a sidebar counter like "15") — poisoning the
+    follower series and producing nonsense digest deltas (-98% "growth").
+    A >5x rise or a >50% absolute drop (when prev >= 100) between scrapes
+    is a metric mix-up, not real churn. First reading is always accepted.
+    """
+    if prev is None:
+        return True
+    if new > max(prev * 5, 100):
+        return False
+    if prev >= 100 and new < prev * 0.5:
+        return False
+    return True
+
+
 async def sync_linkedin_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -951,9 +969,6 @@ async def sync_linkedin_account(
                 # A logged-out scrape yields 0, not None — persisting it would
                 # poison the series (first real count then reads as a huge gain).
                 if followers:
-                    # The activity scrape occasionally picks a different page
-                    # metric (e.g. network size ~952k instead of followers) —
-                    # reject implausible upward jumps vs the last real reading.
                     prev = await db.scalar(
                         select(FollowerSnapshot.followers)
                         .where(
@@ -963,7 +978,7 @@ async def sync_linkedin_account(
                         .order_by(FollowerSnapshot.captured_at.desc())
                         .limit(1)
                     )
-                    if prev is None or int(followers) <= max(prev * 5, 100):
+                    if _plausible_follower_count(prev, int(followers)):
                         db.add(FollowerSnapshot(
                             team_id=account.team_id,
                             social_account_id=account.id,
