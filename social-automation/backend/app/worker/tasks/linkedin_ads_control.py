@@ -6,6 +6,7 @@ from typing import Any
 
 from celery import shared_task
 
+from app.db.session import async_session_maker
 from app.services.linkedin_ads_control import notify_slack, set_campaign_status
 from app.services.linkedin_ads_report import collect_metrics
 from app.worker.celery_app import celery_app
@@ -16,7 +17,8 @@ celery_app.set_current()
 
 async def _run(action: str, response_url: str | None, user: str) -> dict[str, Any]:
     if action == "status":
-        metrics = await collect_metrics()
+        async with async_session_maker() as db:
+            metrics = await collect_metrics(db)
         text = (
             f"LinkedIn campaign *{metrics.campaign_name or metrics.campaign_id}*: "
             f"status *{metrics.status}* · spend €{metrics.spend_eur:.2f} · "

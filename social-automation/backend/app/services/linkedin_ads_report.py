@@ -1,19 +1,19 @@
-"""LinkedIn Ads daily report — scrape Campaign Manager via the LinkedIn browser
-sidecar, snapshot metrics to Postgres, deliver a human-friendly summary to a
-dedicated Slack channel and by email.
+"""LinkedIn Ads daily report — Marketing API first, Campaign Manager sidecar
+scrape as fallback, snapshot metrics to Postgres, deliver a human-friendly
+summary to a dedicated Slack channel and by email.
 
-Why sidecar scraping: the primary metrics path is now the official
-``rest/adAnalytics`` endpoint (the app has Advertising API — Development tier
-with ``r_ads`` + ``r_ads_reporting`` granted via OAuth, verified 2026-09-26).
-The sidecar scrape remains as fallback for metrics the API doesn't expose
-(e.g. billing/credit ledger) and for resilience if the ad-scoped token lapses.
+Primary path (since the sidecar is regularly edge-rate-limited):
+``rest/adAccounts/{acct}/adCampaigns/{id}`` for name/status/budget/schedule
+and ``rest/adAnalytics`` for spend/clicks/impressions (``r_ads`` +
+``r_ads_reporting`` scopes on the org account token). The sidecar scrape
+remains as fallback if the ad-scoped token lapses.
 """
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,7 @@ from sqlalchemy import case, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.security import decrypt_token
 from app.db.session import async_session_maker
 from app.models.analytics import FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.linkedin_ads import AdCampaignSnapshot
@@ -48,8 +49,10 @@ class CampaignMetrics:
     engagement_rate: float = 0.0     # percent, e.g. 5.45
     ctr: float = 0.0                 # percent, e.g. 3.06
     impressions: int = 0             # derived from clicks/ctr when not shown
-    budget_eur: float = 0.0
-    schedule_start: str = ""
+    budget_eur: float = 0.0          # lifetime/total budget
+    daily_budget_eur: float = 0.0
+    schedule_start: str = ""         # ISO date from runSchedule.start
+    schedule_end: str = ""           # ISO date from campaign/group runSchedule.end
     ad_set_statuses: dict[str, int] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -143,12 +146,123 @@ def _parse_campaign_page(text: str, campaign_id: str) -> dict[str, Any]:
     return out
 
 
-async def collect_metrics() -> CampaignMetrics:
-    """Scrape Campaign Manager for the configured campaign."""
+async def _linkedin_org_token(db: AsyncSession) -> str | None:
+    """Access token of the LinkedIn org account (r_ads + r_ads_reporting)."""
+    account = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "linkedin",
+                SocialAccount.account_type == "organization",
+                SocialAccount.status == "active",
+            ).limit(1)
+        )
+    ).scalars().first()
+    if not account or not account.access_token_enc:
+        return None
+    try:
+        return decrypt_token(account.access_token_enc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LinkedIn ads report: org token decrypt failed: %s", exc)
+        return None
+
+
+async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
+    """Populate campaign config + metrics via the Marketing API.
+
+    Uses ``rest/adAccounts/{acct}/adCampaigns/{id}`` for name/status/budget/
+    schedule and ``rest/adAnalytics`` (per-campaign daily rows) for spend,
+    clicks, impressions and engagements — the same API the analytics sync
+    already uses. Far more reliable than the Campaign Manager sidecar
+    scrape, which dies when LinkedIn rate-limits the server IP.
+    """
+    from app.services.analytics_sync import _fetch_linkedin_ad_stats, _linkedin_headers
+
+    token = await _linkedin_org_token(db)
+    if not token:
+        return False
+    headers = _linkedin_headers(token)
+    acct, camp = m.account_id, m.campaign_id
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(
+            f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns/{camp}",
+            headers=headers,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"adCampaigns HTTP {r.status_code}: {r.text[:200]}")
+        c = r.json() or {}
+        m.campaign_name = c.get("name") or ""
+        m.status = (c.get("status") or "unknown").lower()
+        m.raw["serving_statuses"] = c.get("servingStatuses") or []
+        total_budget = c.get("totalBudget") or {}
+        daily_budget = c.get("dailyBudget") or {}
+        if total_budget.get("amount"):
+            m.budget_eur = float(total_budget["amount"])
+        if daily_budget.get("amount"):
+            m.daily_budget_eur = float(daily_budget["amount"])
+        rs = c.get("runSchedule") or {}
+        if rs.get("start"):
+            m.schedule_start = datetime.fromtimestamp(rs["start"] / 1000, UTC).date().isoformat()
+
+        # runSchedule.end often lives on the campaign group, not the campaign.
+        group_urn = str(c.get("campaignGroup") or "")
+        group_id = group_urn.rsplit(":", 1)[-1]
+        if group_id.isdigit():
+            g = await client.get(
+                f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaignGroups/{group_id}",
+                headers=headers,
+            )
+            if g.status_code == 200:
+                gend = ((g.json() or {}).get("runSchedule") or {}).get("end")
+                if gend:
+                    m.schedule_end = datetime.fromtimestamp(gend / 1000, UTC).date().isoformat()
+        if rs.get("end") and not m.schedule_end:
+            m.schedule_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
+
+        since = (
+            datetime.fromtimestamp(rs["start"] / 1000, UTC)
+            if rs.get("start")
+            else datetime.now(UTC) - timedelta(days=30)
+        )
+        stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
+        if stats.get("_error"):
+            raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
+        bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
+        if bundle is None:
+            m.raw["api_note"] = "campaign not in adAnalytics response"
+        else:
+            m.spend_eur = float(bundle.raw.get("costLocal") or 0.0)
+            m.clicks = bundle.clicks
+            m.impressions = bundle.impressions
+            m.engagements = sum(
+                int(d.get("totalEngagements") or 0)
+                for d in (bundle.raw.get("daily") or [])
+            ) or bundle.engagement
+            m.raw["daily"] = bundle.raw.get("daily") or []
+            m.raw["cost_usd"] = bundle.raw.get("costUsd")
+
+    if m.impressions:
+        m.ctr = round(m.clicks / m.impressions * 100, 2)
+        m.engagement_rate = round(m.engagements / m.impressions * 100, 2)
+    if m.clicks:
+        m.cpc_eur = round(m.spend_eur / m.clicks, 2)
+    m.raw["source"] = "api"
+    return True
+
+
+async def collect_metrics(db: AsyncSession) -> CampaignMetrics:
+    """Collect metrics — Marketing API first, sidecar scrape as fallback."""
     settings = get_settings()
     account_id = settings.LINKEDIN_AD_ACCOUNT_ID or "512642510"
     campaign_id = settings.LINKEDIN_ADS_CAMPAIGN_ID
     m = CampaignMetrics(account_id=account_id, campaign_id=campaign_id)
+
+    try:
+        if await _collect_api_metrics(db, m):
+            return m
+    except Exception as exc:  # noqa: BLE001 — fall through to the scrape
+        logger.warning("LinkedIn ads API metrics failed, trying sidecar: %s", exc)
+        m.raw["api_error"] = str(exc)[:300]
 
     overview_url = (
         f"https://www.linkedin.com/campaignmanager/accounts/{account_id}"
@@ -219,15 +333,18 @@ def build_report_text(
         "paused": "⏸️ Paused",
         "draft": "📝 Draft — not live yet",
         "completed": "🏁 Finished",
-    }.get(m.status, m.status.title())
+        "removed": "🗑 Removed",
+        "canceled": "🗑 Canceled",
+    }.get(m.status, m.status.title() if m.status != "unknown" else "⚠️ Unknown (check Campaign Manager)")
     lines.append(f"*Status:* {status_label}")
 
     if m.budget_eur:
         pct = (m.spend_eur / m.budget_eur * 100) if m.budget_eur else 0
-        lines.append(
-            f"*Spend:* {_fmt_money(m.spend_eur)} of {_fmt_money(m.budget_eur)} "
-            f"lifetime budget ({pct:.0f}% used)"
-        )
+        budget_bits = [f"*Spend:* {_fmt_money(m.spend_eur)} of {_fmt_money(m.budget_eur)} "
+                       f"lifetime budget ({pct:.0f}% used)"]
+        if m.daily_budget_eur:
+            budget_bits.append(f"daily cap {_fmt_money(m.daily_budget_eur)}")
+        lines.append(" — ".join(budget_bits))
     else:
         lines.append(f"*Spend so far:* {_fmt_money(m.spend_eur)}")
 
@@ -257,34 +374,78 @@ def build_report_text(
     if m.engagement_rate:
         stats.append(f"ER {m.engagement_rate:.2f}%")
     if m.impressions:
-        stats.append(f"~{m.impressions:,} impressions")
+        stats.append(f"{m.impressions:,} impressions")
     if stats:
         lines.append("*Totals:* " + " · ".join(stats))
+    if m.ctr:
+        verdict = "above" if m.ctr >= 0.44 else "below"
+        lines.append(f"*Benchmark:* CTR {m.ctr:.2f}% is {verdict} the LinkedIn sponsored median (~0.44%)")
 
     lines.append("")
     # Pace + card safety insight
-    if end_date and m.budget_eur:
-        days_left = (end_date - today).days
-        if m.status == "active" and days_left > 0 and m.spend_eur:
-            start = _parse_schedule_date(m.schedule_start) or today
+    settings = get_settings()
+    credit = settings.LINKEDIN_ADS_CREDIT_EUR
+    campaign_end = (
+        date.fromisoformat(m.schedule_end) if m.schedule_end else end_date
+    )
+    if campaign_end and m.budget_eur:
+        days_left = (campaign_end - today).days
+        if m.status == "active" and m.spend_eur:
+            headroom = m.budget_eur - m.spend_eur
+            try:
+                start = date.fromisoformat(m.schedule_start)
+            except ValueError:
+                start = _parse_schedule_date(m.schedule_start) or today
             daily_avg = m.spend_eur / max(1, (today - start).days or 1)
-            projected = m.spend_eur + daily_avg * days_left
-            verdict = "on track ✅" if projected <= m.budget_eur * 1.05 else "running hot ⚠️"
-            lines.append(
-                f"*Pace:* {verdict} — projecting ~{_fmt_money(projected)} by "
-                f"{end_date.isoformat()} vs {_fmt_money(m.budget_eur)} cap."
-            )
+            if headroom <= 0:
+                lines.append("*Pace:* lifetime budget reached — delivery has stopped.")
+            elif daily_avg > 0:
+                days_to_cap = headroom / daily_avg
+                if days_to_cap < days_left:
+                    exhaust = today + timedelta(days=round(days_to_cap))
+                    lines.append(
+                        f"*Pace:* {_fmt_money(headroom)} left of the "
+                        f"{_fmt_money(m.budget_eur)} cap — at ~{_fmt_money(daily_avg)}/day "
+                        f"the budget exhausts ~{exhaust.isoformat()} and ads stop "
+                        f"~{days_left - round(days_to_cap)} days before the "
+                        f"{campaign_end.isoformat()} end date. Raise the cap or let it pause."
+                    )
+                else:
+                    projected = m.spend_eur + daily_avg * days_left
+                    verdict = "on track ✅" if projected <= m.budget_eur * 1.05 else "running hot ⚠️"
+                    lines.append(
+                        f"*Pace:* {verdict} — projecting ~{_fmt_money(projected)} by "
+                        f"{campaign_end.isoformat()} vs {_fmt_money(m.budget_eur)} cap "
+                        f"(burn ~{_fmt_money(daily_avg)}/day, {days_left}d left)."
+                    )
         elif m.status == "draft":
             lines.append(
                 "*Note:* the ad set is still a draft — it isn't spending. "
                 "Launch it in Campaign Manager when the creative is approved."
             )
-    lines.append(
-        "💳 *Card safety:* spend stays inside the promo credit — "
-        "the Visa on file is not expected to be charged."
-    )
-    if end_date:
-        lines.append(f"Campaign ends {end_date.isoformat()}. Report again tomorrow 10:00.")
+    if credit:
+        remaining = credit - m.spend_eur
+        lines.append(
+            f"💳 *Promo credit:* {_fmt_money(m.spend_eur)} of {_fmt_money(credit)} "
+            f"used — *{_fmt_money(remaining)} left*."
+        )
+        if m.budget_eur and m.budget_eur <= credit and m.spend_eur <= m.budget_eur:
+            lines.append(
+                "Card safety: the campaign lifetime cap is below the credit — "
+                "the Visa on file is not expected to be charged."
+            )
+        elif remaining <= 0 or (m.budget_eur and m.budget_eur > credit):
+            lines.append(
+                "⚠️ Card safety: projected spend can exceed the promo credit — "
+                "the Visa on file may be charged. Review the campaign cap."
+            )
+    else:
+        lines.append(
+            "💳 *Card safety:* spend stays inside the promo credit — "
+            "the Visa on file is not expected to be charged."
+        )
+    if campaign_end:
+        lines.append(f"Campaign ends {campaign_end.isoformat()}. Report again tomorrow 10:00.")
     return "\n".join(lines)
 
 
@@ -338,6 +499,36 @@ def _control_blocks(status: str, campaign_id: str = "") -> list[dict[str, Any]]:
 def _to_email_text(report: str) -> str:
     """Strip Slack mrkdwn asterisks for a clean plaintext email."""
     return report.replace("*", "")
+
+
+async def _geo_names(db: AsyncSession, geo_ids: list[str]) -> dict[str, str]:
+    """Resolve ``urn:li:geo`` ids to display names via the Geo API.
+
+    ``GET /v2/geo?ids=List(...)`` works with the org token (verified
+    2026-09-28). Returns ``{id: name}`` — empty on any failure so the
+    report degrades to raw ids instead of breaking.
+    """
+    token = await _linkedin_org_token(db)
+    clean = [g for g in geo_ids if g.isdigit()]
+    if not token or not clean:
+        return {}
+    try:
+        from app.services.analytics_sync import _linkedin_headers
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                f"https://api.linkedin.com/v2/geo?ids=List({','.join(clean)})",
+                headers=_linkedin_headers(token),
+            )
+            if r.status_code >= 400:
+                return {}
+            return {
+                gid: (v.get("defaultLocalizedName") or {}).get("value") or gid
+                for gid, v in ((r.json() or {}).get("results") or {}).items()
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LinkedIn geo lookup failed: %s", exc)
+        return {}
 
 
 async def _latest_org_snapshot(db: AsyncSession, account_id: Any, source: str) -> dict[str, Any]:
@@ -413,9 +604,21 @@ async def build_org_section(db: AsyncSession) -> str:
     demo = follower_stats.get("demographics") or {}
     geo = demo.get("followerCountsByGeoCountry") or demo.get("followerCountsByGeo") or []
     if geo:
-        top_geo = max(geo, key=lambda g: (g.get("followerCounts") or {}).get("organicFollowerCount", 0))
-        code = str(top_geo.get("geoCountry") or top_geo.get("geo") or "").rsplit(":", 1)[-1]
-        lines.append(f"*Top follower location:* {code}")
+        top3 = sorted(
+            geo,
+            key=lambda g: (g.get("followerCounts") or {}).get("organicFollowerCount", 0),
+            reverse=True,
+        )[:3]
+        ids = [
+            str(g.get("geoCountry") or g.get("geo") or "").rsplit(":", 1)[-1]
+            for g in top3
+        ]
+        names = await _geo_names(db, ids)
+        parts = [
+            f"{names.get(gid) or gid} ({(g.get('followerCounts') or {}).get('organicFollowerCount', 0)})"
+            for g, gid in zip(top3, ids)
+        ]
+        lines.append(f"*Top follower locations:* {', '.join(parts)}")
 
     daily = (page_stats.get("period") or {}).get("daily") or []
     views = sum(
@@ -591,7 +794,7 @@ async def run_daily_report() -> dict[str, Any]:
             return {"ok": True, "skipped": "campaign finished, final report already sent"}
 
         prev = await _latest_snapshot(db, campaign_id)
-        metrics = await collect_metrics()
+        metrics = await collect_metrics(db)
 
         is_final = bool(end_date and today >= end_date)
         snapshot = AdCampaignSnapshot(
