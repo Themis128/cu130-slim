@@ -10,9 +10,10 @@ remains as fallback if the ad-scoped token lapses.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -223,25 +224,56 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
             camp_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
             m.schedule_end = min(m.schedule_end, camp_end) if m.schedule_end else camp_end
 
+        # The promo credit is account-wide — enumerate every campaign so
+        # credit math covers (a) spend from campaigns that ran before the
+        # tracked one started, and (b) the remaining caps of any campaign
+        # that could still deliver (active/paused/draft).
+        # Raw URL — rest.li finder syntax must not be %-encoded.
+        lc = await client.get(
+            f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns"
+            "?q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,"
+            "COMPLETED,CANCELED)))&count=500",
+            headers=headers,
+        )
+        if lc.status_code == 200:
+            campaigns = []
+            for el in (lc.json() or {}).get("elements") or []:
+                el_rs = el.get("runSchedule") or {}
+                tb = (el.get("totalBudget") or {}).get("amount")
+                campaigns.append(
+                    {
+                        "id": str(el.get("id") or ""),
+                        "name": el.get("name") or "",
+                        "status": (el.get("status") or "").lower(),
+                        "budget": float(tb) if tb else None,
+                        "start_ms": el_rs.get("start"),
+                    }
+                )
+            m.raw["campaigns"] = campaigns
+        else:
+            m.raw["campaigns_note"] = f"adCampaigns list HTTP {lc.status_code}"
+
+        # Analytics window must start at the EARLIEST campaign's start —
+        # spend predating the tracked campaign still drained the credit.
+        starts = [c["start_ms"] for c in m.raw.get("campaigns", []) if c.get("start_ms")]
+        if rs.get("start"):
+            starts.append(rs["start"])
         since = (
-            datetime.fromtimestamp(rs["start"] / 1000, UTC)
-            if rs.get("start")
-            else datetime.now(UTC) - timedelta(days=30)
+            datetime.fromtimestamp(min(starts) / 1000, UTC)
+            if starts
+            else datetime.now(UTC) - timedelta(days=365)
         )
         stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
         if stats.get("_error"):
             raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
-        # Account-level spend: the promo credit is shared by every campaign
-        # in the ad account (a paused ad set can resume), so credit math
-        # uses the total, not just the tracked campaign.
-        m.account_spend_eur = round(
-            sum(
-                float(b.raw.get("costLocal") or 0.0)
-                for k, b in stats.items()
-                if not k.startswith("_")
-            ),
-            2,
-        )
+        # Per-campaign spend map — the credit verdict adds each resumable
+        # campaign's REMAINING cap, not just its spend so far.
+        m.raw["spend_by_campaign"] = {
+            k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0)
+            for k, b in stats.items()
+            if not k.startswith("_")
+        }
+        m.account_spend_eur = round(sum(m.raw["spend_by_campaign"].values()), 2)
         bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
         if bundle is None:
             # A 200 with no row for the tracked campaign means metrics are
@@ -368,7 +400,7 @@ def build_report_text(
         lines.append(f"*Spend so far:* {_fmt_money(m.spend_eur)}")
 
     delta_bits = []
-    if prev:
+    if prev is not None:
         d_spend = m.spend_eur - prev.spend_eur
         d_clicks = m.clicks - prev.clicks
         d_eng = m.engagements - prev.engagements
@@ -457,14 +489,50 @@ def build_report_text(
             f"💳 *Promo credit:* {_fmt_money(charged)} of {_fmt_money(credit)} "
             f"used — *{_fmt_money(remaining)} left*.{credit_note}"
         )
-        # Worst case: every other campaign's spend stays put and this one
-        # burns its whole remaining cap — is the credit still enough?
-        worst_case = charged - m.spend_eur + (m.budget_eur or m.spend_eur)
-        if worst_case <= credit:
+        # Worst case = charged so far + the remaining lifetime exposure of
+        # EVERY campaign that can still deliver — active spends on, paused
+        # resumes in one click, drafts launch. A resumable campaign without
+        # a verified lifetime cap is unbounded → verdict is "unverified",
+        # never "safe". Same when the campaign list couldn't be fetched.
+        exposure_statuses = {"active", "paused", "draft"}
+        camps = m.raw.get("campaigns")
+        spend_by = m.raw.get("spend_by_campaign") or {}
+        uncapped = []
+        if m.status in exposure_statuses:
+            if not m.budget_eur:
+                uncapped.append(m.campaign_name or m.campaign_id)
+        this_remaining = (
+            max(0.0, m.budget_eur - m.spend_eur)
+            if m.status in exposure_statuses and m.budget_eur
+            else 0.0
+        )
+        other_remaining = 0.0
+        if isinstance(camps, list):
+            for oc in camps:
+                if oc.get("id") == m.campaign_id or oc.get("status") not in exposure_statuses:
+                    continue
+                if not oc.get("budget"):
+                    uncapped.append(oc.get("name") or oc["id"])
+                else:
+                    other_remaining += max(
+                        0.0, oc["budget"] - spend_by.get(oc["id"], 0.0)
+                    )
+        worst_case = charged + this_remaining + other_remaining
+        if uncapped or not isinstance(camps, list):
+            reason = (
+                f"{', '.join(uncapped)} has no lifetime cap — delivery is unbounded"
+                if uncapped
+                else "the full campaign list could not be verified"
+            )
             lines.append(
-                "Card safety: even at the full lifetime cap, account spend "
-                "stays below the credit — the Visa on file is not expected "
-                "to be charged."
+                f"⚠️ Card safety: unverified — {reason}. "
+                "The Visa on file could be charged; set a cap or monitor spend."
+            )
+        elif worst_case <= credit:
+            lines.append(
+                "Card safety: even with every resumable campaign at its full "
+                "lifetime cap, account spend stays below the credit — "
+                "the Visa on file is not expected to be charged."
             )
         else:
             lines.append(
@@ -744,7 +812,12 @@ async def _final_sent(db: AsyncSession, campaign_id: str) -> bool:
 
 
 async def _render_report_notebook(
-    *, campaign_id: str, status: str, end_date: date | None, is_final: bool
+    *,
+    campaign_id: str,
+    status: str,
+    end_date: date | None,
+    is_final: bool,
+    metrics: CampaignMetrics,
 ) -> tuple[str, str | None, list[dict[str, Any]]] | None:
     """Render the report via the ``linkedin_ads_daily`` notebook (papermill).
 
@@ -767,6 +840,10 @@ async def _render_report_notebook(
                 "status_hint": status,
                 "is_final": is_final,
                 "end_date": end_date.isoformat() if end_date else "",
+                # The exact metrics this run snapshotted — the notebook
+                # renders text from this instead of re-collecting, so
+                # body and charts can never disagree.
+                "metrics_json": json.dumps(asdict(metrics), default=str),
             },
         )
         manifest = result.get("manifest") or {}
@@ -856,6 +933,7 @@ async def run_daily_report() -> dict[str, Any]:
             status=metrics.status,
             end_date=end_date,
             is_final=is_final,
+            metrics=metrics,
         )
         report_html: str | None = None
         report_attachments: list[dict[str, Any]] = []
