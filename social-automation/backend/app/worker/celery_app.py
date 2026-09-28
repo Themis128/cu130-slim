@@ -215,12 +215,15 @@ celery_app.conf.update(
             ),
             "kwargs": {"days": 30, "post_to_slack": True, "post_to_email": True},
         },
-        # End-of-day strategy brief → email. Notebook-generated (papermill in
+        # Morning strategy brief → email. Notebook-generated (papermill in
         # the worker env) so the report layout/charts are editable from the
         # Jupyter UI; falls back to the code-path report on notebook failure.
         "daily-strategy-report": {
             "task": "app.worker.tasks.notebook_reports.run_notebook_report",
-            "schedule": crontab(hour=settings.STRATEGY_REPORT_HOUR, minute=0),
+            "schedule": crontab(
+                hour=settings.STRATEGY_REPORT_HOUR,
+                minute=settings.STRATEGY_REPORT_MINUTE,
+            ),
             "kwargs": {
                 "notebook": "daily_strategy_brief",
                 "parameters": {"insight_days": 30},
