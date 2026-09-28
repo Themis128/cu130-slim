@@ -10,7 +10,7 @@ beat (`daily-strategy-report`, `30 10 * * *` — 10:30 Athens).
 | Section | Contents |
 |---|---|
 | **Platform pulse (30 days)** | Per-platform posts, impressions, engagement, avg ER, 7-day momentum, benchmark comparison, best posting window, confidence |
-| **Recent posts** | Latest published/failed items per platform |
+| **Recent posts** | Latest published items per platform (failed/pending targets are excluded) |
 | **Content pillars (30d)** | Posts per pillar (Proof / Testing / Perspective), `starved` flags, and a "post from X next" nudge |
 | **Tomorrow's playbook** | LLM-drafted next-day actions |
 | **Growth initiatives** | Tracked experiments and their status |
@@ -37,6 +37,17 @@ If a connected messaging account does not appear in this line, check that the
 account row is `status='active'` in `social_accounts`.
 
 ## Trigger manually
+
+Run the same task the beat entry schedules — the notebook render (with
+code-path fallback):
+
+```bash
+docker exec -i social-worker-default celery -A app.worker.celery_app call \
+  app.worker.tasks.notebook_reports.run_notebook_report \
+  --kwargs='{"notebook":"daily_strategy_brief","parameters":{"insight_days":30},"send":true,"fallback_to_code":true}'
+```
+
+To exercise only the code-path fallback:
 
 ```bash
 docker exec -i social-worker-default celery -A app.worker.celery_app call \
