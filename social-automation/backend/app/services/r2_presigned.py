@@ -1,41 +1,33 @@
 """Cloudflare R2 S3-compatible presigned URL helpers.
 
-R2 is S3-compatible, so we use boto3 only for presigned URL generation.
-Objects can still be uploaded server-side via r2_storage.py using the
-Cloudflare REST API when the S3 credentials are not configured.
+SigV4 presigning is done in-process via app.services.s3_sigv4 (pure stdlib,
+no AWS SDK). Objects can still be uploaded server-side via r2_storage.py
+using the Cloudflare REST API when the S3 credentials are not configured.
 """
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
 
-import boto3
-from botocore.config import Config
-
 from app.core.config import get_settings
+from app.services.s3_sigv4 import presign_url
 
 settings = get_settings()
 
 
-def _s3_client():
-    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+def _r2_creds() -> tuple[str, str] | None:
     access_key = (settings.R2_ACCESS_KEY_ID or "").strip()
     secret_key = (settings.R2_SECRET_ACCESS_KEY or "").strip()
-    if not all([account_id, access_key, secret_key]):
+    if not all([settings.CLOUDFLARE_ACCOUNT_ID, access_key, secret_key]):
         return None
+    return access_key, secret_key
 
+
+def _r2_host() -> str:
     endpoint = (settings.R2_S3_ENDPOINT or "").strip()
-    if not endpoint:
-        endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
-
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name="auto",
-        config=Config(signature_version="s3v4"),
-    )
+    if endpoint:
+        return endpoint.split("://", 1)[-1].rstrip("/")
+    return f"{settings.CLOUDFLARE_ACCOUNT_ID.strip()}.r2.cloudflarestorage.com"
 
 
 def _team_key(team_id, filename: str, mime_type: str) -> str:
@@ -67,26 +59,20 @@ def presigned_upload_url(
     Returns ``{"key", "upload_url", "public_url"}`` or ``None`` if S3
     credentials are not configured.
     """
-    client = _s3_client()
-    if not client:
-        return None
-
+    creds = _r2_creds()
     bucket = (settings.R2_BUCKET_NAME or "").strip()
-    if not bucket:
+    if not creds or not bucket:
         return None
 
     key = _team_key(team_id, filename, mime_type)
-    params = {
-        "Bucket": bucket,
-        "Key": key,
-        "ContentType": mime_type,
-        "ContentLength": size_bytes,
-    }
-    url = client.generate_presigned_url(
-        "put_object",
-        Params=params,
-        ExpiresIn=expiry,
-        HttpMethod="PUT",
+    url = presign_url(
+        "PUT",
+        f"https://{_r2_host()}/{bucket}/{key}",
+        access_key=creds[0],
+        secret_key=creds[1],
+        region="auto",
+        expires=expiry,
+        headers={"content-type": mime_type, "content-length": str(size_bytes)},
     )
     return {
         "key": key,
@@ -101,16 +87,16 @@ def presigned_download_url(key: str, expiry: int = 3600) -> str | None:
     if public:
         return public
 
-    client = _s3_client()
-    if not client:
-        return None
-
+    creds = _r2_creds()
     bucket = (settings.R2_BUCKET_NAME or "").strip()
-    if not bucket:
+    if not creds or not bucket:
         return None
 
-    return client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": bucket, "Key": key},
-        ExpiresIn=expiry,
+    return presign_url(
+        "GET",
+        f"https://{_r2_host()}/{bucket}/{key}",
+        access_key=creds[0],
+        secret_key=creds[1],
+        region="auto",
+        expires=expiry,
     )
