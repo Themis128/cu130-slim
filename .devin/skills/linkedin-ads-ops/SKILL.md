@@ -161,3 +161,27 @@ Navigate to their profile → the Message link contains
 - `socialauto-publish` — create the organic post to sponsor
 - `socialauto-media` — media library upload/view/enhance
 - `cloudless-carousel-pipeline` — branded carousel generation
+
+## Daily ad report (API-first)
+
+`app/services/linkedin_ads_report.py` builds the daily report. Data comes
+from the **Marketing API first** — the Campaign Manager sidecar scrape is
+fallback only (it dies when LinkedIn rate-limits the server IP):
+
+- `rest/adAccounts/{acct}/adCampaigns/{id}` → name, status, budgets
+  (lifetime + daily), runSchedule. The group `runSchedule.end` is fetched
+  too; `schedule_end` is the **earlier** of campaign/group end (either
+  stops delivery).
+- `rest/adAnalytics` (via `_fetch_linkedin_ad_stats`) → spend, clicks,
+  impressions, engagements per campaign URN. `LINKEDIN_VERSION=202608`.
+- Missing campaign row in adAnalytics = metrics unavailable → falls back
+  to the sidecar; it is never reported as €0.
+- `account_spend_eur` sums `costLocal` across ALL campaigns — the promo
+  credit is account-level, so credit/card-safety math uses the total.
+- `LINKEDIN_ADS_CREDIT_EUR` (.env) = the promo credit. Card safety verdict:
+  `account_spend + remaining campaign cap ≤ credit` → Visa safe.
+- Geo targeting URNs are resolved to names via `GET /v2/geo`.
+- The notebook `linkedin_ads_daily.ipynb` renders charts from
+  `ad_campaign_snapshots` but builds the body via the shared
+  `collect_metrics()` + `build_report_text()` — Slack/email text is
+  identical to the code fallback path.

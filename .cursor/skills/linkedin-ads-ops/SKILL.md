@@ -41,9 +41,7 @@ credit only, no payment details.
 | Thing | Value |
 |---|---|
 | Ad account | `512642510` ("Baltzakis Ad Account") |
-| Campaign group | `692134846` — "New Campaign Group" (schedule 6/12/2024–10/23/2026) |
-| Coupon ad set (active) | `907100946` — "Cloudless boost - Sep 2026 - coupon — carousel" (`LINKEDIN_ADS_CAMPAIGN_ID`) |
-| Paused ad sets | `857622786` "Shop Online · A · Insights hook · GR" (€80 lifetime — drains same credit if resumed) |
+| Coupon campaign/ad set | `907024926` — "Cloudless boost - Sep 2026 - coupon" |
 | Creative (direct ad) | `1573649544` — "Ad_1_24Sep2026" |
 | Company page (numeric) | `108614163` |
 | Company page SocialAuto account | `9c4451bb-e820-489f-8676-76ddbc788ffe` |
@@ -97,25 +95,6 @@ scripts/linkedin_cm.py shot /tmp/cm.png
   Inject via base64 → `File` → `DataTransfer` → `input[type=file]`.
   Payloads >~100KB blow the shell arg limit — `linkedin_cm.py upload`
   sends the JSON body via a temp file.
-- **`GET /debug/page-text` truncates ~2000 chars** — ad set detail pages are
-  ~6-7K. Use `eval document.body.innerText` for the full page, and read
-  `input.value` via eval for form fields (values never appear in innerText).
-- **CM SSO re-auth (learned 2026-09-27)**: a live linkedin.com feed session
-  does NOT guarantee CM access — `/campaignmanager/*` can redirect to
-  `/campaignmanager/login`, an iframe (`uas/login`) showing a "Welcome back"
-  wall with only `input[name=session_password]` visible. Fill it via
-  `document.querySelector("iframe").contentDocument` + native setter, click
-  the iframe's "Sign in" button → SSO passes straight through to the target
-  URL, no 2FA when feed cookies are fresh.
-- **Ad set edit page** (`.../campaigns/{adsetId}/details?businessId=personal`):
-  inputs are addressed by label regex (`/Daily budget/`, `/Lifetime Budget/`,
-  `Start date`); checkboxes by label (`Enable Audience Expansion`,
-  `LinkedIn Audience Network`). **"Save and exit" opens a political-ad
-  attestation dialog — you must click "Confirm"** or nothing persists.
-  Verify afterwards by reloading and re-reading `input.value`s.
-- **Don't poll `/session` mid-login** — it navigates the browser to `/feed`
-  and destroys a pending checkpoint/2FA page. Poll `location.href` via
-  `debug/eval` only (read-only).
 
 ## Promotional-credit safety (from LinkedIn docs)
 
@@ -182,3 +161,27 @@ Navigate to their profile → the Message link contains
 - `socialauto-publish` — create the organic post to sponsor
 - `socialauto-media` — media library upload/view/enhance
 - `cloudless-carousel-pipeline` — branded carousel generation
+
+## Daily ad report (API-first)
+
+`app/services/linkedin_ads_report.py` builds the daily report. Data comes
+from the **Marketing API first** — the Campaign Manager sidecar scrape is
+fallback only (it dies when LinkedIn rate-limits the server IP):
+
+- `rest/adAccounts/{acct}/adCampaigns/{id}` → name, status, budgets
+  (lifetime + daily), runSchedule. The group `runSchedule.end` is fetched
+  too; `schedule_end` is the **earlier** of campaign/group end (either
+  stops delivery).
+- `rest/adAnalytics` (via `_fetch_linkedin_ad_stats`) → spend, clicks,
+  impressions, engagements per campaign URN. `LINKEDIN_VERSION=202608`.
+- Missing campaign row in adAnalytics = metrics unavailable → falls back
+  to the sidecar; it is never reported as €0.
+- `account_spend_eur` sums `costLocal` across ALL campaigns — the promo
+  credit is account-level, so credit/card-safety math uses the total.
+- `LINKEDIN_ADS_CREDIT_EUR` (.env) = the promo credit. Card safety verdict:
+  `account_spend + remaining campaign cap ≤ credit` → Visa safe.
+- Geo targeting URNs are resolved to names via `GET /v2/geo`.
+- The notebook `linkedin_ads_daily.ipynb` renders charts from
+  `ad_campaign_snapshots` but builds the body via the shared
+  `collect_metrics()` + `build_report_text()` — Slack/email text is
+  identical to the code fallback path.

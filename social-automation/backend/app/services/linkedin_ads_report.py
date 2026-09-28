@@ -51,6 +51,7 @@ class CampaignMetrics:
     impressions: int = 0             # derived from clicks/ctr when not shown
     budget_eur: float = 0.0          # lifetime/total budget
     daily_budget_eur: float = 0.0
+    account_spend_eur: float = 0.0   # all-campaign spend — promo credit is account-level
     schedule_start: str = ""         # ISO date from runSchedule.start
     schedule_end: str = ""           # ISO date from campaign/group runSchedule.end
     ad_set_statuses: dict[str, int] = field(default_factory=dict)
@@ -216,8 +217,11 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
                 gend = ((g.json() or {}).get("runSchedule") or {}).get("end")
                 if gend:
                     m.schedule_end = datetime.fromtimestamp(gend / 1000, UTC).date().isoformat()
-        if rs.get("end") and not m.schedule_end:
-            m.schedule_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
+        # The campaign can end before its group — either date stops delivery,
+        # so keep the earliest.
+        if rs.get("end"):
+            camp_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
+            m.schedule_end = min(m.schedule_end, camp_end) if m.schedule_end else camp_end
 
         since = (
             datetime.fromtimestamp(rs["start"] / 1000, UTC)
@@ -227,9 +231,24 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
         stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
         if stats.get("_error"):
             raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
+        # Account-level spend: the promo credit is shared by every campaign
+        # in the ad account (a paused ad set can resume), so credit math
+        # uses the total, not just the tracked campaign.
+        m.account_spend_eur = round(
+            sum(
+                float(b.raw.get("costLocal") or 0.0)
+                for k, b in stats.items()
+                if not k.startswith("_")
+            ),
+            2,
+        )
         bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
         if bundle is None:
+            # A 200 with no row for the tracked campaign means metrics are
+            # unavailable right now, not €0 — fall back to the sidecar
+            # instead of reporting false zeros.
             m.raw["api_note"] = "campaign not in adAnalytics response"
+            return False
         else:
             m.spend_eur = float(bundle.raw.get("costLocal") or 0.0)
             m.clicks = bundle.clicks
@@ -424,19 +443,32 @@ def build_report_text(
                 "Launch it in Campaign Manager when the creative is approved."
             )
     if credit:
-        remaining = credit - m.spend_eur
-        lines.append(
-            f"💳 *Promo credit:* {_fmt_money(m.spend_eur)} of {_fmt_money(credit)} "
-            f"used — *{_fmt_money(remaining)} left*."
+        # Credit is account-level — other campaigns share it, so charge the
+        # total account spend, not just this campaign's.
+        charged = m.account_spend_eur or m.spend_eur
+        remaining = credit - charged
+        other = charged - m.spend_eur
+        credit_note = (
+            f" ({_fmt_money(other)} spent by other campaigns in the account)"
+            if other > 0.005
+            else ""
         )
-        if m.budget_eur and m.budget_eur <= credit and m.spend_eur <= m.budget_eur:
+        lines.append(
+            f"💳 *Promo credit:* {_fmt_money(charged)} of {_fmt_money(credit)} "
+            f"used — *{_fmt_money(remaining)} left*.{credit_note}"
+        )
+        # Worst case: every other campaign's spend stays put and this one
+        # burns its whole remaining cap — is the credit still enough?
+        worst_case = charged - m.spend_eur + (m.budget_eur or m.spend_eur)
+        if worst_case <= credit:
             lines.append(
-                "Card safety: the campaign lifetime cap is below the credit — "
-                "the Visa on file is not expected to be charged."
+                "Card safety: even at the full lifetime cap, account spend "
+                "stays below the credit — the Visa on file is not expected "
+                "to be charged."
             )
-        elif remaining <= 0 or (m.budget_eur and m.budget_eur > credit):
+        else:
             lines.append(
-                "⚠️ Card safety: projected spend can exceed the promo credit — "
+                "⚠️ Card safety: account spend could exceed the promo credit — "
                 "the Visa on file may be charged. Review the campaign cap."
             )
     else:
