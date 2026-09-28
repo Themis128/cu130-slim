@@ -70,6 +70,28 @@ python3 scripts/cf_tokens.py service-token cloudless-site-bridge --duration fore
 CF_TOKEN_FILE=~/.cache/cf-ops/x.json python3 scripts/cf_tokens.py service-token ...
 ```
 
+## `cf` CLI (installed 2026-09-29)
+
+Cloudflare's Birthday Week 2026 replacement for Wrangler — full API coverage
+(~3,000 ops vs Wrangler's ~280), JSON-first output, agent-oriented.
+Installed globally via pnpm (`cf 1.0.0-beta.5`).
+
+```bash
+export CLOUDFLARE_API_TOKEN=...        # reads env like Wrangler
+cf cli search "natural language task"  # discover the right command
+cf security-center insights list --zone cloudless.gr
+cf migrate <wrangler.toml|jsonc>       # → cloudflare.config.ts (needs local
+                                       #   wrangler ≥4.100 in the project)
+```
+
+- Prefer `cf` over raw `curl` for any CF API surface — it wraps everything,
+  including endpoints with no friendly REST path.
+- Token perms still apply server-side — a 403 from `cf` means the calling
+  token lacks the scope, not that the CLI failed.
+- Wrangler remains supported (18 months maintenance after cf beta ends);
+  no repo migration needed yet. Tracked in cloudless.gr issue #2006.
+- `cf auth login` exists (OAuth profiles) but env-token auth is sufficient.
+
 ## Secret hygiene
 
 - New token values / service-token secrets go to `~/.cache/cf-ops/*.json`
