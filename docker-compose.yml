@@ -1098,7 +1098,7 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: social-frontend
     command: ["node", "novnc-server.cjs"]
     ports:
@@ -1110,9 +1110,6 @@ services:
       - NEXT_PUBLIC_API_URL=/api/v1
       - PORT=8083
       - HOSTNAME=0.0.0.0
-    volumes:
-      - ./social-automation/frontend:/app
-      - /app/node_modules
     networks:
       - backend
       - frontend

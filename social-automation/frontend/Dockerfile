@@ -33,10 +33,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# novnc-server.cjs is the container's real entrypoint (compose `command`). It
-# needs http-proxy at runtime, which standalone output tracing never includes
-# (the launcher sits outside the Next.js module graph). Copy the package plus
-# its three runtime deps from the builder.
+# novnc-server.cjs is the container's real entrypoint (compose `command`).
+# Standalone output never includes it — the launcher sits outside the Next.js
+# module graph — so ship it explicitly alongside the http-proxy package and
+# its three runtime deps it needs at runtime.
+COPY novnc-server.cjs ./novnc-server.cjs
 COPY --from=builder /app/node_modules/http-proxy ./node_modules/http-proxy
 COPY --from=builder /app/node_modules/eventemitter3 ./node_modules/eventemitter3
 COPY --from=builder /app/node_modules/follow-redirects ./node_modules/follow-redirects
