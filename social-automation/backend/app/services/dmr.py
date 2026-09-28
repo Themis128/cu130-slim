@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.core.log_sanitize import sanitize_log_text
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -502,7 +503,7 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
             logger.warning(
                 "DMR: /inference/_configure returns 404 on this runner build — "
                 "keep_alive for %s is owned by dmr-watchdog configs, not this call",
-                model,
+                sanitize_log_text(model, 120),
             )
     except Exception as exc:
         logger.debug("DMR keep_alive config failed (%s)", type(exc).__name__)

@@ -88,7 +88,7 @@ async def record_initiative_event(
     logger.info(
         "Initiative event %s recorded: %s units on %s",
         sanitize_log_text(event_type, 80),
-        units,
+        sanitize_log_text(str(units), 20),
         sanitize_log_text(platform, 40),
     )
     return event
