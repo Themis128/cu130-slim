@@ -17,6 +17,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 11. [Meta lead capture](11-meta-lead-capture.md) — WhatsApp Flows + Messenger + Instagram DM lead capture into SocialAuto Leads.
 12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send messages, and AI auto-reply.
 13. [Analytics digests](13-analytics-digests.md) — daily/weekly/monthly Slack + email reports: growth, MoM, forecast, funnel, and manual triggers.
+14. [Daily strategy brief](14-daily-strategy-brief.md) — the 10:30 Athens morning brief: platform pulse, content pillars, playbook, messaging-channel note, and manual triggers.
 
 ## Product plans
 
