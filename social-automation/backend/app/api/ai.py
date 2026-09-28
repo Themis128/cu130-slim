@@ -4,12 +4,12 @@ import logging
 import os
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -81,6 +81,9 @@ class GenerateContentRequest(BaseModel):
     provider: str = "dmr"  # DMR primary (local, free); CF Workers AI fallback
     model: str | None = None
     template_id: uuid.UUID | None = None
+    pillar: str | None = (
+        None  # pillar UUID or name; "auto" = the pillar posted least in 14d
+    )
 
 
 class GenerateContentResponse(BaseModel):
@@ -91,6 +94,8 @@ class GenerateContentResponse(BaseModel):
     seo_score: dict | None = None
     nlp_report: dict | None = None
     quality: dict | None = None
+    pillar_id: str | None = None  # resolved pillar — persist as Post.pillar_id
+    pillar_name: str | None = None
 
 
 class SuggestHashtagsRequest(BaseModel):
@@ -1635,6 +1640,47 @@ async def generate_content(
 
     guide = platform_guides.get(request.platform, platform_guides["linkedin"])
 
+    # Content pillar (Visibility Era 3P) — explicit pillar, or "auto" picks
+    # the pillar least posted in the last 14 days so coverage stays balanced.
+    pillar_section = ""
+    pillar_obj = None
+    if request.pillar and team:
+        from app.models.content import Pillar, Post
+
+        if request.pillar.strip().lower() == "auto":
+            since_14d = datetime.now(UTC) - timedelta(days=14)
+            counts = (
+                await db.execute(
+                    select(Pillar, func.count(Post.id))
+                    .outerjoin(
+                        Post,
+                        (Post.pillar_id == Pillar.id) & (Post.created_at >= since_14d),
+                    )
+                    .where(Pillar.team_id == team.id)
+                    .group_by(Pillar.id)
+                    .order_by(func.count(Post.id), Pillar.sort_order)
+                )
+            ).all()
+            pillar_obj = counts[0][0] if counts else None
+        else:
+            try:
+                pid = uuid.UUID(request.pillar)
+                cond = Pillar.id == pid
+            except ValueError:
+                cond = func.lower(Pillar.name) == request.pillar.strip().lower()
+            pillar_obj = (
+                await db.execute(
+                    select(Pillar).where(Pillar.team_id == team.id, cond)
+                )
+            ).scalars().first()
+        if pillar_obj:
+            pillar_section = (
+                f"\n\nCONTENT PILLAR (3P system): {pillar_obj.name}\n"
+                f"{pillar_obj.description or ''}\n"
+                "This post MUST come from this pillar — match its meaning, "
+                "focus and goal. Use the pillar's opening style.\n"
+            )
+
     from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
 
     # Build prompt — use saved template if available, otherwise default
@@ -1654,10 +1700,14 @@ async def generate_content(
                 user_prompt = user_prompt.replace(placeholder, brand_context_str or "")
             elif var == "length":
                 user_prompt = user_prompt.replace(placeholder, request.length)
-        prompt = f"{saved_template.system_prompt}\n\n{user_prompt}\n\nReturn JSON with: content, hashtags (array), suggested_media (string or null)"
+        prompt = (
+            f"{saved_template.system_prompt}\n\n{user_prompt}{pillar_section}"
+            "\n\nReturn JSON with: content, hashtags (array), "
+            "suggested_media (string or null)"
+        )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}
+{brand_section}{pillar_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
@@ -1750,6 +1800,8 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         seo_score=quality.seo_score or None,
         nlp_report=quality.nlp_report or None,
         quality=quality.to_dict(),
+        pillar_id=str(pillar_obj.id) if pillar_obj else None,
+        pillar_name=pillar_obj.name if pillar_obj else None,
     )
 
 
