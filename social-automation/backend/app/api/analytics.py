@@ -98,8 +98,10 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
     Member accounts have no follower-statistics endpoint — return -1 so
     the caller skips the snapshot and the browser-sidecar scrape (in
     sync_linkedin_account) remains the authoritative row.
-    Falls back to organizationalEntityFollowerStatistics when the
-    networkSizes edge returns nothing.
+    organizationalEntityFollowerStatistics only returns segmented
+    demographics (followerCountsByFunction/Seniority/…) with no total —
+    reading a bucket as the count corrupted the series, so it is not a
+    fallback.
     """
     if account.platform != "linkedin":
         return 0
@@ -112,29 +114,6 @@ async def _linkedin_follower_count(account: SocialAccount) -> int:
         count = await client.get_follower_count(org_urn)
         if count:
             return count
-    except Exception:
-        pass
-    try:
-        import httpx
-        token = decrypt_token(account.access_token_enc)
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                "https://api.linkedin.com/v2/organizationalEntityFollowerStatistics",
-                headers={"Authorization": f"Bearer {token}"},
-                params={
-                    "q": "organizationalEntity",
-                    "organizationalEntity": org_urn,
-                },
-            )
-            if resp.status_code == 200:
-                for el in (resp.json() or {}).get("elements", []):
-                    for by_fn in el.get("followerCountsByFunction", []):
-                        fc = by_fn.get("followerCounts", {})
-                        if fc.get("organicFollowerCount") is not None:
-                            return int(fc["organicFollowerCount"])
-                    fc = el.get("followerCounts", {})
-                    if fc.get("organicFollowerCount") is not None:
-                        return int(fc["organicFollowerCount"])
     except Exception:
         pass
     return -1
