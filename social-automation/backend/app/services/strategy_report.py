@@ -703,7 +703,9 @@ class StrategyReport:
         wd = p.get("best_weekday_athens")
         hr = p.get("best_hour_athens")
         weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        if wd and hr and wd[1] > 0 and hr[1] > 0:
+        # Dead-night "best hour" buckets are scheduler artifacts (overnight
+        # auto-posts), not audience activity — don't surface them as advice.
+        if wd and hr and wd[1] > 0 and hr[1] > 0 and not (0 <= hr[0] <= 5):
             return f"{weekdays[wd[0]]} {hr[0]:02d}:00"
         return "baseline"
 
@@ -773,6 +775,15 @@ def _compact_insights(insights: dict[str, Any]) -> dict[str, Any]:
     """Shrink the insights payload to what the LLM needs for the prompt."""
     platforms = {}
     for name, p in (insights.get("platforms") or {}).items():
+        best_hour = p.get("best_hour_athens")
+        best_hour_sample = p.get("best_hour_sample") or 0
+        # Dead-night buckets (00:00–05:59 Athens) are usually an artifact of
+        # the scheduler's own overnight posts accumulating engagement, not an
+        # audience signal. Withheld from the prompt so the model falls back
+        # to the platform's published baseline window instead of parroting a
+        # 02:00 "best time".
+        if best_hour and 0 <= best_hour[0] <= 5:
+            best_hour = None
         platforms[name] = {
             "posts": p.get("posts"),
             "impressions": p.get("impressions"),
@@ -782,7 +793,8 @@ def _compact_insights(insights: dict[str, Any]) -> dict[str, Any]:
             "momentum_7d_impressions_pct": p.get("momentum_7d_impressions_pct"),
             "benchmark_verdict": (p.get("benchmark") or {}).get("verdict"),
             "best_weekday_athens": p.get("best_weekday_athens"),
-            "best_hour_athens": p.get("best_hour_athens"),
+            "best_hour_athens": best_hour,
+            "best_hour_sample": best_hour_sample,
             "media_avg_er": p.get("media_avg_er"),
             "text_avg_er": p.get("text_avg_er"),
             "confidence": p.get("confidence"),
@@ -843,9 +855,9 @@ async def _llm_actions(
         "grounded in the numbers. Instagram cannot publish text-only posts "
         "— for Instagram always specify image or carousel. TikTok needs "
         "video. Do not repeat the same platform+time "
-        "action twice. Do not recommend posting between 00:00–06:00 Athens "
-        "unless that hour's sample is explicitly strong — a thin overnight "
-        "bucket is noise; prefer the platform baseline windows instead. "
+        "action twice. Never recommend posting between 00:00–06:00 Athens "
+        "— overnight 'best hours' are scheduler artifacts, not audience "
+        "activity; prefer the platform baseline windows instead. "
         "No preamble, no closing remarks — only the numbered list."
     )
     try:
