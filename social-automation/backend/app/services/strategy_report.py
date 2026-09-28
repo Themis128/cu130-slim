@@ -1049,6 +1049,8 @@ async def build_strategy_report(
                 SocialAccount.platform,
                 SocialAccount.account_type,
                 SocialAccount.username,
+                SocialAccount.display_name,
+                SocialAccount.account_id,
                 SocialAccount.meta_data,
             )
             .where(
@@ -1058,17 +1060,18 @@ async def build_strategy_report(
             )
         )
     ).all()
-    messaging_channels = [
-        f"messenger ({u} page)"
-        if p == "facebook" else f"{p} {t}"
-        for p, t, u, meta in channel_rows
-        if p in ("whatsapp", "telegram", "messenger")
-        or (
+    messaging_channels: list[str] = []
+    for p, t, username, display_name, account_id, meta in channel_rows:
+        if p in ("whatsapp", "telegram", "messenger"):
+            messaging_channels.append(f"{p} {t}")
+        elif (
             p == "facebook"
             and t == "page"
             and (meta or {}).get("messenger_setup", {}).get("subscribed")
-        )
-    ]
+        ):
+            # username/display_name are nullable — fall back to the Page ID.
+            page_name = username or display_name or account_id
+            messaging_channels.append(f"messenger ({page_name} page)")
 
     from app.services.growth_initiatives import initiative_summary
 
