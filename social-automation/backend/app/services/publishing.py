@@ -17,6 +17,7 @@ text truncation, hashtag caps, and link inclusion rules.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import dataclasses
 import hashlib
@@ -1558,6 +1559,36 @@ async def _publish_instagram_via_sidecar(
     )
 
 
+async def _instagram_find_live(
+    client: InstagramAPIClient, caption: str, *, within_minutes: int = 30
+) -> dict[str, Any] | None:
+    """Return the live media dict if a matching caption was posted recently.
+
+    Meta's ``media_publish`` can return 403 ``error_subcode 2207051``
+    ("Application request limit reached") while the post goes live anyway —
+    a documented false-negative that produced duplicate posts on every retry.
+    Checking the feed before failing/retrying makes the publish idempotent.
+    """
+    marker = " ".join((caption or "").split())[:60]
+    if not marker:
+        return None
+    cutoff = datetime.now(UTC) - timedelta(minutes=within_minutes)
+    try:
+        media = await client.list_recent_media()
+    except Exception:
+        return None
+    for m in media:
+        if " ".join((m.get("caption") or "").split())[:60] != marker:
+            continue
+        try:
+            when = datetime.fromisoformat((m.get("timestamp") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if when >= cutoff:
+            return m
+    return None
+
+
 async def _publish_instagram_via_graph(
     access_token: str,
     text: str,
@@ -1633,11 +1664,31 @@ async def _publish_instagram_via_graph(
         await client.wait_for_container_ready(creation_id, timeout=60.0)
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:
+        # 2207051 "Application request limit reached" is a documented false
+        # negative — the post frequently goes live server-side. Verify on
+        # the feed before failing so a retry can't publish a duplicate.
+        # The media list needs a few seconds to index a fresh publish.
+        await asyncio.sleep(4)
+        live = await _instagram_find_live(client, caption)
+        if live:
+            logger.info("Instagram media_publish errored but post is live: %s", live.get("id"))
+            return PublishResult(
+                success=True,
+                platform_post_id=str(live.get("id") or ""),
+                platform_url=live.get("permalink"),
+            )
         return PublishResult(
             success=False,
             error=f"Instagram publish failed: {exc}",
         )
     except TimeoutError as exc:
+        live = await _instagram_find_live(client, caption)
+        if live:
+            return PublishResult(
+                success=True,
+                platform_post_id=str(live.get("id") or ""),
+                platform_url=live.get("permalink"),
+            )
         return PublishResult(
             success=False,
             error=f"Instagram publish failed: {exc}",
@@ -1740,6 +1791,27 @@ async def _publish_instagram(
         )
 
     meta = account.meta_data or {}
+
+    # Duplicate guard: a previous attempt may have published while reporting
+    # a failure (the 2207051 false-negative, a crash after media_publish, or
+    # a queue retry). Check the feed before spending another attempt — any
+    # path's successful publish is visible through the Graph media list.
+    try:
+        check_client = InstagramAPIClient(
+            access_token=access_token,
+            ig_user_id=account.account_id,
+            use_business_login_api=(meta.get("login_type") == "business_login"),
+        )
+        live = await _instagram_find_live(check_client, text)
+        if live:
+            logger.info("Instagram post already live (idempotent publish): %s", live.get("id"))
+            return PublishResult(
+                success=True,
+                platform_post_id=str(live.get("id") or ""),
+                platform_url=live.get("permalink"),
+            )
+    except Exception:
+        pass  # best-effort guard — the paths below surface their own errors
 
     # 1. Business Login Graph API (graph.instagram.com) — highest priority
     # when the account was connected via Instagram Business Login (instagram2).

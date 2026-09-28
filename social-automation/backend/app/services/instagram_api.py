@@ -333,6 +333,23 @@ class InstagramAPIClient:
             data = resp.json() or {}
             return str(data.get("status_code") or "UNKNOWN")
 
+    async def list_recent_media(self, *, limit: int = 15) -> list[dict[str, Any]]:
+        """Fetch the account's most recent media objects.
+
+        Each element carries ``id``, ``caption``, ``timestamp``, and
+        ``permalink``. Used to verify whether a publish that errored at the
+        ``media_publish`` boundary actually went live server-side (Meta's
+        ``2207051`` false-negative pattern) before a retry duplicates it.
+        """
+        url = f"{self.base_url}/{self.ig_user_id}/media"
+        params = self._params(
+            {"fields": "id,caption,timestamp,permalink", "limit": str(limit)}
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            self._raise_for_status(resp, url)
+            return (resp.json() or {}).get("data") or []
+
     async def get_media_insights(self, media_id: str) -> dict[str, Any]:
         """Fetch insights for a single published media object.
 
