@@ -53,12 +53,16 @@ Find the current account ID with:
 | `MEDIA_UPLOAD` | Sends video to TikTok inbox for creator to post manually | No |
 | `DIRECT_POST` | Posts directly to the creator's profile | Yes — app must be audited |
 
-**Audit approved 2026-09-29** — the default is now `DIRECT_POST` with
-`privacy_level: PUBLIC_TO_EVERYONE` (validated against `creator_info`'s
-`privacy_level_options` at publish time). `MEDIA_UPLOAD` stays available
-as a per-post override when the post needs TikTok's native editor
-(commercial music library, stickers) — its drafts land in the **mobile
-app inbox**, not reliably on web.
+**Direct Post audit: under review (submitted 2026-10-02)** — the default
+is `DIRECT_POST` with `privacy_level: PUBLIC_TO_EVERYONE` (validated
+against `creator_info`'s `privacy_level_options` at publish time). While
+the audit is pending, init returns
+`unaudited_client_can_only_post_to_private_accounts` and the code
+automatically retries the init as `MEDIA_UPLOAD`, so posts still land as
+inbox drafts. `MEDIA_UPLOAD` stays available as a per-post override when
+the post needs TikTok's native editor (commercial music library,
+stickers) — its drafts land in the **mobile app inbox**, not reliably on
+web.
 
 ## Media transfer methods
 

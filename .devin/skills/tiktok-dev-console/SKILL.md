@@ -43,7 +43,7 @@ integration.
 | Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
 | Products | Login Kit, Content Posting API |
-| Mode | **Production — audit approved 2026-09-29** (`DIRECT_POST` + `PUBLIC_TO_EVERYONE` available; verified live via `creator_info`) |
+| Mode | **Production — app approved 2026-09-29**; **Direct Post audit: Under review** (submitted 2026-10-02 via `/application/content-posting-api`). Until it clears, `DIRECT_POST` init returns `unaudited_client_can_only_post_to_private_accounts` and the code auto-falls back to `MEDIA_UPLOAD`. |
 
 **Ops skill (scripts + MCP):** `.cursor/skills/tiktok-console-ops/` — domain verify, DNS TXT, sidecar session, console inspect. MCP server key: `tiktok-console` in `.devin/mcp_config.json`.
 
@@ -164,14 +164,29 @@ requires the app to pass TikTok's audit review.
 
 ### Audit status
 
-**Approved 2026-09-29.** `DIRECT_POST` is live — SocialAuto's publish
-default is now `DIRECT_POST` + `PUBLIC_TO_EVERYONE`. `MEDIA_UPLOAD`
-remains available per-post for drafts that need TikTok's native editor
-(music library, stickers).
+**Under review — submitted 2026-10-02.** Two separate approvals apply:
 
-Pre-approval behavior for reference: unaudited apps got
-`403 unaudited_client_can_only_post_to_private_accounts` and were limited
-to `MEDIA_UPLOAD` + `SELF_ONLY`.
+1. **App-level review** (approved 2026-09-29): lifted sandbox mode, enabled
+   production OAuth, and granted `video.publish`/`video.upload` scopes.
+   `creator_info` returns `PUBLIC_TO_EVERYONE`.
+2. **Direct Post audit** (separate, required): submitted via the "Apply"
+   link beside the Direct Post toggle →
+   `https://developers.tiktok.com/application/content-posting-api`. The
+   4-step wizard needs org info, App ID, goal description, a daily
+   publishing-user estimate (submitted "Less than 100"), an MP4 screen
+   recording of the OAuth→compose→post UX (`docs/tiktok-demo/videos/
+   tiktok-demo.mp4`), the DB-fields list, and 3 declaration checkboxes.
+   Console shows **"Under review"** beside Direct Post until it clears.
+
+While the audit is pending, `DIRECT_POST` init returns
+`403 unaudited_client_can_only_post_to_private_accounts`; SocialAuto's
+publish code attempts `DIRECT_POST` first and automatically retries as
+`MEDIA_UPLOAD` on that error, so posts still land as inbox drafts.
+
+**When the audit approves:** retest a `SELF_ONLY` DIRECT_POST init; if it
+returns a `publish_id`, the runtime fallback simply stops triggering —
+no code change needed. Keep `MEDIA_UPLOAD` as the per-post native-editor
+option.
 
 ## Sandbox mode (historical)
 

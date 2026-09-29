@@ -16,7 +16,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 - Content Posting get-started / media transfer — `PULL_FROM_URL` needs verified domain
 - Photo posts require `PULL_FROM_URL` (domain verify mandatory)
 - Videos can use `FILE_UPLOAD` (no domain verify) or `PULL_FROM_URL`
-- `DIRECT_POST` needs approved app audit; until then use `MEDIA_UPLOAD`
+- `DIRECT_POST` pending — app approved 2026-09-29, but the separate Direct Post audit is **under review** (submitted 2026-10-02 via `/application/content-posting-api`). Until it clears, init returns `unaudited_client_can_only_post_to_private_accounts` and code auto-falls back to `MEDIA_UPLOAD`; per-post override stays available (`platform_specific.tiktok.publish_mode`)
 - Login Kit: `client_key`, PKCE S256, comma-separated scopes, HTTPS redirect only
 
 ## Cloudless defaults
@@ -28,7 +28,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 | Website URL (audit)      | `https://cloudless.gr` (public site — not `social.cloudless.gr`) |
 | Web / media domain       | `cloudless.gr` (covers `social.cloudless.gr`)                    |
 | Connected account        | sandbox `user3113682023385` / brand cloudless.gr                 |
-| Publish mode (pre-audit) | `MEDIA_UPLOAD`                                                   |
+| Publish mode (approved)  | `DIRECT_POST` + `PUBLIC_TO_EVERYONE` (defaults; auto-falls back to `MEDIA_UPLOAD` if the unaudited flag lingers; per-post overrides) |
 | Sidecar                  | `http://127.0.0.1:9224`                                          |
 | Domain verify status     | `cloudless.gr` already verified in Production URL properties     |
 
