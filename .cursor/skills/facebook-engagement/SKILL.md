@@ -65,16 +65,34 @@ Sidecar publish internals worth knowing when debugging:
   15s; a bare `count()` after `settle()` races and 404s.
 - `dismissOpenDialogs()` (Escape + corner click) runs before opening the
   composer — leftover notifications/composer panels intercept clicks.
-- New two-step composer: "Next" advances to a review pane, then "Post".
+- Multi-step composer: "Next" advances through review panes (the video
+  flow adds a trim/review step) until the final "Post". `clickPost()`
+  keeps clicking Next while it is offered — matched by exact innerText
+  + on-screen rect (`x >= 0`), because Facebook renders off-canvas
+  decoy buttons (negative x, empty text, aria-label only) that
+  aria/has-text locators click instead. Disabled Next/Post are skipped
+  so video-processing time gets waited out.
 - Messages ending in `#tag` open an autocomplete listbox that covers the
   Post button — `clickPost()` dismisses it with a real Escape.
 - `setPrivacy()` works inside the composer dialog: opens the audience
   chip, clicks the `<label>` wrapping the `[role=radio]` option
-  ("Public"), then confirms the sheet's own Done/Save.
+  ("Public"), then confirms the sheet's own Done/Save. On `/post/video`
+  it runs AFTER the file upload — the video dialog mounts its own
+  audience control and discards earlier choices.
 - Success is verified, not assumed: `verifyPosted()` reloads
   `facebook.com/me`, requires the post to contain the message's first
   line AND carry a fresh timestamp (<15 min / "Just now"), and returns
   the real permalink. `posted:true` without `url`/`post_id` is a failure.
+- The new profile feed has no article/FeedUnit markers and obfuscates
+  timestamps (scrambled aria-hidden spans) — when the feed scan finds
+  nothing, `verifyViaContentLibrary()` falls back to
+  `professional_dashboard/content/content_library/` whose rows read
+  "Published • Today at H:MM AM" and carry `content_id=<b64>` with the
+  numeric post id inside. The row's publish time must be >= the click
+  timestamp (same-day identical captions are rejected), then
+  `/<slug>/posts/<id>` (or `story.php` for `profile.php` profiles)
+  redirects to the canonical permalink (`/reel/<id>` for reels).
+  `/post/video` allows 300s client-side for processing + verification.
 
 ## Profile analytics (pro-mode profiles)
 
