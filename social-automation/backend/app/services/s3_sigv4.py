@@ -18,9 +18,10 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-# Bucket/key names may not contain characters that could break out of the
-# path position in the request URL (query, fragment, whitespace, controls).
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9._~/+=@!$&'()*,;:-]")
+# Bucket/key names may only contain characters safe in a URL path position —
+# anything else (query `?`, fragment `#`, whitespace, controls, `%`) is
+# rejected outright before the request URL is built.
+_SAFE_NAME = re.compile(r"[A-Za-z0-9._~/+=@!$&'()*,;:-]+")
 
 
 def _hash(data: bytes) -> str:
@@ -149,7 +150,7 @@ class S3LiteClient:
         metadata: dict[str, str] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
         """Signed request; returns (status, headers, body). 404 → S3Error."""
-        if _SAFE_NAME.search(bucket) or (key is not None and _SAFE_NAME.search(key)):
+        if not _SAFE_NAME.fullmatch(bucket) or (key is not None and not _SAFE_NAME.fullmatch(key)):
             raise S3Error(400, "bucket/key contains characters not allowed in a request path")
         parts = urlsplit(self._url(bucket, key))
         canonical_uri = _uri_encode(parts.path, encode_slash=False)
