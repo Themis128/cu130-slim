@@ -582,6 +582,14 @@ Beat Schedule:
 > OAuth scopes, `tiktok-reconnect.sh` re-runs consent for scope upgrades via
 > the stored web session, `cp-audit-application.sh` drives the Content Posting
 > API audit wizard. See guide `docs/superpowers/guides/10-tiktok-content-posting.md`.
+>
+> **TikTok analytics sources**: account-level stats (followers, following,
+> likes, video count) come from the official `/v2/user/info/` endpoint when
+> `user.info.stats` is granted — the event is marked `api_source: user.info`.
+> With only `user.info.profile` granted, the API refreshes bio/verified/deep-
+> link but the yt-dlp profile scrape still records follower counts. The scrape
+> remains the fallback and the only source covering MEDIA_UPLOAD inbox posts
+> and videos published directly from the phone.
 | Threads | ✓ | ✓ (text, image, video, carousel) | ✓ | ✓ (API) | — | Instagram-based, v1.0 |
 | WhatsApp | ✓ | — | — | ✓ (Cloud API) | ✓ Cloud API | WABA, phone verification |
 

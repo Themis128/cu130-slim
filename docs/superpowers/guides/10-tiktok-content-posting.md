@@ -125,3 +125,12 @@ container and the Playwright browser image — no local installs needed.
 
 Expected scope set after reconnect: `user.info.basic`, `user.info.profile`,
 `user.info.stats`, `video.list`, `video.publish`, `video.upload`.
+
+## Analytics sources
+
+Account-level statistics come from the official `/v2/user/info/` endpoint when
+`user.info.stats` is granted (`profile_sync` events carry
+`api_source: user.info`). With only `user.info.profile` granted, the API still
+refreshes bio/verified/deep-link but follower counts come from the yt-dlp
+profile scrape — the scrape also covers MEDIA_UPLOAD inbox posts and videos
+published directly from the phone, which the Display API doesn't expose.
