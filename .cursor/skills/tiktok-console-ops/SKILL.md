@@ -46,6 +46,8 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 
 ```bash
 .cursor/skills/tiktok-console-ops/scripts/check-config.sh
+.cursor/skills/tiktok-console-ops/scripts/check-scopes.sh          # granted vs expected OAuth scopes
+.cursor/skills/tiktok-console-ops/scripts/cp-audit-application.sh  # Content Posting (Direct Post) audit wizard; --submit to finalize
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh ensure   # Playwright Docker → POST /session
 .cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh status
 .cursor/skills/tiktok-console-ops/scripts/console-inspect.sh          # login + dump app state
@@ -58,6 +60,26 @@ Audit-fix helpers (Playwright Docker, under `scripts/lib/`):
 - `rejection-reason.mjs` — click **See why** and dump reviewer notes
 - `draft-fix-website-url.mjs` / `upload-icon-submit.mjs` — return to draft, set Website URL to `https://cloudless.gr`, restore app icon, submit
 - Prefer Terms/Privacy: `https://cloudless.gr/en/terms` and `https://cloudless.gr/en/privacy`
+
+## Content Posting audit application (Direct Post gate)
+
+Public `DIRECT_POST` needs a **separate audit** beyond app approval — the
+"Apply" link beside the Direct Post toggle opens a 4-step wizard at
+`/application/content-posting-api`. `cp-audit-application.sh` fills it;
+`--submit` finalizes (declaration checkboxes + Next). Verified submitted
+2026-10-02 → console shows **Under review** beside Direct Post.
+
+Wizard gotchas (script handles all):
+
+- State is **not persisted** — each run starts at step 1.
+- Daily-user estimate is a `button[aria-haspopup="listbox"]`, not an
+  input; picking an option reveals a second required textarea.
+- Step 3 needs an MP4 screen recording of OAuth→compose→post UX
+  (`docs/tiktok-demo/videos/tiktok-demo.mp4`) + a DB-fields list.
+- Review step needs 3 declaration checkboxes; the Next button spins a
+  while during submit — wait for it.
+- The submit lands asynchronously: re-open the app page and confirm
+  "Under review" beside Direct Post.
 
 ## MCP server
 

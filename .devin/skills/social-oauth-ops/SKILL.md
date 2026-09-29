@@ -185,7 +185,32 @@ grep -E "^(TWITTER|FACEBOOK|INSTAGRAM|THREADS|TIKTOK|LINKEDIN)_(CLIENT_ID|CLIENT
 
 All should show non-zero char counts.
 
+## TikTok scope upgrades (headless reconnect)
+
+**Token refresh can only renew granted scopes — it can never add new ones.**
+Granting a new scope (e.g. `user.info.stats`) requires a fresh authorize
+round-trip. The consent screen grants any scope the client requests —
+scopes do NOT need to be pre-enabled in the developer console (verified
+2026-10-02: `user.info.stats` granted at consent while absent from the
+app's Scopes list).
+
+```bash
+# Dry-run: dump the consent screen, don't click Continue
+.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.sh --dry-run
+
+# Full reconnect (requires tiktok_web_cookies on the account — QR login
+# in tiktok-console-ops, and the requested scopes in accounts.py's list)
+.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.sh
+```
+
+The script exports the stored `.tiktok.com` cookies, fetches a fresh
+authorize URL (`/api/v1/accounts/connect` — state carries team + PKCE
+verifier, fully stateless), drives the consent page headlessly, clicks
+Continue, and prints the granted scopes after the callback.
+
 ## Scripts
 
 - `scripts/check-all-accounts.sh` — List all connected accounts and their status
 - `scripts/refresh-tokens.sh` — Trigger token refresh for all eligible accounts
+- `scripts/tiktok-reconnect.sh` — Cookie-driven TikTok re-consent for scope upgrades
+- `scripts/tiktok-oauth.mjs` — Playwright consent driver (used by tiktok-reconnect.sh)
