@@ -2008,6 +2008,9 @@ async function handlePostVideo(req, res) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
     }
 
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
+
     // Click "Photo/video" to open the photo/video upload dialog
     const photoVideoBtn = page
       .locator(
@@ -2017,11 +2020,6 @@ async function handlePostVideo(req, res) {
     if ((await photoVideoBtn.count()) > 0) {
       await photoVideoBtn.click();
       await page.waitForTimeout(2000);
-    }
-
-    // Set privacy if specified
-    if (privacy) {
-      await setPrivacy(privacy);
     }
 
     // Upload the video via the file input
@@ -2064,6 +2062,13 @@ async function handlePostVideo(req, res) {
           await page.keyboard.type(message);
           await page.waitForTimeout(1000);
         }
+      }
+
+      // Privacy must be set on the post-upload composer — the video dialog
+      // mounts its own audience control after the file is attached, so
+      // setting it earlier is silently discarded.
+      if (privacy) {
+        await setPrivacy(privacy);
       }
 
       // Click "Post"
@@ -2493,18 +2498,46 @@ async function clickPost() {
     await page.waitForTimeout(800);
   }
 
-  // New two-step composer (rolled out ~Sep 2026): the primary action is
-  // "Next" which opens a review screen whose button is "Post". Advance
-  // through it when present; the single-step "Post" still wins if found.
-  const nextBtn = page
-    .locator(
-      'div[role="dialog"] [aria-label="Next"], ' +
-        'div[role="dialog"] button:has-text("Next")',
-    )
-    .first();
-  if (await nextBtn.isVisible().catch(() => false)) {
-    await nextBtn.click();
-    await page.waitForTimeout(2500);
+  // Multi-step composer (rolled out ~Sep 2026): "Next" advances through
+  // intermediate review screens (the video flow adds a trim/review step)
+  // until the final screen whose primary button is "Post". Matched via
+  // innerText + on-screen rect — Facebook renders off-canvas decoy
+  // buttons (x<0, empty text, aria-label only) that Playwright's
+  // aria/has-text locators happily click instead of the real one.
+  const clickComposerButton = async (label) =>
+    page.evaluate((wanted) => {
+      const dialogs = [...document.querySelectorAll('div[role="dialog"]')].filter(
+        (d) => d.offsetParent !== null,
+      );
+      for (const d of dialogs) {
+        const el = [...d.querySelectorAll('button, [role="button"]')].find((e) => {
+          const r = e.getBoundingClientRect();
+          return (
+            (e.innerText || "").trim() === wanted && r.width > 0 && r.x >= 0
+          );
+        });
+        if (el) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    }, label);
+
+  let idle = 0;
+  for (let i = 0; i < 8 && idle < 3; i++) {
+    if (await clickComposerButton("Post")) {
+      await page.waitForTimeout(2000);
+      return true;
+    }
+    if (await clickComposerButton("Next")) {
+      idle = 0;
+      await page.waitForTimeout(2500);
+      continue;
+    }
+    // Neither button found — video may still be processing; retry briefly.
+    idle++;
+    await page.waitForTimeout(1500);
   }
   // Exact accessible-name match first — :has-text("Post") also matches
   // "Add to your post" and similar controls.
@@ -2530,7 +2563,10 @@ async function clickPost() {
     .evaluate(() => {
       const els = [...document.querySelectorAll('button, [role="button"]')];
       const el = els.find(
-        (e) => (e.innerText || "").trim() === "Post" && e.offsetParent !== null,
+        (e) =>
+          (e.innerText || "").trim() === "Post" &&
+          e.offsetParent !== null &&
+          e.getBoundingClientRect().x >= 0,
       );
       if (el) {
         el.click();
@@ -2610,7 +2646,65 @@ async function verifyPosted(message) {
       await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
       await settle(8000);
     }
+    // The new profile feed ships no article/FeedUnit markers and obfuscates
+    // timestamps — the unit scan above can't see anything. The professional
+    // dashboard content library renders real rows: status "Published",
+    // a same-day timestamp, and a content_id whose decoded payload carries
+    // the post id. Resolving /<slug>/posts/<id> then redirects to the
+    // canonical permalink (e.g. /reel/<id>).
+    const profilePath = new URL(page.url()).pathname.replace(/\/?$/, "/");
+    const libId = await verifyViaContentLibrary(probe);
+    if (!libId) return null;
+    const postUrl = `https://www.facebook.com${profilePath}posts/${libId}`;
+    await page
+      .goto(postUrl, { waitUntil: "domcontentloaded", timeout: 60000 })
+      .catch(() => {});
+    await settle(8000);
+    const canonical = page.url();
+    return /\/reel\/|\/posts\/|pfbid|story_fbid|\/videos\//.test(canonical)
+      ? canonical
+      : postUrl;
+  } catch (_) {
     return null;
+  }
+}
+
+/** Content-library verification: the dashboard table lists each post with
+ * "Published • Today at …" and links to /content/insights/?content_id=<b64>.
+ * The decoded content_id ends with the numeric post id. Freshness guard:
+ * the row must read Published *and* carry a same-day/time-ago marker, so an
+ * older post sharing the same opening line is never claimed. */
+async function verifyViaContentLibrary(probe) {
+  try {
+    await page.goto(
+      "https://www.facebook.com/professional_dashboard/content/content_library/",
+      { waitUntil: "domcontentloaded", timeout: 60000 },
+    );
+    await page
+      .waitForSelector('a[href*="content_id="]', { timeout: 20000 })
+      .catch(() => {});
+    await settle(8000);
+    return await page.evaluate((probe) => {
+      const anchors = [...document.querySelectorAll('a[href*="content_id="]')];
+      for (const a of anchors) {
+        const text = (a.innerText || "").replace(/\s+/g, " ");
+        if (!/published/i.test(text)) continue;
+        if (!/today|just now|ago|about an hour/i.test(text)) continue;
+        if (probe && !text.includes(probe)) continue;
+        const m = /content_id=([^&"]+)/.exec(
+          a.getAttribute("href") || a.href || "",
+        );
+        if (!m) continue;
+        try {
+          const decoded = atob(decodeURIComponent(m[1]));
+          const ids = decoded.match(/\d{8,}/g);
+          if (ids && ids.length) return ids[ids.length - 1];
+        } catch (_) {
+          /* decode failures skip this row */
+        }
+      }
+      return null;
+    }, probe);
   } catch (_) {
     return null;
   }
