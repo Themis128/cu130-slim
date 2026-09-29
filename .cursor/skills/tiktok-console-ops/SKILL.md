@@ -16,7 +16,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 - Content Posting get-started / media transfer — `PULL_FROM_URL` needs verified domain
 - Photo posts require `PULL_FROM_URL` (domain verify mandatory)
 - Videos can use `FILE_UPLOAD` (no domain verify) or `PULL_FROM_URL`
-- `DIRECT_POST` pending — app approved 2026-09-29, but the separate Direct Post audit is **under review** (submitted 2026-10-02 via `/application/content-posting-api`). Until it clears, init returns `unaudited_client_can_only_post_to_private_accounts` and code auto-falls back to `MEDIA_UPLOAD`; per-post override stays available (`platform_specific.tiktok.publish_mode`)
+- `DIRECT_POST` pending — app approved 2026-09-29, but the separate Direct Post audit is **under review** (submitted 2026-09-29 via `/application/content-posting-api`). Until it clears, init returns `unaudited_client_can_only_post_to_private_accounts` and code auto-falls back to `MEDIA_UPLOAD`; per-post override stays available (`platform_specific.tiktok.publish_mode`)
 - Login Kit: `client_key`, PKCE S256, comma-separated scopes, HTTPS redirect only
 
 ## Cloudless defaults
@@ -67,7 +67,7 @@ Public `DIRECT_POST` needs a **separate audit** beyond app approval — the
 "Apply" link beside the Direct Post toggle opens a 4-step wizard at
 `/application/content-posting-api`. `cp-audit-application.sh` fills it;
 `--submit` finalizes (declaration checkboxes + Next). Verified submitted
-2026-10-02 → console shows **Under review** beside Direct Post.
+2026-09-29 → console shows **Under review** beside Direct Post.
 
 Wizard gotchas (script handles all):
 

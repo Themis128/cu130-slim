@@ -38,7 +38,7 @@ Publish video and photo content to TikTok through the SocialAuto backend.
 | Account type | person |
 | Sandbox user | cloudless-dev (target: user3113682023385) |
 | Token lifetime | 24 hours (refreshed daily by beat task) |
-| Granted scopes | `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.publish`, `video.upload` (all 6 granted 2026-10-02 via OAuth reconnect — consent screen grants unlisted scopes; no console approval needed) |
+| Granted scopes | `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.publish`, `video.upload` (all 6 granted 2026-09-29 via OAuth reconnect — consent screen grants unlisted scopes; no console approval needed) |
 | Client key env | `TIKTOK_CLIENT_KEY` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` (HTTPS required) |
 
@@ -54,7 +54,7 @@ Find the current account ID with:
 | `MEDIA_UPLOAD` | Sends video to TikTok inbox for creator to post manually | No |
 | `DIRECT_POST` | Posts directly to the creator's profile | Yes — app must be audited |
 
-**Direct Post audit: under review (submitted 2026-10-02)** — the default
+**Direct Post audit: under review (submitted 2026-09-29)** — the default
 is `DIRECT_POST` with `privacy_level: PUBLIC_TO_EVERYONE` (validated
 against `creator_info`'s `privacy_level_options` at publish time). While
 the audit is pending, init returns

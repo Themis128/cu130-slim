@@ -43,7 +43,7 @@ integration.
 | Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
 | Products | Login Kit, Content Posting API |
-| Mode | **Production — app approved 2026-09-29**; **Direct Post audit: Under review** (submitted 2026-10-02 via `/application/content-posting-api`). Until it clears, `DIRECT_POST` init returns `unaudited_client_can_only_post_to_private_accounts` and the code auto-falls back to `MEDIA_UPLOAD`. |
+| Mode | **Production — app approved 2026-09-29**; **Direct Post audit: Under review** (submitted 2026-09-29 via `/application/content-posting-api`). Until it clears, `DIRECT_POST` init returns `unaudited_client_can_only_post_to_private_accounts` and the code auto-falls back to `MEDIA_UPLOAD`. |
 
 **Ops skill (scripts + MCP):** `.cursor/skills/tiktok-console-ops/` — domain verify, DNS TXT, sidecar session, console inspect. MCP server key: `tiktok-console` in `.devin/mcp_config.json`.
 
@@ -152,19 +152,21 @@ requires the app to pass TikTok's audit review.
 
 ### Submit for audit
 
-1. Open the **Cloudless** app in the developer console
-2. Ensure all required fields are filled:
-   - App name, description, logo
-   - Privacy policy URL
-   - Terms of service URL
-   - Developer website
-3. Click **Submit for review**
-4. TikTok reviews the app (can take several business days)
-5. Once approved, `DIRECT_POST` mode becomes available
+The app-level review does **not** enable public Direct Post — that needs the
+separate Content Posting API audit:
+
+1. Open the **Cloudless** app in the developer console → Content Posting API
+2. Click the **Apply** link beside Direct Post →
+   `https://developers.tiktok.com/application/content-posting-api`
+3. Complete the 4-step wizard (org info, App ID, goal, daily-user estimate,
+   MP4 screen recording, DB-fields list, 3 declaration checkboxes) — see
+   `.devin/skills/tiktok-console-ops/scripts/cp-audit-application.sh`
+4. TikTok reviews it (several business days); the console shows **"Under
+   review"** beside Direct Post until it clears
 
 ### Audit status
 
-**Under review — submitted 2026-10-02.** Two separate approvals apply:
+**Under review — submitted 2026-09-29.** Two separate approvals apply:
 
 1. **App-level review** (approved 2026-09-29): lifted sandbox mode, enabled
    production OAuth, and granted `video.publish`/`video.upload` scopes.
@@ -183,10 +185,12 @@ While the audit is pending, `DIRECT_POST` init returns
 publish code attempts `DIRECT_POST` first and automatically retries as
 `MEDIA_UPLOAD` on that error, so posts still land as inbox drafts.
 
-**When the audit approves:** retest a `SELF_ONLY` DIRECT_POST init; if it
-returns a `publish_id`, the runtime fallback simply stops triggering —
-no code change needed. Keep `MEDIA_UPLOAD` as the per-post native-editor
-option.
+**When the audit approves:** a `SELF_ONLY` init succeeding is *not* proof —
+unaudited clients can already init private posts. Verify the console shows
+the audit as approved (the Apply link is gone / status flips), then run a
+`DIRECT_POST` init with `PUBLIC_TO_EVERYONE` — only a `publish_id` from that
+confirms the restriction lifted. Keep `MEDIA_UPLOAD` as the per-post
+native-editor option either way.
 
 ## Sandbox mode (historical)
 
