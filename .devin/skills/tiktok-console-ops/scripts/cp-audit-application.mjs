@@ -6,7 +6,7 @@
  * documents (MP4 screen recording + DB-fields list) → Review (3 declaration
  * checkboxes; the "Next" button submits).
  *
- * Wizard gotchas (learned 2026-10-02):
+ * Wizard gotchas (learned 2026-09-29):
  *  - Wizard state is NOT persisted — every run starts at step 1.
  *  - The daily-user estimate is a <button aria-haspopup="listbox">, not an
  *    input; picking it reveals a second required textarea ("explain how you

@@ -191,7 +191,7 @@ All should show non-zero char counts.
 Granting a new scope (e.g. `user.info.stats`) requires a fresh authorize
 round-trip. The consent screen grants any scope the client requests —
 scopes do NOT need to be pre-enabled in the developer console (verified
-2026-10-02: `user.info.stats` granted at consent while absent from the
+2026-09-29: `user.info.stats` granted at consent while absent from the
 app's Scopes list).
 
 ```bash
