@@ -17,9 +17,6 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-_SAFE = "-_.~"
-_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
-
 
 def _hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -147,9 +144,12 @@ class S3LiteClient:
         metadata: dict[str, str] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
         """Signed request; returns (status, headers, body). 404 → S3Error."""
-        url = self._url(bucket, key)
-        parts = urlsplit(url)
+        parts = urlsplit(self._url(bucket, key))
         canonical_uri = _uri_encode(parts.path, encode_slash=False)
+        # Send the URI-encoded path actually signed — SigV4 requires the
+        # request URI to match canonical_uri, and quoting bucket/key chars
+        # (? # whitespace controls) blocks path/query injection.
+        url = f"{self.scheme}://{self.host}{canonical_uri}"
 
         now = datetime.now(UTC)
         amzdate = now.strftime("%Y%m%dT%H%M%SZ")
