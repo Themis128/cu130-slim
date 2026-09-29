@@ -1883,9 +1883,18 @@ async function handlePostPhoto(req, res) {
 
       // Wait for upload + post to complete (photo uploads take longer)
       await settle(60000);
+      const postUrl = await verifyPosted(message);
+      if (!postUrl) {
+        return res.status(502).json({
+          error:
+            "Post click succeeded but the post was not found on the profile — unconfirmed",
+        });
+      }
       res.json({
         status: "ok",
         posted: true,
+        url: postUrl,
+        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
         photo_count: images.length,
         message: "Photo post submitted to personal profile",
       });
@@ -1961,10 +1970,19 @@ async function handlePostLink(req, res) {
     }
 
     await settle();
+    const postUrl = await verifyPosted(message);
+    if (!postUrl) {
+      return res.status(502).json({
+        error:
+          "Post click succeeded but the post was not found on the profile — unconfirmed",
+      });
+    }
     res.json({
       status: "ok",
       posted: true,
-      url,
+      url: postUrl,
+      post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+      shared_url: url,
       message: "Link post submitted to personal profile",
     });
   } catch (err) {
@@ -2058,9 +2076,18 @@ async function handlePostVideo(req, res) {
 
       // Video processing takes longer — wait up to 120s
       await settle(120000);
+      const postUrl = await verifyPosted(message);
+      if (!postUrl) {
+        return res.status(502).json({
+          error:
+            "Post click succeeded but the post was not found on the profile — unconfirmed",
+        });
+      }
       res.json({
         status: "ok",
         posted: true,
+        url: postUrl,
+        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
         message: "Video post submitted to personal profile",
       });
     } finally {
@@ -2531,8 +2558,9 @@ async function verifyPosted(message) {
       .split("\n")
       .map((l) => l.trim())
       .find(Boolean);
-    if (!needle) return null;
-    const probe = needle.slice(0, 60);
+    // Media posts can carry no caption — verify by freshness of the top
+    // feed unit alone instead of matching text.
+    const probe = needle ? needle.slice(0, 60) : null;
     await page.goto("https://www.facebook.com/me", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -2545,12 +2573,35 @@ async function verifyPosted(message) {
             'div[role="article"], div[data-pagelet*="FeedUnit"]',
           ),
         ];
-        const hit = units.find((u) => (u.innerText || "").includes(probe));
-        if (!hit) return null;
-        const link = [...hit.querySelectorAll("a[href]")].find((a) =>
-          /\/posts\/|pfbid|story_fbid|\/reel\//.test(a.href),
-        );
-        return link ? link.href : location.href;
+        // A matching unit only counts when its timestamp is fresh —
+        // otherwise a previous post sharing the same opening line would be
+        // claimed as the one we just tried to publish.
+        const isFresh = (u) =>
+          [...u.querySelectorAll("a[href], span")].some((e) => {
+            const t = (e.innerText || "").trim();
+            if (/^(just now|now|\d+\s?(s|m|min)s?\.?|a minute ago)$/i.test(t)) {
+              return true;
+            }
+            const al = e.getAttribute && e.getAttribute("aria-label");
+            if (al) {
+              const d = Date.parse(al);
+              if (!Number.isNaN(d) && Date.now() - d < 15 * 60 * 1000) {
+                return true;
+              }
+            }
+            return false;
+          });
+        // Units render newest-first — once one is stale, nothing newer
+        // follows, so bail instead of claiming an old post's permalink.
+        for (const u of units) {
+          if (!isFresh(u)) break;
+          if (probe && !(u.innerText || "").includes(probe)) continue;
+          const link = [...u.querySelectorAll("a[href]")].find((a) =>
+            /\/posts\/|pfbid|story_fbid|\/reel\//.test(a.href),
+          );
+          return link ? link.href : location.href;
+        }
+        return null;
       }, probe);
       if (found) return found;
       // Feed can lag a few seconds behind a successful Post click — a false

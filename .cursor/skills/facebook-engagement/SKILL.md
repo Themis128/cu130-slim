@@ -51,6 +51,31 @@ Automation map per task type:
 | comment on public posts | `fb_comment.py` on relevant public Pages |
 | new followers | NOT automatable — organic result of the above |
 
+## Personal-profile publishing (sidecar)
+
+`facebook/user` accounts publish **only** via the sidecar — Meta removed
+profile posting from Graph, so `_publish_facebook` never falls through to
+it (a Graph attempt can only produce the misleading "#200 group" error).
+Posts default to **public** (Friends-only can't earn followers); override
+per-post via `platform_specific.facebook_privacy`.
+
+Sidecar publish internals worth knowing when debugging:
+
+- Composer trigger mounts lazily — `waitForComposerTrigger()` waits up to
+  15s; a bare `count()` after `settle()` races and 404s.
+- `dismissOpenDialogs()` (Escape + corner click) runs before opening the
+  composer — leftover notifications/composer panels intercept clicks.
+- New two-step composer: "Next" advances to a review pane, then "Post".
+- Messages ending in `#tag` open an autocomplete listbox that covers the
+  Post button — `clickPost()` dismisses it with a real Escape.
+- `setPrivacy()` works inside the composer dialog: opens the audience
+  chip, clicks the `<label>` wrapping the `[role=radio]` option
+  ("Public"), then confirms the sheet's own Done/Save.
+- Success is verified, not assumed: `verifyPosted()` reloads
+  `facebook.com/me`, requires the post to contain the message's first
+  line AND carry a fresh timestamp (<15 min / "Just now"), and returns
+  the real permalink. `posted:true` without `url`/`post_id` is a failure.
+
 ## Profile analytics (pro-mode profiles)
 
 The Graph API exposes no follower/insights edge for personal profiles
