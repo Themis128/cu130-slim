@@ -63,8 +63,21 @@ python3 .devin/skills/cross-promo-drip/scripts/drip.py plan.json --schedule
 ```
 
 Creates `status=scheduled` posts, verifies stored text verbatim, and writes
-post IDs to `plan.created.json`. Re-running is safe — already-created keys
-are skipped.
+post IDs to `plan.created.json` (`{"id", "fp", "verified"}` per key).
+
+Re-running is safe and honest:
+
+- Unchanged keys that verified cleanly are skipped.
+- Unverified entries (e.g. a network error after creation) are re-checked
+  on the next run before being trusted.
+- If you **edit the plan** (text, time, accounts, or media) for an
+  existing key, the run fails with a conflict — edit the post via the UI
+  or delete it first, don't silently double-schedule.
+- Identical text already in the queue is **adopted only when its
+  schedule/accounts/media match**; a mismatch is flagged as a conflict.
+- If a bad stored post can't be deleted cleanly, the entry is marked
+  `pending_cleanup` and reconciled on the next run.
+- Instagram entries without `media_ids` are refused (IG needs media).
 
 ### 5. Verify later
 

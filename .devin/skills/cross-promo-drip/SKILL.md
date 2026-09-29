@@ -45,13 +45,19 @@ monetization, etc.).
 **Fail-closed gate**: a post is created only when the analyzer returns a
 numeric SEO ≥90 AND a successful empty spellcheck. If either service is
 down (null response), the post is skipped — an outage must not become a
-backdoor for unchecked copy. Re-running `--schedule` is idempotent:
-keys already in `<plan>.created.json` are skipped **only if the plan
-entry is unchanged** — a fingerprint of text/time/accounts/media detects
-edits and fails loudly rather than silently keeping a stale schedule.
-Text already scheduled to the same platform is adopted (its real post ID
-is recorded), never duplicated. Instagram entries without `media_ids`
-are rejected.
+backdoor for unchecked copy.
+
+**Ledger** (`<plan>.created.json`): each key stores
+`{"id", "fp", "verified"}`. Re-running `--schedule` skips a key only when
+the plan fingerprint (platform/text/time/accounts/media) matches AND the
+stored post passes verification — unverified entries are re-fetched and
+re-checked, stale 404 IDs are dropped and recreated, bad stored posts are
+deleted and recreated, and changed plan entries fail loudly (never silently
+keep a stale schedule). Identical text already scheduled elsewhere is
+**adopted only if its time/accounts/media match the plan** — a mismatch is
+a conflict, never a silent alias. Failed deletes are marked
+`pending_cleanup` and reconciled next run. Instagram entries without
+`media_ids` are rejected.
 
 ## Best posting times (Athens, EEST) — Buffer/Later 2026 studies
 

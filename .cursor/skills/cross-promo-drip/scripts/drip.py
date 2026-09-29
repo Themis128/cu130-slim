@@ -29,20 +29,22 @@ Safety:
   returns a numeric SEO score >= 90 AND a successful spellcheck with
   zero issues. Plain-English flags are tolerated only when every match
   is a URL or #hashtag (documented analyzer false-positive).
-- Idempotent: keys already in <plan>.created.json are skipped when the
-  plan entry is unchanged (fingerprint of text/time/accounts/media).
-  A changed plan entry for an existing key fails loudly instead of
-  silently keeping the stale schedule.
-- Duplicate guard: identical text already scheduled to the same
-  platform is adopted (its real post ID recorded), never duplicated.
+- Idempotent + honest ledger: each key in <plan>.created.json stores
+  {"id", "fp", "verified"}. A saved ID is skipped only when the plan
+  fingerprint matches AND the post verified cleanly; unverified entries
+  are re-checked on the next run, and a changed plan fails loudly.
+- Adoption, not duplication: identical text already scheduled to the
+  same platform is adopted only when its time/accounts/media match the
+  plan; a mismatch is a conflict failure, never a silent alias.
 - Verbatim check: if stored content_text differs from the draft, the
-  created post is deleted immediately and counted as a failure.
+  created post is deleted immediately; if the delete cannot be
+  confirmed, the entry is marked pending_cleanup and reconciled next run.
 - Instagram posts require media_ids — the platform rejects text-only.
 - Last-tier guard: Twitter/X and TikTok are "opportunistic only" per
   the 2-Platform Rule — scheduled plans targeting them are rejected.
 - Credentials: refuses cleartext http:// for non-localhost API URLs,
-  and refuses redirects that downgrade to http or cross hosts (the
-  Authorization header must never leave the original TLS origin).
+  and refuses any redirect that changes scheme, host, or port — the
+  Authorization header must never leave the original TLS origin.
 
 Reads SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from repo .env.
 API base: SOCIAL_API_URL or http://127.0.0.1:8083
@@ -71,16 +73,21 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 PE_OK = re.compile(r"^(#\w+|https?://\S+|[\w.-]+\.[a-z]{2,}(/\S*)?)$", re.I)
 
 
+def _origin(url: str) -> tuple:
+    p = urllib.parse.urlparse(url)
+    default = 443 if p.scheme == "https" else 80
+    return (p.scheme, p.hostname, p.port or default)
+
+
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects that downgrade to http or change host — the
+    """Refuse redirects to a different origin (scheme/host/port) — the
     Authorization header must not leak off the original TLS origin."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        orig = urllib.parse.urlparse(req.full_url)
-        new = urllib.parse.urlparse(newurl)
-        if new.scheme != orig.scheme or new.hostname != orig.hostname:
+        if _origin(newurl) != _origin(req.full_url):
             raise urllib.error.HTTPError(
-                newurl, code, f"Refused unsafe redirect to {newurl}", headers, fp)
+                newurl, code, f"Refused cross-origin redirect to {newurl}",
+                headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -137,9 +144,10 @@ def analyze(token: str, post: dict) -> dict:
 
 
 def fingerprint(post: dict) -> str:
-    """Stable hash of the schedulable fields — detects plan edits."""
+    """Stable hash of every schedulable field — detects plan edits."""
     payload = json.dumps(
         {
+            "platform": post["platform"],
             "text": post["text"],
             "scheduled_at": post["scheduled_at"],
             "account_ids": sorted(post["account_ids"]),
@@ -177,9 +185,39 @@ def gate(token: str, post: dict) -> tuple[bool, str]:
     return True, f"seo={seo} spell=0"
 
 
+def post_targets(d: dict) -> list[dict]:
+    return d.get("post_targets") or d.get("targets") or []
+
+
+def verify_post(d: dict, post: dict) -> tuple[bool, str]:
+    """Check a fetched post against the plan. Returns (ok, detail)."""
+    verbatim = d.get("content_text") == post["text"]
+    pstatus = d.get("status")
+    tinfo = [(t.get("platform"), t.get("status")) for t in post_targets(d)]
+    bad_t = [s for _, s in tinfo if s in {"failed", "skipped"}]
+    ok = verbatim and bool(tinfo) and not bad_t and pstatus not in {"failed", "draft"}
+    return ok, f"status={pstatus} verbatim={verbatim} targets={tinfo}"
+
+
+def matches_plan(d: dict, post: dict) -> bool:
+    """Does a stored scheduled post actually match the plan's fields?"""
+    if d.get("scheduled_at") != post["scheduled_at"]:
+        return False
+    t_accts = {
+        str(t.get("account_id") or t.get("social_account_id") or "")
+        for t in post_targets(d)
+    }
+    if t_accts and t_accts != {str(a) for a in post["account_ids"]}:
+        return False
+    media = d.get("media_ids") or d.get("media") or []
+    if {str(m) for m in media} != {str(m) for m in (post.get("media_ids") or [])}:
+        return False
+    return True
+
+
 def scheduled_map(token: str) -> dict[tuple[str, str], str]:
-    """(platform, content_text) -> post_id for everything scheduled,
-    paginating the whole queue (list endpoint ignores `limit`)."""
+    """(platform, content_text) -> post_id for the whole scheduled queue
+    (list endpoint ignores `limit` — paginate via page/page_size)."""
     out: dict[tuple[str, str], str] = {}
     page, page_size = 1, 100
     while True:
@@ -188,13 +226,21 @@ def scheduled_map(token: str) -> dict[tuple[str, str], str]:
             token, method="GET")
         items = d.get("posts") or d.get("items") or []
         for p in items:
-            for t in p.get("post_targets") or p.get("targets") or []:
+            for t in post_targets(p):
                 out[(t.get("platform"), p.get("content_text"))] = p.get("id")
         total = d.get("total") or len(items)
         if page * page_size >= total or not items:
             break
         page += 1
     return out
+
+
+def entry_id(entry) -> str | None:
+    """Ledger entries are {"id","fp","verified"}; legacy files stored bare
+    strings. Returns the post ID either way."""
+    if isinstance(entry, dict):
+        return entry.get("id")
+    return entry if isinstance(entry, str) else None
 
 
 def main() -> int:
@@ -239,23 +285,15 @@ def main() -> int:
             print(f"{key}: warning — last-tier platform (analyze only)")
 
         if mode == "verify":
-            entry = prior.get(key)
-            # Ledger entries are {"id","fp"}; legacy files stored bare strings.
-            pid = post.get("post_id") or (entry.get("id") if isinstance(entry, dict) else entry)
-            if not isinstance(pid, str):
+            pid = post.get("post_id") or entry_id(prior.get(key))
+            if not pid:
                 print(f"{key}: no post_id recorded — FAILED")
                 failures += 1
                 continue
             d = req(f"/api/v1/content/posts/{pid}", token, method="GET")
-            verbatim = d.get("content_text") == post["text"]
-            pstatus = d.get("status")
-            targets = d.get("post_targets") or d.get("targets") or []
-            tinfo = [(t.get("platform"), t.get("status")) for t in targets]
-            bad_t = [s for _, s in tinfo if s in {"failed", "skipped"}]
-            print(f"{key}: status={pstatus} verbatim={verbatim} targets={tinfo}")
-            if not verbatim or not targets or bad_t or pstatus in {"failed", "draft"}:
-                if bad_t:
-                    print(f"  !! {len(bad_t)} target(s) failed/skipped")
+            ok, detail = verify_post(d, post)
+            print(f"{key}: {detail}")
+            if not ok:
                 failures += 1
             continue
 
@@ -270,25 +308,83 @@ def main() -> int:
                 print("  !! instagram requires media_ids — not creating")
                 failures += 1
                 continue
+
             fp = fingerprint(post)
-            if key in created_ids:
-                prev = created_ids[key]
-                prev_fp = prev.get("fp") if isinstance(prev, dict) else None
-                if prev_fp is None or prev_fp == fp:
-                    pid = prev.get("id") if isinstance(prev, dict) else prev
-                    print(f"  -> already created as {pid} — skipping")
+            entry = created_ids.get(key)
+            if entry is not None:
+                pid = entry_id(entry)
+                if isinstance(entry, dict) and entry.get("pending_cleanup"):
+                    # Earlier delete may or may not have landed — reconcile.
+                    try:
+                        req(f"/api/v1/content/posts/{pid}", token, method="GET")
+                        print(f"  !! {key}: cleanup pending but post {pid} still "
+                              "exists — delete it manually and re-run")
+                        failures += 1
+                    except urllib.error.HTTPError as e:
+                        if e.code == 404:
+                            print(f"  -> cleanup confirmed for {pid}")
+                            created_ids.pop(key)
+                            save_ledger()
+                        else:
+                            raise
                     continue
-                print(f"  !! plan changed for existing key {key} "
-                      f"(post {prev.get('id')}) — edit it via the API or delete "
-                      "and re-run; not creating a duplicate")
-                failures += 1
-                continue
+                # Re-verify before trusting any saved ID: fetch the stored
+                # post and compare it to the (possibly edited) plan.
+                try:
+                    d = req(f"/api/v1/content/posts/{pid}", token, method="GET")
+                except urllib.error.HTTPError as e:
+                    if e.code != 404:
+                        raise
+                    print(f"  -> saved post {pid} no longer exists — "
+                          "dropping ledger entry")
+                    created_ids.pop(key, None)
+                    save_ledger()
+                    entry = None
+                else:
+                    ok, detail = verify_post(d, post)
+                    fp_match = isinstance(entry, dict) and entry.get("fp") == fp
+                    if ok and (fp_match or matches_plan(d, post)):
+                        # Legacy bare-string entry → fingerprinted form.
+                        if not isinstance(entry, dict):
+                            created_ids[key] = {"id": pid, "fp": fp,
+                                                "verified": True}
+                            save_ledger()
+                        elif not entry.get("verified"):
+                            entry["verified"] = True
+                            save_ledger()
+                        print(f"  -> already created as {pid} ({detail}) — skipping")
+                        continue
+                    if not ok:
+                        # Stored post is bad — delete it and drop the ledger
+                        # entry so the run recreates below.
+                        req(f"/api/v1/content/posts/{pid}", token, method="DELETE")
+                        created_ids.pop(key, None)
+                        save_ledger()
+                        print(f"  !! stored post failed checks ({detail}) — "
+                              f"deleted {pid}, recreating")
+                    else:
+                        print(f"  !! plan changed for existing key {key} "
+                              f"(post {pid}: stored fields differ) — edit it via "
+                              "the API or delete and re-run; not duplicating")
+                        failures += 1
+                        continue
+
             existing_pid = scheduled_map(token).get((post["platform"], post["text"]))
             if existing_pid:
-                print(f"  -> identical text already scheduled ({existing_pid}) — adopting")
-                created_ids[key] = {"id": existing_pid, "fp": fp}
-                save_ledger()
+                d = req(f"/api/v1/content/posts/{existing_pid}", token, method="GET")
+                if matches_plan(d, post):
+                    print(f"  -> identical post already scheduled "
+                          f"({existing_pid}) — adopting")
+                    created_ids[key] = {"id": existing_pid, "fp": fp,
+                                        "verified": True}
+                    save_ledger()
+                else:
+                    print(f"  !! identical text already scheduled as "
+                          f"{existing_pid} with different time/accounts/media "
+                          "— resolve the conflict manually")
+                    failures += 1
                 continue
+
             body = {
                 "content_text": post["text"],
                 "target_account_ids": post["account_ids"],
@@ -300,20 +396,30 @@ def main() -> int:
             try:
                 r = req("/api/v1/content/posts", token, body)
                 pid = r.get("id")
-                created_ids[key] = {"id": pid, "fp": fp}
-                save_ledger()  # persist before any later network call can abort
+                # Ledger first (unverified) so an abort can't orphan the post.
+                created_ids[key] = {"id": pid, "fp": fp, "verified": False}
+                save_ledger()
                 d = req(f"/api/v1/content/posts/{pid}", token, method="GET")
-                verbatim = d.get("content_text") == post["text"]
-                targets = d.get("post_targets") or d.get("targets") or []
-                ok = verbatim and d.get("status") == "scheduled" and targets
-                print(f"  -> {pid} status={d.get('status')} verbatim={verbatim} "
-                      f"targets={[(t.get('platform'), t.get('status')) for t in targets]}")
+                ok, detail = verify_post(d, post)
+                print(f"  -> {pid} {detail}")
                 if not ok:
-                    req(f"/api/v1/content/posts/{pid}", token, method="DELETE")
-                    created_ids.pop(key, None)
+                    try:
+                        req(f"/api/v1/content/posts/{pid}", token, method="DELETE")
+                        created_ids.pop(key, None)
+                        print(f"  !! verbatim/target check failed — deleted {pid}")
+                    except urllib.error.HTTPError:
+                        # Ambiguous cleanup — keep the ID flagged for
+                        # reconciliation on the next run.
+                        created_ids[key] = {"id": pid, "fp": fp,
+                                            "verified": False,
+                                            "pending_cleanup": True}
+                        print(f"  !! check failed; delete of {pid} "
+                              "unconfirmed — marked pending_cleanup")
                     save_ledger()
-                    print(f"  !! verbatim/target check failed — deleted {pid}")
                     failures += 1
+                else:
+                    created_ids[key]["verified"] = True
+                    save_ledger()
             except urllib.error.HTTPError as e:
                 print(f"  !! create failed: HTTP {e.code} {e.read()[:200]}")
                 failures += 1
