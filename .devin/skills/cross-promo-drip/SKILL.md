@@ -16,7 +16,10 @@ monetization, etc.).
 
 1. **Platform-native copy, never identical blasts.** Same angle, different
    voice per platform. Same-day identical "follow me" posts read as spam.
-2. **Drip over days.** 1–2 posts per platform spread across ≥2 weeks.
+2. **Drip over days.** 1–2 posts per platform, ≥7 days between posts on
+   the *same* platform, and the campaign spans ≥2 weeks overall. (The
+   spacing rule is per-platform: two LinkedIn posts 8 days apart inside a
+   two-week campaign is correct.)
 3. **LinkedIn: keep the link INLINE in the post body.** The old "link in
    first comment" trick now costs ~80% reach + 3.4× worse conversion
    (van der Blom 2025). For personal profiles the inline-link penalty is
@@ -43,8 +46,12 @@ monetization, etc.).
 numeric SEO ≥90 AND a successful empty spellcheck. If either service is
 down (null response), the post is skipped — an outage must not become a
 backdoor for unchecked copy. Re-running `--schedule` is idempotent:
-keys already in `<plan>.created.json` are skipped, and text already
-scheduled to the same platform is not duplicated.
+keys already in `<plan>.created.json` are skipped **only if the plan
+entry is unchanged** — a fingerprint of text/time/accounts/media detects
+edits and fails loudly rather than silently keeping a stale schedule.
+Text already scheduled to the same platform is adopted (its real post ID
+is recorded), never duplicated. Instagram entries without `media_ids`
+are rejected.
 
 ## Best posting times (Athens, EEST) — Buffer/Later 2026 studies
 
