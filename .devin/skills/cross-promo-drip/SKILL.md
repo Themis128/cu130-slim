@@ -49,15 +49,17 @@ backdoor for unchecked copy.
 
 **Ledger** (`<plan>.created.json`): each key stores
 `{"id", "fp", "verified"}`. Re-running `--schedule` skips a key only when
-the plan fingerprint (platform/text/time/accounts/media) matches AND the
-stored post passes verification — unverified entries are re-fetched and
-re-checked, stale 404 IDs are dropped and recreated, bad stored posts are
-deleted and recreated, and changed plan entries fail loudly (never silently
-keep a stale schedule). Identical text already scheduled elsewhere is
+the live post passes verification AND matches the plan on every field
+(platform/text/time/accounts/media — the API truth, not just the saved
+fingerprint, is checked). Unverified entries are re-fetched and
+re-checked, stale 404 IDs are dropped and recreated, and any
+plan-vs-stored conflict (edited copy, changed schedule, touched in the
+UI) fails loudly — `drip.py` never deletes or replaces an existing
+schedule implicitly. Identical text already scheduled elsewhere is
 **adopted only if its time/accounts/media match the plan** — a mismatch is
-a conflict, never a silent alias. Failed deletes are marked
-`pending_cleanup` and reconciled next run. Instagram entries without
-`media_ids` are rejected.
+a conflict, never a silent alias. Failed deletes at create time are
+marked `pending_cleanup` and reconciled next run. Instagram entries
+without `media_ids` are rejected.
 
 ## Best posting times (Athens, EEST) — Buffer/Later 2026 studies
 

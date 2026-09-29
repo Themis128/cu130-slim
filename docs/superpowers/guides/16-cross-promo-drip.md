@@ -71,8 +71,9 @@ Re-running is safe and honest:
 - Unverified entries (e.g. a network error after creation) are re-checked
   on the next run before being trusted.
 - If you **edit the plan** (text, time, accounts, or media) for an
-  existing key, the run fails with a conflict — edit the post via the UI
-  or delete it first, don't silently double-schedule.
+  existing key — or someone edits the scheduled post in the UI — the run
+  fails with a conflict. `drip.py` never deletes an existing schedule on
+  its own; update or delete the post first, then re-run.
 - Identical text already in the queue is **adopted only when its
   schedule/accounts/media match**; a mismatch is flagged as a conflict.
 - If a bad stored post can't be deleted cleanly, the entry is marked

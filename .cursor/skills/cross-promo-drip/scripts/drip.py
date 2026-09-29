@@ -199,9 +199,21 @@ def verify_post(d: dict, post: dict) -> tuple[bool, str]:
     return ok, f"status={pstatus} verbatim={verbatim} targets={tinfo}"
 
 
+def _parse_dt(s: str | None):
+    if not s:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def matches_plan(d: dict, post: dict) -> bool:
-    """Does a stored scheduled post actually match the plan's fields?"""
-    if d.get("scheduled_at") != post["scheduled_at"]:
+    """Does a stored scheduled post actually match the plan's fields?
+    Datetimes are normalized — the API serializes '+00:00' while plans
+    conventionally write 'Z'."""
+    if _parse_dt(d.get("scheduled_at")) != _parse_dt(post["scheduled_at"]):
         return False
     t_accts = {
         str(t.get("account_id") or t.get("social_account_id") or "")
@@ -342,9 +354,10 @@ def main() -> int:
                     entry = None
                 else:
                     ok, detail = verify_post(d, post)
-                    fp_match = isinstance(entry, dict) and entry.get("fp") == fp
-                    if ok and (fp_match or matches_plan(d, post)):
-                        # Legacy bare-string entry → fingerprinted form.
+                    if ok and matches_plan(d, post):
+                        # Live post matches the plan on every field — the
+                        # fingerprint in the ledger is then redundant proof.
+                        # Migrate legacy bare-string entries to dict form.
                         if not isinstance(entry, dict):
                             created_ids[key] = {"id": pid, "fp": fp,
                                                 "verified": True}
@@ -354,20 +367,15 @@ def main() -> int:
                             save_ledger()
                         print(f"  -> already created as {pid} ({detail}) — skipping")
                         continue
-                    if not ok:
-                        # Stored post is bad — delete it and drop the ledger
-                        # entry so the run recreates below.
-                        req(f"/api/v1/content/posts/{pid}", token, method="DELETE")
-                        created_ids.pop(key, None)
-                        save_ledger()
-                        print(f"  !! stored post failed checks ({detail}) — "
-                              f"deleted {pid}, recreating")
-                    else:
-                        print(f"  !! plan changed for existing key {key} "
-                              f"(post {pid}: stored fields differ) — edit it via "
-                              "the API or delete and re-run; not duplicating")
-                        failures += 1
-                        continue
+                    # Mismatch = plan edited or the post was touched outside —
+                    # report a conflict. Never delete an existing schedule:
+                    # the post may be intentional, and recreation loses its
+                    # original timing/history.
+                    print(f"  !! plan/stored conflict for key {key} "
+                          f"(post {pid}: {detail}, stored fields vs plan "
+                          "differ) — edit via the API or delete and re-run")
+                    failures += 1
+                    continue
 
             existing_pid = scheduled_map(token).get((post["platform"], post["text"]))
             if existing_pid:
