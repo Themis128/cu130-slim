@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import (
     LINKEDIN_SCOPES,
+    PLATFORM_SCOPES,
     facebook_client,
     get_current_user,
     instagram_client,
@@ -255,9 +256,10 @@ async def connect_account_body(
         # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
-        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
-        # Messenger uses the same Facebook scopes (pages_messaging is the key one)
-        "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        # facebook/messenger share the canonical list — a sparse duplicate
+        # previously dropped read_insights on reconnect, killing Page Insights.
+        "facebook": PLATFORM_SCOPES["facebook"],
+        "messenger": PLATFORM_SCOPES["facebook"],
         # WhatsApp Business Cloud API scopes
         "whatsapp": [
             "whatsapp_business_messaging",
@@ -326,8 +328,8 @@ async def connect_account(
     scopes = {
         "linkedin": LINKEDIN_SCOPES,
         "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
-        "facebook": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
-        "messenger": ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_messaging"],
+        "facebook": PLATFORM_SCOPES["facebook"],
+        "messenger": PLATFORM_SCOPES["facebook"],
         "whatsapp": [
             "whatsapp_business_messaging",
             "whatsapp_business_management",

@@ -17,9 +17,11 @@ Python process.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
+import re
 from typing import Any
 
 import httpx
@@ -86,6 +88,78 @@ class FacebookSidecarClient:
 
     async def get_profile(self) -> dict[str, Any]:
         return await self._get("/profile")
+
+    async def get_profile_stats(self) -> dict[str, Any]:
+        """Scrape follower count + professional-dashboard stats for the
+        logged-in personal profile.
+
+        The Graph API exposes none of this for personal profiles —
+        ``followers_count`` and post insights only exist for Pages — so
+        pro-mode profile analytics come from the rendered UI: the profile
+        page ("N followers") and professional_dashboard (Views / Engagement /
+        Net follows over the trailing 28 days).
+        """
+        await self._post("/debug/navigate", {"url": "https://www.facebook.com/me"})
+        # Poll until the profile header mounts ("N followers") — the SPA
+        # needs a few seconds on a cold navigate.
+        prof_text = ""
+        for _ in range(6):
+            await asyncio.sleep(3)
+            prof = await self._post(
+                "/debug/eval",
+                {"script": "document.body.innerText.substring(0,6000)"},
+            )
+            prof_text = str(prof.get("result") or "")
+            if "followers" in prof_text:
+                break
+        followers = None
+        m = re.search(r"([\d,]+)\s+followers", prof_text)
+        if m:
+            followers = int(m.group(1).replace(",", ""))
+
+        await self._post(
+            "/debug/navigate",
+            {"url": "https://www.facebook.com/professional_dashboard/"},
+        )
+        # The dashboard is a lazy-rendered SPA — poll until the Insights
+        # cards mount ("Net follows" label) instead of a fixed sleep.
+        dash_text = ""
+        for _ in range(10):
+            await asyncio.sleep(3)
+            dash = await self._post(
+                "/debug/eval",
+                {"script": "document.body.innerText.substring(0,8000)"},
+            )
+            dash_text = str(dash.get("result") or "")
+            if "Net follows" in dash_text:
+                break
+        # Dashboard cards render as: value line, % change line, label line
+        # ("209", "895%", "Views"). Value is the numeric line two rows above
+        # the label.
+        stats: dict[str, Any] = {"followers": followers}
+        lines = [
+            ln.strip().replace("﻿", "").replace("​", "")
+            for ln in dash_text.splitlines()
+            if ln.strip()
+        ]  # dashboard % lines carry a leading zero-width char (﻿895%)
+        for label, key in (
+            ("Views", "views_28d"),
+            ("Engagement", "engagement_28d"),
+            ("Net follows", "net_follows_28d"),
+        ):
+            # The label also appears in the nav sidebar — a stat card is the
+            # occurrence whose preceding line is a % change figure.
+            for i, ln in enumerate(lines):
+                if ln != label:
+                    continue
+                if i == 0 or not re.fullmatch(r"[\d.]+%", lines[i - 1]):
+                    continue
+                for cand in reversed(lines[max(0, i - 3) : i - 1]):
+                    if re.fullmatch(r"[\d,]+", cand):
+                        stats[key] = int(cand.replace(",", ""))
+                        break
+                break
+        return stats
 
     async def update_bio(self, bio: str) -> dict[str, Any]:
         return await self._post("/profile/bio", {"bio": bio})

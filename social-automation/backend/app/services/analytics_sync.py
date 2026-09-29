@@ -1533,6 +1533,42 @@ async def sync_facebook_account(
 
     # Prefer stored page_token from meta_data (avoids extra API call)
     meta = account.meta_data or {}
+
+    # Personal (pro-mode) profiles: the Graph API exposes no follower or
+    # insights edge for user accounts — the data only exists in the
+    # Professional Dashboard UI. Scrape it via the browser sidecar so the
+    # profile gets the same follower time-series + trend events Pages do.
+    if meta.get("account_type") == "user":
+        try:
+            from app.services.facebook_sidecar import FacebookSidecarClient
+
+            stats = await FacebookSidecarClient(timeout=60).get_profile_stats()
+            followers = stats.get("followers")
+            if followers:
+                prev = await db.scalar(
+                    select(FollowerSnapshot.followers)
+                    .where(
+                        FollowerSnapshot.social_account_id == account.id,
+                        FollowerSnapshot.followers > 0,
+                    )
+                    .order_by(FollowerSnapshot.captured_at.desc())
+                    .limit(1)
+                )
+                if _plausible_follower_count(prev, int(followers)):
+                    db.add(FollowerSnapshot(
+                        team_id=account.team_id, social_account_id=account.id,
+                        platform="facebook", followers=int(followers),
+                    ))
+            trend = {k: v for k, v in stats.items() if k != "followers" and v is not None}
+            if trend:
+                _persist_account_event(
+                    db, account, captured_at, "profile_dashboard", trend
+                )
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — scrape is best-effort
+            result.errors.append(f"facebook profile dashboard scrape: {exc}")
+        return result
+
     page_token = meta.get("page_token") or token
     async with httpx.AsyncClient(timeout=30.0) as client:
         if not meta.get("page_token"):
@@ -1629,6 +1665,7 @@ async def sync_facebook_account(
                         "page_views_total", "page_post_engagements",
                         "page_daily_follows", "page_follows",
                         "page_total_actions", "page_video_views",
+                        "page_media_view", "page_video_view_time",
                     ],
                     params={"access_token": page_token, "period": "day"},
                 )

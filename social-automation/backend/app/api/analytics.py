@@ -149,12 +149,27 @@ async def _twitter_follower_count(account: SocialAccount) -> int:
 
 
 async def _facebook_follower_count(account: SocialAccount) -> int:
-    """Fetch follower count for a Facebook Page via Graph API."""
+    """Fetch follower count for a Facebook Page or personal profile.
+
+    Pages: Graph API ``followers_count``. Personal (pro-mode) profiles expose
+    no follower edge on the Graph API — the count only exists in the UI, so
+    it is scraped from the profile page via the facebook browser sidecar.
+    """
     if account.platform != "facebook":
         return 0
+    meta = account.meta_data or {}
+    if meta.get("account_type") == "user":
+        try:
+            from app.services.facebook_sidecar import FacebookSidecarClient
+
+            stats = await FacebookSidecarClient(timeout=60).get_profile_stats()
+            if stats.get("followers"):
+                return int(stats["followers"])
+        except Exception:
+            pass
+        return -1
     try:
         import httpx
-        meta = account.meta_data or {}
         token = meta.get("page_token") or decrypt_token(account.access_token_enc)
         page_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
