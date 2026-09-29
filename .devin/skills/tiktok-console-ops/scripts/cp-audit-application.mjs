@@ -194,9 +194,37 @@ for (let i = 0; i < await boxes.count(); i++) {
 }
 await page.waitForTimeout(600);
 await page.getByRole('button', { name: /^Next$/ }).click();
-// Submission uploads the MP4 server-side — give it real time.
-await page.waitForTimeout(25000);
+
+// Wait for a terminal state: navigation away from Review, a success/under-review
+// banner, or an explicit error — the MP4 uploads server-side so allow 120s.
+let terminal = '';
+for (let i = 0; i < 60; i++) {
+  await page.waitForTimeout(2000);
+  const txt = await page.evaluate(() => document.body.innerText).catch(() => '');
+  if (/under review|submitted|application received|success/i.test(txt)) { terminal = 'submitted'; break; }
+  if (/error|failed|try again/i.test(txt) && !/Review/.test(txt)) { terminal = 'error'; break; }
+  // spinner gone but still on Review → validation blocked the submit
+  const stillNext = await page.getByRole('button', { name: /^Next$/ }).isEnabled().catch(() => false);
+  const onReview = /Review\s+and\s+[Ss]ubmit|Declaration/i.test(txt);
+  if (stillNext && onReview && i > 5) { terminal = 'stuck_on_review'; break; }
+}
 await dumpStep(page, '5-after-submit');
-const after = await page.evaluate(() => document.body.innerText.slice(0, 2000));
-log({ afterSubmit: after });
+log({ submitTerminal: terminal });
+
+// Cross-check the app page: the console shows "Under review" beside
+// Direct Post once the application lands.
+await page.goto(`https://developers.tiktok.com/app/${ORG.appId}/`, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
+await page.waitForTimeout(6000);
+await dismissCookies(page);
+const appText = await page.evaluate(() => document.body.innerText).catch(() => '');
+const underReview = /Under review/i.test(appText);
+await shot(page, '6-app-page.png');
+log({ underReview });
+
 await browser.close();
+if (terminal === 'submitted' || underReview) {
+  log({ ok: true, result: 'audit_under_review' });
+  process.exit(0);
+}
+log({ ok: false, error: 'submit_not_confirmed', terminal });
+process.exit(3);

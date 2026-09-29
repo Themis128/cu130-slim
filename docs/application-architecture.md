@@ -576,7 +576,12 @@ Beat Schedule:
 | Instagram | ✓ | ✓ (Business Login + FB Login) | ✓ | ✓ (Graph + private) | ✓ DM (Messenger Platform) | Private API sidecar, Web API |
 | LinkedIn | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Company Page, browser sidecar |
 | Twitter/X | ✓ (OAuth 2.0 PKCE) | ✓ | ✓ | ✓ (API) | ✓ DM (API v2) | API v2, free tier 50/day |
-| TikTok | ✓ | ✓ (Direct Post + Upload) | ✓ | ✓ (API + browser) | ✓ DM (Business Messaging) | Browser sidecar, domain verification |
+| TikTok | ✓ | ✓ (Direct Post + Upload) | ✓ | ✓ (API + browser) | ✓ DM (Business Messaging) | Browser sidecar, domain verification, 6-scope OAuth |
+
+> **TikTok ops tooling** (`.devin/skills/`): `check-scopes.sh` audits granted
+> OAuth scopes, `tiktok-reconnect.sh` re-runs consent for scope upgrades via
+> the stored web session, `cp-audit-application.sh` drives the Content Posting
+> API audit wizard. See guide `docs/superpowers/guides/10-tiktok-content-posting.md`.
 | Threads | ✓ | ✓ (text, image, video, carousel) | ✓ | ✓ (API) | — | Instagram-based, v1.0 |
 | WhatsApp | ✓ | — | — | ✓ (Cloud API) | ✓ Cloud API | WABA, phone verification |
 
