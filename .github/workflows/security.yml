@@ -290,13 +290,21 @@ jobs:
           cd social-automation/backend
           pip install --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
           pip install -e .
+          # oauthlib 3.3.1 CVEs are both provider-side and not exploitable
+          # here: CVE-2026-49264 hits RevocationEndpoint (OAuth server) and
+          # CVE-2026-49265 is a timing oracle in the authorization_code
+          # grant's code_verifier comparison (also server-side). SocialAuto
+          # only acts as an OAuth *client* via requests-oauthlib/tweepy.
+          # oauthlib<4 is pinned by tweepy 4.x (latest), so no fix version
+          # is resolvable — revisit when tweepy allows oauthlib>=4.0.0.
+          IGNORE_VULNS="--ignore-vuln CVE-2026-49264 --ignore-vuln CVE-2026-49265"
           # pip-audit queries the PyPI/OSV JSON API per package; transient
           # read timeouts (default 15s) fail the whole job. Bump the timeout
           # and retry, falling back to the OSV service if PyPI is unreachable.
           for svc in pypi osv; do
             for attempt in 1 2 3; do
               echo "==> pip-audit (service=$svc, attempt=$attempt)"
-              if pip-audit --desc --timeout 60 --vulnerability-service "$svc" --local; then
+              if pip-audit --desc --timeout 60 --vulnerability-service "$svc" --local $IGNORE_VULNS; then
                 exit 0
               fi
               echo "==> attempt $attempt failed (service=$svc), retrying in $((attempt*10))s..."
