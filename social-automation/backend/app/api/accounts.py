@@ -271,7 +271,10 @@ async def connect_account_body(
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         # Official Login Kit + Content Posting + Display scopes.
         # video.list required for /v2/video/list/ and /v2/video/query/.
-        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
+        # user.info.profile → bio/verified/deep-link; user.info.stats →
+        # follower/following/likes/video counts (analytics profile_sync).
+        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
+                   "video.publish", "video.upload", "video.list"],
     }.get(data.platform, [])
 
     # Twitter and TikTok OAuth 2.0 require PKCE
@@ -340,7 +343,10 @@ async def connect_account(
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         # Official Login Kit + Content Posting + Display scopes.
         # video.list required for /v2/video/list/ and /v2/video/query/.
-        "tiktok": ["user.info.basic", "video.publish", "video.upload", "video.list"],
+        # user.info.profile → bio/verified/deep-link; user.info.stats →
+        # follower/following/likes/video counts (analytics profile_sync).
+        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
+                   "video.publish", "video.upload", "video.list"],
     }.get(platform, [])
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL

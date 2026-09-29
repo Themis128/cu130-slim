@@ -1671,17 +1671,6 @@ async def oauth_callback(
         elif platform == "tiktok":
             # TikTok token response includes open_id alongside access_token
             open_id = token.get("open_id", "")
-            # Fetch basic user info
-            resp = await http.get(
-                "https://open.tiktokapis.com/v2/user/info/",
-                params={"fields": "open_id,union_id,avatar_url,display_name"},
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            tt_info = resp.json().get("data", {}).get("user", {})
-            account_id = open_id or tt_info.get("open_id", "")
-            username = tt_info.get("display_name") or account_id
-            display_name = tt_info.get("display_name", "")
-            avatar_url = tt_info.get("avatar_url")
             # Prefer scopes actually granted (callback query or token response).
             # Hardcoding used to drop video.list even when TikTok authorized it.
             _raw_scope = granted_scopes or token.get("scope") or ""
@@ -1691,6 +1680,23 @@ async def oauth_callback(
                 scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
             else:
                 scopes = ["user.info.basic", "video.publish", "video.upload", "video.list"]
+            # Fetch user info — only request fields whose scope was granted,
+            # otherwise TikTok rejects the whole call with scope_not_authorized.
+            tt_fields = ["open_id", "union_id", "avatar_url", "display_name"]
+            if "user.info.profile" in scopes:
+                tt_fields += ["bio_description", "profile_deep_link", "is_verified", "username"]
+            if "user.info.stats" in scopes:
+                tt_fields += ["follower_count", "following_count", "likes_count", "video_count"]
+            resp = await http.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                params={"fields": ",".join(tt_fields)},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            tt_info = resp.json().get("data", {}).get("user", {})
+            account_id = open_id or tt_info.get("open_id", "")
+            username = tt_info.get("username") or tt_info.get("display_name") or account_id
+            display_name = tt_info.get("display_name", "")
+            avatar_url = tt_info.get("avatar_url")
         else:
             raise HTTPException(status_code=400, detail="Unsupported platform")
 
@@ -1730,9 +1736,19 @@ async def oauth_callback(
                 "author_urn": f"urn:li:person:{account_id}",
             }
         elif platform == "tiktok":
+            _tt_info = locals().get("tt_info") or {}
             account.meta_data = {
                 **(account.meta_data or {}),
                 "open_id": token.get("open_id", account_id),
+                **{k: v for k, v in {
+                    "bio_description": _tt_info.get("bio_description"),
+                    "profile_deep_link": _tt_info.get("profile_deep_link"),
+                    "is_verified": _tt_info.get("is_verified"),
+                    "follower_count": _tt_info.get("follower_count"),
+                    "following_count": _tt_info.get("following_count"),
+                    "likes_count": _tt_info.get("likes_count"),
+                    "video_count": _tt_info.get("video_count"),
+                }.items() if v is not None},
             }
         elif platform == "facebook":
             account.meta_data = {
@@ -1762,7 +1778,19 @@ async def oauth_callback(
         if platform == "linkedin":
             _meta = {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
         elif platform == "tiktok":
-            _meta = {"open_id": token.get("open_id", account_id)}
+            _tt_info = locals().get("tt_info") or {}
+            _meta = {
+                "open_id": token.get("open_id", account_id),
+                **{k: v for k, v in {
+                    "bio_description": _tt_info.get("bio_description"),
+                    "profile_deep_link": _tt_info.get("profile_deep_link"),
+                    "is_verified": _tt_info.get("is_verified"),
+                    "follower_count": _tt_info.get("follower_count"),
+                    "following_count": _tt_info.get("following_count"),
+                    "likes_count": _tt_info.get("likes_count"),
+                    "video_count": _tt_info.get("video_count"),
+                }.items() if v is not None},
+            }
         elif platform == "facebook":
             _meta = {"account_type": "page" if account_id != locals().get("fb_info", {}).get("id") else "user"}
         elif platform == "whatsapp":

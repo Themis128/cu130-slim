@@ -2526,6 +2526,61 @@ async def sync_tiktok_account(
                     result=result, platform="tiktok",
                 )
 
+    # Official User Info API — user.info.stats gives authoritative
+    # follower/following/likes/video counts; user.info.profile gives
+    # bio/verified/deep-link. Prefer it over the scrape when granted.
+    api_profile_synced = False
+    if token and {"user.info.stats", "user.info.profile"} & set(account.scopes or []):
+        try:
+            tt_fields = ["open_id", "avatar_url", "display_name"]
+            if "user.info.profile" in (account.scopes or []):
+                tt_fields += ["bio_description", "profile_deep_link", "is_verified", "username"]
+            if "user.info.stats" in (account.scopes or []):
+                tt_fields += ["follower_count", "following_count", "likes_count", "video_count"]
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                ui = await client.get(
+                    "https://open.tiktokapis.com/v2/user/info/",
+                    params={"fields": ",".join(tt_fields)},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            ui_user = (ui.json() or {}).get("data", {}).get("user", {})
+            if ui_user:
+                # Refresh the account record from the authoritative source.
+                if ui_user.get("username"):
+                    account.username = ui_user["username"]
+                if ui_user.get("display_name"):
+                    account.display_name = ui_user["display_name"]
+                if ui_user.get("avatar_url"):
+                    account.avatar_url = ui_user["avatar_url"]
+                _meta_extra = {
+                    k: v for k, v in {
+                        "bio_description": ui_user.get("bio_description"),
+                        "profile_deep_link": ui_user.get("profile_deep_link"),
+                        "is_verified": ui_user.get("is_verified"),
+                        "follower_count": ui_user.get("follower_count"),
+                        "following_count": ui_user.get("following_count"),
+                        "likes_count": ui_user.get("likes_count"),
+                        "video_count": ui_user.get("video_count"),
+                    }.items() if v is not None
+                }
+                if _meta_extra:
+                    account.meta_data = {**(account.meta_data or {}), **_meta_extra}
+                _persist_account_event(
+                    db, account, captured_at, "profile_sync",
+                    {
+                        "followers_count": ui_user.get("follower_count") or 0,
+                        "following_count": ui_user.get("following_count"),
+                        "likes_count": ui_user.get("likes_count"),
+                        "video_count": ui_user.get("video_count"),
+                        "is_verified": ui_user.get("is_verified"),
+                        "profile_deep_link": ui_user.get("profile_deep_link"),
+                        "api_source": "user.info",
+                    },
+                )
+                api_profile_synced = True
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"tiktok user.info @{account.username}: {exc}")
+
     # yt-dlp scrape of the profile grid — the only source covering
     # MEDIA_UPLOAD inbox posts and videos published straight from the phone.
     username = (account.username or "").lstrip("@")
@@ -2551,15 +2606,17 @@ async def sync_tiktok_account(
                 )
             # Account-level profile stats from the scrape (follower count,
             # channel id, video grid size) — persisted as an event so
-            # dashboards can chart it without re-scraping.
-            _persist_account_event(
-                db, account, captured_at, "profile_sync",
-                {
-                    "followers_count": scraped.get("followers") or 0,
-                    "channel_id": scraped.get("channel_id") or "",
-                    "video_count": len(scraped.get("videos") or {}),
-                },
-            )
+            # dashboards can chart it without re-scraping. Skipped when the
+            # official User Info API already wrote this sync's event.
+            if not api_profile_synced:
+                _persist_account_event(
+                    db, account, captured_at, "profile_sync",
+                    {
+                        "followers_count": scraped.get("followers") or 0,
+                        "channel_id": scraped.get("channel_id") or "",
+                        "video_count": len(scraped.get("videos") or {}),
+                    },
+                )
             if not scraped["videos"]:
                 # 0 scraped videos with cookies present could mean a dead
                 # web session rather than an empty profile — ask the sidecar.
