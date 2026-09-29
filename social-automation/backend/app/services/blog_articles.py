@@ -190,7 +190,8 @@ async def get_published_article(slug: str) -> dict | None:
     try:
         return json.loads(data)
     except json.JSONDecodeError:
-        logger.warning("blog_articles: corrupt article JSON at %s", article_key(slug))
+        safe_key = article_key(slug).replace("\r", "").replace("\n", "")
+        logger.warning("blog_articles: corrupt article JSON at %s", safe_key)
         return None
 
 

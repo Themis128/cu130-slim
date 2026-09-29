@@ -40,9 +40,10 @@ class PlaywrightMCP:
         self._id = 0
         self._pending = {}
         self._lock = threading.Lock()
+        self._err = open("/tmp/pw-mcp.err", "w")
         self.proc = subprocess.Popen(
             CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=open("/tmp/pw-mcp.err", "w"), text=True, bufsize=1,
+            stderr=self._err, text=True, bufsize=1,
         )
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -105,6 +106,8 @@ class PlaywrightMCP:
             self.proc.wait(timeout=10)
         except Exception:
             self.proc.kill()
+        finally:
+            self._err.close()
 
     def __enter__(self):
         return self
