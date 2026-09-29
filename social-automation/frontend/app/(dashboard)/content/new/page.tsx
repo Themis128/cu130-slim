@@ -361,7 +361,7 @@ export default function NewPostPage() {
   const [libraryAssets, setLibraryAssets] = useState<MediaAsset[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
-  const [tiktokPublishMode, setTiktokPublishMode] = useState<'MEDIA_UPLOAD' | 'DIRECT_POST'>('MEDIA_UPLOAD')
+  const [tiktokPublishMode, setTiktokPublishMode] = useState<'MEDIA_UPLOAD' | 'DIRECT_POST'>('DIRECT_POST')
   const [tiktokPrivacyLevel, setTiktokPrivacyLevel] = useState('PUBLIC_TO_EVERYONE')
   const [tiktokDisableComment, setTiktokDisableComment] = useState(false)
   const [tiktokDisableDuet, setTiktokDisableDuet] = useState(false)

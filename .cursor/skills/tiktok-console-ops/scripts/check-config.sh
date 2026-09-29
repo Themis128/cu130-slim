@@ -48,7 +48,7 @@ check() {
 echo ""
 echo "Expected scopes (OAuth): $EXPECTED_SCOPES"
 echo "Expected domain verify:  $EXPECTED_DOMAIN (tiktok-domain-verification TXT)"
-echo "Publish pre-audit:       MEDIA_UPLOAD (not DIRECT_POST)"
+echo "Publish mode (approved): DIRECT_POST + PUBLIC_TO_EVERYONE (audit passed 2026-09-29)"
 echo ""
 
 # Sidecar

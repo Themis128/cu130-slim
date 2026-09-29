@@ -2035,14 +2035,43 @@ async def _publish_tiktok(
     )
 
     tiktok_options = (post.platform_specific or {}).get("tiktok", {}) or {}
-    # MEDIA_UPLOAD opens TikTok's native editor (music library, effects, stickers).
+    # App audit approved (Sep 2026) — DIRECT_POST is available and publishes
+    # directly. MEDIA_UPLOAD only drops a draft into the creator's mobile
+    # inbox (needs the phone app to finish); kept as a per-post override.
     # DIRECT_POST publishes from SocialAuto only — TikTok does not expose its
     # commercial music catalog over the Content Posting API.
-    publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
+    publish_mode = str(tiktok_options.get("publish_mode", "DIRECT_POST")).upper()
     if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
         return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
 
-    privacy_level = str(tiktok_options.get("privacy_level", "SELF_ONLY")).upper()
+    # Resume an in-flight publish (avoids burning another pending-share slot).
+    # Before creator_info/media validation — resuming needs neither.
+    existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
+    if existing_publish_id:
+        # A stored id predates the mode on the post — don't apply the new-post
+        # default: inbox ids (v_inbox_*/v_upload_*) poll SEND_TO_USER_INBOX,
+        # which is terminal only under MEDIA_UPLOAD.
+        resume_mode = str(tiktok_options.get("publish_mode") or "").upper()
+        if not resume_mode:
+            resume_mode = (
+                "MEDIA_UPLOAD"
+                if existing_publish_id.startswith(("v_inbox", "v_upload"))
+                else "DIRECT_POST"
+            )
+        logger.info(
+            "[publishing] TikTok resuming status poll for existing publish_id=%s mode=%s",
+            existing_publish_id,
+            resume_mode,
+        )
+        return await _poll_tiktok_publish_status(
+            client, existing_publish_id, resume_mode, account.username
+        )
+
+    # Brand account — public by default; creator_info still validates the
+    # level against what the account actually allows.
+    privacy_level = str(
+        tiktok_options.get("privacy_level", "PUBLIC_TO_EVERYONE")
+    ).upper()
     direct_kwargs = _tiktok_direct_post_kwargs(tiktok_options)
     if publish_mode == "DIRECT_POST":
         creator = await client.get_creator_info()
@@ -2052,18 +2081,6 @@ async def _publish_tiktok(
                 success=False,
                 error=f"TikTok privacy_level must be one of: {', '.join(privacy_options)}",
             )
-
-    # Resume an in-flight publish (avoids burning another pending-share slot).
-    # This must come before media URL validation — resuming doesn't need media.
-    existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
-    if existing_publish_id:
-        logger.info(
-            "[publishing] TikTok resuming status poll for existing publish_id=%s",
-            existing_publish_id,
-        )
-        return await _poll_tiktok_publish_status(
-            client, existing_publish_id, publish_mode, account.username
-        )
 
     # Photo posts always require PULL_FROM_URL (TikTok has no photo file upload).
     if not is_video and not public_urls:
@@ -2075,8 +2092,9 @@ async def _publish_tiktok(
     # 1) Initialize the post
     upload_url: str | None = None
     planned_chunk_size: int | None = None
+    video_size = 0
     if is_video and local_video_path:
-        # FILE_UPLOAD path — validate media rules then upload bytes directly
+        # FILE_UPLOAD path — validate media rules before init
         video_size = os.path.getsize(local_video_path)
         if video_size <= 0:
             return PublishResult(success=False, error="TikTok video file is empty")
@@ -2086,14 +2104,21 @@ async def _publish_tiktok(
         if media_error:
             return PublishResult(success=False, error=media_error)
         planned_chunk_size, _ = _video_chunk_plan(video_size)
-        if publish_mode == "MEDIA_UPLOAD":
-            init = await client.init_video_upload(
-                source="FILE_UPLOAD",
-                video_size=video_size,
-                chunk_size=planned_chunk_size,
-            )
-        else:
-            init = await client.init_video_post(
+    elif is_video and not public_urls:
+        return PublishResult(
+            success=False,
+            error="No public video URL for TikTok PULL_FROM_URL (verify domain or use local FILE_UPLOAD)",
+        )
+
+    async def _init(mode: str) -> dict:
+        if is_video and local_video_path:
+            if mode == "MEDIA_UPLOAD":
+                return await client.init_video_upload(
+                    source="FILE_UPLOAD",
+                    video_size=video_size,
+                    chunk_size=planned_chunk_size,
+                )
+            return await client.init_video_post(
                 source="FILE_UPLOAD",
                 title=text[:2200],
                 privacy_level=privacy_level,
@@ -2101,37 +2126,25 @@ async def _publish_tiktok(
                 chunk_size=planned_chunk_size,
                 **direct_kwargs,
             )
-        upload_url = init.get("data", {}).get("upload_url")
-    elif is_video and publish_mode == "MEDIA_UPLOAD":
-        if not public_urls:
-            return PublishResult(
-                success=False,
-                error="No public video URL for TikTok PULL_FROM_URL (verify domain or use local FILE_UPLOAD)",
+        if is_video:
+            if mode == "MEDIA_UPLOAD":
+                return await client.init_video_upload(
+                    source="PULL_FROM_URL",
+                    video_url=public_urls[0],
+                )
+            return await client.init_video_post(
+                source="PULL_FROM_URL",
+                video_url=public_urls[0],
+                title=text[:2200],
+                privacy_level=privacy_level,
+                **direct_kwargs,
             )
-        init = await client.init_video_upload(
-            source="PULL_FROM_URL",
-            video_url=public_urls[0],
-        )
-    elif is_video:
-        if not public_urls:
-            return PublishResult(
-                success=False,
-                error="No public video URL for TikTok PULL_FROM_URL (verify domain or use local FILE_UPLOAD)",
+        if mode == "MEDIA_UPLOAD":
+            return await client.init_photo_post_media_upload(
+                photo_urls=public_urls[:35],
+                title=text[:90],
+                description=text[:4000],
             )
-        init = await client.init_video_post(
-            source="PULL_FROM_URL",
-            video_url=public_urls[0],
-            title=text[:2200],
-            privacy_level=privacy_level,
-            **direct_kwargs,
-        )
-    elif publish_mode == "MEDIA_UPLOAD":
-        init = await client.init_photo_post_media_upload(
-            photo_urls=public_urls[:35],
-            title=text[:90],
-            description=text[:4000],
-        )
-    else:
         photo_kwargs = {
             k: v
             for k, v in direct_kwargs.items()
@@ -2150,13 +2163,28 @@ async def _publish_tiktok(
                 photo_kwargs["photo_cover_index"] = int(tiktok_options["photo_cover_index"])
             except (TypeError, ValueError):
                 pass
-        init = await client.init_photo_post(
+        return await client.init_photo_post(
             photo_urls=public_urls[:35],
             title=text[:90],
             privacy_level=privacy_level,
             description=text[:4000],
             **photo_kwargs,
         )
+
+    try:
+        init = await _init(publish_mode)
+    except TikTokAPIError as exc:
+        # Approved app, but the Content Posting visibility audit can lag the
+        # app approval — fall back to an inbox draft rather than failing.
+        if publish_mode == "DIRECT_POST" and _err_has(str(exc), _TT_UNAUDITED_MARKERS):
+            logger.warning(
+                "[publishing] TikTok DIRECT_POST gated (unaudited flag) — retrying as MEDIA_UPLOAD"
+            )
+            publish_mode = "MEDIA_UPLOAD"
+            init = await _init(publish_mode)
+        else:
+            raise
+    upload_url = init.get("data", {}).get("upload_url")
 
     publish_id = init.get("data", {}).get("publish_id")
     if not publish_id:

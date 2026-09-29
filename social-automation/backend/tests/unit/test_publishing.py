@@ -315,7 +315,89 @@ def test_fit_x_limit_counts_weighted_chars():
 
 
 @pytest.mark.asyncio
-async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
+async def test_publish_tiktok_defaults_to_direct_post(monkeypatch):
+    """Post-audit default: DIRECT_POST + PUBLIC_TO_EVERYONE."""
+    client = SimpleNamespace(
+        get_creator_info=AsyncMock(
+            return_value={
+                "data": {
+                    "privacy_level_options": [
+                        "PUBLIC_TO_EVERYONE",
+                        "MUTUAL_FOLLOW_FRIENDS",
+                        "SELF_ONLY",
+                    ]
+                }
+            }
+        ),
+        init_video_upload=AsyncMock(),
+        init_video_post=AsyncMock(return_value={"data": {"publish_id": "direct-123"}}),
+        check_publish_status=AsyncMock(
+            return_value={
+                "data": {
+                    "status": "PUBLISH_COMPLETE",
+                    "publicaly_available_post_id": ["video-123"],
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
+    post = SimpleNamespace(platform_specific={})
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
+
+    assert result.success is True
+    assert result.platform_post_id == "video-123"
+    client.init_video_post.assert_awaited_once()
+    kwargs = client.init_video_post.await_args.kwargs
+    assert kwargs["privacy_level"] == "PUBLIC_TO_EVERYONE"
+    client.init_video_upload.assert_not_awaited()
+    client.check_publish_status.assert_awaited_once_with("direct-123")
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_direct_post_falls_back_to_media_upload(monkeypatch):
+    """A lingering unaudited flag retries the init as an inbox draft."""
+    from app.services.tiktok_api import TikTokAPIError
+
+    client = SimpleNamespace(
+        get_creator_info=AsyncMock(
+            return_value={"data": {"privacy_level_options": ["PUBLIC_TO_EVERYONE", "SELF_ONLY"]}}
+        ),
+        init_video_post=AsyncMock(
+            side_effect=TikTokAPIError(
+                403,
+                '{"error":{"code":"unaudited_client_can_only_post_to_private_accounts"}}',
+                "https://open.tiktokapis.com/v2/post/publish/video/init/",
+            )
+        ),
+        init_video_upload=AsyncMock(return_value={"data": {"publish_id": "draft-fallback"}}),
+        check_publish_status=AsyncMock(
+            return_value={"data": {"status": "SEND_TO_USER_INBOX"}}
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
+    post = SimpleNamespace(platform_specific={})
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
+
+    assert result.success is True
+    assert result.platform_post_id == "draft-fallback"
+    client.init_video_post.assert_awaited_once()
+    client.init_video_upload.assert_awaited_once_with(
+        source="PULL_FROM_URL",
+        video_url="https://verified.example/video.mp4",
+    )
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_media_upload_override_still_works(monkeypatch):
+    """Explicit per-post publish_mode=MEDIA_UPLOAD keeps the inbox path."""
     client = SimpleNamespace(
         init_video_upload=AsyncMock(return_value={"data": {"publish_id": "draft-123"}}),
         init_video_post=AsyncMock(),
@@ -327,7 +409,7 @@ async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
-    post = SimpleNamespace(platform_specific={})
+    post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "MEDIA_UPLOAD"}})
 
     result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
 
@@ -345,7 +427,11 @@ async def test_publish_tiktok_defaults_to_upload_draft(monkeypatch):
 async def test_publish_tiktok_supports_direct_post(monkeypatch):
     client = SimpleNamespace(
         get_creator_info=AsyncMock(
-            return_value={"data": {"privacy_level_options": ["SELF_ONLY"]}}
+            return_value={
+                "data": {
+                    "privacy_level_options": ["PUBLIC_TO_EVERYONE", "SELF_ONLY"]
+                }
+            }
         ),
         init_video_upload=AsyncMock(),
         init_video_post=AsyncMock(return_value={"data": {"publish_id": "direct-123"}}),
@@ -474,6 +560,31 @@ async def test_publish_tiktok_resumes_existing_publish_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_publish_tiktok_modeless_inbox_resume_infers_upload(monkeypatch):
+    """A stored v_inbox_* publish_id with no explicit mode resumes as
+    MEDIA_UPLOAD — SEND_TO_USER_INBOX is terminal there, not under the
+    new DIRECT_POST default."""
+    client = SimpleNamespace(
+        init_video_upload=AsyncMock(),
+        check_publish_status=AsyncMock(
+            return_value={"data": {"status": "SEND_TO_USER_INBOX"}}
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
+    post = SimpleNamespace(
+        platform_specific={"tiktok": {"publish_id": "v_inbox_file~v2.abc"}}
+    )
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
+
+    assert result.success is True
+    assert result.platform_post_id == "v_inbox_file~v2.abc"
+    client.check_publish_status.assert_awaited_once_with("v_inbox_file~v2.abc")
+
+
+@pytest.mark.asyncio
 async def test_publish_tiktok_surfaces_fail_reason(monkeypatch):
     client = SimpleNamespace(
         init_video_upload=AsyncMock(return_value={"data": {"publish_id": "draft-fail"}}),
@@ -485,7 +596,7 @@ async def test_publish_tiktok_surfaces_fail_reason(monkeypatch):
     monkeypatch.setattr(pub, "_media_public_url", lambda _path, **kwargs: "https://verified.example/video.mp4")
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
-    post = SimpleNamespace(platform_specific={})
+    post = SimpleNamespace(platform_specific={"tiktok": {"publish_mode": "MEDIA_UPLOAD"}})
 
     result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
 
