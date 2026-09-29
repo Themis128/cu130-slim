@@ -1,7 +1,13 @@
+import logging
 from functools import lru_cache
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# httpx logs every request URL at INFO; Graph API calls carry access_token
+# in query params, which would leak tokens into worker/container logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # Compute env file path: /app/.env (mounted from host)
 ENV_FILE_PATH = "/app/.env"
