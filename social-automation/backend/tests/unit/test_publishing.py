@@ -560,6 +560,31 @@ async def test_publish_tiktok_resumes_existing_publish_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_publish_tiktok_modeless_inbox_resume_infers_upload(monkeypatch):
+    """A stored v_inbox_* publish_id with no explicit mode resumes as
+    MEDIA_UPLOAD — SEND_TO_USER_INBOX is terminal there, not under the
+    new DIRECT_POST default."""
+    client = SimpleNamespace(
+        init_video_upload=AsyncMock(),
+        check_publish_status=AsyncMock(
+            return_value={"data": {"status": "SEND_TO_USER_INBOX"}}
+        ),
+    )
+    monkeypatch.setattr(pub, "TikTokAPIClient", lambda **_: client)
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    account = SimpleNamespace(account_id="open-123", username="creator", meta_data={})
+    post = SimpleNamespace(
+        platform_specific={"tiktok": {"publish_id": "v_inbox_file~v2.abc"}}
+    )
+
+    result = await pub._publish_tiktok("token", "Caption", account, post, ["video.mp4"], ["fake/video.mp4"])
+
+    assert result.success is True
+    assert result.platform_post_id == "v_inbox_file~v2.abc"
+    client.check_publish_status.assert_awaited_once_with("v_inbox_file~v2.abc")
+
+
+@pytest.mark.asyncio
 async def test_publish_tiktok_surfaces_fail_reason(monkeypatch):
     client = SimpleNamespace(
         init_video_upload=AsyncMock(return_value={"data": {"publish_id": "draft-fail"}}),

@@ -2044,6 +2044,29 @@ async def _publish_tiktok(
     if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
         return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
 
+    # Resume an in-flight publish (avoids burning another pending-share slot).
+    # Before creator_info/media validation — resuming needs neither.
+    existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
+    if existing_publish_id:
+        # A stored id predates the mode on the post — don't apply the new-post
+        # default: inbox ids (v_inbox_*/v_upload_*) poll SEND_TO_USER_INBOX,
+        # which is terminal only under MEDIA_UPLOAD.
+        resume_mode = str(tiktok_options.get("publish_mode") or "").upper()
+        if not resume_mode:
+            resume_mode = (
+                "MEDIA_UPLOAD"
+                if existing_publish_id.startswith(("v_inbox", "v_upload"))
+                else "DIRECT_POST"
+            )
+        logger.info(
+            "[publishing] TikTok resuming status poll for existing publish_id=%s mode=%s",
+            existing_publish_id,
+            resume_mode,
+        )
+        return await _poll_tiktok_publish_status(
+            client, existing_publish_id, resume_mode, account.username
+        )
+
     # Brand account — public by default; creator_info still validates the
     # level against what the account actually allows.
     privacy_level = str(
@@ -2058,18 +2081,6 @@ async def _publish_tiktok(
                 success=False,
                 error=f"TikTok privacy_level must be one of: {', '.join(privacy_options)}",
             )
-
-    # Resume an in-flight publish (avoids burning another pending-share slot).
-    # This must come before media URL validation — resuming doesn't need media.
-    existing_publish_id = str(tiktok_options.get("publish_id") or "").strip()
-    if existing_publish_id:
-        logger.info(
-            "[publishing] TikTok resuming status poll for existing publish_id=%s",
-            existing_publish_id,
-        )
-        return await _poll_tiktok_publish_status(
-            client, existing_publish_id, publish_mode, account.username
-        )
 
     # Photo posts always require PULL_FROM_URL (TikTok has no photo file upload).
     if not is_video and not public_urls:
