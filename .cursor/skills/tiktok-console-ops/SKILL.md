@@ -28,7 +28,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 | Website URL (audit)      | `https://cloudless.gr` (public site — not `social.cloudless.gr`) |
 | Web / media domain       | `cloudless.gr` (covers `social.cloudless.gr`)                    |
 | Connected account        | sandbox `user3113682023385` / brand cloudless.gr                 |
-| Publish mode (approved)  | `DIRECT_POST` + `PUBLIC_TO_EVERYONE` (defaults; per-post overrides) |
+| Publish mode (approved)  | `DIRECT_POST` + `PUBLIC_TO_EVERYONE` (defaults; auto-falls back to `MEDIA_UPLOAD` if the unaudited flag lingers; per-post overrides) |
 | Sidecar                  | `http://127.0.0.1:9224`                                          |
 | Domain verify status     | `cloudless.gr` already verified in Production URL properties     |
 
