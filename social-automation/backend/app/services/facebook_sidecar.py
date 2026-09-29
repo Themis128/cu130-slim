@@ -17,14 +17,23 @@ Python process.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
+import re
+import time
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+# Short-TTL cache for get_profile_stats — one sync cycle hits it twice
+# (sync_facebook_account + the follower-snapshot helper) and a fresh
+# browser navigation each time is ~30s of page loads.
+_PROFILE_STATS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 class FacebookSidecarError(Exception):
@@ -86,6 +95,117 @@ class FacebookSidecarClient:
 
     async def get_profile(self) -> dict[str, Any]:
         return await self._get("/profile")
+
+    async def get_profile_stats(
+        self, expected_name: str | None = None
+    ) -> dict[str, Any]:
+        """Scrape follower count + professional-dashboard stats for the
+        logged-in personal profile.
+
+        The Graph API exposes none of this for personal profiles —
+        ``followers_count`` and post insights only exist for Pages — so
+        pro-mode profile analytics come from the rendered UI: the profile
+        page ("N followers") and professional_dashboard (Views / Engagement /
+        Net follows over the trailing 28 days).
+
+        The sidecar session is shared — ``expected_name`` guards against
+        attributing stats to the wrong SocialAccount when a different
+        profile holds the session. Results are cached 5 min so the
+        follower-snapshot helper and the sync pass share one scrape.
+        """
+        cache_key = expected_name or ""
+        cached = _PROFILE_STATS_CACHE.get(cache_key)
+        if cached and cached[0] > time.time():
+            return dict(cached[1])
+
+        nav = await self._post(
+            "/debug/navigate", {"url": "https://www.facebook.com/me"}
+        )
+        # Poll until the profile header mounts ("N followers") — the SPA
+        # needs a few seconds on a cold navigate.
+        prof_text = ""
+        for _ in range(6):
+            await asyncio.sleep(3)
+            prof = await self._post(
+                "/debug/eval",
+                {"script": "document.body.innerText.substring(0,6000)"},
+            )
+            prof_text = str(prof.get("result") or "")
+            if "followers" in prof_text:
+                break
+        followers = None
+        m = re.search(r"([\d,]+)\s+followers", prof_text)
+        if m:
+            followers = int(m.group(1).replace(",", ""))
+
+        # Display name sits on the line before "N followers • M following".
+        profile_name = None
+        prof_lines = [
+            ln.strip() for ln in prof_text.splitlines() if ln.strip()
+        ]
+        for i, ln in enumerate(prof_lines):
+            if "followers" in ln and i > 0:
+                profile_name = prof_lines[i - 1]
+                break
+        if expected_name and (
+            not profile_name
+            or expected_name.strip().casefold() != profile_name.casefold()
+        ):
+            raise FacebookSidecarError(
+                409,
+                f"profile mismatch: sidecar session is "
+                f"{profile_name!r}, expected {expected_name!r} — "
+                "refusing to attribute another profile's stats",
+            )
+
+        await self._post(
+            "/debug/navigate",
+            {"url": "https://www.facebook.com/professional_dashboard/"},
+        )
+        # The dashboard is a lazy-rendered SPA — poll until the Insights
+        # cards mount ("Net follows" label) instead of a fixed sleep.
+        dash_text = ""
+        for _ in range(10):
+            await asyncio.sleep(3)
+            dash = await self._post(
+                "/debug/eval",
+                {"script": "document.body.innerText.substring(0,8000)"},
+            )
+            dash_text = str(dash.get("result") or "")
+            if "Net follows" in dash_text:
+                break
+        # Dashboard cards render as: value line, % change line, label line
+        # ("209", "895%", "Views"). Value is the numeric line two rows above
+        # the label.
+        stats: dict[str, Any] = {
+            "followers": followers,
+            "profile_name": profile_name,
+            "profile_url": nav.get("url"),
+        }
+        lines = [
+            ln.strip().replace("﻿", "").replace("​", "")
+            for ln in dash_text.splitlines()
+            if ln.strip()
+        ]  # dashboard % lines carry a leading zero-width char (﻿895%)
+        for label, key in (
+            ("Views", "views_28d"),
+            ("Engagement", "engagement_28d"),
+            ("Net follows", "net_follows_28d"),
+        ):
+            # The label also appears in the nav sidebar — a stat card is the
+            # occurrence whose preceding line is a % change figure.
+            for i, ln in enumerate(lines):
+                if ln != label:
+                    continue
+                if i == 0 or not re.fullmatch(r"[\d.]+%", lines[i - 1]):
+                    continue
+                for cand in reversed(lines[max(0, i - 3) : i - 1]):
+                    if re.fullmatch(r"[\d,]+", cand):
+                        stats[key] = int(cand.replace(",", ""))
+                        break
+                break
+        _PROFILE_STATS_CACHE[cache_key] = (time.time() + 300, dict(stats))
+        return stats
 
     async def update_bio(self, bio: str) -> dict[str, Any]:
         return await self._post("/profile/bio", {"bio": bio})

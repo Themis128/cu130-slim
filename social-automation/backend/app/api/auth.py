@@ -243,6 +243,33 @@ def _linkedin_scopes() -> list[str]:
     scopes = list(LINKEDIN_SCOPES)
     extra = (get_settings().LINKEDIN_EXTRA_SCOPES or "").replace(",", " ").split()
     return scopes + [s for s in extra if s not in scopes]
+
+
+# Canonical per-platform OAuth scope lists — shared between the authorize
+# endpoint and accounts.py connect/connect-link flows so the two can never
+# drift. A sparse duplicate here previously downgraded reconnects (e.g. a
+# facebook reconnect dropped read_insights, silently killing Page Insights).
+PLATFORM_SCOPES: dict[str, list[str]] = {
+    "linkedin": _linkedin_scopes(),
+    "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
+    "facebook": [
+        "public_profile",
+        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+        "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+        "read_insights",
+        "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+        "instagram_manage_messages",
+    ],
+    "instagram": [
+        "instagram_basic", "instagram_content_publish", "instagram_manage_messages",
+        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+    ],
+    "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
+    "instagram2": ["user_profile", "user_media"],
+    "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
+               "video.publish", "video.upload", "video.list"],
+}
+
 # Instagram2 client (Instagram API with Instagram Login)
 instagram2_client = BaseOAuth2(
     client_id=settings.INSTAGRAM2_CLIENT_ID,
@@ -1144,27 +1171,6 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
                 "recreate social-api, then reconnect LinkedIn."
             ),
         )
-
-    PLATFORM_SCOPES: dict[str, list[str]] = {
-        "linkedin": _linkedin_scopes(),
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
-        "facebook": [
-            "public_profile",
-            "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-            "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
-            "read_insights",
-            "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
-            "instagram_manage_messages",
-        ],
-        "instagram": [
-            "instagram_basic", "instagram_content_publish", "instagram_manage_messages",
-            "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-        ],
-        "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        "instagram2": ["user_profile", "user_media"],
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
-                   "video.publish", "video.upload", "video.list"],
-    }
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
     extra_params: dict = {}
