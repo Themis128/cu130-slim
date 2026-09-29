@@ -43,7 +43,7 @@ integration.
 | Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |
 | Products | Login Kit, Content Posting API |
-| Mode | Production **under review** (resubmitted after Sep 3 rejection — website URL fixed to `cloudless.gr`); use `MEDIA_UPLOAD` until approved |
+| Mode | **Production — audit approved 2026-09-29** (`DIRECT_POST` + `PUBLIC_TO_EVERYONE` available; verified live via `creator_info`) |
 
 **Ops skill (scripts + MCP):** `.cursor/skills/tiktok-console-ops/` — domain verify, DNS TXT, sidecar session, console inspect. MCP server key: `tiktok-console` in `.devin/mcp_config.json`.
 
@@ -162,28 +162,22 @@ requires the app to pass TikTok's audit review.
 4. TikTok reviews the app (can take several business days)
 5. Once approved, `DIRECT_POST` mode becomes available
 
-### Before audit
+### Audit status
 
-Use `MEDIA_UPLOAD` mode only. The video goes to the creator's TikTok inbox
-for manual posting. `DIRECT_POST` returns:
+**Approved 2026-09-29.** `DIRECT_POST` is live — SocialAuto's publish
+default is now `DIRECT_POST` + `PUBLIC_TO_EVERYONE`. `MEDIA_UPLOAD`
+remains available per-post for drafts that need TikTok's native editor
+(music library, stickers).
 
-```
-403 unaudited_client_can_only_post_to_private_accounts
-```
+Pre-approval behavior for reference: unaudited apps got
+`403 unaudited_client_can_only_post_to_private_accounts` and were limited
+to `MEDIA_UPLOAD` + `SELF_ONLY`.
 
-## Sandbox mode
+## Sandbox mode (historical)
 
-The app is in **Sandbox mode** — only sandbox users can authorize and use
-the app. The sandbox user is `cloudless-dev` (target: `user3113682023385`).
-
-To add sandbox users:
-1. Open the app → **Sandbox** tab
-2. Add TikTok usernames to the sandbox user list
-
-To move to production:
-1. Submit the app for review
-2. Once approved, the app moves to Production mode
-3. Any TikTok user can authorize the app
+The app was in Sandbox mode before approval — only listed sandbox users
+(`cloudless-dev` / `user3113682023385`) could authorize. Production
+approval removed that restriction; any TikTok user can authorize now.
 
 ## TikTok OAuth specifics
 

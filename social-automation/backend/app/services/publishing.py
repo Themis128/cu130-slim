@@ -2035,14 +2035,20 @@ async def _publish_tiktok(
     )
 
     tiktok_options = (post.platform_specific or {}).get("tiktok", {}) or {}
-    # MEDIA_UPLOAD opens TikTok's native editor (music library, effects, stickers).
+    # App audit approved (Sep 2026) — DIRECT_POST is available and publishes
+    # directly. MEDIA_UPLOAD only drops a draft into the creator's mobile
+    # inbox (needs the phone app to finish); kept as a per-post override.
     # DIRECT_POST publishes from SocialAuto only — TikTok does not expose its
     # commercial music catalog over the Content Posting API.
-    publish_mode = str(tiktok_options.get("publish_mode", "MEDIA_UPLOAD")).upper()
+    publish_mode = str(tiktok_options.get("publish_mode", "DIRECT_POST")).upper()
     if publish_mode not in ("MEDIA_UPLOAD", "DIRECT_POST"):
         return PublishResult(success=False, error="TikTok publish_mode must be MEDIA_UPLOAD or DIRECT_POST")
 
-    privacy_level = str(tiktok_options.get("privacy_level", "SELF_ONLY")).upper()
+    # Brand account — public by default; creator_info still validates the
+    # level against what the account actually allows.
+    privacy_level = str(
+        tiktok_options.get("privacy_level", "PUBLIC_TO_EVERYONE")
+    ).upper()
     direct_kwargs = _tiktok_direct_post_kwargs(tiktok_options)
     if publish_mode == "DIRECT_POST":
         creator = await client.get_creator_info()
