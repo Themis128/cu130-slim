@@ -126,6 +126,42 @@ async function settle(timeout = 20000) {
   await page.waitForTimeout(1500);
 }
 
+/** Dismiss any overlay dialogs left open (notifications panel, previous
+ * composer, popups). They intercept pointer events on the composer trigger
+ * and make Playwright clicks land on the wrong element. Escape is a real
+ * key press — synthetic DOM events don't reach FB's React handlers. */
+async function dismissOpenDialogs() {
+  for (let i = 0; i < 4; i += 1) {
+    const openDialogs = await page
+      .locator('div[role="dialog"]:visible')
+      .count()
+      .catch(() => 0);
+    if (openDialogs === 0) break;
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(400);
+    // Panels like Notifications ignore Escape — click a neutral corner.
+    await page.mouse.click(8, 8).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+}
+
+/** Wait for the feed composer trigger — it mounts lazily after networkidle
+ * on some feed renders, so a bare count() right after settle() races and
+ * intermittently 404s. Non-fatal: callers still run their fallbacks. */
+async function waitForComposerTrigger(timeout = 15000) {
+  try {
+    await page.waitForSelector(
+      '[role="button"]:has-text("What\'s on your mind"), ' +
+        '[role="button"][aria-label*="on your mind"], ' +
+        '[aria-label*="Create a post"]',
+      { timeout, state: "visible" },
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 const MAX_TEMP_FILE_BYTES = 50 * 1024 * 1024; // match express.json 50mb limit
 const TEMP_ROOT = path.join(
   path.dirname(process.env.SESSION_FILE || "/data/fb-session.json"),
@@ -1568,6 +1604,8 @@ async function handlePostText(req, res) {
       timeout: 60000,
     });
     await settle();
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
 
     if (!(await isLoggedIn())) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
@@ -1599,25 +1637,44 @@ async function handlePostText(req, res) {
         .json({ error: "Could not locate the Facebook post composer" });
     }
     await composerTrigger.click();
-    await page.waitForTimeout(2000);
+    // Wait for the dialog's editor to mount — 2s fixed wait races slow opens
+    try {
+      await page.waitForSelector(
+        'div[role="dialog"] div[role="textbox"], ' +
+          'div[role="dialog"] div[contenteditable="true"]',
+        { timeout: 15000, state: "visible" },
+      );
+    } catch (_) {}
+    await page.waitForTimeout(500);
 
     // Set privacy if specified (before typing)
     if (privacy) {
       await setPrivacy(privacy);
     }
 
-    // Type the message into the contenteditable composer
-    const editor = page
+    // Type the message into the contenteditable composer. Scope to the open
+    // dialog first — the feed composer behind the modal also matches the
+    // generic textbox selector.
+    const dialogEditor = page
+      .locator(
+        'div[role="dialog"] div[role="textbox"]:visible, ' +
+          'div[role="dialog"] div[contenteditable="true"]:visible',
+      )
+      .first();
+    const fallbackEditor = page
       .locator(
         'div[role="textbox"]:visible, div[contenteditable="true"]:visible',
       )
       .first();
+    const editor =
+      (await dialogEditor.count()) > 0 ? dialogEditor : fallbackEditor;
     if ((await editor.count()) === 0) {
       return res
         .status(404)
         .json({ error: "Could not locate the post text editor" });
     }
-    await editor.click();
+    // FB overlays intercept pointer events — focus via JS, skip click.
+    await editor.evaluate((el) => el.focus());
     await page.waitForTimeout(500);
     await page.keyboard.type(message);
     await page.waitForTimeout(1000);
@@ -1631,9 +1688,19 @@ async function handlePostText(req, res) {
     }
 
     await settle();
+    // Confirm the post actually landed and surface its permalink — callers
+    // (publishing.py) treat a missing post id/url as a failed publish.
+    const postUrl = await verifyPosted(message);
+    if (!postUrl) {
+      return res
+        .status(502)
+        .json({ error: "Post click succeeded but the post was not found on the profile — unconfirmed" });
+    }
     res.json({
       status: "ok",
       posted: true,
+      url: postUrl,
+      post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
       message: "Text status posted to personal profile",
     });
   } catch (err) {
@@ -1661,6 +1728,8 @@ async function handlePostPhoto(req, res) {
       timeout: 60000,
     });
     await settle();
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
 
     if (!(await isLoggedIn())) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
@@ -1814,9 +1883,18 @@ async function handlePostPhoto(req, res) {
 
       // Wait for upload + post to complete (photo uploads take longer)
       await settle(60000);
+      const postUrl = await verifyPosted(message);
+      if (!postUrl) {
+        return res.status(502).json({
+          error:
+            "Post click succeeded but the post was not found on the profile — unconfirmed",
+        });
+      }
       res.json({
         status: "ok",
         posted: true,
+        url: postUrl,
+        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
         photo_count: images.length,
         message: "Photo post submitted to personal profile",
       });
@@ -1842,6 +1920,8 @@ async function handlePostLink(req, res) {
       timeout: 60000,
     });
     await settle();
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
 
     if (!(await isLoggedIn())) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
@@ -1890,10 +1970,19 @@ async function handlePostLink(req, res) {
     }
 
     await settle();
+    const postUrl = await verifyPosted(message);
+    if (!postUrl) {
+      return res.status(502).json({
+        error:
+          "Post click succeeded but the post was not found on the profile — unconfirmed",
+      });
+    }
     res.json({
       status: "ok",
       posted: true,
-      url,
+      url: postUrl,
+      post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+      shared_url: url,
       message: "Link post submitted to personal profile",
     });
   } catch (err) {
@@ -1987,9 +2076,18 @@ async function handlePostVideo(req, res) {
 
       // Video processing takes longer — wait up to 120s
       await settle(120000);
+      const postUrl = await verifyPosted(message);
+      if (!postUrl) {
+        return res.status(502).json({
+          error:
+            "Post click succeeded but the post was not found on the profile — unconfirmed",
+        });
+      }
       res.json({
         status: "ok",
         posted: true,
+        url: postUrl,
+        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
         message: "Video post submitted to personal profile",
       });
     } finally {
@@ -2124,6 +2222,8 @@ async function handlePagePostText(req, res) {
       timeout: 60000,
     });
     await settle();
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
 
     if (!(await isLoggedIn())) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
@@ -2191,6 +2291,8 @@ async function handlePagePostPhoto(req, res) {
       timeout: 60000,
     });
     await settle();
+    await dismissOpenDialogs();
+    await waitForComposerTrigger();
 
     if (!(await isLoggedIn())) {
       return res.status(401).json({ error: "Not logged in to Facebook" });
@@ -2276,38 +2378,94 @@ async function handlePagePostPhoto(req, res) {
 /** Set the privacy of the current composer: 'public' | 'friends' | 'only_me' */
 async function setPrivacy(privacy) {
   try {
-    // Click the privacy selector button (shows current audience like "Friends")
-    const privacyBtn = page
-      .locator(
-        '[role="button"][aria-label*="Friends"], [role="button"][aria-label*="Public"], ' +
-          '[role="button"][aria-label*="Only me"], [aria-label*="privacy"], ' +
-          'div[aria-label*="Privacy"]:visible',
-      )
-      .first();
-    if ((await privacyBtn.count()) === 0) return false;
-    await privacyBtn.click();
-    await page.waitForTimeout(1500);
-
-    // Click the matching option in the dropdown
     const labelMap = {
       public: "Public",
       friends: "Friends",
       only_me: "Only me",
     };
     const targetLabel = labelMap[privacy] || privacy;
-    const option = page
+
+    // Scope to the composer dialog — a page-level "Friends" match could be
+    // the feed's nav filter, not the audience chip.
+    const composerDialog = page
       .locator(
-        `[role="menuitem"]:has-text("${targetLabel}"), [role="option"]:has-text("${targetLabel}"), div:has-text("${targetLabel}")`,
+        'div[role="dialog"]:has(div[role="textbox"]), ' +
+          'div[role="dialog"]:has(div[contenteditable="true"])',
       )
       .first();
-    if ((await option.count()) > 0) {
-      await option.click();
-      await page.waitForTimeout(1000);
-      return true;
+    const scope =
+      (await composerDialog.count()) > 0 ? composerDialog : page.locator("body");
+    const privacyBtn = scope
+      .locator(
+        '[role="button"][aria-label*="Friends"], [role="button"][aria-label*="Public"], ' +
+          '[role="button"][aria-label*="Only me"], [role="button"][aria-label*="privacy" i], ' +
+          '[role="button"]:has-text("Friends"), [role="button"]:has-text("Public")',
+      )
+      .first();
+    if ((await privacyBtn.count()) === 0) return false;
+    await privacyBtn.click();
+    await page.waitForTimeout(1500);
+
+    // The "Post audience" sheet opens on top. Pick the exact row via JS —
+    // div:has-text() matches huge ancestor containers and the click lands
+    // on the dialog shell instead of the option.
+    const clicked = await page.evaluate((label) => {
+      const dialogs = [...document.querySelectorAll('div[role="dialog"]')].filter(
+        (d) => d.offsetParent !== null,
+      );
+      for (let i = dialogs.length - 1; i >= 0; i -= 1) {
+        const d = dialogs[i];
+        // FB's audience sheet is a radiogroup: each option's text lives in
+        // a <label> wrapping the [role="radio"]. Clicking the label toggles
+        // it; clicking the inner span does nothing.
+        const row = [
+          ...d.querySelectorAll(
+            'label, [role="radio"], [role="option"], [role="menuitemradio"], [role="menuitem"]',
+          ),
+        ].find((e) => {
+          const t = (e.innerText || "").trim();
+          return t === label || t.startsWith(`${label}\n`);
+        });
+        if (row) {
+          row.click();
+          return true;
+        }
+      }
+      return false;
+    }, targetLabel);
+    await page.waitForTimeout(1200);
+    if (!clicked) {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(500);
+      return false;
     }
-    // Close the dropdown if we didn't find the option
-    await page.keyboard.press("Escape");
-    return false;
+
+    // The audience sheet is a pane inside the composer dialog and needs a
+    // Done/Save confirm. Search the dialog containing the sheet — the last
+    // visible dialog can be an unrelated empty shell.
+    for (let i = 0; i < 6; i += 1) {
+      const done = await page.evaluate(() => {
+        const dialogs = [
+          ...document.querySelectorAll('div[role="dialog"]'),
+        ].filter((d) => d.offsetParent !== null);
+        const sheet = dialogs.find((d) =>
+          (d.innerText || "").includes("Who can see your post"),
+        );
+        if (!sheet) return "closed";
+        const btn = [...sheet.querySelectorAll('[role="button"], button')].find(
+          (e) =>
+            ["Done", "Save", "Confirm"].includes((e.innerText || "").trim()),
+        );
+        if (btn) {
+          btn.click();
+          return "clicked";
+        }
+        return "waiting";
+      });
+      if (done === "closed") break;
+      await page.waitForTimeout(600);
+    }
+    return true;
   } catch (_) {
     return false;
   }
@@ -2315,6 +2473,39 @@ async function setPrivacy(privacy) {
 
 /** Find and click the "Post" button in the composer dialog. */
 async function clickPost() {
+  // Dismiss hashtag/mention autocomplete — typing a message ending in a
+  // "#tag" leaves the suggestion listbox open, and it overlays the
+  // Next/Post button so it can never be found or clicked. Only press
+  // Escape when such a popup is actually open (Escape on a clean
+  // composer would close the whole dialog and lose the draft).
+  const suggestionOpen = await page
+    .locator(
+      'div[role="dialog"] [role="listbox"], ' +
+        'div[role="dialog"] [role="menu"], ' +
+        '[role="listbox"]:has-text("#"), ' +
+        'ul:has([role="option"]):visible',
+    )
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (suggestionOpen) {
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(800);
+  }
+
+  // New two-step composer (rolled out ~Sep 2026): the primary action is
+  // "Next" which opens a review screen whose button is "Post". Advance
+  // through it when present; the single-step "Post" still wins if found.
+  const nextBtn = page
+    .locator(
+      'div[role="dialog"] [aria-label="Next"], ' +
+        'div[role="dialog"] button:has-text("Next")',
+    )
+    .first();
+  if (await nextBtn.isVisible().catch(() => false)) {
+    await nextBtn.click();
+    await page.waitForTimeout(2500);
+  }
   // Exact accessible-name match first — :has-text("Post") also matches
   // "Add to your post" and similar controls.
   const dialogPost = page
@@ -2353,6 +2544,76 @@ async function clickPost() {
     return true;
   }
   return false;
+}
+
+/** After posting, confirm the post actually landed: load the own-profile
+ * feed, look for the message's first non-empty line in a post unit, and
+ * return its permalink. Returns null when not found — callers must not
+ * claim success without it (publishing.py treats a missing post id/url as
+ * a failed publish, and earlier "posted:true" responses produced false
+ * positives that were recorded as published but never appeared). */
+async function verifyPosted(message) {
+  try {
+    const needle = (message || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean);
+    // Media posts can carry no caption — verify by freshness of the top
+    // feed unit alone instead of matching text.
+    const probe = needle ? needle.slice(0, 60) : null;
+    await page.goto("https://www.facebook.com/me", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    await settle(10000);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const found = await page.evaluate((probe) => {
+        const units = [
+          ...document.querySelectorAll(
+            'div[role="article"], div[data-pagelet*="FeedUnit"]',
+          ),
+        ];
+        // A matching unit only counts when its timestamp is fresh —
+        // otherwise a previous post sharing the same opening line would be
+        // claimed as the one we just tried to publish.
+        const isFresh = (u) =>
+          [...u.querySelectorAll("a[href], span")].some((e) => {
+            const t = (e.innerText || "").trim();
+            if (/^(just now|now|\d+\s?(s|m|min)s?\.?|a minute ago)$/i.test(t)) {
+              return true;
+            }
+            const al = e.getAttribute && e.getAttribute("aria-label");
+            if (al) {
+              const d = Date.parse(al);
+              if (!Number.isNaN(d) && Date.now() - d < 15 * 60 * 1000) {
+                return true;
+              }
+            }
+            return false;
+          });
+        // Units render newest-first — once one is stale, nothing newer
+        // follows, so bail instead of claiming an old post's permalink.
+        for (const u of units) {
+          if (!isFresh(u)) break;
+          if (probe && !(u.innerText || "").includes(probe)) continue;
+          const link = [...u.querySelectorAll("a[href]")].find((a) =>
+            /\/posts\/|pfbid|story_fbid|\/reel\//.test(a.href),
+          );
+          return link ? link.href : location.href;
+        }
+        return null;
+      }, probe);
+      if (found) return found;
+      // Feed can lag a few seconds behind a successful Post click — a false
+      // negative here makes the queue retry and publish a duplicate.
+      await page.waitForTimeout(4000);
+      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+      await settle(8000);
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Server setup ───────────────────────────────────────────────────────────

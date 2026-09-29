@@ -1006,6 +1006,15 @@ async def _publish_facebook_via_sidecar(
     except FacebookSidecarError as e:
         return PublishResult(success=False, error=e.detail)
 
+    # Profile posts default to public — the growth/Stars campaign relies on
+    # unconnected distribution, and Friends-only posts can't earn followers.
+    # Override per-post via platform_specific.facebook_privacy.
+    privacy = str(
+        (getattr(post, "platform_specific", None) or {}).get(
+            "facebook_privacy", "public"
+        )
+    )
+
     try:
         # Determine post type
         image_paths = [p for p in media_paths if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
@@ -1015,7 +1024,7 @@ async def _publish_facebook_via_sidecar(
             # Video post
             with open(video_paths[0], "rb") as fh:
                 video_bytes = fh.read()
-            result = await client.post_video(video_bytes, message=text)
+            result = await client.post_video(video_bytes, message=text, privacy=privacy)
         elif image_paths:
             # Photo post (single or multi)
             images = []
@@ -1023,13 +1032,13 @@ async def _publish_facebook_via_sidecar(
                 with open(p, "rb") as fh:
                     img_b64 = base64.b64encode(fh.read()).decode()
                 images.append({"image_base64": img_b64, "filename": os.path.basename(p)})
-            result = await client.post_photo(images=images, message=text)
+            result = await client.post_photo(images=images, message=text, privacy=privacy)
         elif post.link_url:
             # Link post
-            result = await client.post_link(url=post.link_url, message=text)
+            result = await client.post_link(url=post.link_url, message=text, privacy=privacy)
         else:
             # Text-only post
-            result = await client.post_text(message=text)
+            result = await client.post_text(message=text, privacy=privacy)
 
         post_url = result.get("url")
         post_id = result.get("post_id") or (post_url.split("/")[-1] if post_url else None)
@@ -1063,12 +1072,14 @@ async def _publish_facebook(
             f"account_type={account.account_type!r} account_id={account.account_id}"
         )
 
-    # Personal profile (type=user) with a browser session → use sidecar
+    # Personal profile (type=user) with a browser session → use sidecar.
+    # Do NOT fall through to Graph on sidecar failure — Meta removed user-
+    # profile posting from the Graph API entirely, so the fallback can only
+    # produce the misleading "#200 group" error, and it masks the real
+    # sidecar failure as a terminal "skipped" instead of a retryable fail.
     if account.account_type == "user" and _has_facebook_browser_session(account):
         result = await _publish_facebook_via_sidecar(account, text, post, media_paths)
-        if result.success:
-            return result
-        # If sidecar fails, fall through to Graph API below
+        return result
 
     page_id = account.account_id
     # access_token is stored as the page token from OAuth callback.
