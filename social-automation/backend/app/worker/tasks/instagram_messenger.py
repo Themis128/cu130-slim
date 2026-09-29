@@ -29,6 +29,7 @@ The task runs every 3 minutes via Celery beat.
 """
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -43,20 +44,35 @@ from app.services.browser_bridge import BrowserBridgeClient
 from app.services.browser_orchestrator import browser_session
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
 from app.services.messenger_chatbot import (
+    IG_APP_LIMIT_BACKOFF_SECONDS,
     check_cooldown,
     detect_intent,
     generate_contextual_reply,
     is_frustrated_message,
+    is_instagram_app_rate_limited,
     is_thread_paused,
     pause_thread,
     retrieve_brand_context,
     set_cooldown,
+    set_instagram_app_rate_limited,
     store_message_memory,
 )
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
 celery_app.set_current()
+
+# Meta rate-limit codes: 4 = app-level limit, 32 = page-level limit,
+# 613 = custom limit (calls too high). IG messaging adds subcode 1349210.
+_IG_RATE_LIMIT_CODE = re.compile(r'"code"\s*:\s*(4|32|613)\b|"error_subcode"\s*:\s*1349210')
+
+
+def _is_app_rate_limit(exc: InstagramAPIError) -> bool:
+    """True when Meta signals an app/page-level rate limit (not a hard auth error)."""
+    text = exc.response_text or ""
+    return exc.status_code in (400, 403, 429) and (
+        "request limit reached" in text.lower() or bool(_IG_RATE_LIMIT_CODE.search(text))
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -242,32 +258,48 @@ async def _process_account(
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
-    # Try Graph API first (business/creator accounts with App Review)
+    # Try Graph API first (business/creator accounts with App Review).
+    # Skip entirely while the app-level rate-limit breaker is open — probing
+    # again just keeps the Meta bucket saturated.
     client = None
     graph_igsid = ""
-    try:
-        token = decrypt_token(account.access_token_enc)
-        graph_client = InstagramAPIClient(
-            access_token=token,
-            ig_user_id=ig_user_id,
-            use_business_login_api=meta.get("login_type") == "business_login",
-        )
-        # Probe with a 1-conversation fetch to detect capability errors
-        await graph_client.get_conversations(limit=1)
-        client = graph_client
-        # Participants and message `from` ids are IGSIDs, not the app-scoped
-        # account_id — resolve ours so outbound detection works.
-        try:
-            me = await graph_client.get_me()
-            graph_igsid = str(me.get("user_id") or "")
-        except Exception:
-            pass
-    except Exception as exc:
+    if await is_instagram_app_rate_limited():
         logger.info(
-            "Instagram Graph API unavailable for %s: %s — trying web API fallback",
-            account.id, exc,
+            "Instagram DM: app-level rate limit active — browser bridge only for %s",
+            account.id,
         )
-        client = None
+    else:
+        try:
+            token = decrypt_token(account.access_token_enc)
+            graph_client = InstagramAPIClient(
+                access_token=token,
+                ig_user_id=ig_user_id,
+                use_business_login_api=meta.get("login_type") == "business_login",
+            )
+            # Probe with a 1-conversation fetch to detect capability errors
+            await graph_client.get_conversations(limit=1)
+            client = graph_client
+            # Participants and message `from` ids are IGSIDs, not the app-scoped
+            # account_id — resolve ours so outbound detection works.
+            try:
+                me = await graph_client.get_me()
+                graph_igsid = str(me.get("user_id") or "")
+            except Exception:
+                pass
+        except Exception as exc:
+            if isinstance(exc, InstagramAPIError) and _is_app_rate_limit(exc):
+                await set_instagram_app_rate_limited()
+                logger.warning(
+                    "Instagram DM: app-level rate limit hit for %s — "
+                    "backing off Graph API for %ds",
+                    account.id, IG_APP_LIMIT_BACKOFF_SECONDS,
+                )
+            else:
+                logger.info(
+                    "Instagram Graph API unavailable for %s: %s — trying web API fallback",
+                    account.id, exc,
+                )
+            client = None
 
     # Fall back to browser bridge (uses logged-in Instagram web session)
     bridge = None
@@ -311,7 +343,15 @@ async def _process_account(
         else:
             return 0
     except InstagramAPIError as exc:
-        logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
+        if _is_app_rate_limit(exc):
+            await set_instagram_app_rate_limited()
+            logger.warning(
+                "Instagram DM: app-level rate limit hit for %s — "
+                "backing off Graph API for %ds",
+                account.id, IG_APP_LIMIT_BACKOFF_SECONDS,
+            )
+        else:
+            logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
         return 0
     except Exception as exc:
         logger.warning("Instagram DM fetch failed for account %s: %s", account.id, exc)
@@ -546,9 +586,16 @@ async def _process_account(
             await asyncio.sleep(3)
 
         except InstagramAPIError as exc:
-            logger.warning("Instagram DM API error in conversation %s: %s", convo_id, exc)
-            if exc.status_code == 429:
-                logger.warning("Instagram rate-limited — stopping for account %s", account.id)
+            if _is_app_rate_limit(exc):
+                await set_instagram_app_rate_limited()
+                logger.warning(
+                    "Instagram app-level rate limit — backing off Graph API for %ds, "
+                    "stopping for account %s",
+                    IG_APP_LIMIT_BACKOFF_SECONDS, account.id,
+                )
+            else:
+                logger.warning("Instagram DM API error in conversation %s: %s", convo_id, exc)
+            if exc.status_code == 429 or _is_app_rate_limit(exc):
                 break
         except Exception as exc:
             logger.error(

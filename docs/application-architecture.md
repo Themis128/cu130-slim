@@ -525,7 +525,9 @@ app/worker/tasks/
 ├── tiktok_inbox_reconcile.py — reconcile_tiktok_inbox
 ├── dmr_health.py           — check_dmr_health
 ├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
-├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator)
+├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator,
+│                               Redis breaker on Meta app-level rate limits: Graph code 4/32/613
+│                               or subcode 1349210 opens a 30-min breaker — Graph skipped, bridge only)
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
 ├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
 └── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
@@ -552,7 +554,7 @@ Beat Schedule:
 │ send-linkedin-invites    │ linkedin_invites                │ daily    │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
 │                         │  (bot: memory+RAG+intent+cooldown)│          │
-│ poll-instagram-messenger │ instagram_messenger.poll       │ 120s     │
+│ poll-instagram-messenger │ instagram_messenger.poll       │ 180s     │
 │ poll-threads-messenger   │ threads_messenger.poll          │ 120s     │
 │ poll-twitter-messenger   │ twitter_messenger.poll         │ 120s     │
 │ poll-tiktok-messenger    │ tiktok_messenger.poll          │ 120s     │

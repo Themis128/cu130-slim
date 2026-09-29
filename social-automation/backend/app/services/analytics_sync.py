@@ -1325,7 +1325,11 @@ async def sync_twitter_account(
                         result=result, platform="twitter",
                     )
                     discovered[tid] = id_to_post.get(tid)
-            elif resp.status_code in (401, 402, 403, 429):
+            elif resp.status_code == 402:
+                # Expected on the free tier — the browser-scrape fallback
+                # below covers discovery. Data gap, not an error.
+                result.skipped += 1
+            elif resp.status_code in (401, 403, 429):
                 result.errors.append(
                     f"twitter timeline discovery HTTP {resp.status_code} "
                     "(needs paid tier for read access)"
