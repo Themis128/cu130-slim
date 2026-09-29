@@ -60,8 +60,12 @@ class FacebookSidecarClient:
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self.base_url, timeout=self._timeout)
 
-    async def _post(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
-        async with self._client as c:
+    async def _post(
+        self, path: str, json: dict[str, Any], timeout: float | None = None
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(
+            base_url=self.base_url, timeout=timeout or self._timeout
+        ) as c:
             r = await c.post(path, json=json)
             if r.status_code >= 400:
                 raise FacebookSidecarError(r.status_code, r.text)
@@ -323,7 +327,9 @@ class FacebookSidecarClient:
             payload["message"] = message
         if privacy:
             payload["privacy"] = privacy
-        return await self._post("/post/video", payload)
+        # Video processing + post-publish verification can exceed the
+        # default 180s on the sidecar (settle up to 120s + verify ~60s).
+        return await self._post("/post/video", payload, timeout=300.0)
 
     # ── Page mode ─────────────────────────────────────────────────────────
 
