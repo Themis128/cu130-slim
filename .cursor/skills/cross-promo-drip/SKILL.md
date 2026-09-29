@@ -32,7 +32,19 @@ monetization, etc.).
    as `long_uncommon_words` — ignore those, they must stay.
 7. **Verify after create**: stored `content_text` must equal the draft
    verbatim (publish-time `auto_correct` is advisory but the stored text is
-   what ships), `status=scheduled`, every target `pending`.
+   what ships), `status=scheduled`, every target `pending`. `drip.py`
+   deletes any created post that fails this check.
+8. **Last-tier guard (2-Platform Rule)**: Twitter/X and TikTok are
+   "opportunistic only" — never add a *schedule* that fires into them
+   (see `creator-type-voice` SKILL.md). Cross-promo on those platforms is
+   manual/publish-now only. `drip.py --schedule` rejects last-tier targets.
+
+**Fail-closed gate**: a post is created only when the analyzer returns a
+numeric SEO ≥90 AND a successful empty spellcheck. If either service is
+down (null response), the post is skipped — an outage must not become a
+backdoor for unchecked copy. Re-running `--schedule` is idempotent:
+keys already in `<plan>.created.json` are skipped, and text already
+scheduled to the same platform is not duplicated.
 
 ## Best posting times (Athens, EEST) — Buffer/Later 2026 studies
 
@@ -57,8 +69,7 @@ python3 .devin/skills/cross-promo-drip/scripts/drip.py plan.json
 # 2. Create scheduled posts + verify verbatim/targets inline
 python3 .devin/skills/cross-promo-drip/scripts/drip.py plan.json --schedule
 
-# 3. Re-verify later (add "post_id" to each post in plan.json,
-#    or point at the .created.json it writes)
+# 3. Re-verify later — auto-loads post IDs from plan.created.json
 python3 .devin/skills/cross-promo-drip/scripts/drip.py plan.json --verify
 ```
 
@@ -82,16 +93,15 @@ Goal: grow `facebook.com/themis.baltzakis` from 1 → 500 followers for Meta
 Stars eligibility (500 followers + held 30 consecutive days — no API/config
 can bypass; organic growth is the only path).
 
-Scheduled Oct 1–16, 2026 (all fired as `scheduled`, targets `pending`):
+Scheduled Oct 1–15, 2026 (4 posts; the two X posts were dropped —
+X is last-tier, opportunistic only per the 2-Platform Rule):
 
 | Key | Platform | Athens | Angle |
 |-----|----------|--------|-------|
-| LI-1 | LinkedIn | Wed Oct 1 16:00 | "Moving the unpolished build log to Facebook" |
-| TW-1 | X | Thu Oct 2 09:00 | Short-form variant |
-| TH-1 | Threads | Wed Oct 8 09:00 | Casual version |
-| LI-2 | LinkedIn | Fri Oct 10 15:30 | "Exactly 1 follower, not a typo" |
-| TW-2 | X | Tue Oct 14 09:00 | Second touch, different hook |
-| IG-1 | Instagram | Thu Oct 16 09:00 | Pi-boards image + caption |
+| LI-1 | LinkedIn | Thu Oct 1 16:00 | "Moving the unpolished build log to Facebook" |
+| TH-1 | Threads | Thu Oct 8 09:00 | Casual version |
+| LI-2 | LinkedIn | Fri Oct 9 15:30 | "Exactly 1 follower, not a typo" |
+| IG-1 | Instagram | Thu Oct 15 09:00 | Pi-boards image + caption |
 
 Post IDs in the `.created.json` / Slack digest when they fire. Never
 re-create duplicates — check `GET /api/v1/content/posts?status=scheduled`

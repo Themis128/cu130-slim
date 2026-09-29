@@ -19,6 +19,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 13. [Analytics digests](13-analytics-digests.md) — daily/weekly/monthly Slack + email reports: growth, MoM, forecast, funnel, and manual triggers.
 14. [Daily strategy brief](14-daily-strategy-brief.md) — the 10:30 Athens morning brief: platform pulse, content pillars, playbook, messaging-channel note, and manual triggers.
 15. [Weekly blog article](15-weekly-blog-article.md) — DMR-generated article published to cloudless.gr/blog via the R2 datalake, plus the LinkedIn post that links to it (Mondays 09:00 Athens).
+16. [Cross-promo drip](16-cross-promo-drip.md) — grow a target profile by dripping platform-native "follow me" posts from other accounts, quality-gated at SEO ≥90.
 
 ## Product plans
 
