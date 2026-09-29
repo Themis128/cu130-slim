@@ -137,6 +137,11 @@ _COOLDOWN_KEY = "messenger:cooldown:{account_id}:{thread_id}"
 _PAUSED_KEY = "messenger:paused:{account_id}:{thread_id}"
 _CONFIG_KEY = "messenger:config:{account_id}:{thread_id}"
 _DISCLOSED_KEY = "messenger:disclosed:{account_id}:{thread_id}"
+_IG_APP_LIMIT_KEY = "messenger:ig_app_rate_limited"
+
+# Meta app-level rate limits (Graph code 4 / subcode 1349210) reset hourly;
+# backing off for 30 min lets the bucket refill without hammering the API.
+IG_APP_LIMIT_BACKOFF_SECONDS = 1800
 
 # ChromaDB collection names
 _BRAND_COLLECTION = "messenger_brand_knowledge"
@@ -176,6 +181,24 @@ async def set_cooldown(account_id: str, thread_id: str, cooldown_seconds: int = 
         r = await _get_redis()
         key = _COOLDOWN_KEY.format(account_id=account_id, thread_id=thread_id)
         await r.setex(key, cooldown_seconds, "1")
+    except Exception:
+        pass
+
+
+async def is_instagram_app_rate_limited() -> bool:
+    """Return True while the Instagram Graph API app-level breaker is open."""
+    try:
+        r = await _get_redis()
+        return bool(await r.get(_IG_APP_LIMIT_KEY))
+    except Exception:
+        return False  # If Redis is down, allow the request
+
+
+async def set_instagram_app_rate_limited(seconds: int = IG_APP_LIMIT_BACKOFF_SECONDS) -> None:
+    """Open the Instagram Graph API breaker after an app-level rate limit."""
+    try:
+        r = await _get_redis()
+        await r.setex(_IG_APP_LIMIT_KEY, seconds, "1")
     except Exception:
         pass
 
