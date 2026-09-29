@@ -1538,11 +1538,16 @@ async def sync_facebook_account(
     # insights edge for user accounts — the data only exists in the
     # Professional Dashboard UI. Scrape it via the browser sidecar so the
     # profile gets the same follower time-series + trend events Pages do.
+    # Returning early loses nothing downstream: sidecar-published targets
+    # carry no platform_post_id, so the per-post Graph loop below already
+    # filters them all out.
     if meta.get("account_type") == "user":
         try:
             from app.services.facebook_sidecar import FacebookSidecarClient
 
-            stats = await FacebookSidecarClient(timeout=60).get_profile_stats()
+            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(
+                expected_name=account.username
+            )
             followers = stats.get("followers")
             if followers:
                 prev = await db.scalar(
@@ -1559,7 +1564,7 @@ async def sync_facebook_account(
                         team_id=account.team_id, social_account_id=account.id,
                         platform="facebook", followers=int(followers),
                     ))
-            trend = {k: v for k, v in stats.items() if k != "followers" and v is not None}
+            trend = {k: v for k, v in stats.items() if isinstance(v, int)}
             if trend:
                 _persist_account_event(
                     db, account, captured_at, "profile_dashboard", trend

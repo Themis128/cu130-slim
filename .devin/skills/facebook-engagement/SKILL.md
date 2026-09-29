@@ -51,6 +51,19 @@ Automation map per task type:
 | comment on public posts | `fb_comment.py` on relevant public Pages |
 | new followers | NOT automatable — organic result of the above |
 
+## Profile analytics (pro-mode profiles)
+
+The Graph API exposes no follower/insights edge for personal profiles
+(`followers_count` and `/me/feed` fail). `FacebookSidecarClient.
+get_profile_stats(expected_name=…)` scrapes the real numbers:
+followers from `facebook.com/me`, and 28-day Views / Engagement /
+Net follows from `professional_dashboard` (results cached 5 min; the
+`expected_name` guard refuses to attribute stats when the shared sidecar
+session is a different profile). `sync_facebook_account` writes a
+`FollowerSnapshot` + `profile_dashboard` event per sync for
+`account_type=user` accounts — they surface via `GET
+/api/v1/analytics/accounts/{id}/insights`.
+
 ## Commenting rules
 
 - **Genuine, per-post comments only** — read the post text first, reference its

@@ -162,7 +162,9 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
         try:
             from app.services.facebook_sidecar import FacebookSidecarClient
 
-            stats = await FacebookSidecarClient(timeout=60).get_profile_stats()
+            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(
+                expected_name=account.username
+            )
             if stats.get("followers"):
                 return int(stats["followers"])
         except Exception:
@@ -842,7 +844,8 @@ async def get_account_insights(
         .where(
             AnalyticsEvent.social_account_id == account_id,
             AnalyticsEvent.event_type.in_(
-                ["account_insights", "audience_demographics", "profile_sync"]
+                ["account_insights", "audience_demographics", "profile_sync",
+                 "profile_dashboard"]
             ),
             AnalyticsEvent.occurred_at >= since,
         )
