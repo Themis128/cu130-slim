@@ -1737,8 +1737,17 @@ async def oauth_callback(
             }
         elif platform == "tiktok":
             _tt_info = locals().get("tt_info") or {}
+            # Drop scope-gated fields the new grant no longer covers so
+            # revoked permissions don't leave stale stats in meta_data.
+            _tt_meta = dict(account.meta_data or {})
+            if "user.info.profile" not in scopes:
+                for _k in ("bio_description", "profile_deep_link", "is_verified"):
+                    _tt_meta.pop(_k, None)
+            if "user.info.stats" not in scopes:
+                for _k in ("follower_count", "following_count", "likes_count", "video_count"):
+                    _tt_meta.pop(_k, None)
             account.meta_data = {
-                **(account.meta_data or {}),
+                **_tt_meta,
                 "open_id": token.get("open_id", account_id),
                 **{k: v for k, v in {
                     "bio_description": _tt_info.get("bio_description"),

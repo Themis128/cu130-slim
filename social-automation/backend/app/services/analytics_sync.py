@@ -2529,7 +2529,10 @@ async def sync_tiktok_account(
     # Official User Info API — user.info.stats gives authoritative
     # follower/following/likes/video counts; user.info.profile gives
     # bio/verified/deep-link. Prefer it over the scrape when granted.
+    # Only stats scope suppresses the scrape event — a profile-only grant
+    # can't return follower counts, so the scrape must still record them.
     api_profile_synced = False
+    _has_stats_scope = "user.info.stats" in (account.scopes or [])
     if token and {"user.info.stats", "user.info.profile"} & set(account.scopes or []):
         try:
             tt_fields = ["open_id", "avatar_url", "display_name"]
@@ -2565,19 +2568,20 @@ async def sync_tiktok_account(
                 }
                 if _meta_extra:
                     account.meta_data = {**(account.meta_data or {}), **_meta_extra}
-                _persist_account_event(
-                    db, account, captured_at, "profile_sync",
-                    {
-                        "followers_count": ui_user.get("follower_count") or 0,
-                        "following_count": ui_user.get("following_count"),
-                        "likes_count": ui_user.get("likes_count"),
-                        "video_count": ui_user.get("video_count"),
-                        "is_verified": ui_user.get("is_verified"),
-                        "profile_deep_link": ui_user.get("profile_deep_link"),
-                        "api_source": "user.info",
-                    },
-                )
-                api_profile_synced = True
+                if _has_stats_scope:
+                    _persist_account_event(
+                        db, account, captured_at, "profile_sync",
+                        {
+                            "followers_count": ui_user.get("follower_count") or 0,
+                            "following_count": ui_user.get("following_count"),
+                            "likes_count": ui_user.get("likes_count"),
+                            "video_count": ui_user.get("video_count"),
+                            "is_verified": ui_user.get("is_verified"),
+                            "profile_deep_link": ui_user.get("profile_deep_link"),
+                            "api_source": "user.info",
+                        },
+                    )
+                    api_profile_synced = True
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"tiktok user.info @{account.username}: {exc}")
 
