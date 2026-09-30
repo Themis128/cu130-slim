@@ -136,3 +136,6 @@ actionlint
 storage-user/
 tiktok-qr.png
 notebooks/output/
+
+# Tool caches
+.ruff_cache/
