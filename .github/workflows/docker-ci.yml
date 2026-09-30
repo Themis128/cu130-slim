@@ -108,6 +108,12 @@ jobs:
             type=raw,value=${{ matrix.service.name }}-{{sha}}
             type=ref,event=branch,prefix=${{ matrix.service.name }}-
             type=ref,event=pr,prefix=${{ matrix.service.name }}-
+            # Dockerfile.worker is shared: the publishing build also backs the
+            # social-worker-* tags used by social-worker-default/media/messenger
+            # and celery-beat (mirrors build-and-push.yml).
+            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-${{ steps.version.outputs.tag }},enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-{{sha}},enable=${{ matrix.service.name == 'social-worker-publishing' }}
 
       - name: Build and push ${{ matrix.service.name }}
         id: build

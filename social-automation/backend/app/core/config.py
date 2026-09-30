@@ -90,6 +90,13 @@ class Settings(BaseSettings):
 
     # LanguageTool self-hosted spell/grammar checker
     LANGUAGETOOL_URL: str = "http://languagetool:8010"
+    # Comma-separated words LanguageTool must never "correct" (proper nouns
+    # it mangles — Redis→Regis, Kakkava→Baklava). Extend via env, don't
+    # shrink the defaults.
+    LANGUAGETOOL_PROTECTED_WORDS: str = (
+        "Kakkava,Redis,cloudless,cloudless.gr,SocialAuto,Polar,n8n,noVNC,"
+        "instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
+    )
 
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
@@ -441,6 +448,11 @@ class Settings(BaseSettings):
     DIGEST_EMAIL_TO: str = "tbaltzakis@cloudless.gr"
     DIGEST_EMAIL_ISSUES_ONLY: bool = False
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
+    # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
+    # The PDF is a static frontend asset (frontend/public/playbooks/). Empty
+    # PLAYBOOK_URL -> f"{FRONTEND_URL}/playbooks/cloud-migration-playbook.pdf".
+    PLAYBOOK_EMAIL_ENABLED: bool = True
+    PLAYBOOK_URL: str = ""
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

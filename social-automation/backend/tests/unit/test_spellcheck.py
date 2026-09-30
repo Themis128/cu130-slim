@@ -115,3 +115,25 @@ async def test_auto_correct_offsets_stable_after_normalize():
     result = await auto_correct(text)
     assert len(result) > 5
     assert result.endswith(".")
+
+
+# -- protected vocabulary (Redis→Regis regression, post 3f58f3c1) ----------
+
+def test_protected_spans_cover_configured_words():
+    from app.services.spellcheck import _protected_spans
+
+    text = "Just a Redis flag in the Kakkava playbook for cloudless teams."
+    spans = _protected_spans(text)
+    for word in ("Redis", "Kakkava", "cloudless"):
+        start = text.index(word)
+        assert any(s <= start < e for s, e in spans), f"{word} not protected"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_auto_correct_never_mangles_protected_words():
+    # LanguageTool flags Redis→Regis; the protected-word list must win.
+    text = "Added a Redis flag that remembers dead sessions."
+    result = await auto_correct(text)
+    assert "Redis" in result
+    assert "Regis" not in result
