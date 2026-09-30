@@ -271,6 +271,10 @@ If a refresh fails, the account is marked as `expired` and requires manual recon
 
 A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_sessions` runs every 6 hours (at :30 past, every 6h). It calls `GET /account` on the aiograpi-rest sidecar (`http://instagram-private-api:8000`) with each saved `X-Session-ID` from `social_accounts.meta_data["private_api_session_id"]`. If the session is expired or the sidecar is unreachable, the account is marked `expired` and the team owner gets an alert email (24h cooldown to avoid spam). The task is registered in `celery_app.py` beat_schedule as `check-instagram-sessions`.
 
+### Session auto-heal (hourly)
+
+`app.worker.tasks.session_healer.heal_sessions` runs at :20 hourly and probes every browser transport (LinkedIn/Facebook sidecars + all shared-bridge platforms), auto-recovers what it can (credential login, cookie re-inject, Threads IG-SSO bootstrap), persists fresh session material, and Slack-alerts only when human action is needed. On-demand: `POST /api/v1/ops/session-heal`. LinkedIn `li_at` cookies are fingerprint-bound — never transplant them across browsers; native credential login is the recovery path. Bridge pollers use a Redis verified-dead marker (`browser_bridge:dead:*`, 30 min) so a logged-out platform doesn't re-burn ~200s of busy-hold every poll cycle; the healer clears it on recovery. Skill: `.devin/skills/session-auto-heal/`.
+
 ### Facebook browser sidecar session validation
 
 The FB sidecar's `isLoggedIn()` function checks three signals: (1) URL is `facebook.com` and not `/login`, `/checkpoint`, `/recover`; (2) the `c_user` cookie exists; (3) the page does NOT show the profile picker ("Continue as X" / "Use another profile" / `crypted_string` query param). The `GET /session/validate` endpoint does a deep check (navigates to the feed and returns a body snippet). If the profile picker is shown, `logged_in` is `false` — the session is NOT usable even though cookies exist.

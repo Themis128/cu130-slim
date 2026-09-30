@@ -288,7 +288,9 @@ app/api/
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
 ├── cf_db.py         (6)  — D1/KV/Vectorize health, sync, tables
-├── ops.py           (8)  — health, system info, browser orchestrator
+├── ops.py           (9)  — health, system info, browser orchestrator,
+│                           POST /session-heal (on-demand healer run),
+│                           POST /daily-digest (n8n-triggered digest)
 ├── audit.py         (1)  — audit logs
 ├── mcp.py           (5)  — MCP stack status, sessions, screenshots
 └── usage.py         (2)  — quota usage, history
@@ -361,7 +363,11 @@ app/services/
 │   ├── telegram_group_watch.py — Telegram group keyword watch
 │   └── browser_bridge.py     — Personal Messenger (CDP + noVNC)
 │       ├── E2EE + regular thread support
-│       ├── ensure_session() — auto-recover + cookie extraction
+│       ├── ensure_session() — auto-recover + cookie extraction;
+│       │   a Redis verified-dead marker (browser_bridge:dead:*, 30 min)
+│       │   makes repeat polls on a logged-out platform skip in ~1s
+│       │   instead of re-burning ~200s of busy-hold — keeps the bridge
+│       │   free for the hourly session healer
 │       └── _navigate_to_thread() — SPA-safe navigation
 │
 ├── ── Browser Automation ────────────────────────────────────
@@ -432,7 +438,13 @@ app/services/
 │   ├── email_digest.py       — Email digest
 │   ├── slack_digest.py       — Slack digest
 │   ├── slack_notifications.py — Slack event notifications
-│   ├── analytics_sync.py     — Analytics synchronization
+│   ├── analytics_sync.py     — Analytics synchronization. LinkedIn member
+│   │                           path: sidecar activity scrape (primary) +
+│   │                           memberCreatorPostAnalytics when the token
+│   │                           carries r_member_postAnalytics — skipped via
+│   │                           _member_post_analytics_scope_missing when the
+│   │                           recorded scopes prove it absent; follower
+│   │                           writes guarded by _plausible_follower_count
 │   ├── cf_analytics.py       — Cloudflare analytics client
 │   ├── web_analytics.py      — Web analytics aggregation
 │   ├── support_report.py     — Support report builder
@@ -527,9 +539,10 @@ app/worker/tasks/
 │                             cookie inject / credential login / Threads
 │                             IG-SSO bootstrap). Persists fresh session
 │                             material to meta_data + secret store;
-│                             Slack-alerts only when human action needed
-│                             (24h per-platform cooldown). On-demand:
-│                             POST /api/v1/ops/session-heal
+│                             clears the pollers' verified-dead marker on
+│                             recovery; Slack-alerts only when human
+│                             action needed (24h per-platform cooldown).
+│                             On-demand: POST /api/v1/ops/session-heal
 ├── workflows.py            — execute_workflow, deploy_workflow
 ├── telegram_digest.py      — send_telegram_group_digests
 ├── paddle_digest.py        — send_paddle_slack_digest (billing digest)
@@ -540,7 +553,9 @@ app/worker/tasks/
 ├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
 ├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator,
 │                               Redis breaker on Meta app-level rate limits: Graph code 4/32/613
-│                               or subcode 1349210 opens a 30-min breaker — Graph skipped, bridge only)
+│                               or subcode 1349210 opens a 30-min breaker — Graph skipped, bridge only;
+│                               per-conversation fetch is skipped when the inbox-embedded latest
+│                               message shows nothing new — idle polls drop to ~3 Graph calls)
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
 ├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
 └── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
@@ -556,34 +571,49 @@ Beat Schedule:
 │                          │   ux_publish_queue_active_target │          │
 │                          │   + already-published guard)     │          │
 │ check-scheduled-posts    │ publishing.check_scheduled_posts│ 60s      │
-│ sync-analytics           │ analytics.sync_all_analytics   │ 300s     │
+│ cleanup-publish-queue    │ publishing.cleanup_publish_queue│ Sun 03:00│
+│ sync-analytics           │ analytics.sync_all_analytics   │ 1800s    │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
 │ export-datalake          │ datalake_export.export_datalake │ 6h :10   │
 │ daily-strategy-report    │ notebook_reports.               │ daily    │
 │                          │  run_notebook_report            │ 21:00    │
 │                          │  (papermill → email; falls back │ EEST     │
 │                          │   to code-path brief on failure)│          │
-│ linkedin-ads-daily-report│ linkedin_ads_report             │ daily    │
-│ send-linkedin-invites    │ linkedin_invites                │ daily    │
+│ daily-paddle-digest      │ paddle_digest.send_paddle_      │ daily    │
+│                          │  slack_digest                   │          │
+│ linkedin-ads-daily-report│ linkedin_ads_report             │ 10:00    │
+│ send-linkedin-invites    │ linkedin_invites                │ 10:30    │
+│ reconcile-tiktok-inbox   │ tiktok_inbox_reconcile          │ 6h :20   │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
 │                         │  (bot: memory+RAG+intent+cooldown)│          │
 │ poll-instagram-messenger │ instagram_messenger.poll       │ 180s     │
-│ poll-threads-messenger   │ threads_messenger.poll          │ 120s     │
-│ poll-twitter-messenger   │ twitter_messenger.poll         │ 120s     │
-│ poll-tiktok-messenger    │ tiktok_messenger.poll          │ 120s     │
-│ poll-linkedin-messenger  │ linkedin_messenger.poll        │ 120s     │
-│ refresh-expiring-tokens  │ token_refresh.refresh           │ hourly   │
-│ check-instagram-sessions │ instagram_session_check        │ 6h       │
-│ check-linkedin-sessions  │ linkedin_session_check          │ 12h      │
+│ poll-threads-messenger   │ threads_messenger.poll          │ 180s     │
+│ poll-twitter-messenger   │ twitter_messenger.poll         │ 300s     │
+│ poll-tiktok-messenger    │ tiktok_messenger.poll          │ 300s     │
+│ poll-linkedin-messenger  │ linkedin_messenger.poll        │ 6h       │
+│                          │  (LinkedIn rate-limits browser  │          │
+│                          │   DM polling hard)              │          │
+│ refresh-expiring-tokens  │ token_refresh.refresh           │ :15/:45  │
+│ check-instagram-sessions │ instagram_session_check        │ 6h :30   │
+│ refresh-instagram-tokens │ instagram_token_refresh        │ weekly   │
+│ check-linkedin-sessions  │ linkedin_session_check          │ 12h :45  │
+│ refresh-linkedin-sessions│ linkedin_session_refresh        │ weekly   │
+│ check-whatsapp-verify    │ whatsapp_verify                 │ 30min    │
+│ telegram-group-digests   │ telegram_digest                 │ hrly :05 │
+│ dmr-health               │ dmr_health.check_dmr_health     │ 300s     │
+│ dodo-live-check          │ dodo_live_check                 │ 1800s    │
 │ heal-sessions            │ session_healer.heal_sessions    │ hourly   │
 │                          │  (:20 — all browser transports, │          │
 │                          │   auto-recover + persist + alert)│         │
-│ daily-slack-digest       │ digest.send_daily_slack_digest  │ daily 9am│
-│ weekly-slack-digest      │ digest.send_weekly_slack_digest │ weekly   │
+│ weekly-slack-rollup      │ digest.send_weekly_slack_digest │ Mon 9am  │
 │ monthly-slack-rollup     │ digest.send_weekly_slack_digest │ 1st 9am  │
 │                          │   (days=30 → MoM + forecast +   │          │
 │                          │    funnel, Slack + email)       │          │
 └──────────────────────────┴────────────────────────────────┴──────────┘
+
+> The **daily Slack digest is NOT a beat entry** — the n8n workflow
+> `socialauto-daily-slack-digest` (cron `0 9 * * *`) calls
+> `POST /api/v1/ops/daily-digest` instead, so its schedule is edited in n8n.
 ```
 
 ## Platform Support
@@ -610,6 +640,22 @@ Beat Schedule:
 > and videos published directly from the phone.
 | Threads | ✓ | ✓ (text, image, video, carousel) | ✓ | ✓ (API) | — | Instagram-based, v1.0 |
 | WhatsApp | ✓ | — | — | ✓ (Cloud API) | ✓ Cloud API | WABA, phone verification |
+
+> **LinkedIn analytics — two developer apps.** The main "Cloudless API App"
+> (227354605) carries Share on LinkedIn + Advertising API and provisions
+> org/company-page analytics (`r_organization_social`). **Member post
+> analytics** (`memberCreatorPostAnalytics`, `r_member_postAnalytics`) is a
+> Community Management API member permission — CMA must be the only product
+> on its app, so a dedicated "Cloudless Analytics App" (264925843) holds the
+> request, submitted 2026-09-25 and **pending LinkedIn review**. Until
+> approved, `sync_linkedin_account` marks member posts
+> `member_postAnalytics_scope_missing` — checked proactively against the
+> recorded OAuth scope list (`_member_post_analytics_scope_missing`), so no
+> doomed API calls are made — and the daily brief renders
+> `— (member metrics scope missing)`. The browser sidecar's activity-page
+> scrape covers impressions/reactions/comments in the meantime. Never add
+> the scope to `LINKEDIN_EXTRA_SCOPES` on the main app — OAuth rejects it
+> with `unauthorized_scope_error`. Runbook: `.devin/skills/linkedin-api-upgrade/`.
 
 ### API Versions (as of September 2026)
 
@@ -1340,6 +1386,9 @@ or managed later from the **Discount tab** on `/settings/billing`:
 │  │  • Encrypted OAuth tokens (ENCRYPTION_KEY)                  │   │
 │  │  • .env never committed                                     │   │
 │  │  • Webhook HMAC-SHA256 verification                         │   │
+│  │  • httpx/httpcore loggers capped at WARNING (core/config.py) │   │
+│  │    — INFO request logging used to write OAuth access_token   │   │
+│  │    query params (e.g. Instagram Graph) into container logs   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -1375,6 +1424,8 @@ or managed later from the **Discount tab** on `/settings/billing`:
 | `FACEBOOK_CLIENT_ID/SECRET` | Facebook + Instagram + Threads |
 | `INSTAGRAM_CLIENT_ID/SECRET` | Instagram |
 | `LINKEDIN_CLIENT_ID/SECRET` | LinkedIn |
+| `LINKEDIN_EXTRA_SCOPES` | Extra OAuth scopes appended to the canonical list (currently `r_ads r_ads_reporting`). Never add `r_member_postAnalytics` here — it lives on the dedicated analytics app |
+| `LINKEDIN_EMAIL/PASSWORD` | LinkedIn sidecar credential login (compose → linkedin-browser-sidecar; used by session healer for native re-login + app-push 2FA) |
 | `TWITTER_CLIENT_ID/SECRET` | Twitter/X |
 | `X_WEB_FALLBACK_ENABLED`, `X_WEB_AUTH_TOKEN`, `X_WEB_CT0` (+ optional `X_WEB_COOKIES_JSON`, limits) | Twitter/X free web fallback |
 | `TIKTOK_CLIENT_KEY/SECRET` | TikTok |

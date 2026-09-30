@@ -149,6 +149,24 @@ async def _alert_recovered(platform: str, text: str) -> None:
         logger.debug("session healer recovery notice failed for %s", platform, exc_info=True)
 
 
+async def _clear_dead_marker(platform: str) -> None:
+    """Drop the bridge pollers' verified-dead marker for a recovered platform.
+
+    ``BrowserBridgeClient.ensure_session`` short-circuits on
+    ``browser_bridge:dead:{platform}`` after a probe verifies a logged-out
+    state. The marker never hides a live session (cheap status checks run
+    first), but deleting on a confirmed heal keeps the semantics honest.
+    """
+    try:
+        r = await _get_redis()
+        try:
+            await r.delete(f"browser_bridge:dead:{platform}")
+        finally:
+            await r.aclose()
+    except Exception:
+        logger.debug("dead-marker clear failed for %s", platform, exc_info=True)
+
+
 async def _secret(name: str) -> str:
     """Read a login credential from the secret store (never logs values)."""
     try:
@@ -645,6 +663,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
             and status.get("cookies_found")
         ):
             slot["status"] = "healthy"
+            await _clear_dead_marker(platform)
             return
 
         code, started = await _bridge_call(
@@ -663,6 +682,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
         if await _bridge_poll_done(platform):
             if await _bridge_extract(platform):
                 slot["status"] = "healthy"
+                await _clear_dead_marker(platform)
                 await _alert_recovered(
                     platform, f"*{platform.title()} bridge session is back* — logged in again."
                 )
@@ -674,6 +694,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
             if await _bridge_poll_done(platform, seconds=20):
                 await _bridge_extract(platform)
                 slot["status"] = "recovered"
+                await _clear_dead_marker(platform)
                 await _alert_recovered(
                     platform,
                     f"*{platform.title()} bridge session recovered* automatically.",
@@ -684,6 +705,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
             if await _bridge_verify_not_login(platform):
                 await _bridge_extract(platform)
                 slot["status"] = "recovered"
+                await _clear_dead_marker(platform)
                 await _alert_recovered(
                     platform,
                     f"*{platform.title()} bridge session recovered* automatically.",
