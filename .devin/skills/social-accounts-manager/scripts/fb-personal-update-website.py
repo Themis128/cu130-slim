@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Update Facebook personal profile website via browser sidecar.
-Usage: fb-personal-update-website.py "https://cloudless.gr""""
+Usage: fb-personal-update-website.py "https://cloudless.gr"""
 
 import sys
 from pathlib import Path

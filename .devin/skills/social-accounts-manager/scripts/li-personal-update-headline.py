@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Update LinkedIn personal headline via browser sidecar.
-Usage: li-personal-update-headline.py "Headline text""""
+Usage: li-personal-update-headline.py "Headline text"""
 
 import sys
 from pathlib import Path

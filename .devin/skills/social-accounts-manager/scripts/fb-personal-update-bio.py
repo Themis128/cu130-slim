@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Update Facebook personal bio via browser sidecar.
-Usage: fb-personal-update-bio.py "Bio text""""
+Usage: fb-personal-update-bio.py "Bio text"""
 
 import sys
 from pathlib import Path
