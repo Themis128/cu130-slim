@@ -28,7 +28,15 @@ logger = logging.getLogger(__name__)
 
 # cloudless.gr Company Page organization id (single-tenant platform).
 _ORG_ID = "108614163"
+# The "Invite connections" entry point moves between surfaces: it sat on
+# /admin/page-posts/, appears in the "Grow your followers" card on the
+# public Page, in the Page's ⋯ overflow menu, and in the Admin Tools panel
+# on the admin view (LinkedIn Help + Linked Helper docs, Sep 2026). Try
+# them in order.
 _PAGE_POSTS_URL = f"https://www.linkedin.com/company/{_ORG_ID}/admin/page-posts/"
+_PAGE_ADMIN_URL = f"https://www.linkedin.com/company/{_ORG_ID}/admin/dashboard/"
+_PAGE_PUBLIC_URL = "https://www.linkedin.com/company/cloudless-gr/"
+_INVITE_TEXT = "Invite connections"
 
 _RESULTS_CONTAINER = ".invitee-picker__results-container"
 _SHOW_MORE_TEXT = "Show more results"
@@ -204,18 +212,78 @@ async def _selected_count(client: BrowserBridgeClient) -> int:
     return int(m.group()) if m else 0
 
 
-async def _open_invite_dialog(client: BrowserBridgeClient) -> bool:
-    """Navigate to the page admin and open the Invite connections dialog."""
-    await client.navigate(_PAGE_POSTS_URL)
-    await asyncio.sleep(8)
-    clicked = await client.click("button", "Invite connections")
-    if not clicked or clicked.get("detail"):
-        return False
-    await asyncio.sleep(6)
-    for _ in range(10):
+async def _wait_for_dialog(client: BrowserBridgeClient, tries: int = 10) -> bool:
+    for _ in range(tries):
         if await _eval(client, f"!!document.querySelector('{_RESULTS_CONTAINER}')"):
             return True
         await asyncio.sleep(2)
+    return False
+
+
+async def _login_wall(client: BrowserBridgeClient) -> bool:
+    """True when LinkedIn bounced to authwall/login — no page chrome present."""
+    try:
+        return bool(
+            await _eval(
+                client,
+                "!!document.querySelector('input[name=session_key]')"
+                "||location.href.includes('authwall')",
+            )
+        )
+    except BrowserBridgeError:
+        return False
+
+
+async def _click_invite_anywhere(client: BrowserBridgeClient) -> bool:
+    """Click the Invite connections control as a button or ⋯ overflow menu item.
+
+    The button's wrapping element varies by surface — try plain buttons first,
+    then open the ⋯ "More" menu and click the matching menu item.
+    """
+    if await _click_button_by_text(client, _INVITE_TEXT):
+        return True
+    # Overflow menu: open ⋯ and click the Invite connections item.
+    opened = await _eval(
+        client,
+        "(()=>{const m=[...document.querySelectorAll('button,[role=button]')]"
+        ".find(e=>e.offsetParent&&/\\bmore\\b|⋯|\\.\\.\\./i.test(e.getAttribute('aria-label')||e.innerText||''));"
+        "if(!m) return false; m.click(); return true})()",
+    )
+    if not opened:
+        return False
+    await asyncio.sleep(3)
+    return bool(
+        await _eval(
+            client,
+            f"(()=>{{const it=[...document.querySelectorAll('[role=menuitem],button,li')]"
+            f".find(e=>e.offsetParent&&(e.innerText||'').trim()==='{_INVITE_TEXT}');"
+            "if(!it) return false; it.click(); return true})()",
+        )
+    )
+
+
+async def _open_invite_dialog(client: BrowserBridgeClient) -> bool:
+    """Navigate the Company Page surfaces until the invite dialog opens.
+
+    LinkedIn moved the entry point off /admin/page-posts/; try every
+    documented surface. Fails closed — returns False without clicking
+    anything else when the control isn't found.
+    """
+    for url in (_PAGE_POSTS_URL, _PAGE_PUBLIC_URL, _PAGE_ADMIN_URL):
+        try:
+            await client.navigate(url)
+        except BrowserBridgeError as e:
+            logger.info("invite-nav-failed url=%s error=%s", url, str(e)[:100])
+            continue
+        await asyncio.sleep(8)
+        if await _login_wall(client):
+            logger.warning("linkedin-invites: shared-bridge session logged out")
+            return False
+        try:
+            if await _click_invite_anywhere(client) and await _wait_for_dialog(client):
+                return True
+        except BrowserBridgeError:
+            continue
     return False
 
 
