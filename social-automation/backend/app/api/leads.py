@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
+from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.user import User
@@ -92,4 +95,49 @@ async def create_lead_manual(
         meta_data=body.meta_data or {},
     )
     return LeadOut.model_validate(lead, from_attributes=True)
+
+
+# ── Public newsletter/lead capture (no auth — marketing site form) ────────
+
+_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,}$")
+
+
+class PublicLeadRequest(BaseModel):
+    email: str = Field(..., max_length=320)
+    name: str | None = Field(None, max_length=200)
+    # Honeypot — rendered hidden in the form; bots fill it, humans don't.
+    website: str | None = Field(None, max_length=200)
+
+
+@router.post("/public")
+@limiter.limit("10/minute")
+async def create_lead_public(
+    body: PublicLeadRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Unauthenticated newsletter capture for the social.cloudless.gr funnel.
+
+    Rate-limited + honeypot — no auth, so never accept anything richer than
+    an email address. Leads land on the configured cloudless.gr team.
+    """
+    if body.website:
+        return {"ok": True}  # silent honeypot acceptance
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    team_id_raw = get_settings().CLOUDLESS_WEB_ANALYTICS_TEAM_ID
+    if not team_id_raw:
+        raise HTTPException(status_code=503, detail="Lead capture not configured")
+    await create_lead(
+        db,
+        team_id=uuid.UUID(team_id_raw),
+        source=LeadSource.website,
+        name=(body.name or email.split("@", 1)[0])[:200],
+        email=email,
+        interest=LeadInterest.cloud,
+        notes="newsletter — Free Cloud Migration Playbook",
+        meta_data={"form": "newsletter", "path": "public_landing"},
+    )
+    return {"ok": True}
 

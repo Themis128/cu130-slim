@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { PublicNav } from '@/components/marketing/PublicNav'
 import { PublicFooter } from '@/components/marketing/PublicFooter'
 import { Hero } from '@/components/marketing/Hero'
+import { FunnelSection } from '@/components/marketing/FunnelSection'
 import { FeatureGrid } from '@/components/marketing/FeatureGrid'
 import { PlatformSupport } from '@/components/marketing/PlatformSupport'
 import { CTASection } from '@/components/marketing/CTASection'
@@ -43,6 +44,7 @@ export default function HomePage() {
       <PublicNav />
       <main className="flex-1">
         <Hero />
+        <FunnelSection />
         <FeatureGrid />
         <PlatformSupport />
         <CTASection />
