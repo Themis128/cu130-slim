@@ -1,4 +1,5 @@
 """Public funnel: the playbook promised by LeadCapture is actually delivered."""
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -24,6 +25,34 @@ def _settings(**over):
     )
     base.update(over)
     return SimpleNamespace(**base)
+
+
+class _FakeRedis:
+    """Minimal async Redis: SET NX/EX + DELETE with real NX semantics."""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    async def set(self, key, value, nx=False, ex=None):
+        await asyncio.sleep(0)  # yield so concurrent callers interleave
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+    async def delete(self, key):
+        self.store.pop(key, None)
+
+
+@pytest.fixture
+def fake_redis():
+    r = _FakeRedis()
+
+    async def _client():
+        return r
+
+    with patch.object(pb, "_redis_client", new=_client):
+        yield r
 
 
 class _FakeDB:
@@ -90,7 +119,7 @@ async def test_send_playbook_email_requires_url():
 
 
 @pytest.mark.asyncio
-async def test_deliver_playbook_enqueues_and_stamps_lead():
+async def test_deliver_playbook_enqueues_and_stamps_lead(fake_redis):
     db, lead = _FakeDB(), SimpleNamespace(meta_data={"form": "newsletter"})
     with patch.object(pb, "_enqueue_playbook_email") as enq:
         out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
@@ -102,7 +131,7 @@ async def test_deliver_playbook_enqueues_and_stamps_lead():
 
 
 @pytest.mark.asyncio
-async def test_deliver_playbook_never_resends():
+async def test_deliver_playbook_never_resends(fake_redis):
     db, lead = _FakeDB(), SimpleNamespace(meta_data={"playbook_email_queued_at": "x"})
     with patch.object(pb, "_enqueue_playbook_email") as enq:
         out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=True, settings=_settings())
@@ -112,7 +141,7 @@ async def test_deliver_playbook_never_resends():
 
 
 @pytest.mark.asyncio
-async def test_deliver_playbook_without_sender_offers_download():
+async def test_deliver_playbook_without_sender_offers_download(fake_redis):
     db, lead = _FakeDB(), SimpleNamespace(meta_data={})
     with patch.object(pb, "_enqueue_playbook_email") as enq:
         out = await pb.deliver_playbook(
@@ -130,13 +159,14 @@ async def test_deliver_playbook_without_url_is_none():
 
 
 @pytest.mark.asyncio
-async def test_deliver_playbook_broker_down_falls_back_to_download():
+async def test_deliver_playbook_broker_down_falls_back_to_download(fake_redis):
     db, lead = _FakeDB(), SimpleNamespace(meta_data={})
     with patch.object(pb, "_enqueue_playbook_email", side_effect=ConnectionError("redis down")):
         out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
     assert out == "download"
     assert "playbook_email_queued_at" not in lead.meta_data
     assert db.commits == 0
+    assert fake_redis.store == {}  # claim released so a retry can still send
 
 
 def test_playbook_task_registered_and_routed_to_default():
@@ -166,3 +196,51 @@ def test_default_playbook_url_points_at_committed_asset():
         pytest.skip("frontend not present (container layout)")
     assert pdf.exists() and pdf.read_bytes()[:5] == b"%PDF-"
     assert src.exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_submissions_queue_exactly_one_email(fake_redis):
+    """Race from #203 review: simultaneous posts for one address -> one email."""
+    leads = [SimpleNamespace(meta_data={}) for _ in range(8)]
+    db = _FakeDB()
+    with patch.object(pb, "_enqueue_playbook_email") as enq:
+        results = await asyncio.gather(
+            *(
+                pb.deliver_playbook(db, lead, "Race@Example.com" if i % 2 else "race@example.com",
+                                    already_sent=False, settings=_settings())
+                for i, lead in enumerate(leads)
+            )
+        )
+    assert results.count("email") == 1
+    assert results.count("already_sent") == 7
+    assert enq.call_count == 1
+    assert len(fake_redis.store) == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_is_once_per_address(fake_redis):
+    assert await pb.claim_playbook_send("a@b.co") is True
+    assert await pb.claim_playbook_send("A@B.co ") is False
+    assert await pb.claim_playbook_send("other@b.co") is True
+
+
+@pytest.mark.asyncio
+async def test_redis_down_never_sends():
+    async def _boom():
+        raise ConnectionError("redis down")
+
+    db, lead = _FakeDB(), SimpleNamespace(meta_data={})
+    with patch.object(pb, "_redis_client", new=_boom), patch.object(pb, "_enqueue_playbook_email") as enq:
+        out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
+    assert out == "download"
+    enq.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stamped_lead_row_short_circuits(fake_redis):
+    db, lead = _FakeDB(), SimpleNamespace(meta_data={"playbook_email_queued_at": "x"})
+    with patch.object(pb, "_enqueue_playbook_email") as enq:
+        out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
+    assert out == "already_sent"
+    enq.assert_not_called()
+    assert fake_redis.store == {}
