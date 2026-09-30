@@ -90,6 +90,13 @@ class Settings(BaseSettings):
 
     # LanguageTool self-hosted spell/grammar checker
     LANGUAGETOOL_URL: str = "http://languagetool:8010"
+    # Comma-separated words LanguageTool must never "correct" (proper nouns
+    # it mangles — Redis→Regis, Kakkava→Baklava). Extend via env, don't
+    # shrink the defaults.
+    LANGUAGETOOL_PROTECTED_WORDS: str = (
+        "Kakkava,Redis,cloudless,cloudless.gr,SocialAuto,Polar,n8n,noVNC,"
+        "instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
+    )
 
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
