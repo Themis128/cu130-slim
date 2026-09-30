@@ -26,6 +26,10 @@ _BUTTON_STYLE = (
     "display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;"
     "border-radius:6px;text-decoration:none;font-weight:600"
 )
+_OUTLINE_BUTTON_STYLE = (
+    "display:inline-block;background:#fff;color:#0891b2;padding:10px 18px;"
+    "border:2px solid #0891b2;border-radius:6px;text-decoration:none;font-weight:600"
+)
 
 
 PLAYBOOK_PATH = "/playbooks/cloud-migration-playbook.pdf"
@@ -84,7 +88,10 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
         "workload, choose the target architecture, plan a reversible cutover, "
         "and put cost, security and operations guardrails in place. The "
         "appendix has inventory and baseline worksheets you can fill in.\n\n"
-        "Want a second pair of eyes on your setup? Book a free 30-minute audit:\n"
+        "Want a second pair of eyes? Book a free 30-minute audit — we review\n"
+        "your inventory and baseline (Steps 1 and 2), tell you which of the five\n"
+        "paths each workload should take, and hand you a written action plan,\n"
+        "whether or not you ever hire us. Fill in the worksheets and bring them:\n"
         "https://cloudless.gr/contact\n\n"
         "Themistoklis Baltzakis\n"
         "cloudless.gr\n\n"
@@ -103,8 +110,11 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
   inventory what runs, measure a baseline, classify each workload, choose the target
   architecture, plan a reversible cutover, and put cost, security and operations
   guardrails in place. The appendix has inventory and baseline worksheets.</p>
-  <p>Want a second pair of eyes on your setup?
-  <a href="https://cloudless.gr/contact">Book a free 30-minute audit</a>.</p>
+  <p><strong>Want a second pair of eyes?</strong> Book a free 30-minute audit — we review
+  your inventory and baseline (Steps 1 and 2 of the playbook), tell you which of the
+  five paths each workload should take, and hand you a written action plan, whether
+  or not you ever hire us. Fill in the worksheets and bring them.</p>
+  <p><a href="https://cloudless.gr/contact" style="{_OUTLINE_BUTTON_STYLE}">Book the free audit</a></p>
   <p>Themistoklis Baltzakis<br>cloudless.gr</p>
   <p style="font-size:12px;color:#777">You received this because this address was entered in the
   playbook form on social.cloudless.gr. If that wasn't you, ignore this email;
