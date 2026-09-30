@@ -7,6 +7,8 @@ Company Page audience.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import HTTPException
 
 from app.services.cf_models import CF_TEXT_FREE
@@ -280,52 +282,97 @@ Return JSON with: hashtags (array of strings without #)"""
     return [str(h).lstrip("#").strip() for h in result.get("hashtags") or [] if str(h).strip()][:count]
 
 
+# 00:00–05:59 local — recurring automation publishes overnight, so a winning
+# overnight bucket is a scheduler artifact, not audience signal (PR #143).
+_DEAD_NIGHT_HOURS = frozenset(range(0, 6))
+# A joint (weekday, hour) bucket needs 2+ posts before its mean ER is a
+# signal rather than one post's outcome — the joint analogue of
+# insights_engine._best()'s min_n=3 on 1-dim buckets.
+_MIN_SAMPLES_PER_SLOT = 2
+# Same margin rule as insights_engine._best(): the winner must beat the
+# account's mean ER by 25% to count as a real signal.
+_MARGIN = 1.25
+_MAX_WINDOWS = 5
+
+
+def rank_best_time_windows(
+    samples: list[tuple[datetime, float]],
+    timezone: str = "Europe/Athens",
+) -> list[dict]:
+    """Rank (weekday, hour) posting windows by average engagement rate.
+
+    ``samples`` is a list of ``(published_at, engagement_rate)`` pairs — one
+    per published post (typically the post's lifetime/max engagement).
+    Timestamps are bucketed in ``timezone`` (published_at is stored in UTC).
+
+    Guards (mirroring insights_engine._best + PR #143):
+    - dead-night local hours are excluded (scheduler artifacts)
+    - a slot needs >= ``_MIN_SAMPLES_PER_SLOT`` posts to rank
+    - only slots beating the account's mean ER are returned; "high"
+      confidence requires the ``_MARGIN`` margin over the mean
+    Returns [] when nothing qualifies — callers fall back to defaults.
+    """
+    from collections import defaultdict
+    from zoneinfo import ZoneInfo
+
+    if len(samples) < 10:
+        return []
+
+    tz = ZoneInfo(timezone)
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    engagement_by_slot: dict[tuple[int, int], list[float]] = defaultdict(list)
+
+    for published_at, rate in samples:
+        if published_at is None:
+            continue
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=UTC)
+        dt = published_at.astimezone(tz)
+        engagement_by_slot[(dt.weekday(), dt.hour)].append(rate)
+
+    mean_er = sum(rate for _, rate in samples) / len(samples)
+
+    windows = []
+    for (day_idx, hour), rates in sorted(
+        engagement_by_slot.items(),
+        key=lambda kv: -(sum(kv[1]) / len(kv[1])),
+    ):
+        if len(rates) < _MIN_SAMPLES_PER_SLOT or hour in _DEAD_NIGHT_HOURS:
+            continue
+        avg = sum(rates) / len(rates)
+        if avg < mean_er:
+            continue
+        windows.append({
+            "day": day_names[day_idx],
+            "time": f"{hour:02d}:00",
+            "timezone": timezone,
+            "confidence": "high" if avg >= mean_er * _MARGIN else "medium",
+            "avg_engagement_rate": round(avg, 4),
+            "sample_size": len(rates),
+        })
+        if len(windows) >= _MAX_WINDOWS:
+            break
+    return windows
+
+
 async def suggest_best_time_to_post(
     *,
     account_type: str = "organization",
     timezone: str = "Europe/Athens",
-    snapshots: list | None = None,
+    samples: list[tuple[datetime, float]] | None = None,
 ) -> list[dict]:
     """Return LinkedIn best-time-to-post windows.
 
-    When ``snapshots`` (a list of PostAnalyticsSnapshot) is provided with 10+
-    entries, the windows are derived from the account's historical
-    engagement_rate data grouped by day-of-week and hour. Otherwise, falls
-    back to well-known professional-audience windows in the requested
-    timezone.
+    When ``samples`` (``(published_at, engagement_rate)`` pairs) qualifies
+    under ``rank_best_time_windows``, windows are derived from when those
+    posts were published. Otherwise falls back to well-known
+    professional-audience windows.
+
+    NOTE: callers must pass the post's *publish* timestamp, not the analytics
+    ``captured_at`` — bucketing by capture time only measures the sync cron.
     """
-    if snapshots and len(snapshots) >= 10:
-        from collections import defaultdict
-
-        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        engagement_by_slot: dict[tuple[int, int], list[float]] = defaultdict(list)
-
-        for snap in snapshots:
-            dt = getattr(snap, "captured_at", None)
-            if dt is None:
-                continue
-            day_idx = dt.weekday()
-            hour = dt.hour
-            rate = getattr(snap, "engagement_rate", 0.0)
-            engagement_by_slot[(day_idx, hour)].append(rate)
-
-        slot_scores = []
-        for slot, rates in engagement_by_slot.items():
-            avg = sum(rates) / len(rates) if rates else 0.0
-            slot_scores.append((slot, avg))
-
-        slot_scores.sort(key=lambda x: x[1], reverse=True)
-
-        windows = []
-        for (day_idx, hour), score in slot_scores[:5]:
-            confidence = "high" if score > 0.02 else "medium"
-            windows.append({
-                "day": day_names[day_idx],
-                "time": f"{hour:02d}:00",
-                "timezone": timezone,
-                "confidence": confidence,
-                "avg_engagement_rate": round(score, 4),
-            })
+    if samples:
+        windows = rank_best_time_windows(samples, timezone)
         if windows:
             return windows
 

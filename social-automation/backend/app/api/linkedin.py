@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.deps import get_user_team
 from app.core.security import decrypt_token
 from app.db.session import get_db
+from app.models.analytics import PostAnalyticsSnapshot
+from app.models.content import Post
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.linkedin_ai import (
@@ -22,6 +25,7 @@ from app.services.linkedin_ai import (
     generate_linkedin_hashtags,
     generate_linkedin_post,
     improve_linkedin_post,
+    rank_best_time_windows,
     suggest_best_time_to_post,
 )
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
@@ -91,6 +95,8 @@ class GenerateHashtagsResponse(BaseModel):
 
 class BestTimeResponse(BaseModel):
     best_times: list[dict]
+    source: str = "defaults"  # "analytics" when derived from published-post history
+    posts_analyzed: int = 0
 
 
 class ImprovePostRequest(BaseModel):
@@ -197,10 +203,55 @@ async def linkedin_best_time(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return recommended posting windows for LinkedIn."""
-    # Team lookup keeps the route consistent with others; no DB write needed.
-    await _team_for_user(db, current_user)
-    return BestTimeResponse(best_times=await suggest_best_time_to_post(account_type=account_type))
+    """Return recommended posting windows for LinkedIn.
+
+    Derives windows from the team's own published-post engagement history
+    (Post.published_at bucketed by weekday/hour, weighted by each post's max
+    engagement_rate). Falls back to professional-audience defaults when fewer
+    than 10 posts with analytics exist.
+    """
+    team = await _team_for_user(db, current_user)
+
+    # Which of the team's LinkedIn accounts match the requested type? If none
+    # match exactly, fall back to all LinkedIn accounts for the team.
+    base = select(SocialAccount.id).where(
+        SocialAccount.team_id == team.id,
+        SocialAccount.platform == "linkedin",
+    )
+    typed_ids = list((
+        await db.execute(base.where(SocialAccount.account_type == account_type))
+    ).scalars().all())
+    account_ids = typed_ids or list((await db.execute(base)).scalars().all())
+
+    samples: list[tuple[datetime, float]] = []
+    if account_ids:
+        # Max engagement_rate per post — lifetime engagement correlates with
+        # publish time; captured_at (sync cron time) must NOT be used here.
+        stmt = (
+            select(Post.published_at, func.max(PostAnalyticsSnapshot.engagement_rate))
+            .join(PostAnalyticsSnapshot, PostAnalyticsSnapshot.post_id == Post.id)
+            .where(
+                PostAnalyticsSnapshot.team_id == team.id,
+                PostAnalyticsSnapshot.platform == "linkedin",
+                PostAnalyticsSnapshot.social_account_id.in_(account_ids),
+                Post.published_at.is_not(None),
+            )
+            .group_by(Post.id, Post.published_at)
+        )
+        samples = [
+            (published_at, rate)
+            for published_at, rate in (await db.execute(stmt)).all()
+            if published_at is not None
+        ]
+
+    windows = rank_best_time_windows(samples) if samples else []
+    if not windows:
+        windows = await suggest_best_time_to_post(account_type=account_type)
+    return BestTimeResponse(
+        best_times=windows,
+        source="analytics" if windows and "sample_size" in windows[0] else "defaults",
+        posts_analyzed=len(samples),
+    )
 
 
 @router.post("/improve-post", response_model=ImprovePostResponse)
