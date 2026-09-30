@@ -449,10 +449,12 @@ class Settings(BaseSettings):
     DIGEST_EMAIL_ISSUES_ONLY: bool = False
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
     # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
-    # The PDF is a static frontend asset (frontend/public/playbooks/). Empty
-    # PLAYBOOK_URL -> f"{FRONTEND_URL}/playbooks/cloud-migration-playbook.pdf".
+    # Default link is the copy on the public cloudless.gr site: social.cloudless.gr
+    # (FRONTEND_URL) sits behind Cloudflare Access, so leads cannot open it there.
+    # Set PLAYBOOK_URL="" to fall back to
+    # f"{FRONTEND_URL}/playbooks/cloud-migration-playbook.pdf".
     PLAYBOOK_EMAIL_ENABLED: bool = True
-    PLAYBOOK_URL: str = ""
+    PLAYBOOK_URL: str = "https://cloudless.gr/playbooks/cloud-migration-playbook.pdf"
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

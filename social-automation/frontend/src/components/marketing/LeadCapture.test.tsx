@@ -2,7 +2,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import { vi } from 'vitest'
 import { LeadCapture, LeadCaptureDone } from '@/components/marketing/LeadCapture'
 
-const PDF = 'https://social.cloudless.gr/playbooks/cloud-migration-playbook.pdf'
+const PDF = 'https://cloudless.gr/playbooks/cloud-migration-playbook.pdf'
 
 describe('LeadCaptureDone', () => {
   afterEach(() => cleanup())
