@@ -379,8 +379,18 @@ async def _process_account(
             continue
 
         try:
-            # 2. Read messages in this conversation
+            # 2. Read messages in this conversation.
+            # Graph's conversations list already embeds the latest message —
+            # skip the per-conversation fetch (app-level rate limit is shared
+            # and tight) when it shows nothing new inbound: latest message is
+            # ours, or its text matches the last one we processed.
             if client is not None:
+                embedded = convo.get("messages", {}).get("data", [])
+                latest = embedded[0] if embedded else {}
+                latest_from = str(latest.get("from", {}).get("id", "")) if isinstance(latest.get("from"), dict) else ""
+                latest_text = (latest.get("message") or "").strip()
+                if not latest or latest_from in my_ids or latest_text == seen.get(str(convo_id), ""):
+                    continue
                 msgs_result = await client.get_dm_messages(convo_id, limit=20)
                 messages = msgs_result.get("data", [])
                 sender_key = "from"
