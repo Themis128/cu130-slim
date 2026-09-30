@@ -35,7 +35,7 @@ The sidecar stores sessions in `/data/db.json`. Each session has a `sessionid` f
 To list available sessions:
 
 ```bash
-.devin/skills/instagram-profile-manager/scripts/list-sessions.sh
+.devin/skills/instagram-profile-manager/scripts/list-sessions.py
 ```
 
 ## Key endpoints
@@ -59,28 +59,28 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # List saved sessions in the sidecar
-.devin/skills/instagram-profile-manager/scripts/list-sessions.sh
+.devin/skills/instagram-profile-manager/scripts/list-sessions.py
 
 # Login using a sessionid
-.devin/skills/instagram-profile-manager/scripts/login-by-sessionid.sh <sessionid>
+.devin/skills/instagram-profile-manager/scripts/login-by-sessionid.py <sessionid>
 
 # Login using username and password
-.devin/skills/instagram-profile-manager/scripts/login.sh [username] [password]
+.devin/skills/instagram-profile-manager/scripts/login.py [username] [password]
 
 # Get current account info
-.devin/skills/instagram-profile-manager/scripts/get-account.sh [session_id]
+.devin/skills/instagram-profile-manager/scripts/get-account.py [session_id]
 
 # Update biography
-.devin/skills/instagram-profile-manager/scripts/update-bio.sh [session_id] "new bio text"
+.devin/skills/instagram-profile-manager/scripts/update-bio.py [session_id] "new bio text"
 
 # Update external URL
-.devin/skills/instagram-profile-manager/scripts/update-url.sh [session_id] "https://example.com"
+.devin/skills/instagram-profile-manager/scripts/update-url.py [session_id] "https://example.com"
 
 # Update profile picture
-.devin/skills/instagram-profile-manager/scripts/update-picture.sh [session_id] <image_file>
+.devin/skills/instagram-profile-manager/scripts/update-picture.py [session_id] <image_file>
 
 # Get any user's profile
-.devin/skills/instagram-profile-manager/scripts/get-user.sh [session_id] <username>
+.devin/skills/instagram-profile-manager/scripts/get-user.py [session_id] <username>
 ```
 
 ## Instagram bio limits
@@ -108,8 +108,8 @@ gets 429 (rate limited) or "login with Facebook" error, follow this order:
    - Open https://www.instagram.com in Chrome/Firefox and log in manually.
    - Open DevTools → Application → Cookies → instagram.com.
    - Copy the `sessionid` cookie value.
-   - Import it: `.devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>`
-   - Verify: `.devin/skills/instagram-private-api/scripts/get-profile.sh <new_session_id>`
+   - Import it: `.devin/skills/instagram-private-api/scripts/import-session.py <sessionid>`
+   - Verify: `.devin/skills/instagram-private-api/scripts/get-profile.py <new_session_id>`
 
 2. **If username/password login is rate-limited (429)**:
    - Wait 24-48h for the rate limit to clear.

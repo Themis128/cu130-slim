@@ -198,15 +198,15 @@ Configuration is stored in `meta_data.messenger_auto_reply`:
 
 | Script | Purpose |
 |--------|---------|
-| `setup.sh` | Set up Messenger on a Facebook Page |
-| `get-profile.sh` | Get current Messenger Profile |
-| `update-profile.sh` | Update greeting/menu/domains |
-| `send-message.sh` | Send a text message |
-| `list-conversations.sh` | List conversations |
-| `get-messages.sh` | Get messages in a conversation |
-| `auto-reply.sh` | Get/set AI auto-reply config |
-| `webhook-test.sh` | Test webhook verification + event |
-| `status.sh` | Check Messenger setup status |
+| `setup.py` | Set up Messenger on a Facebook Page |
+| `get-profile.py` | Get current Messenger Profile |
+| `update-profile.py` | Update greeting/menu/domains |
+| `send-message.py` | Send a text message |
+| `list-conversations.py` | List conversations |
+| `get-messages.py` | Get messages in a conversation |
+| `auto-reply.py` | Get/set AI auto-reply config |
+| `webhook-test.py` | Test webhook verification + event |
+| `status.py` | Check Messenger setup status |
 
 ## Research references
 

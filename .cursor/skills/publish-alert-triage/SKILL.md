@@ -66,7 +66,7 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 
 | Signature | Meaning | Action |
 |---|---|---|
-| `url_ownership_unverified` | TikTok `PULL_FROM_URL` needs a verified domain | `tiktok-console-ops` → `domain-verify.sh` (console token → CF DNS TXT → Verify) |
+| `url_ownership_unverified` | TikTok `PULL_FROM_URL` needs a verified domain | `tiktok-console-ops` → `domain-verify.py` (console token → CF DNS TXT → Verify) |
 | `MEDIA_PUBLIC_BASE_URL not set` | No public media URL for TikTok pull | Set env to public https URL (CF tunnel); verify tunnel running |
 | `(#10) Application does not have permission` | Meta app lacks scope/review | `meta-app-review` skill — `instagram_content_publish`/`pages_*` scopes |
 

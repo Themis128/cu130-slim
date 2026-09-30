@@ -66,35 +66,35 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Read a profile
-.devin/skills/socialauto-profile/scripts/get-profile.sh <account-id>
+.devin/skills/socialauto-profile/scripts/get-profile.py <account-id>
 
 # Update profile fields
-.devin/skills/socialauto-profile/scripts/update-profile.sh <account-id> '{"about":"..."}'
+.devin/skills/socialauto-profile/scripts/update-profile.py <account-id> '{"about":"..."}'
 
 # Upload a profile picture
-.devin/skills/socialauto-profile/scripts/upload-picture.sh <account-id> <image-file>
+.devin/skills/socialauto-profile/scripts/upload-picture.py <account-id> <image-file>
 
 # Upload a cover/banner photo
-.devin/skills/socialauto-profile/scripts/upload-cover.sh <account-id> <image-file>
+.devin/skills/socialauto-profile/scripts/upload-cover.py <account-id> <image-file>
 
 # Log in to Instagram / Facebook / LinkedIn private API or browser session
-.devin/skills/socialauto-profile/scripts/login.sh <account-id> <username> <password>
+.devin/skills/socialauto-profile/scripts/login.py <account-id> <username> <password>
 
 # List accounts to find account IDs
-.devin/skills/socialauto-accounts/scripts/list-accounts.sh
+.devin/skills/socialauto-accounts/scripts/list-accounts.py
 ```
 
 ## Example update payloads
 
 ```bash
 # Instagram / TikTok bio
-.devin/skills/socialauto-profile/scripts/update-profile.sh <id> '{"biography":"Cloud consulting & AI marketing ☁️"}'
+.devin/skills/socialauto-profile/scripts/update-profile.py <id> '{"biography":"Cloud consulting & AI marketing ☁️"}'
 
 # LinkedIn headline and about
-.devin/skills/socialauto-profile/scripts/update-profile.sh <id> '{"headline":"Founder @ cloudless.gr","about":"Cloud consulting, serverless & AI marketing."}'
+.devin/skills/socialauto-profile/scripts/update-profile.py <id> '{"headline":"Founder @ cloudless.gr","about":"Cloud consulting, serverless & AI marketing."}'
 
 # Facebook personal about
-.devin/skills/socialauto-profile/scripts/update-profile.sh <id> '{"about":"Cloud consulting & AI marketing"}'
+.devin/skills/socialauto-profile/scripts/update-profile.py <id> '{"about":"Cloud consulting & AI marketing"}'
 ```
 
 ## Important notes

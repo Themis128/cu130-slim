@@ -160,7 +160,7 @@ separate Content Posting API audit:
    `https://developers.tiktok.com/application/content-posting-api`
 3. Complete the 4-step wizard (org info, App ID, goal, daily-user estimate,
    MP4 screen recording, DB-fields list, 3 declaration checkboxes) — see
-   `.devin/skills/tiktok-console-ops/scripts/cp-audit-application.sh`
+   `.devin/skills/tiktok-console-ops/scripts/cp-audit-application.py`
 4. TikTok reviews it (several business days); the console shows **"Under
    review"** beside Direct Post until it clears
 
@@ -224,13 +224,13 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Check TikTok app configuration from .env
-.devin/skills/tiktok-dev-console/scripts/check-app-config.sh
+.devin/skills/tiktok-dev-console/scripts/check-app-config.py
 
 # Verify that social.cloudless.gr is reachable and serving media
-.devin/skills/tiktok-dev-console/scripts/verify-media-url.sh
+.devin/skills/tiktok-dev-console/scripts/verify-media-url.py
 
 # Fetch the latest TikTok Content Posting API docs
-.devin/skills/tiktok-dev-console/scripts/fetch-docs.sh
+.devin/skills/tiktok-dev-console/scripts/fetch-docs.py
 ```
 
 ## Important notes

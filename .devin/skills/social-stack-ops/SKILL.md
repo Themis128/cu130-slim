@@ -46,7 +46,7 @@ triggers:
 ## Tool script
 
 ```bash
-.devin/skills/social-stack-ops/scripts/stack-status.sh
+.devin/skills/social-stack-ops/scripts/stack-status.py
 ```
 
 ## MCP stdio client

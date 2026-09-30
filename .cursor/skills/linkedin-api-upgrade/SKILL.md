@@ -88,7 +88,7 @@ A written description of:
 - How it leverages the LinkedIn API
 - Which specific endpoints/products are used
 
-See `scripts/generate-use-case.sh` to generate this automatically from the
+See `scripts/generate-use-case.py` to generate this automatically from the
 codebase, or use the template below.
 
 ### 2. Demo video recording
@@ -239,10 +239,10 @@ Share on LinkedIn provisioned. LinkedIn's portal directs you to create a new app
 
 ```bash
 # Generate the business use case description from the codebase
-.devin/skills/linkedin-api-upgrade/scripts/generate-use-case.sh
+.devin/skills/linkedin-api-upgrade/scripts/generate-use-case.py
 
 # Check which LinkedIn scopes are currently configured
-.devin/skills/linkedin-api-upgrade/scripts/check-scopes.sh
+.devin/skills/linkedin-api-upgrade/scripts/check-scopes.py
 ```
 
 ### Status check 2026-09-30

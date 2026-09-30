@@ -16,25 +16,25 @@ Day-to-day operations for the Threads platform in the SocialAuto Cloudless stack
 
 ```bash
 # Check Threads app status and connected accounts
-bash .devin/skills/threads-ops/scripts/check-threads-app.sh
+python3 .devin/skills/threads-ops/scripts/check-threads-app.py
 
 # Get Threads profile info (bio, username, avatar, token)
-bash .devin/skills/threads-ops/scripts/get-threads-profile.sh
+python3 .devin/skills/threads-ops/scripts/get-threads-profile.py
 
 # Switch to the cloudless.gr Threads/Instagram profile
-bash .devin/skills/threads-ops/scripts/switch-threads-account.sh cloudless.gr
+python3 .devin/skills/threads-ops/scripts/switch-threads-account.py cloudless.gr
 
 # Start the OAuth flow for the default team
-bash .devin/skills/threads-ops/scripts/connect-threads.sh
+python3 .devin/skills/threads-ops/scripts/connect-threads.py
 
 # Post a text thread to the first connected Threads account
-bash .devin/skills/threads-ops/scripts/post-threads.sh "Hello from the Cloudless social stack"
+python3 .devin/skills/threads-ops/scripts/post-threads.py "Hello from the Cloudless social stack"
 
 # Update Threads bio via browser bridge
-bash .devin/skills/threads-ops/scripts/update-threads-bio.sh cloudless_gr "Clear skies. Zero friction."
+python3 .devin/skills/threads-ops/scripts/update-threads-bio.py cloudless_gr "Clear skies. Zero friction."
 
 # Update Threads display name via browser bridge (max 2 changes per 14 days)
-bash .devin/skills/threads-ops/scripts/update-threads-name.sh cloudless_gr "Cloudless"
+python3 .devin/skills/threads-ops/scripts/update-threads-name.py cloudless_gr "Cloudless"
 ```
 
 ## Background
@@ -47,18 +47,18 @@ The Cloudless Threads app (`THREADS_CLIENT_ID`) is a child of the main Meta app.
 
 1. Make sure the correct Instagram profile is active:
    ```bash
-   bash .devin/skills/threads-ops/scripts/switch-threads-account.sh cloudless.gr
+   python3 .devin/skills/threads-ops/scripts/switch-threads-account.py cloudless.gr
    ```
 2. Start the OAuth flow:
    ```bash
-   bash .devin/skills/threads-ops/scripts/connect-threads.sh
+   python3 .devin/skills/threads-ops/scripts/connect-threads.py
    ```
 3. Open the returned URL in the browser-novnc viewer (`http://localhost:6080/vnc.html`) or let the browser bridge navigate automatically.
 4. Click **Continue As {username}** in the VNC browser.
 5. Wait for the callback to return to `https://social.cloudless.gr/api/v1/auth/oauth/threads/callback`.
 6. Verify the account appears in SocialAuto:
    ```bash
-   bash .devin/skills/threads-ops/scripts/check-threads-app.sh
+   python3 .devin/skills/threads-ops/scripts/check-threads-app.py
    ```
 
 ### Common OAuth errors
@@ -68,16 +68,16 @@ The Cloudless Threads app (`THREADS_CLIENT_ID`) is a child of the main Meta app.
 | `This action requires the threads_basic permission. You must submit for app review, or your user must be in the list of Threads testers.` | The Threads user who clicked Continue is not a Threads Tester in the Meta app. | Add the user to **App roles > Threads Testers** in `https://developers.facebook.com/apps/{APP_ID}/roles/roles/` and have the user accept the invite in Threads settings → Website permissions. |
 | `Error validating application. Cannot get application info due to a system error.` | `THREADS_CLIENT_SECRET` is wrong or the app is misconfigured. | Verify `THREADS_CLIENT_ID` and `THREADS_CLIENT_SECRET` in `.env` match the values in the Meta developer console. |
 | `Invalid redirect_uri` | The redirect URI in the request does not match the app settings. | Ensure `THREADS_REDIRECT_URI=https://social.cloudless.gr/api/v1/auth/oauth/threads/callback` is registered in the Threads app settings. |
-| `Continue As t_baltzakis` instead of `cloudless.gr` | The VNC browser is logged in to a different Instagram account. | Use `switch-threads-account.sh cloudless.gr` first. |
+| `Continue As t_baltzakis` instead of `cloudless.gr` | The VNC browser is logged in to a different Instagram account. | Use `switch-threads-account.py cloudless.gr` first. |
 
 ## Switch Threads accounts
 
 Because Threads shares Instagram sessions, switching requires clearing the Instagram/Threads session and logging back in with the desired account.
 
 ```bash
-bash .devin/skills/threads-ops/scripts/switch-threads-account.sh cloudless.gr
-bash .devin/skills/threads-ops/scripts/switch-threads-account.sh t_baltzakis
-bash .devin/skills/threads-ops/scripts/switch-threads-account.sh cloudless_gr
+python3 .devin/skills/threads-ops/scripts/switch-threads-account.py cloudless.gr
+python3 .devin/skills/threads-ops/scripts/switch-threads-account.py t_baltzakis
+python3 .devin/skills/threads-ops/scripts/switch-threads-account.py cloudless_gr
 ```
 
 The script navigates to the Instagram profile picker and clicks the named account. If the profile is not in the saved list, log in manually via VNC.
@@ -88,10 +88,10 @@ Text, image, video and carousel posts are supported by the `ThreadsAPIClient` in
 
 ```bash
 # Post a simple text thread
-bash .devin/skills/threads-ops/scripts/post-threads.sh "Your post text here"
+python3 .devin/skills/threads-ops/scripts/post-threads.py "Your post text here"
 
 # Post using a specific account ID
-bash .devin/skills/threads-ops/scripts/post-threads.sh \
+python3 .devin/skills/threads-ops/scripts/post-threads.py \
   "Your post text here" \
   8ef86e64-80b9-479d-b445-1fba0c0d2844
 ```
@@ -99,7 +99,7 @@ bash .devin/skills/threads-ops/scripts/post-threads.sh \
 ## Verify the Threads app setup
 
 ```bash
-bash .devin/skills/threads-ops/scripts/verify-threads-tester.sh
+python3 .devin/skills/threads-ops/scripts/verify-threads-tester.py
 ```
 
 This script:
@@ -125,11 +125,11 @@ Before non-test users can connect Threads:
 
 ## Files
 
-- `scripts/check-threads-app.sh` — list connected accounts, app status and token health.
-- `scripts/connect-threads.sh` — start the SocialAuto OAuth flow and show the authorization URL.
-- `scripts/get-threads-profile.sh` — get Threads profile info via API (bio, username, avatar, token).
-- `scripts/switch-threads-account.sh` — switch the VNC browser to a different Instagram/Threads profile.
-- `scripts/post-threads.sh` — publish a simple text thread.
-- `scripts/update-threads-bio.sh` — update Threads bio via browser bridge.
-- `scripts/update-threads-name.sh` — update Threads display name via browser bridge (max 2 per 14 days).
-- `scripts/verify-threads-tester.sh` — verify the app configuration and OAuth URL.
+- `scripts/check-threads-app.py` — list connected accounts, app status and token health.
+- `scripts/connect-threads.py` — start the SocialAuto OAuth flow and show the authorization URL.
+- `scripts/get-threads-profile.py` — get Threads profile info via API (bio, username, avatar, token).
+- `scripts/switch-threads-account.py` — switch the VNC browser to a different Instagram/Threads profile.
+- `scripts/post-threads.py` — publish a simple text thread.
+- `scripts/update-threads-bio.py` — update Threads bio via browser bridge.
+- `scripts/update-threads-name.py` — update Threads display name via browser bridge (max 2 per 14 days).
+- `scripts/verify-threads-tester.py` — verify the app configuration and OAuth URL.

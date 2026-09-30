@@ -35,14 +35,14 @@ Exit code 1 if any post FAILs — safe for CI-style gating.
   be stale either way. If the bridge's IG session is live (feed loads, not the
   login form), refresh meta_data from it:
 
-  1. `maintenance_window.sh start` (or grab the bridge between pollers)
+  1. `maintenance_window.py start` (or grab the bridge between pollers)
   2. `POST :9223/session/start {"platform":"instagram","force":true,
      "interactive":true}` then `POST /session/extract` (X-Platform: instagram)
   3. Update `social_accounts.meta_data`: `private_api_session_id` =
      `encrypt_field(sessionid)` (encrypted), `private_api_csrf_token` =
      csrftoken **plaintext** (publisher reads it raw), `private_api_ds_user_id`
      = ds_user_id plaintext; set `status='active'`
-  4. `POST /session/stop`, `maintenance_window.sh stop`, re-run preflight
+  4. `POST /session/stop`, `maintenance_window.py stop`, re-run preflight
 
   Verify `ds_user_id` from the extract matches the account before writing —
   a mismatched session posts to the wrong profile. instagrapi login is not a
@@ -52,12 +52,12 @@ Exit code 1 if any post FAILs — safe for CI-style gating.
 - `URL unreachable` — R2/storage link is broken; regenerate or re-attach media.
 - `no media attached` — text-only post; the strategy report flags these.
 
-## maintenance_window.sh — bridge contention control
+## maintenance_window.py — bridge contention control
 
 ```bash
-scripts/maintenance_window.sh start   # pause poller fleet (beat + 4 workers)
-scripts/maintenance_window.sh stop    # resume everything
-scripts/maintenance_window.sh status  # paused containers + bridge owner
+scripts/maintenance_window.py start   # pause poller fleet (beat + 4 workers)
+scripts/maintenance_window.py stop    # resume everything
+scripts/maintenance_window.py status  # paused containers + bridge owner
 ```
 
 Use `start` before manual Campaign Manager / profile edits through the

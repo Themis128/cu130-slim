@@ -233,17 +233,17 @@ API endpoints:
 
 | Script | Purpose |
 |--------|---------|
-| `list-accounts.sh` | List all Messenger-capable accounts |
-| `page-setup.sh` | Set up Messenger on a Facebook Page |
-| `page-send.sh` | Send a Page Messenger message |
-| `page-conversations.sh` | List Page conversations |
-| `page-auto-reply.sh` | Get/set AI auto-reply config |
-| `personal-conversations.sh` | List personal Messenger conversations |
-| `personal-send.sh` | Send personal Messenger message |
-| `personal-read.sh` | Read personal thread messages |
-| `personal-auto-reply.sh` | Get/set personal AI auto-reply config |
-| `webhook-test.sh` | Test webhook verification + event |
-| `sidecar-status.sh` | Check sidecar health + stats |
+| `list-accounts.py` | List all Messenger-capable accounts |
+| `page-setup.py` | Set up Messenger on a Facebook Page |
+| `page-send.py` | Send a Page Messenger message |
+| `page-conversations.py` | List Page conversations |
+| `page-auto-reply.py` | Get/set AI auto-reply config |
+| `personal-conversations.py` | List personal Messenger conversations |
+| `personal-send.py` | Send personal Messenger message |
+| `personal-read.py` | Read personal thread messages |
+| `personal-auto-reply.py` | Get/set personal AI auto-reply config |
+| `webhook-test.py` | Test webhook verification + event |
+| `sidecar-status.py` | Check sidecar health + stats |
 
 ## Environment variables
 

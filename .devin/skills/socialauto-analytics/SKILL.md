@@ -55,16 +55,16 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Get analytics summary
-.devin/skills/socialauto-analytics/scripts/analytics-summary.sh
+.devin/skills/socialauto-analytics/scripts/analytics-summary.py
 
 # Get post analytics
-.devin/skills/socialauto-analytics/scripts/post-analytics.sh <post-id>
+.devin/skills/socialauto-analytics/scripts/post-analytics.py <post-id>
 
 # Get account analytics
-.devin/skills/socialauto-analytics/scripts/account-analytics.sh <account-id>
+.devin/skills/socialauto-analytics/scripts/account-analytics.py <account-id>
 
 # Export analytics
-.devin/skills/socialauto-analytics/scripts/export-analytics.sh [--format csv|json]
+.devin/skills/socialauto-analytics/scripts/export-analytics.py [--format csv|json]
 ```
 
 ## Metrics by platform

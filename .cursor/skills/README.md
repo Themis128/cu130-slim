@@ -4,13 +4,13 @@ Agent skills live under `.cursor/skills/`. Each skill may include `scripts/` too
 
 | Skill | Use when | Tools |
 |-------|----------|-------|
-| `cloudless-carousel-pipeline` | CF LinkedIn carousel / NLP / CF models | `scripts/run-pipeline.sh` |
-| `n8n-cloudless` | n8n deploy, webhook, API key | `deploy-workflow.sh`, `trigger-webhook.sh`, `refresh-api-key.sh` |
-| `social-stack-ops` | Compose health / restarts | `stack-status.sh` |
-| `tiktok-console-ops` | TikTok domain verify, audit readiness, sidecar session, console drift | `check-config.sh`, `sidecar-session.sh`, `console-inspect.sh`, `domain-verify.sh`, `dns-tiktok-txt.sh`, `tiktok-console-mcp-server.py` |
-| `linkedin-api-upgrade` | LinkedIn API scopes / use-case | `check-scopes.sh`, `generate-use-case.sh` |
-| `social-profile-update` | Profile/bio updates across platforms | `get-all-profiles.sh`, platform update scripts |
-| `omv-ha-mail` | Local mail queue / SMTP | `mail-queue.sh`, `send-mail.sh`, `read-inbox.sh` |
+| `cloudless-carousel-pipeline` | CF LinkedIn carousel / NLP / CF models | `scripts/run-pipeline.py` |
+| `n8n-cloudless` | n8n deploy, webhook, API key | `deploy-workflow.py`, `trigger-webhook.py`, `refresh-api-key.py` |
+| `social-stack-ops` | Compose health / restarts | `stack-status.py` |
+| `tiktok-console-ops` | TikTok domain verify, audit readiness, sidecar session, console drift | `check-config.py`, `sidecar-session.py`, `console-inspect.py`, `domain-verify.py`, `dns-tiktok-txt.py`, `tiktok-console-mcp-server.py` |
+| `linkedin-api-upgrade` | LinkedIn API scopes / use-case | `check-scopes.py`, `generate-use-case.py` |
+| `social-profile-update` | Profile/bio updates across platforms | `get-all-profiles.py`, platform update scripts |
+| `omv-ha-mail` | Local mail queue / SMTP | `mail-queue.py`, `send-mail.py`, `read-inbox.py` |
 
 Rules (auto context): `.cursor/rules/cloudless-social-stack.mdc` (+ file-scoped rules).
 

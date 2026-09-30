@@ -626,9 +626,9 @@ Beat Schedule:
 | Twitter/X | ✓ (OAuth 2.0 PKCE) | ✓ (API v2 → x_web → browser bridge) | ✓ (API v2 → x_web) | ✓ (API) | ✓ DM (API v2) | API v2; on 402 credits-depleted the opt-in `x_web` fallback (tweety/twscrape, cookie auth, 5 posts/day, 10–30 min gap, 6h breaker) — see [guide 17](superpowers/guides/17-x-web-fallback.md) |
 | TikTok | ✓ | ✓ (Direct Post + Upload) | ✓ | ✓ (API + browser) | ✓ DM (Business Messaging) | Browser sidecar, domain verification, 6-scope OAuth |
 
-> **TikTok ops tooling** (`.devin/skills/`): `check-scopes.sh` audits granted
-> OAuth scopes, `tiktok-reconnect.sh` re-runs consent for scope upgrades via
-> the stored web session, `cp-audit-application.sh` drives the Content Posting
+> **TikTok ops tooling** (`.devin/skills/`): `check-scopes.py` audits granted
+> OAuth scopes, `tiktok-reconnect.py` re-runs consent for scope upgrades via
+> the stored web session, `cp-audit-application.py` drives the Content Posting
 > API audit wizard. See guide `docs/superpowers/guides/10-tiktok-content-posting.md`.
 >
 > **TikTok analytics sources**: account-level stats (followers, following,
@@ -1352,6 +1352,57 @@ or managed later from the **Discount tab** on `/settings/billing`:
   exhausted codes are skipped and the hosted page's manual field still
   works.
 
+## Public Edge & Lead Funnel
+
+`social.cloudless.gr` sits behind **Cloudflare Access** (admin SSO). Only
+explicitly bypassed path prefixes are public — everything else hits the
+Access login wall:
+
+| Public path | Purpose |
+|---|---|
+| `/api/v1/health` | Monitoring |
+| `/api/v1/auth/oauth/` | OAuth authorize + callbacks for all platforms |
+| `/api/v1/auth/data-deletion` | Meta deauthorize/data-deletion POSTs |
+| `/api/v1/messenger/webhook` | Meta Messenger verify + events |
+| `/api/v1/whatsapp/webhook` | Meta WhatsApp verify + events |
+| `/api/v1/telegram/webhook/` | Telegram webhooks |
+| `/api/v1/billing/*` webhooks | Polar/Dodo payment webhooks |
+| `/api/v1/media/view` | Public media fetches (TikTok `PULL_FROM_URL`, Meta `image_url`) |
+
+`/api/v1/leads/public` is **not** bypassed — `cloudless.gr` reaches it
+server-to-server with a Cloudflare Access **service token**
+(`cloudless-site-bridge`), sent as `CF-Access-Client-Id` /
+`CF-Access-Client-Secret` headers. The token value lives in D1
+`app_config` (`SOCIALAUTO_SERVICE_TOKEN`) on the cloudless.gr side —
+never in this repo.
+
+### Playbook lead flow
+
+```
+cloudless.gr playbook form
+    → src/lib/socialauto-public-leads.ts (Next.js server action)
+    → POST https://social.cloudless.gr/api/v1/leads/public
+        (+ CF Access service-token headers)
+    → leads.py::create_lead_public  (rate-limited 10/min, honeypot, consent)
+    → Lead row (source=website, team=CLOUDLESS_WEB_ANALYTICS_TEAM_ID)
+    → playbook_email.deliver_playbook  (atomic Redis claim → one email/address)
+    → SMTP → OMV-HA postfix → Resend relay → lead's inbox
+        (links PLAYBOOK_URL on cloudless.gr)
+```
+
+`playbook_delivery` in the response tells the form what happened:
+`email` / `already_sent` / `download` / `none`.
+
+### Playbook PDF pipeline
+
+- Source: `docs/playbooks/cloud-migration-playbook.md`
+- Builder: `scripts/build_playbook_pdf.py` (ReportLab — headings, tables,
+  checklists, `>` callout boxes, clickable footer CTA)
+- Output: `social-automation/frontend/public/playbooks/cloud-migration-playbook.pdf`
+- Mirrored to `cloudless.gr/public/playbooks/` so `PLAYBOOK_URL`
+  (`https://cloudless.gr/playbooks/cloud-migration-playbook.pdf`) serves
+  it from the marketing site, not behind Access.
+
 ## Security Architecture
 
 ```
@@ -1393,7 +1444,10 @@ or managed later from the **Discount tab** on `/settings/billing`:
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  Network                                                      │   │
-│  │  • Cloudflare Tunnel (cloudless.gr)                          │   │
+│  │  • Cloudflare Tunnel (social.cloudless.gr)                    │   │
+│  │  • Cloudflare Access SSO gate — admin paths; per-path Bypass  │   │
+│  │    apps expose only callbacks/webhooks/health/media-view      │   │
+│  │  • Service-token auth for cloudless.gr → /api/v1/leads/public │   │
 │  │  • WARP SOCKS5 proxy (free, non-datacenter IP)              │   │
 │  │  • Internal Docker network (backend, db, gpu)               │   │
 │  │  • All published ports bound to 127.0.0.1 (0 LAN exposure)  │   │
@@ -1445,6 +1499,15 @@ or managed later from the **Discount tab** on `/settings/billing`:
 | `R2_ACCESS_KEY_ID/SECRET` | R2 storage |
 | `R2_BUCKET_NAME` | R2 bucket |
 | `SOCIAL_TUNNEL_TOKEN` | Cloudflare Tunnel |
+
+### Lead funnel / playbook
+
+| Variable | Purpose |
+|----------|---------|
+| `CLOUDLESS_WEB_ANALYTICS_TEAM_ID` | Team that owns website lead rows |
+| `PLAYBOOK_EMAIL_ENABLED` | Send playbook delivery email (default on) |
+| `PLAYBOOK_URL` | Public playbook link (default `cloudless.gr/playbooks/cloud-migration-playbook.pdf`) |
+| `SMTP_*` | Playbook/transactional send path (OMV-HA postfix → Resend) |
 
 ### AI Providers
 

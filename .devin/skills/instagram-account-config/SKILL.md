@@ -297,6 +297,6 @@ Professional accounts see this message on web Edit Profile — it is a
 | `instagram_profile_update.py` | `app/scripts/` | Update bio, name, website via browser bridge |
 | `instagram_bio_generator.py` | `app/scripts/` | Generate stylish SEO bios with Unicode fonts |
 | `instagram_settings_checklist.py` | `app/scripts/` | Check and list optimal account settings |
-| `update-bio.sh` | `scripts/` | Quick bio update via sidecar (instagrapi) |
-| `login-by-sessionid.sh` | `scripts/` | Login to sidecar with sessionid |
-| `login-via-facebook.sh` | `scripts/` | Full Facebook login flow via VNC |
+| `update-bio.py` | `scripts/` | Quick bio update via sidecar (instagrapi) |
+| `login-by-sessionid.py` | `scripts/` | Login to sidecar with sessionid |
+| `login-via-facebook.py` | `scripts/` | Full Facebook login flow via VNC |

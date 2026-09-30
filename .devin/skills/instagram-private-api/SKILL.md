@@ -175,34 +175,34 @@ After a successful login:
 
 ```bash
 # Check sidecar health
-.devin/skills/instagram-private-api/scripts/health.sh
+.devin/skills/instagram-private-api/scripts/health.py
 
 # Login with username/password (reads from secret store)
-.devin/skills/instagram-private-api/scripts/login.sh
+.devin/skills/instagram-private-api/scripts/login.py
 
 # Login with 2FA verification code
-.devin/skills/instagram-private-api/scripts/login-2fa.sh <code>
+.devin/skills/instagram-private-api/scripts/login-2fa.py <code>
 
 # Resolve a challenge with a security code
-.devin/skills/instagram-private-api/scripts/challenge-resolve.sh <session_id> <last_json> <code>
+.devin/skills/instagram-private-api/scripts/challenge-resolve.py <session_id> <last_json> <code>
 
 # Import an existing sessionid cookie
-.devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>
+.devin/skills/instagram-private-api/scripts/import-session.py <sessionid>
 
 # Save settings for session restore
-.devin/skills/instagram-private-api/scripts/save-settings.sh <session_id>
+.devin/skills/instagram-private-api/scripts/save-settings.py <session_id>
 
 # Restore session from saved settings
-.devin/skills/instagram-private-api/scripts/restore-session.sh <settings_json_file>
+.devin/skills/instagram-private-api/scripts/restore-session.py <settings_json_file>
 
 # Get current account profile
-.devin/skills/instagram-private-api/scripts/get-profile.sh <session_id>
+.devin/skills/instagram-private-api/scripts/get-profile.py <session_id>
 
 # Update biography
-.devin/skills/instagram-private-api/scripts/update-bio.sh <session_id> "new bio text"
+.devin/skills/instagram-private-api/scripts/update-bio.py <session_id> "new bio text"
 
 # Update profile picture
-.devin/skills/instagram-private-api/scripts/update-picture.sh <session_id> <image_file>
+.devin/skills/instagram-private-api/scripts/update-picture.py <session_id> <image_file>
 ```
 
 ## Important notes

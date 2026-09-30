@@ -61,7 +61,7 @@ Inbound:
 | IMAP port | `993` (IMAPS) |
 | Auth | SASL PLAIN/LOGIN via dovecot |
 | Username | `tbaltzakis@cloudless.gr` |
-| Password | mailbox password (set during `setup-mail-server.sh`) |
+| Password | mailbox password (set during `setup-mail-server.py`) |
 | From | `tbaltzakis@cloudless.gr` |
 | Relay | `smtp.resend.com:587` |
 | Trusted networks | `127.0.0.0/8`, `100.64.0.0/10` (Tailscale), `192.168.1.0/24` (LAN) |
@@ -70,7 +70,7 @@ Inbound:
 
 - **Never** store the mailbox password or Resend API key in repo files,
   env files, or documentation. The password is set during
-  `setup-mail-server.sh` and stored in `/etc/dovecot/users` on omv-ha.
+  `setup-mail-server.py` and stored in `/etc/dovecot/users` on omv-ha.
 - **Never** print credentials in logs or tool output.
 - The Resend API key lives in `/etc/postfix/sasl_passwd` on omv-ha only.
 - SMTP submission requires STARTTLS + SASL auth — no open relay.
@@ -99,20 +99,20 @@ server.quit()
 
 ### Send with attachment
 
-See `scripts/send-mail.sh` — accepts subject, body, recipient, and
+See `scripts/send-mail.py` — accepts subject, body, recipient, and
 optional file attachment path.
 
 ### Send via skill script
 
 ```bash
 # Simple email
-.devin/skills/omv-ha-mail/scripts/send-mail.sh \
+.devin/skills/omv-ha-mail/scripts/send-mail.py \
   --to "recipient@example.com" \
   --subject "Subject" \
   --body "Body text"
 
 # Email with attachment
-.devin/skills/omv-ha-mail/scripts/send-mail.sh \
+.devin/skills/omv-ha-mail/scripts/send-mail.py \
   --to "recipient@example.com" \
   --subject "Subject" \
   --body "Body text" \
@@ -123,32 +123,32 @@ optional file attachment path.
 
 ```bash
 # Send email (with optional attachment)
-.devin/skills/omv-ha-mail/scripts/send-mail.sh
+.devin/skills/omv-ha-mail/scripts/send-mail.py
 
 # Test SMTP connectivity to omv-ha
-.devin/skills/omv-ha-mail/scripts/test-smtp.sh
+.devin/skills/omv-ha-mail/scripts/test-smtp.py
 
 # Check mailbox auth (verify credentials work)
-.devin/skills/omv-ha-mail/scripts/check-mailbox.sh
+.devin/skills/omv-ha-mail/scripts/check-mailbox.py
 
 # Check mail queue on omv-ha (requires SSH access)
-.devin/skills/omv-ha-mail/scripts/mail-queue.sh
+.devin/skills/omv-ha-mail/scripts/mail-queue.py
 
 # Read inbox via IMAP (list recent messages)
-.devin/skills/omv-ha-mail/scripts/read-inbox.sh
+.devin/skills/omv-ha-mail/scripts/read-inbox.py
 ```
 
 ## Setup references
 
-- Mail server install: `cloudless.gr/infrastructure/omv-ha/setup-mail-server.sh`
-- Submission enable: `cloudless.gr/infrastructure/omv-ha/enable-mail-submission.sh`
+- Mail server install: `cloudless.gr/infrastructure/omv-ha/setup-mail-server.py`
+- Submission enable: `cloudless.gr/infrastructure/omv-ha/enable-mail-submission.py`
 - Inbound routing: `cloudless.gr/infrastructure/omv-ha/mail-ingest/`
 - Architecture doc: `cloudless.gr/docs/MAIL-SERVER-SETUP.md`
 
 ## Limitations
 
 - No SSH key is set up from this machine to omv-ha by default. Scripts
-  that require SSH (`mail-queue.sh`) will prompt for password or use
+  that require SSH (`mail-queue.py`) will prompt for password or use
   an existing key if configured.
 - Port 25 is blocked (Starlink CGNAT) — all outbound goes via Resend.
 - The mailbox password must be provided by the user or read from a

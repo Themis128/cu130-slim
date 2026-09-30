@@ -44,10 +44,10 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Dry-run: generate + draft post, do not publish to LinkedIn
-.cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.sh --publish false --slides 3
+.cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.py --publish false --slides 3
 
 # Publish as cloudless.gr Company Page
-.cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.sh --publish true --slides 7
+.cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.py --publish true --slides 7
 ```
 
 Env (from `.env`, never print secrets):

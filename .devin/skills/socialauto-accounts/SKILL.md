@@ -76,27 +76,27 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # List all connected accounts
-.devin/skills/socialauto-accounts/scripts/list-accounts.sh
+.devin/skills/socialauto-accounts/scripts/list-accounts.py
 
 # Get account details
-.devin/skills/socialauto-accounts/scripts/get-account.sh <account-id>
+.devin/skills/socialauto-accounts/scripts/get-account.py <account-id>
 
 # Test account connectivity
-.devin/skills/socialauto-accounts/scripts/test-account.sh <account-id>
+.devin/skills/socialauto-accounts/scripts/test-account.py <account-id>
 
 # Refresh account token
-.devin/skills/socialauto-accounts/scripts/refresh-account.sh <account-id>
+.devin/skills/socialauto-accounts/scripts/refresh-account.py <account-id>
 
 # Validate account token and permissions
-.devin/skills/socialauto-accounts/scripts/validate-account.sh <account-id>
+.devin/skills/socialauto-accounts/scripts/validate-account.py <account-id>
 
 # Sync Facebook/Instagram business accounts
-.devin/skills/socialauto-accounts/scripts/sync-business.sh <account-id>
+.devin/skills/socialauto-accounts/scripts/sync-business.py <account-id>
 ```
 
 ## Cloudless.gr account IDs
 
-These are the connected accounts for cloudless.gr (check with list-accounts.sh
+These are the connected accounts for cloudless.gr (check with list-accounts.py
 for current IDs):
 
 | Platform | Display name | Type |

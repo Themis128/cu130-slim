@@ -159,22 +159,22 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # List media assets
-.devin/skills/socialauto-media/scripts/list-media.sh [--type image|video|generated] [--limit 20]
+.devin/skills/socialauto-media/scripts/list-media.py [--type image|video|generated] [--limit 20]
 
 # Upload a file
-.devin/skills/socialauto-media/scripts/upload-media.sh <file-path> [--alt "description"] [--tags "tag1,tag2"]
+.devin/skills/socialauto-media/scripts/upload-media.py <file-path> [--alt "description"] [--tags "tag1,tag2"]
 
 # Get media asset details
-.devin/skills/socialauto-media/scripts/get-media.sh <media-id>
+.devin/skills/socialauto-media/scripts/get-media.py <media-id>
 
 # Delete a media asset
-.devin/skills/socialauto-media/scripts/delete-media.sh <media-id>
+.devin/skills/socialauto-media/scripts/delete-media.py <media-id>
 
 # Generate an AI image and save to library
-.devin/skills/socialauto-media/scripts/generate-image.sh "prompt text" [--model "@cf/black-forest-labs/flux-1-schnell"]
+.devin/skills/socialauto-media/scripts/generate-image.py "prompt text" [--model "@cf/black-forest-labs/flux-1-schnell"]
 
 # View a media asset URL (prints the view URL)
-.devin/skills/socialauto-media/scripts/media-url.sh <storage-path>
+.devin/skills/socialauto-media/scripts/media-url.py <storage-path>
 ```
 
 ## Frontend media library

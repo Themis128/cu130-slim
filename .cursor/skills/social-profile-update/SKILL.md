@@ -187,19 +187,19 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Get current profile info for all connected accounts
-.devin/skills/social-profile-update/scripts/get-all-profiles.sh
+.devin/skills/social-profile-update/scripts/get-all-profiles.py
 
 # Update LinkedIn Company Page description/about
-.devin/skills/social-profile-update/scripts/update-linkedin-org.sh "New description" "New about text"
+.devin/skills/social-profile-update/scripts/update-linkedin-org.py "New description" "New about text"
 
 # Update Facebook Page about/description/website
-.devin/skills/social-profile-update/scripts/update-facebook-page.sh --about "New about" --description "New desc" --website "https://cloudless.gr"
+.devin/skills/social-profile-update/scripts/update-facebook-page.py --about "New about" --description "New desc" --website "https://cloudless.gr"
 
 # Update Facebook Page profile picture from a media library asset
-.devin/skills/social-profile-update/scripts/update-facebook-picture.sh <media_asset_id>
+.devin/skills/social-profile-update/scripts/update-facebook-picture.py <media_asset_id>
 
 # Prepare brand-aligned profile text for manual entry on read-only platforms
-.devin/skills/social-profile-update/scripts/generate-brand-profile.sh
+.devin/skills/social-profile-update/scripts/generate-brand-profile.py
 ```
 
 ## Brand profile reference (cloudless.gr)

@@ -158,10 +158,10 @@ Try these direct contact forms (availability varies by account):
 
 ## Scripts
 
-- `scripts/check-account-status.sh` — Check personal account status via Graph API
-- `scripts/check-ad-account.sh` — Check ad account restriction status
-- `scripts/check-business-portfolio.sh` — Check business portfolio health
-- `scripts/print-appeal-template.sh` — Print an appeal template for submission
+- `scripts/check-account-status.py` — Check personal account status via Graph API
+- `scripts/check-ad-account.py` — Check ad account restriction status
+- `scripts/check-business-portfolio.py` — Check business portfolio health
+- `scripts/print-appeal-template.py` — Print an appeal template for submission
 
 ## Related skills
 

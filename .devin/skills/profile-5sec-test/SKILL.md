@@ -70,7 +70,7 @@ these alongside the legacy selectors.
 1. FB sidecar must be logged in — if it shows the picker, transplant
    `c_user`/`xs` from the MCP playwright browser via `POST :9226/session`
    `{storage_state}`.
-2. `login-via-facebook.sh cloudless.gr` drives FB→IG SSO on the sidecar and
+2. `login-via-facebook.py cloudless.gr` drives FB→IG SSO on the sidecar and
    lands a live **web** session (good for reads/browsing; NOT for instagrapi).
 3. To reuse that session in the 9223 bridge: `GET :9226/debug/all-cookies?
    domain=instagram.com` → `POST :9223/session/cookies` with playwright-format

@@ -81,105 +81,105 @@ All scripts run from the repo root `cu130-slim/`:
 
 ```bash
 # Add professional links to ALL connected accounts
-.devin/skills/social-accounts-manager/scripts/add-links-all.sh
+.devin/skills/social-accounts-manager/scripts/add-links-all.py
 
 # Read ALL profiles and show current state
-.devin/skills/social-accounts-manager/scripts/read-all.sh
+.devin/skills/social-accounts-manager/scripts/read-all.py
 
 # Sync profile info from LinkedIn to all other platforms
-.devin/skills/social-accounts-manager/scripts/sync-from-linkedin.sh
+.devin/skills/social-accounts-manager/scripts/sync-from-linkedin.py
 ```
 
 ### Facebook Page
 
 ```bash
 # Update Facebook Page website
-.devin/skills/social-accounts-manager/scripts/fb-page-update-website.sh "https://cloudless.gr"
+.devin/skills/social-accounts-manager/scripts/fb-page-update-website.py "https://cloudless.gr"
 
 # Update Facebook Page about (100 char limit)
-.devin/skills/social-accounts-manager/scripts/fb-page-update-about.sh "About text"
+.devin/skills/social-accounts-manager/scripts/fb-page-update-about.py "About text"
 
 # Update Facebook Page long description
-.devin/skills/social-accounts-manager/scripts/fb-page-update-description.sh "Long description"
+.devin/skills/social-accounts-manager/scripts/fb-page-update-description.py "Long description"
 
 # Update Facebook Page profile picture
-.devin/skills/social-accounts-manager/scripts/fb-page-update-picture.sh /path/to/image.png
+.devin/skills/social-accounts-manager/scripts/fb-page-update-picture.py /path/to/image.png
 
 # Update Facebook Page cover photo
-.devin/skills/social-accounts-manager/scripts/fb-page-update-cover.sh /path/to/cover.png
+.devin/skills/social-accounts-manager/scripts/fb-page-update-cover.py /path/to/cover.png
 ```
 
 ### Facebook Personal
 
 ```bash
 # Update Facebook personal profile bio
-.devin/skills/social-accounts-manager/scripts/fb-personal-update-bio.sh "Bio text"
+.devin/skills/social-accounts-manager/scripts/fb-personal-update-bio.py "Bio text"
 
 # Update Facebook personal contact info (website)
-.devin/skills/social-accounts-manager/scripts/fb-personal-update-website.sh "https://cloudless.gr"
+.devin/skills/social-accounts-manager/scripts/fb-personal-update-website.py "https://cloudless.gr"
 
 # Update Facebook personal profile picture
-.devin/skills/social-accounts-manager/scripts/fb-personal-update-picture.sh /path/to/image.png
+.devin/skills/social-accounts-manager/scripts/fb-personal-update-picture.py /path/to/image.png
 ```
 
 ### LinkedIn Organization
 
 ```bash
 # Update LinkedIn org tagline
-.devin/skills/social-accounts-manager/scripts/li-org-update-tagline.sh "Tagline text"
+.devin/skills/social-accounts-manager/scripts/li-org-update-tagline.py "Tagline text"
 
 # Update LinkedIn org description (2000 char limit)
-.devin/skills/social-accounts-manager/scripts/li-org-update-description.sh "Description text"
+.devin/skills/social-accounts-manager/scripts/li-org-update-description.py "Description text"
 
 # Update LinkedIn org website
-.devin/skills/social-accounts-manager/scripts/li-org-update-website.sh "https://cloudless.gr"
+.devin/skills/social-accounts-manager/scripts/li-org-update-website.py "https://cloudless.gr"
 
 # Update LinkedIn org specialties
-.devin/skills/social-accounts-manager/scripts/li-org-update-specialties.sh "Cloud, AI, Software"
+.devin/skills/social-accounts-manager/scripts/li-org-update-specialties.py "Cloud, AI, Software"
 
 # Update LinkedIn org logo
-.devin/skills/social-accounts-manager/scripts/li-org-update-logo.sh /path/to/logo.png
+.devin/skills/social-accounts-manager/scripts/li-org-update-logo.py /path/to/logo.png
 
 # Update LinkedIn org cover
-.devin/skills/social-accounts-manager/scripts/li-org-update-cover.sh /path/to/cover.png
+.devin/skills/social-accounts-manager/scripts/li-org-update-cover.py /path/to/cover.png
 ```
 
 ### LinkedIn Personal
 
 ```bash
 # Update LinkedIn personal headline
-.devin/skills/social-accounts-manager/scripts/li-personal-update-headline.sh "Headline text"
+.devin/skills/social-accounts-manager/scripts/li-personal-update-headline.py "Headline text"
 
 # Update LinkedIn personal about section
-.devin/skills/social-accounts-manager/scripts/li-personal-update-about.sh "About text"
+.devin/skills/social-accounts-manager/scripts/li-personal-update-about.py "About text"
 
 # Update LinkedIn personal contact info (website)
-.devin/skills/social-accounts-manager/scripts/li-personal-update-website.sh "https://cloudless.gr"
+.devin/skills/social-accounts-manager/scripts/li-personal-update-website.py "https://cloudless.gr"
 
 # Update LinkedIn personal profile picture
-.devin/skills/social-accounts-manager/scripts/li-personal-update-picture.sh /path/to/image.png
+.devin/skills/social-accounts-manager/scripts/li-personal-update-picture.py /path/to/image.png
 
 # Update LinkedIn personal cover photo
-.devin/skills/social-accounts-manager/scripts/li-personal-update-cover.sh /path/to/cover.png
+.devin/skills/social-accounts-manager/scripts/li-personal-update-cover.py /path/to/cover.png
 ```
 
 ### Instagram Business
 
 ```bash
 # Login to Instagram sidecar (by sessionid or username/password)
-.devin/skills/social-accounts-manager/scripts/ig-login.sh
+.devin/skills/social-accounts-manager/scripts/ig-login.py
 
 # Update Instagram bio (150 char limit, emojis count as 2)
-.devin/skills/social-accounts-manager/scripts/ig-update-bio.sh "Bio text"
+.devin/skills/social-accounts-manager/scripts/ig-update-bio.py "Bio text"
 
 # Update Instagram external URL
-.devin/skills/social-accounts-manager/scripts/ig-update-url.sh "https://cloudless.gr"
+.devin/skills/social-accounts-manager/scripts/ig-update-url.py "https://cloudless.gr"
 
 # Update Instagram profile picture
-.devin/skills/social-accounts-manager/scripts/ig-update-picture.sh /path/to/image.png
+.devin/skills/social-accounts-manager/scripts/ig-update-picture.py /path/to/image.png
 
 # Read Instagram profile
-.devin/skills/social-accounts-manager/scripts/ig-read-profile.sh
+.devin/skills/social-accounts-manager/scripts/ig-read-profile.py
 ```
 
 ## Important notes
@@ -189,7 +189,7 @@ All scripts run from the repo root `cu130-slim/`:
 - **LinkedIn org description** is limited to 2000 characters.
 - **LinkedIn personal About** is limited to 2600 characters.
 - **LinkedIn sidecar** requires a logged-in browser session. Use `POST /login` with credentials from the secret store.
-- **Instagram sidecar** requires a valid sessionid. Use `login-via-facebook.sh` from the `instagram-profile-manager` skill or `POST /auth/login` with username/password.
+- **Instagram sidecar** requires a valid sessionid. Use `login-via-facebook.py` from the `instagram-profile-manager` skill or `POST /auth/login` with username/password.
 - **Facebook personal profile** updates require the FB browser sidecar (Graph API doesn't support personal profile writes).
 - **LinkedIn personal profile** writes require browser automation (LinkedIn API is read-only for profiles without Partner Program access).
 - Never log or commit session IDs, tokens, or passwords.

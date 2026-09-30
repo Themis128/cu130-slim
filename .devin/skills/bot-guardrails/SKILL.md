@@ -117,25 +117,25 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Test the pre-LLM pricing guardrail
-.devin/skills/bot-guardrails/scripts/test-pricing-guardrail.sh
+.devin/skills/bot-guardrails/scripts/test-pricing-guardrail.py
 
 # Test the pre-LLM recruiting guardrail
-.devin/skills/bot-guardrails/scripts/test-recruiting-guardrail.sh
+.devin/skills/bot-guardrails/scripts/test-recruiting-guardrail.py
 
 # Test post-LLM banned phrase validation
-.devin/skills/bot-guardrails/scripts/test-banned-phrases.sh
+.devin/skills/bot-guardrails/scripts/test-banned-phrases.py
 
 # Test language matching (Greek/English)
-.devin/skills/bot-guardrails/scripts/test-language-match.sh
+.devin/skills/bot-guardrails/scripts/test-language-match.py
 
 # Run all guardrail tests
-.devin/skills/bot-guardrails/scripts/test-all.sh
+.devin/skills/bot-guardrails/scripts/test-all.py
 
 # View current guardrail configuration
-.devin/skills/bot-guardrails/scripts/show-config.sh
+.devin/skills/bot-guardrails/scripts/show-config.py
 
 # Test full bot reply pipeline with guardrails
-.devin/skills/bot-guardrails/scripts/test-full-pipeline.sh
+.devin/skills/bot-guardrails/scripts/test-full-pipeline.py
 ```
 
 ## Configuration
@@ -157,7 +157,7 @@ To add a new deterministic handler (e.g., for hours/location questions):
 2. Add hardcoded responses (Greek + English)
 3. Add detection function (`_is_xxx_question`)
 4. Add intercept in `generate_contextual_reply` before the LLM call
-5. Test with `test-all.sh`
+5. Test with `test-all.py`
 
 ## Important notes
 

@@ -128,10 +128,10 @@ From repo root:
 
 ```bash
 # Import + publish workflow (CLI), then restart n8n
-.devin/skills/n8n-cloudless/scripts/deploy-workflow.sh
+.devin/skills/n8n-cloudless/scripts/deploy-workflow.py
 
 # Daily analytics + issues digest → Slack #socialauto
-.devin/skills/n8n-cloudless/scripts/deploy-daily-digest.sh
+.devin/skills/n8n-cloudless/scripts/deploy-daily-digest.py
 
 # Register in social app Workflows UI (template + deployed workflow)
 .devin/skills/n8n-cloudless/scripts/register-workflow.py
@@ -139,13 +139,13 @@ From repo root:
 # or: POST /api/v1/workflows/import-cloudless-carousel
 
 # Refresh N8N_API_KEY into .env (uses scripts/init-n8n-api-key.py)
-.devin/skills/n8n-cloudless/scripts/refresh-api-key.sh
+.devin/skills/n8n-cloudless/scripts/refresh-api-key.py
 
 # Manual webhook dry-run (3 slides, no LinkedIn publish)
-.devin/skills/n8n-cloudless/scripts/trigger-webhook.sh --publish false --slides 3
+.devin/skills/n8n-cloudless/scripts/trigger-webhook.py --publish false --slides 3
 
 # Manual webhook publish
-.devin/skills/n8n-cloudless/scripts/trigger-webhook.sh --publish true --slides 7
+.devin/skills/n8n-cloudless/scripts/trigger-webhook.py --publish true --slides 7
 ```
 
 Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).

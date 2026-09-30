@@ -72,31 +72,31 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # View full brand profile
-.devin/skills/socialauto-brand/scripts/get-brand.sh
+.devin/skills/socialauto-brand/scripts/get-brand.py
 
 # View brand voice
-.devin/skills/socialauto-brand/scripts/get-voice.sh
+.devin/skills/socialauto-brand/scripts/get-voice.py
 
 # View brand visual
-.devin/skills/socialauto-brand/scripts/get-visual.sh
+.devin/skills/socialauto-brand/scripts/get-visual.py
 
 # View brand guidelines
-.devin/skills/socialauto-brand/scripts/get-guidelines.sh
+.devin/skills/socialauto-brand/scripts/get-guidelines.py
 
 # List brand assets
-.devin/skills/socialauto-brand/scripts/list-assets.sh
+.devin/skills/socialauto-brand/scripts/list-assets.py
 
 # Update brand DNA (name, tagline, website, mission)
-.devin/skills/socialauto-brand/scripts/update-brand-dna.sh "Cloudless" "Clear skies. Zero friction." "https://cloudless.gr" "Mission text"
+.devin/skills/socialauto-brand/scripts/update-brand-dna.py "Cloudless" "Clear skies. Zero friction." "https://cloudless.gr" "Mission text"
 
 # Update brand visual (colors, fonts, logo)
-.devin/skills/socialauto-brand/scripts/update-brand-visual.sh "#0b1220" "#00fff5" "Instrument Sans" "Work Sans"
+.devin/skills/socialauto-brand/scripts/update-brand-visual.py "#0b1220" "#00fff5" "Instrument Sans" "Work Sans"
 
 # Upload a logo and set it as brand logo
-.devin/skills/socialauto-brand/scripts/upload-logo.sh /path/to/logo.png
+.devin/skills/socialauto-brand/scripts/upload-logo.py /path/to/logo.png
 
 # Compile/generate brand guidelines
-.devin/skills/socialauto-brand/scripts/compile-guidelines.sh
+.devin/skills/socialauto-brand/scripts/compile-guidelines.py
 ```
 
 ## Brand voice structure

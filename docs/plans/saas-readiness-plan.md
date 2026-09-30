@@ -292,8 +292,8 @@ edit the profile.
 **Verification:**
 - `curl -s http://localhost:8011/account -H "X-Session-ID: ..."` returns
   profile data
-- `ig-update-bio.sh "test"` successfully updates the bio
-- `ig-update-url.sh "https://cloudless.gr"` successfully updates the URL
+- `ig-update-bio.py "test"` successfully updates the bio
+- `ig-update-url.py "https://cloudless.gr"` successfully updates the URL
 - Session health check task runs without errors
 
 ---
@@ -333,7 +333,7 @@ the feed.
 **Verification:**
 - `curl -s http://localhost:9226/session` reports `logged_in: true` and
   URL is `https://www.facebook.com/` (feed, not picker)
-- `fb-personal-update-website.sh "https://cloudless.gr"` works
+- `fb-personal-update-website.py "https://cloudless.gr"` works
 - Profile page loads without "Log In" button
 
 ---

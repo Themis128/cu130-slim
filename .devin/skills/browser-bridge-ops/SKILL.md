@@ -153,31 +153,31 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Check browser bridge health and current session
-.devin/skills/browser-bridge-ops/scripts/bridge-status.sh
+.devin/skills/browser-bridge-ops/scripts/bridge-status.py
 
 # Navigate to a URL in the browser
-.devin/skills/browser-bridge-ops/scripts/bridge-navigate.sh "https://www.threads.com/@cloudless_gr"
+.devin/skills/browser-bridge-ops/scripts/bridge-navigate.py "https://www.threads.com/@cloudless_gr"
 
 # Evaluate JavaScript and print result
-.devin/skills/browser-bridge-ops/scripts/bridge-eval.sh "document.title"
+.devin/skills/browser-bridge-ops/scripts/bridge-eval.py "document.title"
 
 # Get current page info (URL + title)
-.devin/skills/browser-bridge-ops/scripts/bridge-page-info.sh
+.devin/skills/browser-bridge-ops/scripts/bridge-page-info.py
 
 # Start a session for a platform
-.devin/skills/browser-bridge-ops/scripts/bridge-start-session.sh threads
+.devin/skills/browser-bridge-ops/scripts/bridge-start-session.py threads
 
 # Upload a file to the browser
-.devin/skills/browser-bridge-ops/scripts/bridge-upload.sh /tmp/logo.png "input[type=file]"
+.devin/skills/browser-bridge-ops/scripts/bridge-upload.py /tmp/logo.png "input[type=file]"
 
 # Click an element
-.devin/skills/browser-bridge-ops/scripts/bridge-click.sh "div[role=button]"
+.devin/skills/browser-bridge-ops/scripts/bridge-click.py "div[role=button]"
 
 # Fill a form field
-.devin/skills/browser-bridge-ops/scripts/bridge-fill.sh "textarea" "New bio text"
+.devin/skills/browser-bridge-ops/scripts/bridge-fill.py "textarea" "New bio text"
 
 # Take a screenshot (saves to /tmp/browser-screenshot.png)
-.devin/skills/browser-bridge-ops/scripts/bridge-screenshot.sh
+.devin/skills/browser-bridge-ops/scripts/bridge-screenshot.py
 ```
 
 ## Common patterns
@@ -186,19 +186,19 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # 1. Navigate to profile
-bridge-navigate.sh "https://www.threads.com/@cloudless_gr"
+bridge-navigate.py "https://www.threads.com/@cloudless_gr"
 
 # 2. Click Edit profile button
-bridge-eval.sh "(() => { const btns = document.querySelectorAll('div[role=button]'); for (const btn of btns) { if (btn.textContent.trim() === 'Edit profile') { btn.click(); return 'clicked'; } } return 'not found';; })()"
+bridge-eval.py "(() => { const btns = document.querySelectorAll('div[role=button]'); for (const btn of btns) { if (btn.textContent.trim() === 'Edit profile') { btn.click(); return 'clicked'; } } return 'not found';; })()"
 
 # 3. Click Bio section
-bridge-eval.sh "(() => { const dialog = document.querySelector('[role=dialog]'); const all = dialog.querySelectorAll('div[role=button]'); for (const el of all) { if (el.textContent.trim().startsWith('Bio')) { el.click(); return 'clicked'; } } return 'not found';; })()"
+bridge-eval.py "(() => { const dialog = document.querySelector('[role=dialog]'); const all = dialog.querySelectorAll('div[role=button]'); for (const el of all) { if (el.textContent.trim().startsWith('Bio')) { el.click(); return 'clicked'; } } return 'not found';; })()"
 
 # 4. Fill bio textarea
-bridge-fill.sh "textarea" "Clear skies. Zero friction."
+bridge-fill.py "textarea" "Clear skies. Zero friction."
 
 # 5. Click Done to save
-bridge-eval.sh "(function() { const all = Array.from(document.querySelectorAll('div[role=button], button')); const done = all.filter(b => b.innerText.trim() === 'Done'); if (done.length > 0) { done[done.length - 1].click(); return 'clicked'; } return 'no Done'; })()"
+bridge-eval.py "(function() { const all = Array.from(document.querySelectorAll('div[role=button], button')); const done = all.filter(b => b.innerText.trim() === 'Done'); if (done.length > 0) { done[done.length - 1].click(); return 'clicked'; } return 'no Done'; })()"
 ```
 
 ### Upload a profile picture
@@ -208,7 +208,7 @@ bridge-eval.sh "(function() { const all = Array.from(document.querySelectorAll('
 docker compose cp /tmp/logo.png browser-novnc:/tmp/logo.png
 
 # Upload using click_selector to trigger file chooser
-bridge-upload.sh /tmp/logo.png "input[type=file]" "[role=dialog] img"
+bridge-upload.py /tmp/logo.png "input[type=file]" "[role=dialog] img"
 ```
 
 ## Important notes

@@ -77,7 +77,7 @@ Sessions now survive `docker compose up -d --force-recreate browser-novnc`.
 Run the bundled script:
 
 ```bash
-.devin/skills/patchright-ops/scripts/verify.sh
+.devin/skills/patchright-ops/scripts/verify.py
 ```
 
 It checks:
