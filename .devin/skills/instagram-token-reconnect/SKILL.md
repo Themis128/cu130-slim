@@ -44,7 +44,7 @@ Reconnect via OAuth (this skill)
 ### Step 1: Check token status
 
 ```bash
-bash scripts/check-token-status.sh
+python3 scripts/check-token-status.py
 ```
 
 Returns per-account status:
@@ -70,7 +70,7 @@ the Meta OAuth flow:
 
 1. Navigate the browser-novnc to the Instagram OAuth URL:
    ```bash
-   bash scripts/reconnect-oauth.sh <account_id>
+   python3 scripts/reconnect-oauth.py <account_id>
    ```
 2. The user logs in to Instagram via noVNC (port 6080) if not already logged in
 3. Grant the required permissions:
@@ -83,7 +83,7 @@ the Meta OAuth flow:
 ### Step 4: Verify the new token
 
 ```bash
-bash scripts/check-token-status.sh
+python3 scripts/check-token-status.py
 ```
 
 `instagram_token_status` should now show `valid`.
@@ -101,9 +101,9 @@ Until App Review is approved:
 
 ## Scripts
 
-- `scripts/check-token-status.sh` — Check token status for all Instagram accounts
-- `scripts/reconnect-oauth.sh` — Generate the OAuth URL and open it in the browser bridge
-- `scripts/validate-token.sh` — Validate a specific account's token via the Graph API
+- `scripts/check-token-status.py` — Check token status for all Instagram accounts
+- `scripts/reconnect-oauth.py` — Generate the OAuth URL and open it in the browser bridge
+- `scripts/validate-token.py` — Validate a specific account's token via the Graph API
 
 ## Related skills
 

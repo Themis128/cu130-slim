@@ -172,9 +172,9 @@ graph LR
 
     subgraph "Skill"
         SK[SKILL.md<br/>Documentation]
-        S1[check-webhook.sh]
-        S2[send-test-message.sh]
-        S3[setup-webhook.sh]
+        S1[check-webhook.py]
+        S2[send-test-message.py]
+        S3[setup-webhook.py]
     end
 
     INIT --> WA

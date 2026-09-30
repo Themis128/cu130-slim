@@ -106,19 +106,19 @@ wait until the oldest request in the window falls outside the 72h period.
 
 | Script | Purpose | Interactive? |
 |--------|---------|-------------|
-| `check-phone-status.sh` | Check current registration status | No |
-| `request-code.sh` | Request SMS/voice verification code | No |
-| `verify-code.sh` | Verify the received code | No |
-| `register-phone.sh` | Register the verified number | No |
-| **`auto-verify.sh`** | Full flow: poll → request → verify → register | **Yes** (prompts for code) |
-| **`poll-rate-limit.sh`** | Background poller until rate limit resets | No |
+| `check-phone-status.py` | Check current registration status | No |
+| `request-code.py` | Request SMS/voice verification code | No |
+| `verify-code.py` | Verify the received code | No |
+| `register-phone.py` | Register the verified number | No |
+| **`auto-verify.py`** | Full flow: poll → request → verify → register | **Yes** (prompts for code) |
+| **`poll-rate-limit.py`** | Background poller until rate limit resets | No |
 
 ### Step-by-step flow
 
 #### Step 1: Check current status
 
 ```bash
-bash scripts/check-phone-status.sh <account_id>
+python3 scripts/check-phone-status.py <account_id>
 ```
 
 Returns:
@@ -129,7 +129,7 @@ Returns:
 #### Step 2: Request verification code
 
 ```bash
-bash scripts/request-code.sh <account_id> [SMS|VOICE] [language]
+python3 scripts/request-code.py <account_id> [SMS|VOICE] [language]
 ```
 
 - `code_method`: `SMS` (default) or `VOICE`
@@ -141,7 +141,7 @@ code in the next step.
 #### Step 3: Verify the code
 
 ```bash
-bash scripts/verify-code.sh <account_id> <6-digit-code>
+python3 scripts/verify-code.py <account_id> <6-digit-code>
 ```
 
 The user receives the code via SMS or voice call and provides it here.
@@ -149,7 +149,7 @@ The user receives the code via SMS or voice call and provides it here.
 #### Step 4: Register the number
 
 ```bash
-bash scripts/register-phone.sh <account_id> <6-digit-pin>
+python3 scripts/register-phone.py <account_id> <6-digit-pin>
 ```
 
 The PIN is the two-step verification PIN. If 2SV is not enabled, pass a
@@ -158,7 +158,7 @@ new 6-digit PIN to set it.
 #### Step 5: Verify registration
 
 ```bash
-bash scripts/check-phone-status.sh <account_id>
+python3 scripts/check-phone-status.py <account_id>
 ```
 
 `code_verification_status` should now show `VERIFIED`.
@@ -166,7 +166,7 @@ bash scripts/check-phone-status.sh <account_id>
 ### Auto-verify (full flow in one command)
 
 ```bash
-bash scripts/auto-verify.sh <account_id> [6-digit-pin] [SMS|VOICE] [language]
+python3 scripts/auto-verify.py <account_id> [6-digit-pin] [SMS|VOICE] [language]
 ```
 
 This script does the full flow:
@@ -179,21 +179,21 @@ This script does the full flow:
 
 Example:
 ```bash
-bash scripts/auto-verify.sh 77f17091-3639-4633-b04d-0a3345dd7d3a 482913 SMS en_US
+python3 scripts/auto-verify.py 77f17091-3639-4633-b04d-0a3345dd7d3a 482913 SMS en_US
 ```
 
 ### Background poller (non-interactive)
 
 ```bash
 # Run in background — exits when code is successfully sent
-nohup bash scripts/poll-rate-limit.sh <account_id> [SMS|VOICE] [language] &
+nohup python3 scripts/poll-rate-limit.py <account_id> [SMS|VOICE] [language] &
 ```
 
 This script polls `request_code` every 10 minutes until the rate limit
 window resets and the code is sent. Once sent, it writes status to
 `/tmp/whatsapp-verify-status.json` and exits.
 
-After it exits, run `auto-verify.sh` to complete the verify + register steps.
+After it exits, run `auto-verify.py` to complete the verify + register steps.
 
 ## Current account
 
@@ -215,7 +215,7 @@ After it exits, run `auto-verify.sh` to complete the verify + register steps.
 
 | Error code | Cause | Resolution |
 |------------|-------|------------|
-| `136024` | More than 10 code requests in 72 hours | Wait 72 hours (use `poll-rate-limit.sh`) |
+| `136024` | More than 10 code requests in 72 hours | Wait 72 hours (use `poll-rate-limit.py`) |
 | `133010` | Account not registered | Complete verify + register steps first |
 | `133016` | More than 10 register/deregister in 72h | Wait 72 hours |
 | `(#100) Invalid code` | Wrong code entered | Request a new code and try again |

@@ -49,12 +49,12 @@ Self-hosted social-automation stack for Cloudless (`cloudless.gr`).
 
 3. Run a carousel dry-run (no LinkedIn publish):
    ```bash
-   .cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.sh --publish false --slides 3
+   .cursor/skills/cloudless-carousel-pipeline/scripts/run-pipeline.py --publish false --slides 3
    ```
 
 4. Check status:
    ```bash
-   .cursor/skills/social-stack-ops/scripts/stack-status.sh
+   .cursor/skills/social-stack-ops/scripts/stack-status.py
    ```
 
 ## Skills

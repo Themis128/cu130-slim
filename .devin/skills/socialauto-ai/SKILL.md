@@ -92,22 +92,22 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Generate post copy for a platform
-.devin/skills/socialauto-ai/scripts/generate-content.sh "topic" --platform linkedin --tone professional
+.devin/skills/socialauto-ai/scripts/generate-content.py "topic" --platform linkedin --tone professional
 
 # Suggest hashtags
-.devin/skills/socialauto-ai/scripts/suggest-hashtags.sh "topic" [--platform linkedin]
+.devin/skills/socialauto-ai/scripts/suggest-hashtags.py "topic" [--platform linkedin]
 
 # Find best time to post
-.devin/skills/socialauto-ai/scripts/best-time.sh --platform linkedin
+.devin/skills/socialauto-ai/scripts/best-time.py --platform linkedin
 
 # Improve existing content
-.devin/skills/socialauto-ai/scripts/improve-content.sh "existing text" --platform linkedin
+.devin/skills/socialauto-ai/scripts/improve-content.py "existing text" --platform linkedin
 
 # Spellcheck text
-.devin/skills/socialauto-ai/scripts/spellcheck.sh "text to check"
+.devin/skills/socialauto-ai/scripts/spellcheck.py "text to check"
 
 # Generate a LinkedIn carousel (dry-run)
-.devin/skills/socialauto-ai/scripts/generate-carousel.sh "topic" --slides 7 [--publish false]
+.devin/skills/socialauto-ai/scripts/generate-carousel.py "topic" --slides 7 [--publish false]
 ```
 
 ## Important notes

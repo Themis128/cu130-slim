@@ -206,9 +206,9 @@ See `ARCHITECTURE.md` for:
 
 ## Scripts
 
-- `scripts/check-webhook.sh` — Test webhook verification endpoint
-- `scripts/send-test-message.sh` — Send a test message via the API
-- `scripts/setup-webhook.sh` — Configure webhook URL in Meta dashboard
+- `scripts/check-webhook.py` — Test webhook verification endpoint
+- `scripts/send-test-message.py` — Send a test message via the API
+- `scripts/setup-webhook.py` — Configure webhook URL in Meta dashboard
 
 ## Related skills
 

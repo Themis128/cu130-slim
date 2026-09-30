@@ -182,11 +182,11 @@ it manually via the noVNC viewer at `http://localhost:6080/vnc.html`.
 
 ## Scripts
 
-- `scripts/extract-cookies.sh` — Extract cookies from the Playwright MCP browser
+- `scripts/extract-cookies.py` — Extract cookies from the Playwright MCP browser
   via `browser_evaluate` and save to a JSON file
-- `scripts/inject-cookies.sh` — Inject cookies into the browser-novnc container
+- `scripts/inject-cookies.py` — Inject cookies into the browser-novnc container
   by navigating to the platform and setting cookies via the bridge API
-- `scripts/check-session.sh` — Check if a platform session is active in the
+- `scripts/check-session.py` — Check if a platform session is active in the
   browser-novnc container by navigating and checking login state
 
 ## Related skills

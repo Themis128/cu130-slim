@@ -77,22 +77,22 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Sync brand to ALL connected profiles (bio + name + picture where supported)
-.devin/skills/brand-sync/scripts/sync-all.sh
+.devin/skills/brand-sync/scripts/sync-all.py
 
 # Sync brand to a specific platform
-.devin/skills/brand-sync/scripts/sync-platform.sh threads
+.devin/skills/brand-sync/scripts/sync-platform.py threads
 
 # Sync brand bio to all platforms (name and picture unchanged)
-.devin/skills/brand-sync/scripts/sync-bio.sh
+.devin/skills/brand-sync/scripts/sync-bio.py
 
 # Upload logo as profile picture to all supported platforms
-.devin/skills/brand-sync/scripts/sync-profile-pic.sh
+.devin/skills/brand-sync/scripts/sync-profile-pic.py
 
 # Generate the brand bio text from the brand profile
-.devin/skills/brand-sync/scripts/generate-bio.sh
+.devin/skills/brand-sync/scripts/generate-bio.py
 
 # Show brand sync status (what's synced, what's not)
-.devin/skills/brand-sync/scripts/sync-status.sh
+.devin/skills/brand-sync/scripts/sync-status.py
 ```
 
 ## Sync workflow

@@ -218,5 +218,5 @@ If no IG Business Account is found, the FB user info is stored as a fallback (po
 
 ## Scripts
 
-- `scripts/verify-oauth-urls.sh` — Generate and verify OAuth authorize URLs for all three Meta platforms
-- `scripts/check-meta-token.sh` — Check if a Meta access token is valid and show its expiry
+- `scripts/verify-oauth-urls.py` — Generate and verify OAuth authorize URLs for all three Meta platforms
+- `scripts/check-meta-token.py` — Check if a Meta access token is valid and show its expiry

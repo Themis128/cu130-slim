@@ -51,7 +51,7 @@ browser-novnc container.
 #   4. Extract cookies
 #   5. Inject into browser-novnc
 #   6. Verify session
-bash .devin/skills/playwright-mcp-login/scripts/check-session.sh twitter
+python3 .devin/skills/playwright-mcp-login/scripts/check-session.py twitter
 
 # 1b. TikTok
 # Use the playwright-mcp-login skill:
@@ -60,7 +60,7 @@ bash .devin/skills/playwright-mcp-login/scripts/check-session.sh twitter
 #   3. Handle captcha if needed
 #   4. Extract + inject cookies
 #   5. Verify session
-bash .devin/skills/playwright-mcp-login/scripts/check-session.sh tiktok
+python3 .devin/skills/playwright-mcp-login/scripts/check-session.py tiktok
 
 # 1c. Threads (uses Instagram credentials)
 # Use the playwright-mcp-login skill:
@@ -69,39 +69,39 @@ bash .devin/skills/playwright-mcp-login/scripts/check-session.sh tiktok
 #   3. Handle 2FA if needed
 #   4. Extract + inject cookies
 #   5. Verify session
-bash .devin/skills/playwright-mcp-login/scripts/check-session.sh threads
+python3 .devin/skills/playwright-mcp-login/scripts/check-session.py threads
 ```
 
 ### Phase 2: Instagram OAuth reconnection
 
 ```bash
 # 2a. Check token status
-bash .devin/skills/instagram-token-reconnect/scripts/check-token-status.sh
+python3 .devin/skills/instagram-token-reconnect/scripts/check-token-status.py
 
 # 2b. Reconnect invalid tokens via OAuth
-bash .devin/skills/instagram-token-reconnect/scripts/reconnect-oauth.sh <account_id>
+python3 .devin/skills/instagram-token-reconnect/scripts/reconnect-oauth.py <account_id>
 
 # 2c. Validate the new token
-bash .devin/skills/instagram-token-reconnect/scripts/validate-token.sh <account_id>
+python3 .devin/skills/instagram-token-reconnect/scripts/validate-token.py <account_id>
 ```
 
 ### Phase 3: WhatsApp phone verification
 
 ```bash
 # 3a. Check current status
-bash .devin/skills/whatsapp-phone-verify/scripts/check-phone-status.sh <account_id>
+python3 .devin/skills/whatsapp-phone-verify/scripts/check-phone-status.py <account_id>
 
 # 3b. Request verification code (SMS or voice)
-bash .devin/skills/whatsapp-phone-verify/scripts/request-code.sh <account_id> SMS el_GR
+python3 .devin/skills/whatsapp-phone-verify/scripts/request-code.py <account_id> SMS el_GR
 
 # 3c. Verify the code (user provides the 6-digit code from SMS)
-bash .devin/skills/whatsapp-phone-verify/scripts/verify-code.sh <account_id> 123456
+python3 .devin/skills/whatsapp-phone-verify/scripts/verify-code.py <account_id> 123456
 
 # 3d. Register the number
-bash .devin/skills/whatsapp-phone-verify/scripts/register-phone.sh <account_id> 123456
+python3 .devin/skills/whatsapp-phone-verify/scripts/register-phone.py <account_id> 123456
 
 # 3e. Verify registration
-bash .devin/skills/whatsapp-phone-verify/scripts/check-phone-status.sh <account_id>
+python3 .devin/skills/whatsapp-phone-verify/scripts/check-phone-status.py <account_id>
 ```
 
 ### Phase 4: LinkedIn session refresh

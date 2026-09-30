@@ -172,10 +172,10 @@ for (const btn of buttons) {
 
 ## Scripts
 
-- `scripts/check-review-status.sh` — Check App Review submission status via Graph API
-- `scripts/check-business-verification.sh` — Check business verification status
-- `scripts/list-permissions.sh` — List all permissions and their review status
-- `scripts/generate-screencast.sh` — Generate a screencast from screenshots using ffmpeg
+- `scripts/check-review-status.py` — Check App Review submission status via Graph API
+- `scripts/check-business-verification.py` — Check business verification status
+- `scripts/list-permissions.py` — List all permissions and their review status
+- `scripts/generate-screencast.py` — Generate a screencast from screenshots using ffmpeg
 - `scripts/reviewer_account.py` — Manage the reviewer test account: `create`
   (EDITOR on admin team, creds → `~/.socialauto-reviewer-creds.json`),
   `verify` (login + account count), `status`, `delete` (post-review cleanup)

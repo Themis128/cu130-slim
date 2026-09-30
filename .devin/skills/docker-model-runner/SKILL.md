@@ -289,7 +289,7 @@ docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-
 docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0
 ```
 
-Manual reapply: `scripts/dmr-configure.sh`. Verify: `scripts/dmr-configure.sh show`.
+Manual reapply: `scripts/dmr-configure.py`. Verify: `scripts/dmr-configure.py show`.
 
 > **Gotcha**: `configure` REPLACES the whole per-model config — pass every
 > flag in one call. And hf.co GGUFs (like the 4B) NEED explicit
@@ -425,29 +425,29 @@ Environment variables:
 
 | Script | Description |
 |--------|-------------|
-| `scripts/dmr-status.sh` | Check DMR status, loaded models, VRAM usage |
-| `scripts/dmr-chat.sh` | Quick chat with a DMR model (OpenAI API) |
-| `scripts/dmr-completion.sh` | Text completion (OpenAI /v1/completions) |
-| `scripts/dmr-embed.sh` | Generate embeddings |
-| `scripts/dmr-vision.sh` | Vision request (image + text prompt) |
-| `scripts/dmr-ollama.sh` | Ollama-compatible chat |
-| `scripts/dmr-anthropic.sh` | Anthropic-compatible messages |
-| `scripts/dmr-pull.sh` | Pull a new model |
-| `scripts/dmr-list.sh` | List all local models with details |
-| `scripts/dmr-search.sh` | Search for models on Docker Hub and HuggingFace |
-| `scripts/dmr-ps.sh` | List running (loaded) models |
-| `scripts/dmr-df.sh` | Show disk usage |
-| `scripts/dmr-unload.sh` | Unload models from memory |
-| `scripts/dmr-bench.sh` | Benchmark a model's performance |
-| `scripts/dmr-logs.sh` | Fetch DMR logs |
-| `scripts/dmr-rm.sh` | Remove a local model |
-| `scripts/dmr-tag.sh` | Tag a model |
-| `scripts/dmr-push.sh` | Push a model to a registry |
-| `scripts/dmr-configure.sh` | Apply canonical runtime configs (also `show`) — re-run after any runner restart |
-| `scripts/dmr-vram.sh` | GPU VRAM, utilization, power + budget guide |
-| `scripts/dmr-route.sh` | Preview platform-aware routing without sending a request |
-| `scripts/dmr-validate.sh` | Check all expected models are pulled |
-| `scripts/dmr-warmup.sh` | Warm the 4B + 8B hot-path models |
+| `scripts/dmr-status.py` | Check DMR status, loaded models, VRAM usage |
+| `scripts/dmr-chat.py` | Quick chat with a DMR model (OpenAI API) |
+| `scripts/dmr-completion.py` | Text completion (OpenAI /v1/completions) |
+| `scripts/dmr-embed.py` | Generate embeddings |
+| `scripts/dmr-vision.py` | Vision request (image + text prompt) |
+| `scripts/dmr-ollama.py` | Ollama-compatible chat |
+| `scripts/dmr-anthropic.py` | Anthropic-compatible messages |
+| `scripts/dmr-pull.py` | Pull a new model |
+| `scripts/dmr-list.py` | List all local models with details |
+| `scripts/dmr-search.py` | Search for models on Docker Hub and HuggingFace |
+| `scripts/dmr-ps.py` | List running (loaded) models |
+| `scripts/dmr-df.py` | Show disk usage |
+| `scripts/dmr-unload.py` | Unload models from memory |
+| `scripts/dmr-bench.py` | Benchmark a model's performance |
+| `scripts/dmr-logs.py` | Fetch DMR logs |
+| `scripts/dmr-rm.py` | Remove a local model |
+| `scripts/dmr-tag.py` | Tag a model |
+| `scripts/dmr-push.py` | Push a model to a registry |
+| `scripts/dmr-configure.py` | Apply canonical runtime configs (also `show`) — re-run after any runner restart |
+| `scripts/dmr-vram.py` | GPU VRAM, utilization, power + budget guide |
+| `scripts/dmr-route.py` | Preview platform-aware routing without sending a request |
+| `scripts/dmr-validate.py` | Check all expected models are pulled |
+| `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 
 ## Common operations
 

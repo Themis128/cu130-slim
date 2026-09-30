@@ -122,18 +122,18 @@ Returns available styles, sizes, backgrounds, and providers.
 
 ## Scripts
 
-### `scripts/generate-emoji.sh`
+### `scripts/generate-emoji.py`
 Generate a single emoji from the command line.
 
 ```bash
-./scripts/generate-emoji.sh "happy cloud" kawaii 512 transparent
+./scripts/generate-emoji.py "happy cloud" kawaii 512 transparent
 ```
 
-### `scripts/generate-batch.sh`
+### `scripts/generate-batch.py`
 Generate a sticker pack from a file of concepts (one per line).
 
 ```bash
-./scripts/generate-batch.sh concepts.txt flat 512
+./scripts/generate-batch.py concepts.txt flat 512
 ```
 
 ## Integration with SocialAuto

@@ -161,4 +161,4 @@ The `code_verifier` is encoded in the OAuth state parameter (base64 JSON) so the
 
 ## Scripts
 
-- `scripts/verify-oauth-url.sh` — Generate and verify the Twitter OAuth authorize URL
+- `scripts/verify-oauth-url.py` — Generate and verify the Twitter OAuth authorize URL

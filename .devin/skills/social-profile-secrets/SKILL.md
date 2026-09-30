@@ -51,28 +51,28 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # List saved secrets (values are masked)
-.devin/skills/social-profile-secrets/scripts/list-secrets.sh
+.devin/skills/social-profile-secrets/scripts/list-secrets.py
 
 # Save a single secret
-.devin/skills/social-profile-secrets/scripts/set-secret.sh INSTAGRAM_USERNAME cloudless_gr
+.devin/skills/social-profile-secrets/scripts/set-secret.py INSTAGRAM_USERNAME cloudless_gr
 
 # Get a raw secret value (admin/owner)
-.devin/skills/social-profile-secrets/scripts/get-secret.sh INSTAGRAM_USERNAME
+.devin/skills/social-profile-secrets/scripts/get-secret.py INSTAGRAM_USERNAME
 
 # Save Instagram credentials
-.devin/skills/social-profile-secrets/scripts/set-instagram.sh cloudless_gr <password>
+.devin/skills/social-profile-secrets/scripts/set-instagram.py cloudless_gr <password>
 
 # Save Facebook browser credentials
-.devin/skills/social-profile-secrets/scripts/set-facebook.sh baltzakis.themis@gmail.com <password>
+.devin/skills/social-profile-secrets/scripts/set-facebook.py baltzakis.themis@gmail.com <password>
 
 # Save LinkedIn browser credentials
-.devin/skills/social-profile-secrets/scripts/set-linkedin.sh user@example.com <password>
+.devin/skills/social-profile-secrets/scripts/set-linkedin.py user@example.com <password>
 
 # Save Twitter v1.1 credentials
-.devin/skills/social-profile-secrets/scripts/set-twitter.sh key secret token token_secret
+.devin/skills/social-profile-secrets/scripts/set-twitter.py key secret token token_secret
 
 # Save TikTok private API key
-.devin/skills/social-profile-secrets/scripts/set-tiktok.sh key
+.devin/skills/social-profile-secrets/scripts/set-tiktok.py key
 ```
 
 ## API base

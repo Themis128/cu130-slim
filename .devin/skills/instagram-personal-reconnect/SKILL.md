@@ -20,21 +20,21 @@ and works for personal, creator, and business accounts.
 ```
 SocialAuto API                instagrapi sidecar
      │                              │
-     ├─ get-credentials.sh ────────▶│ (reads from secret store)
+     ├─ get-credentials.py ────────▶│ (reads from secret store)
      │                              │
-     ├─ login.sh ──────────────────▶│ POST /auth/login
+     ├─ login.py ──────────────────▶│ POST /auth/login
      │  (username + password)       │ → session_id
      │                              │
-     ├─ handle-2fa.sh ─────────────▶│ POST /auth/login
+     ├─ handle-2fa.py ─────────────▶│ POST /auth/login
      │  (if 2FA required)           │  + verification_code
      │                              │
-     ├─ handle-challenge.sh ───────▶│ POST /auth/challenge/resolve
+     ├─ handle-challenge.py ───────▶│ POST /auth/challenge/resolve
      │  (if challenge required)     │  + security_code
      │                              │
-     ├─ save-session.sh ──────────▶│ GET /auth/settings
+     ├─ save-session.py ──────────▶│ GET /auth/settings
      │  (persist to SocialAuto)    │ → settings JSON
      │                              │
-     └─ verify.sh ────────────────▶│ GET /auth/profile
+     └─ verify.py ────────────────▶│ GET /auth/profile
                                     │ → account info
 ```
 
@@ -52,7 +52,7 @@ The instagrapi sidecar runs at `http://localhost:8011` (host) or
 
 ```bash
 # Run the complete reconnect flow
-bash scripts/reconnect.sh <account_id>
+python3 scripts/reconnect.py <account_id>
 ```
 
 This will:
@@ -68,7 +68,7 @@ This will:
 ### Check sidecar health
 
 ```bash
-bash scripts/check-sidecar.sh
+python3 scripts/check-sidecar.py
 ```
 
 Returns exit code 0 if the sidecar is healthy and running.
@@ -76,7 +76,7 @@ Returns exit code 0 if the sidecar is healthy and running.
 ### Get stored credentials
 
 ```bash
-bash scripts/get-credentials.sh <account_id>
+python3 scripts/get-credentials.py <account_id>
 ```
 
 Retrieves the Instagram username and password from SocialAuto's secret
@@ -85,7 +85,7 @@ store. Does not print the password to stdout (uses a temp file).
 ### Login via sidecar
 
 ```bash
-bash scripts/login.sh <account_id>
+python3 scripts/login.py <account_id>
 ```
 
 Attempts to log in using the stored credentials. Returns:
@@ -96,7 +96,7 @@ Attempts to log in using the stored credentials. Returns:
 ### Handle 2FA
 
 ```bash
-bash scripts/handle-2fa.sh <account_id> <verification_code>
+python3 scripts/handle-2fa.py <account_id> <verification_code>
 ```
 
 Completes 2FA login with a TOTP or SMS code.
@@ -104,7 +104,7 @@ Completes 2FA login with a TOTP or SMS code.
 ### Handle challenge
 
 ```bash
-bash scripts/handle-challenge.sh <session_id> <last_json> <security_code>
+python3 scripts/handle-challenge.py <session_id> <last_json> <security_code>
 ```
 
 Resolves a challenge (SMS/email verification) with a security code.
@@ -112,7 +112,7 @@ Resolves a challenge (SMS/email verification) with a security code.
 ### Save session to SocialAuto
 
 ```bash
-bash scripts/save-session.sh <account_id> <session_id>
+python3 scripts/save-session.py <account_id> <session_id>
 ```
 
 Saves the session_id and settings JSON to the account's `meta_data` in
@@ -121,7 +121,7 @@ the SocialAuto database so it persists across restarts.
 ### Verify session
 
 ```bash
-bash scripts/verify.sh <account_id>
+python3 scripts/verify.py <account_id>
 ```
 
 Checks if the saved session is active by calling the sidecar's profile
@@ -149,7 +149,7 @@ Use the sessionid import instead:
 2. Import it into the sidecar:
 
 ```bash
-bash scripts/import-sessionid.sh <account_id> <sessionid>
+python3 scripts/import-sessionid.py <account_id> <sessionid>
 ```
 
 This bypasses the password login entirely and uses the existing browser

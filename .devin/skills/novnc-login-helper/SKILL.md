@@ -23,10 +23,10 @@ User (browser)                    browser-novnc container
      │  (type credentials, solve          │
      │   captcha, handle 2FA)              │
      │                                    │
-     ├─ wait-for-login.sh ───────────────▶│ polls /session/evaluate
+     ├─ wait-for-login.py ───────────────▶│ polls /session/evaluate
      │  (polls until logged in)           │ for login indicators
      │                                    │
-     └─ verify-session.sh ──────────────▶│ confirms session active
+     └─ verify-session.py ──────────────▶│ confirms session active
                                         │ extracts cookies
 ```
 
@@ -61,7 +61,7 @@ GET http://localhost:9223/novnc-url
 ### Step 1: Start a browser session and navigate to the login page
 
 ```bash
-bash scripts/start-login.sh <platform>
+python3 scripts/start-login.py <platform>
 ```
 
 This starts a browser session in the browser-novnc container and
@@ -79,7 +79,7 @@ Open the noVNC URL in your browser and complete the login:
 ### Step 3: Wait for login to complete (optional — automated polling)
 
 ```bash
-bash scripts/wait-for-login.sh <platform> [timeout_seconds]
+python3 scripts/wait-for-login.py <platform> [timeout_seconds]
 ```
 
 Polls the browser bridge every 5 seconds and checks if the session is
@@ -90,7 +90,7 @@ Default timeout: 300 seconds (5 minutes).
 ### Step 4: Verify the session and extract cookies
 
 ```bash
-bash scripts/verify-session.sh <platform>
+python3 scripts/verify-session.py <platform>
 ```
 
 Confirms the session is active and saves cookies to the browser-novnc
@@ -100,23 +100,23 @@ container's cookie store for persistence across restarts.
 
 ```bash
 # Start login and get noVNC URL
-bash scripts/start-login.sh twitter
+python3 scripts/start-login.py twitter
 
 # User completes login in noVNC (manual)
 
 # Poll until logged in (auto-detects)
-bash scripts/wait-for-login.sh twitter 600
+python3 scripts/wait-for-login.py twitter 600
 
 # Verify and persist
-bash scripts/verify-session.sh twitter
+python3 scripts/verify-session.py twitter
 ```
 
 ## Scripts
 
-- `scripts/start-login.sh` — Start browser session and navigate to login page
-- `scripts/wait-for-login.sh` — Poll until login is detected
-- `scripts/verify-session.sh` — Verify session and save cookies
-- `scripts/check-session.sh` — Check if session is currently active (alias of playwright-mcp-login's check)
+- `scripts/start-login.py` — Start browser session and navigate to login page
+- `scripts/wait-for-login.py` — Poll until login is detected
+- `scripts/verify-session.py` — Verify session and save cookies
+- `scripts/check-session.py` — Check if session is currently active (alias of playwright-mcp-login's check)
 
 ## Browser bridge API
 

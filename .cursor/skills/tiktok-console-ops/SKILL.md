@@ -40,19 +40,19 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 - `TIKTOK_DEV_EMAIL`, `TIKTOK_DEV_PASSWORD` — developer portal login
 - `CLOUDFLARE_API_TOKEN` — DNS TXT for `tiktok-domain-verification=…`
 - Site TXT `tiktok-developers-site-verification=…` is **not** Content Posting domain verify
-- `domain-verify.sh` now short-circuits when `cloudless.gr` is already listed under **Verified properties**
+- `domain-verify.py` now short-circuits when `cloudless.gr` is already listed under **Verified properties**
 
 ## Tool scripts (repo root)
 
 ```bash
-.cursor/skills/tiktok-console-ops/scripts/check-config.sh
-.cursor/skills/tiktok-console-ops/scripts/check-scopes.sh          # granted vs expected OAuth scopes
-.cursor/skills/tiktok-console-ops/scripts/cp-audit-application.sh  # Content Posting (Direct Post) audit wizard; --submit to finalize
-.cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh ensure   # Playwright Docker → POST /session
-.cursor/skills/tiktok-console-ops/scripts/sidecar-session.sh status
-.cursor/skills/tiktok-console-ops/scripts/console-inspect.sh          # login + dump app state
-.devin/skills/tiktok-console-ops/scripts/domain-verify.sh            # console token → CF TXT → Verify (or exits early if already verified)
-.cursor/skills/tiktok-console-ops/scripts/dns-tiktok-txt.sh list|add <token>
+.cursor/skills/tiktok-console-ops/scripts/check-config.py
+.cursor/skills/tiktok-console-ops/scripts/check-scopes.py          # granted vs expected OAuth scopes
+.cursor/skills/tiktok-console-ops/scripts/cp-audit-application.py  # Content Posting (Direct Post) audit wizard; --submit to finalize
+.cursor/skills/tiktok-console-ops/scripts/sidecar-session.py ensure   # Playwright Docker → POST /session
+.cursor/skills/tiktok-console-ops/scripts/sidecar-session.py status
+.cursor/skills/tiktok-console-ops/scripts/console-inspect.py          # login + dump app state
+.devin/skills/tiktok-console-ops/scripts/domain-verify.py            # console token → CF TXT → Verify (or exits early if already verified)
+.cursor/skills/tiktok-console-ops/scripts/dns-tiktok-txt.py list|add <token>
 ```
 
 Audit-fix helpers (Playwright Docker, under `scripts/lib/`):
@@ -65,7 +65,7 @@ Audit-fix helpers (Playwright Docker, under `scripts/lib/`):
 
 Public `DIRECT_POST` needs a **separate audit** beyond app approval — the
 "Apply" link beside the Direct Post toggle opens a 4-step wizard at
-`/application/content-posting-api`. `cp-audit-application.sh` fills it;
+`/application/content-posting-api`. `cp-audit-application.py` fills it;
 `--submit` finalizes (declaration checkboxes + Next). Verified submitted
 2026-09-29 → console shows **Under review** beside Direct Post.
 
@@ -120,9 +120,9 @@ log in once via noVNC / Playwright MCP interactively.
 
 ## Agent workflow
 
-1. `check-config.sh` / `tiktok_check_config` — fix `.env` redirect/scopes drift first
-2. `sidecar-session.sh ensure` if privacy/browser APIs needed
-3. `domain-verify.sh` for photo `PULL_FROM_URL` / Direct Post domain gate
+1. `check-config.py` / `tiktok_check_config` — fix `.env` redirect/scopes drift first
+2. `sidecar-session.py ensure` if privacy/browser APIs needed
+3. `domain-verify.py` for photo `PULL_FROM_URL` / Direct Post domain gate
 4. Do **not** submit app audit unless user explicitly asks; report readiness only
 5. Prefer Playwright Docker (`mcr.microsoft.com/playwright:v1.62.1`) for console; dismiss cookie banner before clicks
 6. After console URL/redirect edits, re-run SocialAuto OAuth reconnect if scopes/URI changed
@@ -150,7 +150,7 @@ headed `browser-novnc` bridge (port 9223, Xvfb):
 6. `POST localhost:9224/session` `{session_id, cookies}` → verify
    `GET /session` returns `logged_in: true`
 
-Automated: `scripts/tiktok_qr_watch.sh` does steps 4–6 — polls `/session/evaluate`
+Automated: `scripts/tiktok_qr_watch.py` does steps 4–6 — polls `/session/evaluate`
 (tagged, keeps the busy-hold warm), extracts on `/foryou` navigation, verifies
 `sessionid`/`sid_tt` are present, injects into the sidecar.
 

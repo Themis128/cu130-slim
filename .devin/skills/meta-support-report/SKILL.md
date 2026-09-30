@@ -149,15 +149,15 @@ The `template/` directory contains ready-to-use report materials:
 | `template/SCREENSHOTS.md` | Manifest of all 14 screenshots with descriptions and source URLs |
 
 Screenshots are stored at `/home/tbaltzakis/cu130-slim/meta-support-screenshots/`
-(gitignored). Run `scripts/package-report.sh` to bundle everything into a
+(gitignored). Run `scripts/package-report.py` to bundle everything into a
 portable `.tar.gz` archive.
 
 ## Scripts
 
-- `scripts/print-report-template.sh` — Print the report description template
-- `scripts/list-screenshots.sh` — List available screenshots for attachment
-- `scripts/prepare-screenshots.sh` — Capture screenshots via Playwright MCP
-- `scripts/package-report.sh` — Bundle screenshots + template into a .tar.gz
+- `scripts/print-report-template.py` — Print the report description template
+- `scripts/list-screenshots.py` — List available screenshots for attachment
+- `scripts/prepare-screenshots.py` — Capture screenshots via Playwright MCP
+- `scripts/package-report.py` — Bundle screenshots + template into a .tar.gz
 
 ## Related skills
 

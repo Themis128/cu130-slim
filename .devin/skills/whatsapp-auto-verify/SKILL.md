@@ -17,17 +17,17 @@ automatically.
 ```
 SocialAuto API                    Meta Cloud API
      │                                  │
-     ├─ check-status.sh ───────────────▶│ GET /whatsapp_phone_number
+     ├─ check-status.py ───────────────▶│ GET /whatsapp_phone_number
      │  (detect rate limit)             │
      │                                  │
-     ├─ wait-and-request.sh ──────────▶│ (waits for cooldown)
+     ├─ wait-and-request.py ──────────▶│ (waits for cooldown)
      │  (auto-wait + request code)     │ POST /request_code
      │                                  │ → SMS/voice code sent
      │                                  │
-     ├─ verify-and-register.sh ───────▶│ POST /verify_code
+     ├─ verify-and-register.py ───────▶│ POST /verify_code
      │  (with user-provided code)       │ POST /register
      │                                  │
-     └─ full-flow.sh ──────────────────▶│ (orchestrates all steps)
+     └─ full-flow.py ──────────────────▶│ (orchestrates all steps)
                                         │
 ```
 
@@ -41,7 +41,7 @@ This skill tracks the rate-limit timestamp in a state file:
 
 When a rate-limit is detected:
 1. The current timestamp + 1 hour is saved as the cooldown expiry
-2. `wait-and-request.sh` will sleep until the cooldown expires
+2. `wait-and-request.py` will sleep until the cooldown expires
 3. After the cooldown, it automatically requests a new code
 
 ## Full automated flow
@@ -49,10 +49,10 @@ When a rate-limit is detected:
 ```bash
 # Run the full flow (waits for cooldown, requests code, asks for code,
 # verifies, registers)
-bash scripts/full-flow.sh <account_id> [SMS|VOICE] [language] [pin]
+python3 scripts/full-flow.py <account_id> [SMS|VOICE] [language] [pin]
 
 # Example:
-bash scripts/full-flow.sh 77f17091-3639-4633-b04d-0a3345dd7d3a SMS el_GR 123456
+python3 scripts/full-flow.py 77f17091-3639-4633-b04d-0a3345dd7d3a SMS el_GR 123456
 ```
 
 The script will:
@@ -69,7 +69,7 @@ The script will:
 ### Check status and rate-limit state
 
 ```bash
-bash scripts/check-status.sh <account_id>
+python3 scripts/check-status.py <account_id>
 ```
 
 Returns:
@@ -81,7 +81,7 @@ Returns:
 ### Wait for cooldown and request code
 
 ```bash
-bash scripts/wait-and-request.sh <account_id> [SMS|VOICE] [language]
+python3 scripts/wait-and-request.py <account_id> [SMS|VOICE] [language]
 ```
 
 - Checks if rate-limited and waits for the cooldown to expire
@@ -92,7 +92,7 @@ bash scripts/wait-and-request.sh <account_id> [SMS|VOICE] [language]
 ### Verify code and register
 
 ```bash
-bash scripts/verify-and-register.sh <account_id> <6-digit-code> [6-digit-pin]
+python3 scripts/verify-and-register.py <account_id> <6-digit-code> [6-digit-pin]
 ```
 
 - Verifies the 6-digit code received by the user
@@ -102,7 +102,7 @@ bash scripts/verify-and-register.sh <account_id> <6-digit-code> [6-digit-pin]
 ### Full flow (orchestrator)
 
 ```bash
-bash scripts/full-flow.sh <account_id> [SMS|VOICE] [language] [pin]
+python3 scripts/full-flow.py <account_id> [SMS|VOICE] [language] [pin]
 ```
 
 Runs the complete flow:

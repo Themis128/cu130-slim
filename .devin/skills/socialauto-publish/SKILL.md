@@ -79,19 +79,19 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Publish a draft post immediately
-.devin/skills/socialauto-publish/scripts/publish-post.sh <post-id>
+.devin/skills/socialauto-publish/scripts/publish-post.py <post-id>
 
 # Schedule a post for a specific time
-.devin/skills/socialauto-publish/scripts/schedule-post.sh <post-id> "2026-09-01T10:00:00Z"
+.devin/skills/socialauto-publish/scripts/schedule-post.py <post-id> "2026-09-01T10:00:00Z"
 
 # List recent posts
-.devin/skills/socialauto-publish/scripts/list-posts.sh [--status draft|scheduled|published|failed] [--limit 10]
+.devin/skills/socialauto-publish/scripts/list-posts.py [--status draft|scheduled|published|failed] [--limit 10]
 
 # Create a quick text-only post
-.devin/skills/socialauto-publish/scripts/create-post.sh "Your post text" [--platform linkedin] [--schedule "2026-09-01T10:00:00Z"]
+.devin/skills/socialauto-publish/scripts/create-post.py "Your post text" [--platform linkedin] [--schedule "2026-09-01T10:00:00Z"]
 
 # Delete a post
-.devin/skills/socialauto-publish/scripts/delete-post.sh <post-id>
+.devin/skills/socialauto-publish/scripts/delete-post.py <post-id>
 ```
 
 ## Post status flow

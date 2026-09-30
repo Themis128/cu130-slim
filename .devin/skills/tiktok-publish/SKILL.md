@@ -44,7 +44,7 @@ Publish video and photo content to TikTok through the SocialAuto backend.
 
 Find the current account ID with:
 ```bash
-.devin/skills/socialauto-accounts/scripts/list-accounts.sh | grep tiktok
+.devin/skills/socialauto-accounts/scripts/list-accounts.py | grep tiktok
 ```
 
 ## Publish modes
@@ -102,7 +102,7 @@ Error: `spam_risk_too_many_pending_share`
 1. **From the TikTok mobile app**: Open TikTok → Inbox/Drafts → post or delete each pending upload.
 2. **Via the cancel API**: Use the cancel script with a known publish_id:
    ```bash
-   .devin/skills/tiktok-publish/scripts/cancel-upload.sh <publish_id>
+   .devin/skills/tiktok-publish/scripts/cancel-upload.py <publish_id>
    ```
 3. **Wait 24 hours**: Pending shares expire automatically after 24h.
 
@@ -111,7 +111,7 @@ Error: `spam_risk_too_many_pending_share`
 - Always delete failed SocialAuto posts after debugging (prevents beat task retries).
 - Check pending count before bulk publishing:
   ```bash
-  .devin/skills/tiktok-publish/scripts/check-pending.sh
+  .devin/skills/tiktok-publish/scripts/check-pending.py
   ```
 - The Celery beat task `check_scheduled_posts` will re-process scheduled posts
   every 30s — if a post is stuck in `scheduled` status, it keeps retrying and
@@ -159,7 +159,7 @@ curl -sf -X POST "$API/api/v1/content/posts" \
   }'
 
 # Then publish:
-.devin/skills/socialauto-publish/scripts/publish-post.sh <post-id>
+.devin/skills/socialauto-publish/scripts/publish-post.py <post-id>
 ```
 
 ## Building slideshow videos from images
@@ -200,16 +200,16 @@ Run from repo root `cu130-slim/`:
 
 ```bash
 # Cancel a pending TikTok upload by publish_id
-.devin/skills/tiktok-publish/scripts/cancel-upload.sh <publish_id>
+.devin/skills/tiktok-publish/scripts/cancel-upload.py <publish_id>
 
 # Check how many pending shares exist (queries TikTok status for known IDs)
-.devin/skills/tiktok-publish/scripts/check-pending.sh
+.devin/skills/tiktok-publish/scripts/check-pending.py
 
 # Poll a post's publish status until complete or failed
-.devin/skills/tiktok-publish/scripts/poll-status.sh <post-id>
+.devin/skills/tiktok-publish/scripts/poll-status.py <post-id>
 
 # Build a slideshow video from image assets in the media library
-.devin/skills/tiktok-publish/scripts/build-slideshow.sh <asset-id-1> [<asset-id-2> ...]
+.devin/skills/tiktok-publish/scripts/build-slideshow.py <asset-id-1> [<asset-id-2> ...]
 ```
 
 ## Common errors and fixes
@@ -218,7 +218,7 @@ Run from repo root `cu130-slim/`:
 |-------|-------|-----|
 | `url_ownership_unverified` | Domain not verified for PULL_FROM_URL | Verify domain in TikTok dev console, or use FILE_UPLOAD for videos |
 | `spam_risk_too_many_pending_share` | 5+ pending uploads in 24h | Clear pending from TikTok app, cancel via API, or wait 24h |
-| Stuck `PROCESSING_UPLOAD` | Video <23 FPS, bad codec, or tiny slideshow at 1 FPS | Rebuild with `fps=30` + H.264 yuv420p (see build-slideshow.sh) |
+| Stuck `PROCESSING_UPLOAD` | Video <23 FPS, bad codec, or tiny slideshow at 1 FPS | Rebuild with `fps=30` + H.264 yuv420p (see build-slideshow.py) |
 | `unaudited_client_can_only_post_to_private_accounts` | DIRECT_POST without app audit | Use MEDIA_UPLOAD mode instead |
 | `Invalid publish_id format` | Regex rejected `~` or `.` in publish_id | Fixed — regex now accepts `~` and `.` |
 | `upload_url must use the TikTok upload host` | Host validation too strict | Fixed — accepts any `*.tiktokapis.com` host |

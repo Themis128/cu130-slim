@@ -83,10 +83,10 @@ curl http://localhost:8083/api/v1/accounts/{account_id}/health \
 
 ```bash
 # Meta platforms
-bash .devin/skills/meta-oauth-setup/scripts/verify-oauth-urls.sh
+python3 .devin/skills/meta-oauth-setup/scripts/verify-oauth-urls.py
 
 # Twitter/X
-bash .devin/skills/twitter-oauth-setup/scripts/verify-oauth-url.sh
+python3 .devin/skills/twitter-oauth-setup/scripts/verify-oauth-url.py
 ```
 
 ## Backend OAuth endpoints
@@ -196,11 +196,11 @@ app's Scopes list).
 
 ```bash
 # Dry-run: dump the consent screen, don't click Continue
-.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.sh --dry-run
+.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.py --dry-run
 
 # Full reconnect (requires tiktok_web_cookies on the account — QR login
 # in tiktok-console-ops, and the requested scopes in accounts.py's list)
-.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.sh
+.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.py
 ```
 
 The script exports the stored `.tiktok.com` cookies, fetches a fresh
@@ -210,7 +210,7 @@ Continue, and prints the granted scopes after the callback.
 
 ## Scripts
 
-- `scripts/check-all-accounts.sh` — List all connected accounts and their status
-- `scripts/refresh-tokens.sh` — Trigger token refresh for all eligible accounts
-- `scripts/tiktok-reconnect.sh` — Cookie-driven TikTok re-consent for scope upgrades
-- `scripts/tiktok-oauth.mjs` — Playwright consent driver (used by tiktok-reconnect.sh)
+- `scripts/check-all-accounts.py` — List all connected accounts and their status
+- `scripts/refresh-tokens.py` — Trigger token refresh for all eligible accounts
+- `scripts/tiktok-reconnect.py` — Cookie-driven TikTok re-consent for scope upgrades
+- `scripts/tiktok-oauth.mjs` — Playwright consent driver (used by tiktok-reconnect.py)
