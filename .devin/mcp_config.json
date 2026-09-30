@@ -84,8 +84,7 @@
       "args": [
         "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
         "https://docs.mcp.cloudflare.com/mcp"
-      ],
-      "disabled": true
+      ]
     },
     "cloudflare": {
       "command": "python3",
