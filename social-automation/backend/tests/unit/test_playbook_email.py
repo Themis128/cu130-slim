@@ -209,3 +209,53 @@ def test_committed_asset_matches_default_path():
     src = repo / "docs" / "playbooks" / "cloud-migration-playbook.md"
     assert pdf.exists() and pdf.read_bytes()[:5] == b"%PDF-"
     assert src.exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_submissions_queue_exactly_one_email(fake_redis):
+    """Race from #203 review: simultaneous posts for one address -> one email."""
+    leads = [SimpleNamespace(meta_data={}) for _ in range(8)]
+    db = _FakeDB()
+    with patch.object(pb, "_enqueue_playbook_email") as enq:
+        results = await asyncio.gather(
+            *(
+                pb.deliver_playbook(db, lead, "Race@Example.com" if i % 2 else "race@example.com",
+                                    already_sent=False, settings=_settings())
+                for i, lead in enumerate(leads)
+            )
+        )
+    assert results.count("email") == 1
+    assert results.count("already_sent") == 7
+    assert enq.call_count == 1
+    assert len(fake_redis.store) == 1
+    assert fake_redis.closed == 8
+
+
+@pytest.mark.asyncio
+async def test_claim_is_once_per_address(fake_redis):
+    assert await pb.claim_playbook_send("a@b.co") is True
+    assert await pb.claim_playbook_send("A@B.co ") is False
+    assert await pb.claim_playbook_send("other@b.co") is True
+    assert fake_redis.closed == 3  # every per-call client is closed (no pool leak)
+
+
+@pytest.mark.asyncio
+async def test_redis_down_never_sends():
+    async def _boom():
+        raise ConnectionError("redis down")
+
+    db, lead = _FakeDB(), SimpleNamespace(meta_data={})
+    with patch.object(pb, "_redis_client", new=_boom), patch.object(pb, "_enqueue_playbook_email") as enq:
+        out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
+    assert out == "download"
+    enq.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stamped_lead_row_short_circuits(fake_redis):
+    db, lead = _FakeDB(), SimpleNamespace(meta_data={"playbook_email_queued_at": "x"})
+    with patch.object(pb, "_enqueue_playbook_email") as enq:
+        out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
+    assert out == "already_sent"
+    enq.assert_not_called()
+    assert fake_redis.store == {}
