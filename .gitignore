@@ -139,3 +139,11 @@ notebooks/output/
 
 # Tool caches
 .ruff_cache/
+
+# Runtime data dirs (bind mounts / backups — never commit)
+n8n-data/
+n8n-data-backup-*/
+metabase-data/
+
+# Generated artifacts
+meta-support-report-package.tar.gz
