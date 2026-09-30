@@ -142,16 +142,19 @@ async def create_lead_public(
         raise HTTPException(status_code=503, detail="Lead capture not configured")
     team_id = uuid.UUID(team_id_raw)
 
-    existing = (
+    # Any website lead row for this address already stamped? (rows aren't
+    # unique per email). The atomic Redis claim in deliver_playbook is what
+    # actually guarantees one email per address under concurrency.
+    prior = (
         await db.execute(
-            select(Lead).where(
+            select(Lead.meta_data).where(
                 Lead.team_id == team_id,
                 Lead.source == LeadSource.website,
                 Lead.email == email,
-            ).limit(1)
+            )
         )
-    ).scalars().first()
-    already_sent = bool(existing and (existing.meta_data or {}).get("playbook_email_queued_at"))
+    ).scalars().all()
+    already_sent = any((md or {}).get("playbook_email_queued_at") for md in prior)
 
     lead = await create_lead(
         db,

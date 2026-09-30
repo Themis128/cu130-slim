@@ -8,6 +8,7 @@ submitter an email linking to it through the standard ``send_email`` path.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -25,9 +26,17 @@ _BUTTON_STYLE = (
 )
 
 
+PLAYBOOK_PATH = "/playbooks/cloud-migration-playbook.pdf"
+
+
 def playbook_url(settings=None) -> str:
+    """Explicit PLAYBOOK_URL, else the PDF served by the frontend at FRONTEND_URL."""
     settings = settings or get_settings()
-    return (getattr(settings, "PLAYBOOK_URL", "") or "").strip()
+    explicit = (getattr(settings, "PLAYBOOK_URL", "") or "").strip()
+    if explicit:
+        return explicit
+    frontend = (getattr(settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
+    return f"{frontend}{PLAYBOOK_PATH}" if frontend else ""
 
 
 def email_sender_configured(settings=None) -> bool:
@@ -119,26 +128,76 @@ def _enqueue_playbook_email(email: str) -> None:
     celery_app.send_task(PLAYBOOK_TASK_NAME, args=[email])
 
 
+# One playbook email per address, ever. The claim key is taken with SET NX
+# *before* queueing, so concurrent submissions for the same address can't both
+# enqueue (a DB read-then-stamp is racy and website leads aren't unique per
+# email). The lead.meta_data stamp stays as a durable second record.
+_CLAIM_TTL_S = 365 * 24 * 3600
+
+
+def _claim_key(email: str) -> str:
+    digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()
+    return f"leads:playbook_email:{digest}"
+
+
+async def _redis_client():
+    import redis.asyncio as aioredis
+
+    return aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+
+
+async def claim_playbook_send(email: str) -> bool:
+    """Atomically claim the right to send this address its playbook email.
+
+    True exactly once per address; False for every later/concurrent caller.
+    Raises if Redis is unreachable (callers must then not send).
+    """
+    r = await _redis_client()
+    try:
+        ok = await r.set(_claim_key(email), datetime.now(UTC).isoformat(), nx=True, ex=_CLAIM_TTL_S)
+    finally:
+        await r.aclose()  # per-call client: close its pool, don't leak connections
+    return bool(ok)
+
+
+async def release_playbook_claim(email: str) -> None:
+    try:
+        r = await _redis_client()
+        try:
+            await r.delete(_claim_key(email))
+        finally:
+            await r.aclose()
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not release playbook claim", exc_info=True)
+
+
 async def deliver_playbook(db: Any, lead: Any, email: str, *, already_sent: bool, settings=None) -> str:
     """Decide and trigger playbook delivery for a public signup.
 
     Returns the ``playbook_delivery`` value reported to the form:
-    ``email`` | ``already_sent`` | ``download`` | ``none``. On ``email`` the
-    lead is stamped with ``meta_data.playbook_email_queued_at`` so repeat
-    submissions never re-send (the public form must not become a way to mail
-    arbitrary third parties repeatedly).
+    ``email`` | ``already_sent`` | ``download`` | ``none``. Sending requires
+    winning the atomic claim (:func:`claim_playbook_send`); on ``email`` the
+    lead is also stamped with ``meta_data.playbook_email_queued_at``.
     """
     settings = settings or get_settings()
     if not playbook_url(settings):
         return "none"
-    if already_sent:
+    if already_sent or (lead.meta_data or {}).get("playbook_email_queued_at"):
         return "already_sent"
     if not playbook_delivery_enabled(settings):
         return "download"
     try:
+        claimed = await claim_playbook_send(email)
+    except Exception:  # noqa: BLE001 — can't claim atomically: don't risk a duplicate
+        logger.warning("Playbook claim unavailable; offering download only", exc_info=True)
+        return "download"
+    if not claimed:
+        return "already_sent"
+    try:
         _enqueue_playbook_email(email)
     except Exception:  # noqa: BLE001 — broker down: still hand out the link
         logger.warning("Could not enqueue playbook email", exc_info=True)
+        await release_playbook_claim(email)
         return "download"
     md = dict(lead.meta_data or {})
     md["playbook_email_queued_at"] = datetime.now(UTC).isoformat()
