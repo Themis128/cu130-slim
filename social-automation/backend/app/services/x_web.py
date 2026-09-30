@@ -146,10 +146,7 @@ def plan_media(media_paths: list[str] | None) -> MediaPlan:
         return MediaPlan(kind="gif", paths=paths)
     if len(paths) == 1 and unique == {"video"}:
         return MediaPlan(kind="video", paths=paths)
-    raise XWebMediaError(
-        "X allows up to 4 images OR one GIF OR one video per post; "
-        f"this post mixes {', '.join(sorted(kinds))}"
-    )
+    raise XWebMediaError(f"X allows up to 4 images OR one GIF OR one video per post; this post mixes {', '.join(sorted(kinds))}")
 
 
 def _to_jpeg(src: str, dest_dir: str, index: int) -> str:
@@ -581,11 +578,50 @@ def _cookie_header(cookies: dict[str, str]) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items())
 
 
+def _patch_tweety_home_fallback() -> None:
+    """Work around mahrtayyab/tweety#301 until the fix lands upstream.
+
+    X's Rolldown-based ``x-web`` frontend no longer serves the ``ondemand.s``
+    webpack chunk map on ``/?mx=2`` or ``/home`` (both now render
+    ``entry-client-logged-out``), so ``TransactionGenerator`` cannot extract the
+    animation key indices and every tweety request dies with
+    ``Couldn't get animation key indices``. ``https://x.com/i/jf/`` still serves
+    the legacy responsive-web shell with the manifest — retry it when the
+    upstream fallbacks come back without one.
+    """
+    try:
+        import bs4
+        from tweety.http import Request
+        from tweety.transaction import find_on_demand_file
+    except Exception:
+        return
+
+    if getattr(Request.get_home_html, "_x_web_i_jf_patched", False):
+        return
+    original = Request.get_home_html
+
+    async def patched(self: Any) -> Any:
+        home_page = await original(self)
+        if home_page is not None and not find_on_demand_file(str(home_page)):
+            headers = self._get_request_headers()
+            headers.pop("authorization", None)
+            response = await self._session.request(method="GET", url="https://x.com/i/jf/", headers=headers)
+            if response.status_code in range(200, 300):
+                candidate = bs4.BeautifulSoup(response.content, "lxml")
+                if find_on_demand_file(str(candidate)):
+                    return candidate
+        return home_page
+
+    patched._x_web_i_jf_patched = True  # type: ignore[attr-defined]
+    Request.get_home_html = patched
+
+
 async def _default_tweety_client() -> Any:
     """Build a tweety client from cookies (in-memory session, never on disk)."""
     from tweety import TwitterAsync
     from tweety.session import MemorySession
 
+    _patch_tweety_home_fallback()
     proxy = (get_settings().X_WEB_PROXY or "").strip() or None
     app = TwitterAsync(MemorySession(), proxy=proxy)
     await app.load_cookies(load_cookies())
@@ -716,8 +752,7 @@ async def publish_via_x_web(
             return XWebOutcome(
                 status="identity",
                 error=(
-                    f"X web cookies belong to @{actual or 'unknown'}, expected @{expected} — "
-                    "export cookies from a browser logged in as the correct account"
+                    f"X web cookies belong to @{actual or 'unknown'}, expected @{expected} — export cookies from a browser logged in as the correct account"
                 ),
             )
 
