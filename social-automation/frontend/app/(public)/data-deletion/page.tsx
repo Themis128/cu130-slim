@@ -98,7 +98,7 @@ export default function DataDeletionPage() {
           <p>For data deletion questions:</p>
           <ul className="list-none pl-6 space-y-1">
             <li>Email: <a href="mailto:privacy@cloudless.gr" className="text-primary hover:underline">privacy@cloudless.gr</a></li>
-            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr?utm_source=social&utm_medium=referral&utm_campaign=build-in-public" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
       </div>

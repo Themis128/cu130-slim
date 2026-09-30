@@ -67,7 +67,7 @@ export default function RefundPolicyPage() {
           <h2 className="text-xl font-semibold mb-2">5. Contact</h2>
           <ul className="list-none pl-6 space-y-1">
             <li>Email: <a href="mailto:support@cloudless.gr" className="text-primary hover:underline">support@cloudless.gr</a> (we reply within 48 hours)</li>
-            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr?utm_source=social&utm_medium=referral&utm_campaign=build-in-public" className="text-primary hover:underline">cloudless.gr</a></li>
           </ul>
         </section>
       </div>

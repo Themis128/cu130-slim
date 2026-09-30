@@ -80,11 +80,27 @@ _PROTECTED_PATTERNS = (
 )
 
 
+def _protected_word_pattern() -> re.Pattern[str] | None:
+    """Whole-word alternation for configured vocabulary LanguageTool
+    must not touch — proper nouns it otherwise "corrects" (Redis→Regis)."""
+    words = [
+        w.strip()
+        for w in get_settings().LANGUAGETOOL_PROTECTED_WORDS.split(",")
+        if w.strip()
+    ]
+    if not words:
+        return None
+    return re.compile(r"(?<![\w])(?:" + "|".join(re.escape(w) for w in words) + r")(?![\w])")
+
+
 def _protected_spans(text: str) -> list[tuple[int, int]]:
     """Sorted, merged (start, end) ranges that LanguageTool must not touch."""
     spans: list[tuple[int, int]] = []
     for pat in _PROTECTED_PATTERNS:
         spans.extend((m.start(), m.end()) for m in pat.finditer(text))
+    word_pat = _protected_word_pattern()
+    if word_pat:
+        spans.extend((m.start(), m.end()) for m in word_pat.finditer(text))
     spans.sort()
     merged: list[list[int]] = []
     for s, e in spans:

@@ -61,6 +61,46 @@ class BrowserBridgeClient:
     _CONTENTION_RETRIES = 10
     _CONTENTION_BACKOFF = 20.0
 
+    # A verified "not logged in" probe burns ~200s of bridge busy-hold
+    # (contention retries + 40s detection window). Dead platforms used to
+    # re-pay that every poll cycle, saturating the bridge so the hourly
+    # session healer could never get in. Mark verified-dead platforms in
+    # Redis so polls skip fast until the TTL lapses; any real recovery
+    # (healer or noVNC login) flips the cheap status checks first, so the
+    # marker never hides a fixed session.
+    _DEAD_PREFIX = "browser_bridge:dead:"
+    _DEAD_TTL_SECONDS = 30 * 60
+
+    async def _dead_marker_get(self, platform: str) -> str | None:
+        try:
+            import redis.asyncio as aioredis
+
+            from app.core.config import get_settings
+
+            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            try:
+                return await r.get(f"{self._DEAD_PREFIX}{platform}")
+            finally:
+                await r.aclose()
+        except Exception:  # noqa: BLE001 — marker is best-effort
+            return None
+
+    async def _dead_marker_set(self, platform: str) -> None:
+        try:
+            import redis.asyncio as aioredis
+
+            from app.core.config import get_settings
+
+            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            try:
+                await r.set(
+                    f"{self._DEAD_PREFIX}{platform}", "1", ex=self._DEAD_TTL_SECONDS
+                )
+            finally:
+                await r.aclose()
+        except Exception:  # noqa: BLE001 — marker is best-effort
+            pass
+
     async def _request(
         self,
         method: str,
@@ -193,7 +233,18 @@ class BrowserBridgeClient:
         # Session is waiting, error, or has no cookies — restart it.
         # contention_retries lets start_session outlast another platform's
         # busy-hold (and finally force-preempt it) instead of burning a
-        # queue attempt on the first 409.
+        # queue attempt on the first 409. Skip the expensive path entirely
+        # when a recent probe already verified the platform dead.
+        if await self._dead_marker_get(platform):
+            return {
+                "status": "waiting",
+                "message": (
+                    f"Browser session not logged in (verified recently — "
+                    f"rechecking periodically). Open noVNC and log in to {platform}."
+                ),
+                "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
+            }
+        verified_dead = False
         try:
             await self.start_session(platform, contention_retries=8)
         except BrowserBridgeError:
@@ -216,6 +267,12 @@ class BrowserBridgeClient:
                     return {"status": "active", "message": "Session active"}
                 if status.get("status") == "error":
                     break
+            else:
+                # The full detection window ran on this platform's own
+                # session without a login — that is a verified dead state.
+                verified_dead = True
+        if verified_dead:
+            await self._dead_marker_set(platform)
 
         return {
             "status": "waiting",
