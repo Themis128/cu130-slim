@@ -313,11 +313,17 @@ def _resize_for_vision(image_bytes: bytes, mime_type: str | None = None, max_edg
         return image_bytes, "image/png"
 
 
-async def auto_tag_asset(asset_id: uuid.UUID | str) -> None:
-    """Generate AI caption/tags for an asset and index them in Chroma."""
+async def auto_tag_asset(asset_id: uuid.UUID | str, session_factory=None) -> None:
+    """Generate AI caption/tags for an asset and index them in Chroma.
+
+    ``session_factory`` lets Celery workers pass a NullPool session maker —
+    each ``asyncio.run()`` gets a fresh loop and pooled asyncpg connections
+    from the shared engine bind to the loop that created them.
+    """
     if isinstance(asset_id, str):
         asset_id = uuid.UUID(asset_id)
-    async with async_session_maker() as db:
+    factory = session_factory or async_session_maker
+    async with factory() as db:
         result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))
         asset = result.scalar_one_or_none()
         if not asset:
