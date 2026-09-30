@@ -1,6 +1,6 @@
 # The Cloud Migration Playbook
 
-A practical framework for small teams moving infrastructure to a simpler, cheaper, more observable cloud setup, without a big-bang rewrite.
+A practical framework for small teams moving infrastructure to a simpler, cheaper, more observable cloud setup, without a big-bang rewrite. For teams whose infrastructure grew by accident — and whose cloud bill is hard to explain.
 
 By Themistoklis Baltzakis, cloudless.gr
 
@@ -68,6 +68,8 @@ Checklist:
 
 - [ ] Baseline numbers are written down with the date and how they were measured.
 - [ ] You have at least logs and request metrics for the critical path.
+
+> **Can't answer half of these?** That is the most common finding we see — teams paying cloud bills they cannot read. In a free 30-minute audit we pull your actual numbers and tell you exactly where the money goes. No commitment: https://cloudless.gr/contact
 
 ## Step 3: Classify each workload
 
@@ -149,6 +151,8 @@ Checklist:
 - [ ] Each step has a tested rollback.
 - [ ] Nothing stateful is deleted until after the post-migration review.
 
+> **This is the step where migrations go wrong.** If you would rather have someone who has done it sit with you through cutover planning, book a free audit — we will pressure-test your rollback plan before you need it: https://cloudless.gr/contact
+
 ## Step 6: Put cost guardrails in place
 
 A migration can make costs worse if nobody watches them. From day one:
@@ -205,11 +209,15 @@ Post-migration review, once the new setup has run for a normal week:
 
 ## Next steps
 
-If you want a second pair of eyes on your setup, book a free 30-minute audit. We review your infrastructure and give you a concrete action plan, with no commitment required: https://cloudless.gr/contact
+**Want a second pair of eyes?**
 
-If you would rather build it yourself, the Serverless Masterclass walks through the Workers, D1 and R2 framework we run in production, with source code included: https://cloudless.gr/en/store/dig-serverless-course
+We help small teams (2 to 20 people) whose cloud infrastructure grew by accident get to a simpler, cheaper, more observable setup — without a big-bang rewrite.
 
-If you want to share your own migration results as you go, SocialAuto schedules and publishes posts across LinkedIn, X, Facebook, Instagram, TikTok and Threads from one place: https://social.cloudless.gr/pricing
+Book a **free 30-minute audit**: we review your inventory and baseline (Steps 1 and 2 of this playbook), tell you which of the five paths each workload should take, and hand you a written action plan — whether or not you ever hire us.
+
+https://cloudless.gr/contact
+
+Prefer to build it yourself? The Serverless Masterclass walks through the Workers, D1 and R2 framework we run in production, with source code included: https://cloudless.gr/en/store/dig-serverless-course
 
 ## Appendix A: Inventory worksheet
 
@@ -218,6 +226,8 @@ If you want to share your own migration results as you go, SocialAuto schedules 
 | | | | | | | |
 | | | | | | | |
 | | | | | | | |
+
+Filled in? Photograph it and bring it to your audit — we will classify every row together in 30 minutes: https://cloudless.gr/contact
 
 ## Appendix B: Baseline worksheet
 

@@ -81,6 +81,10 @@ def _styles() -> dict[str, ParagraphStyle]:
         "h2": ParagraphStyle("H2", parent=body, fontName="Helvetica-Bold", fontSize=15,
                              leading=19, textColor=ACCENT, spaceBefore=12, spaceAfter=6),
         "body": body,
+        "callout": ParagraphStyle(
+            "Callout", parent=body, leftIndent=8, textColor=INK,
+            borderColor=ACCENT, borderWidth=0, spaceBefore=4, spaceAfter=8,
+        ),
         "cell": ParagraphStyle("Cell", parent=body, fontSize=9, leading=12, spaceAfter=0),
         "cellh": ParagraphStyle("CellH", parent=body, fontSize=9, leading=12,
                                 spaceAfter=0, fontName="Helvetica-Bold", textColor=colors.white),
@@ -159,6 +163,19 @@ def render(md_path: Path, pdf_path: Path) -> None:
             story.append(_table(table_rows, st, frame_width))
             story.append(Spacer(1, 6))
             table_rows = []
+        if line.startswith("> "):
+            flush()
+            t = Table([[Paragraph(_inline(line[2:]), st["callout"])]], colWidths=[frame_width])
+            t.setStyle(TableStyle([
+                ("LINEBEFORE", (0, 0), (0, -1), 2.5, ACCENT),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0f9fb")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]))
+            story.append(KeepTogether([t, Spacer(1, 6)]))
+            continue
         m_check = re.match(r"^- \[ \] (.*)", line)
         m_bullet = re.match(r"^- (.*)", line)
         m_num = re.match(r"^\d+\. (.*)", line)
@@ -197,7 +214,15 @@ def render(md_path: Path, pdf_path: Path) -> None:
         canvas.saveState()
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(MUTED)
-        canvas.drawString(20 * mm, 12 * mm, "The Cloud Migration Playbook \u00b7 cloudless.gr")
+        canvas.drawString(
+            20 * mm, 12 * mm,
+            "The Cloud Migration Playbook \u00b7 cloudless.gr \u00b7 free audit: cloudless.gr/contact")
+        # Link-annotate just the URL portion of the footer string.
+        w = canvas.stringWidth(
+            "The Cloud Migration Playbook \u00b7 cloudless.gr \u00b7 free audit: ", "Helvetica", 8)
+        uw = canvas.stringWidth("cloudless.gr/contact", "Helvetica", 8)
+        canvas.linkURL("https://cloudless.gr/contact",
+                       (20 * mm + w, 11 * mm, 20 * mm + w + uw, 14 * mm), relative=0)
         canvas.drawRightString(A4[0] - 20 * mm, 12 * mm, str(doc.page))
         canvas.restoreState()
 
