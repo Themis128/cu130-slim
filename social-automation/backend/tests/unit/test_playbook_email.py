@@ -8,7 +8,7 @@ import pytest
 
 from app.services import playbook_email as pb
 
-URL = "https://social.cloudless.gr/playbooks/cloud-migration-playbook.pdf"
+URL = "https://cloudless.gr/playbooks/cloud-migration-playbook.pdf"
 
 
 def _settings(**over):
@@ -184,13 +184,21 @@ def test_playbook_task_registered_and_routed_to_default():
     assert celery_app.conf.task_routes[pb.PLAYBOOK_TASK_NAME] == {"queue": "default"}
 
 
-def test_playbook_url_defaults_to_frontend_pdf():
+def test_playbook_url_defaults_to_public_site_pdf():
     from app.core.config import Settings
 
-    assert Settings.model_fields["PLAYBOOK_URL"].default == ""
-    s = _settings(PLAYBOOK_URL="", FRONTEND_URL="https://social.cloudless.gr/")
+    # social.cloudless.gr is behind Cloudflare Access; leads need the public copy.
+    default = Settings.model_fields["PLAYBOOK_URL"].default
+    assert default == pb.PUBLIC_PLAYBOOK_URL == URL
+    assert "social.cloudless.gr" not in default
+    s = _settings(PLAYBOOK_URL=default, FRONTEND_URL="https://social.cloudless.gr/")
     assert pb.playbook_url(s) == URL
     assert pb.playbook_delivery_enabled(s) is True  # no .env change needed
+
+
+def test_playbook_url_empty_falls_back_to_frontend_pdf():
+    s = _settings(PLAYBOOK_URL="", FRONTEND_URL="https://social.cloudless.gr/")
+    assert pb.playbook_url(s) == "https://social.cloudless.gr/playbooks/cloud-migration-playbook.pdf"
     assert pb.playbook_url(_settings(PLAYBOOK_URL="https://cdn.test/p.pdf", FRONTEND_URL="https://x")) == "https://cdn.test/p.pdf"
     assert pb.playbook_url(_settings(PLAYBOOK_URL="", FRONTEND_URL="")) == ""
 

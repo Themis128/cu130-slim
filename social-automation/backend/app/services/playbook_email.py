@@ -1,10 +1,12 @@
 """Deliver the free Cloud Migration Playbook to public lead-capture signups.
 
 The public funnel form (``POST /api/v1/leads/public``) promises the playbook.
-The PDF is a static asset served by the frontend
-(``social-automation/frontend/public/playbooks/cloud-migration-playbook.pdf``,
-source: ``docs/playbooks/cloud-migration-playbook.md``); this module sends the
-submitter an email linking to it through the standard ``send_email`` path.
+The PDF (source: ``docs/playbooks/cloud-migration-playbook.md``) is committed
+as ``social-automation/frontend/public/playbooks/cloud-migration-playbook.pdf``
+and mirrored on the public site at ``PUBLIC_PLAYBOOK_URL`` (the default
+``PLAYBOOK_URL``), because the SocialAuto frontend host is behind Cloudflare
+Access. This module sends the submitter an email linking to it through the
+standard ``send_email`` path.
 """
 from __future__ import annotations
 
@@ -27,10 +29,11 @@ _BUTTON_STYLE = (
 
 
 PLAYBOOK_PATH = "/playbooks/cloud-migration-playbook.pdf"
+PUBLIC_PLAYBOOK_URL = f"https://cloudless.gr{PLAYBOOK_PATH}"
 
 
 def playbook_url(settings=None) -> str:
-    """Explicit PLAYBOOK_URL, else the PDF served by the frontend at FRONTEND_URL."""
+    """PLAYBOOK_URL (defaults to the public cloudless.gr copy), else FRONTEND_URL's PDF."""
     settings = settings or get_settings()
     explicit = (getattr(settings, "PLAYBOOK_URL", "") or "").strip()
     if explicit:
