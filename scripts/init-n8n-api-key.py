@@ -1,155 +1,107 @@
 #!/usr/bin/env python3
-"""
-Initialize n8n API key after n8n starts.
-Run this after n8n container is up and running.
-"""
+"""Initialize the n8n API key after n8n starts.
+Run this after the n8n container is up and running.
+Usage: init-n8n-api-key.py"""
 
-import os
+import base64
+import json
+import re
 import sys
 import time
-import json
-import requests
-from datetime import datetime, timedelta
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-N8N_URL = os.getenv("N8N_URL", "http://localhost:5678")
-N8N_USER = os.getenv("N8N_USER", "admin@n8n.local")
-N8N_PASSWORD = os.getenv("N8N_PASSWORD", "secure_password")
-API_KEY_LABEL = os.getenv("API_KEY_LABEL", "social-automation-api-key")
-API_KEY_EXPIRY_DAYS = int(os.getenv("API_KEY_EXPIRY_DAYS", "365"))
-ENV_FILE = "/home/tbaltzakis/ComfyUI-Docker/cu130-slim/.env"
+ROOT = Path(__file__).resolve().parent.parent
+N8N_URL = "http://localhost:5678"
+API_KEY_LABEL = "social-automation-api-key"
+API_KEY_EXPIRY_DAYS = 365
+
+env_file = ROOT / ".env"
+if not env_file.is_file():
+    print(f"Error: .env file not found at {env_file}", file=sys.stderr)
+    sys.exit(1)
+env = {}
+for line in env_file.read_text().splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip()
+
+auth = base64.b64encode(
+    f"{env.get('N8N_USER', '')}:{env.get('N8N_PASSWORD', '')}"
+    .encode()).decode()
 
 
-def wait_for_n8n(timeout=300):
-    """Wait for n8n to be ready."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            resp = requests.get(
-                f"{N8N_URL}/healthz",
-                auth=(N8N_USER, N8N_PASSWORD),
-                timeout=5
-            )
-            if resp.status_code == 200:
-                print("n8n is ready!")
-                return True
-        except requests.RequestException:
-            pass
+def call(method: str, path: str, body: dict | None = None) -> dict:
+    req = urllib.request.Request(
+        f"{N8N_URL}{path}",
+        data=json.dumps(body).encode() if body else None,
+        headers={"Authorization": f"Basic {auth}",
+                 "Accept": "application/json",
+                 "Content-Type": "application/json"}, method=method)
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode() or "{}")
+
+
+print("Waiting for n8n to be ready...")
+while True:
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            f"{N8N_URL}/healthz",
+            headers={"Authorization": f"Basic {auth}"}), timeout=5)
+        break
+    except Exception:
         print("  n8n not ready yet, waiting...")
         time.sleep(5)
-    return False
 
+print("n8n is ready!")
 
-def install_existing_key() -> bool:
-    """Check if API key already exists and, if so, write it to .env."""
-    try:
-        resp = requests.get(
-            f"{N8N_URL}/api/v1/user/api-keys",
-            auth=(N8N_USER, N8N_PASSWORD),
-            headers={"Accept": "application/json"},
-            timeout=10
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            for key in data.get("data", []):
-                if key.get("label") == API_KEY_LABEL:
-                    return update_env_file(key.get("key"))
-    except Exception:
-        print("Error checking existing keys (details hidden for security)")
-    return False
+print("Checking for existing API key...")
+try:
+    existing = call("GET", "/api/v1/user/api-keys")
+except Exception:
+    existing = {}
+for key in existing.get("data", []):
+    if key.get("label") == API_KEY_LABEL:
+        print(f"API key '{API_KEY_LABEL}' already exists")
+        existing_key = key.get("key", "")
+        if existing_key:
+            print(f"Existing API key: {existing_key}")
+            print(f"N8N_API_KEY={existing_key}")
+            sys.exit(0)
 
+print("Creating new API key...")
+expires = (datetime.now(timezone.utc)
+           + timedelta(days=API_KEY_EXPIRY_DAYS)).isoformat()
+resp = call("POST", "/api/v1/user/api-keys", {
+    "label": API_KEY_LABEL,
+    "expiresAt": expires,
+    "scopes": ["workflow:create", "workflow:read", "workflow:execute",
+               "workflow:list", "workflow:update", "workflow:delete",
+               "workflow:activate"],
+})
+print(f"Create response: {resp}")
 
-def create_and_store_api_key() -> bool:
-    """Create a new API key and persist it to .env."""
-    expires_at = (datetime.utcnow() + timedelta(days=API_KEY_EXPIRY_DAYS)).isoformat() + "Z"
+api_key = (resp.get("data", {}).get("key") or resp.get("key")
+           or resp.get("apiKey") or "")
+if not api_key:
+    print("ERROR: Failed to create API key", file=sys.stderr)
+    print(f"Response: {resp}", file=sys.stderr)
+    sys.exit(1)
 
-    payload = {
-        "label": API_KEY_LABEL,
-        "expiresAt": expires_at,
-        "scopes": [
-            "workflow:create",
-            "workflow:read",
-            "workflow:execute",
-            "workflow:list",
-            "workflow:update",
-            "workflow:delete",
-            "workflow:activate"
-        ]
-    }
+print(f"Successfully created API key: {api_key}\n")
+print("Add this to your .env file:")
+print(f"N8N_API_KEY={api_key}\n")
+print("Then restart social-api and social-worker containers:")
+print("  docker compose restart social-api social-worker")
 
-    try:
-        resp = requests.post(
-            f"{N8N_URL}/api/v1/user/api-keys",
-            auth=(N8N_USER, N8N_PASSWORD),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            json=payload,
-            timeout=30
-        )
-
-        if resp.status_code in (200, 201):
-            data = resp.json()
-            api_key = None
-            # Try different response formats
-            if "data" in data and "key" in data["data"]:
-                api_key = data["data"]["key"]
-            elif "key" in data:
-                api_key = data["key"]
-            elif "apiKey" in data:
-                api_key = data["apiKey"]
-            if api_key:
-                return update_env_file(api_key)
-        return False
-    except Exception:
-        print("Error creating API key (details hidden for security)")
-        return False
-
-
-def update_env_file(api_key):
-    """Update .env file with the new API key."""
-    try:
-        with open(ENV_FILE, "r") as f:
-            lines = f.readlines()
-
-        with open(ENV_FILE, "w") as f:
-            for line in lines:
-                if line.startswith("# N8N_API_KEY=") or line.startswith("N8N_API_KEY="):
-                    f.write(f"N8N_API_KEY={api_key}\n")
-                else:
-                    f.write(line)
-        os.chmod(ENV_FILE, 0o600)
-        print("Updated .env file (value hidden for security)")
-        return True
-    except Exception:
-        print("Error updating .env file (details hidden for security)")
-        return False
-
-
-def main():
-    print("Initializing n8n API key...")
-
-    if not wait_for_n8n():
-        print("ERROR: n8n did not become ready in time")
-        sys.exit(1)
-
-    # Check existing
-    if install_existing_key():
-        print("API key already exists")
-        return
-
-    # Create new
-    if not create_and_store_api_key():
-        print("ERROR: Failed to create API key")
-        sys.exit(1)
-
-    print("Successfully created API key (value hidden for security)")
-
-    print("\nNext steps:")
-    print("1. Restart social-api and social-worker containers:")
-    print("   docker-compose restart social-api social-worker")
-    print("2. Or manually add N8N_API_KEY to .env and restart.")
-
-
-if __name__ == "__main__":
-    main()
+# Optionally update .env file automatically
+text = env_file.read_text()
+new_text, n = re.subn(r"^# N8N_API_KEY=.*", f"N8N_API_KEY={api_key}",
+                      text, flags=re.MULTILINE)
+if n == 0 and "N8N_API_KEY=" not in text:
+    new_text = text.rstrip("\n") + f"\nN8N_API_KEY={api_key}\n"
+if new_text != text:
+    env_file.write_text(new_text)
+    print("\n.env updated. Restart containers to apply.")
