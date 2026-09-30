@@ -110,7 +110,7 @@ def _find_flow_file() -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    pytest.skip("cloudless-lead-capture.json not found — flow file not copied into container")
+    raise FileNotFoundError(f"cloudless-lead-capture.json not found in: {candidates}")
 
 
 def test_cloudless_whatsapp_flow_json_structure():
@@ -136,3 +136,17 @@ def test_cloudless_whatsapp_flow_json_structure():
     layout = thank_you.get("layout") or {}
     assert layout.get("type") == "SingleColumnLayout"
 
+
+
+def test_lead_source_website_enum():
+    # Public newsletter capture uses source=website (a1b2 migration).
+    assert LeadSource.website.value == "website"
+
+
+def test_public_lead_request_honeypot_and_email():
+    from app.api.leads import PublicLeadRequest
+
+    ok = PublicLeadRequest(email="a@b.co", website=None)
+    assert ok.email == "a@b.co"
+    bot = PublicLeadRequest(email="x@y.z", website="http://spam")
+    assert bot.website == "http://spam"  # honeypot preserved for silent-drop

@@ -56,7 +56,7 @@ export default function AboutPage() {
                 </div>
               </a>
               <a
-                href="https://cloudless.gr"
+                href="https://cloudless.gr?utm_source=social&utm_medium=referral&utm_campaign=build-in-public"
                 className="flex items-center gap-3 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary"
               >
                 <Globe className="h-5 w-5 text-primary" />
