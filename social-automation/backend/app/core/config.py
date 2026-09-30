@@ -448,6 +448,10 @@ class Settings(BaseSettings):
     DIGEST_EMAIL_TO: str = "tbaltzakis@cloudless.gr"
     DIGEST_EMAIL_ISSUES_ONLY: bool = False
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
+    # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
+    # The PDF is a static frontend asset (frontend/public/playbooks/).
+    PLAYBOOK_EMAIL_ENABLED: bool = True
+    PLAYBOOK_URL: str = "https://social.cloudless.gr/playbooks/cloud-migration-playbook.pdf"
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production
