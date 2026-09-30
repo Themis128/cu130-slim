@@ -5,7 +5,7 @@ Usage: list-permissions.py [app_id] [access_token]"""
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "meta-account-restriction/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "meta-account-restriction/scripts"))
 from _common import fb_token, graph, show  # noqa: E402
 
 app_id = sys.argv[1] if len(sys.argv) > 1 else "1936126137016578"

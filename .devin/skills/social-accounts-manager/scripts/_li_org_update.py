@@ -5,6 +5,10 @@ import json
 import sys
 import time
 import urllib.request
+from pathlib import Path
+
+# Callers do `from skill_http import usage` after importing this module.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
 
 SIDECAR = "http://localhost:9225"
 ORG_ID = "108614163"
