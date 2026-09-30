@@ -49,6 +49,22 @@ triggers:
 .devin/skills/social-stack-ops/scripts/stack-status.sh
 ```
 
+## MCP stdio client
+
+`.devin/mcp_config.json` registers stdio MCP servers (socialauto, n8n,
+tiktok-console, dmr, github-local) that may not be loaded in the agent
+session. Drive them directly:
+
+```bash
+python3 .devin/skills/social-stack-ops/scripts/mcp_stdio.py \
+    --cmd 'docker compose exec -T -e SOCIALAUTO_URL=http://social-api:8000 social-api python3 -m app.mcp.server' \
+    --list                                    # or --tool <name> --args '<json>'
+```
+
+Note: the LinkedIn MCP server is HTTP streamable at `localhost:9227/mcp` —
+use `initialize` → capture `mcp-session-id` header → `notifications/initialized`
+→ `tools/call`.
+
 ## Common ops
 
 ```bash
