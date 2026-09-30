@@ -21,3 +21,16 @@ def test_every_beat_task_is_registered():
 def test_paddle_digest_registered():
     celery_app.loader.import_default_modules()
     assert "app.worker.tasks.paddle_digest.send_paddle_slack_digest" in celery_app.tasks
+
+
+def test_every_beat_task_module_is_in_include():
+    # Registry checks can pass spuriously in the full suite: other tests import
+    # task modules during collection, registering them regardless of `include`.
+    # Check the include list itself (task names follow `<module>.<function>`).
+    include = set(celery_app.conf.include or ())
+    missing = {
+        name: entry["task"].rsplit(".", 1)[0]
+        for name, entry in celery_app.conf.beat_schedule.items()
+        if entry["task"].rsplit(".", 1)[0] not in include
+    }
+    assert not missing, f"beat task modules missing from Celery include list: {missing}"
