@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 PLAYBOOK_TITLE = "The Cloud Migration Playbook"
 PLAYBOOK_TASK_NAME = "app.worker.tasks.lead_emails.send_playbook_email"
+_BUTTON_STYLE = (
+    "display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;"
+    "border-radius:6px;text-decoration:none;font-weight:600"
+)
 
 
 def playbook_url(settings=None) -> str:
@@ -81,7 +85,7 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111;max-width:560px">
   <p>Hi,</p>
   <p>Thanks for signing up. Here is your copy of <strong>{_html_escape(PLAYBOOK_TITLE)}</strong>:</p>
-  <p><a href="{u}" style="display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600">Download the playbook (PDF)</a></p>
+  <p><a href="{u}" style="{_BUTTON_STYLE}">Download the playbook (PDF)</a></p>
   <p style="font-size:13px;color:#555">Or open this link: <a href="{u}">{u}</a></p>
   <p>It walks through the framework we use with clients: decide whether to migrate,
   inventory what runs, measure a baseline, classify each workload, choose the target
