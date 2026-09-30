@@ -79,7 +79,7 @@ When `x_web` is configured it replaces the browser-bridge timeline scrape.
 
 State lives in Redis (`x_web:guard`, shared by all workers); if Redis is
 unreachable it falls back to `X_WEB_STATE_FILE` (default
-`/tmp/x_web_state.json`).
+`/app/uploads/.x_web_state.json`).
 
 - **Circuit breaker** — HTTP 401/403/429, locked/suspended accounts,
   challenges/captcha/Arkose, "palm"/transaction-id errors, X codes
@@ -115,4 +115,4 @@ checkout's `.env`:
 | `X_WEB_BREAKER_HOURS` | `6` | breaker duration |
 | `X_WEB_ANALYTICS_MIN_INTERVAL_HOURS` | `6` | analytics polling floor |
 | `X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS` | `10` | per-cycle tweet-detail lookups |
-| `X_WEB_STATE_FILE` | `/tmp/x_web_state.json` | guard state when Redis is down |
+| `X_WEB_STATE_FILE` | `/app/uploads/.x_web_state.json` | guard state when Redis is down |

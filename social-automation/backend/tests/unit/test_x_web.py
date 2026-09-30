@@ -13,7 +13,18 @@ from PIL import Image
 from app.services import publishing as pub
 from app.services import x_web
 
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+def _real_jpeg() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (200, 30, 30)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+JPEG = _real_jpeg()
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
 GIF = b"GIF89a" + b"\x00" * 64
 
@@ -222,8 +233,9 @@ def test_classify_error(exc, trips):
 
 
 class _FakeTweety:
-    def __init__(self, username="TBaltzakis", fail_on=None, media_ok=True):
-        self.user = SimpleNamespace(username=username)
+    def __init__(self, username="TBaltzakis", fail_on=None, media_ok=True, timeline=None):
+        self.user = SimpleNamespace(username=username, id="42")
+        self.timeline = timeline or []
         self.created: list[dict] = []
         self.uploaded: list[list[str]] = []
         self._fail_on = fail_on
@@ -241,6 +253,9 @@ class _FakeTweety:
         self.created.append({"text": text, "files": files, "reply_to": reply_to})
         return SimpleNamespace(id=str(self._next))
 
+    async def get_tweets(self, ident, pages=1):
+        return SimpleNamespace(tweets=self.timeline)
+
 
 def _factory(client):
     async def make():
@@ -253,10 +268,12 @@ def _factory(client):
 async def test_publish_via_x_web_images_and_thread(tmp_path, settings):
     fake = _FakeTweety()
     imgs = [_write(tmp_path, f"a{i}.jpg", JPEG) for i in range(2)]
+    sleep = AsyncMock()
     out = await x_web.publish_via_x_web(
         expected_username="@tbaltzakis", chunks=["one", "two", "three"], media_paths=imgs,
-        guard=_guard(), client_factory=_factory(fake),
+        guard=_guard(), client_factory=_factory(fake), sleep=sleep,
     )
+    assert sleep.await_count == 2  # randomized pause between thread replies
     assert out.status == "ok" and out.tweet_ids == ["1001", "1002", "1003"]
     assert len(fake.uploaded[0]) == 2 and all(p.endswith(".jpg") for p in fake.uploaded[0])
     assert fake.created[0]["files"] and fake.created[1]["files"] is None
@@ -330,8 +347,46 @@ async def test_publish_via_x_web_partial_thread_reports_success(settings):
     fake = _FakeTweety(fail_on=(1, RuntimeError("network blip")))
     out = await x_web.publish_via_x_web(
         expected_username="tbaltzakis", chunks=["a", "b"], media_paths=[], guard=_guard(), client_factory=_factory(fake),
+        sleep=AsyncMock(),
     )
     assert out.status == "ok" and out.partial and out.tweet_ids == ["1001"]
+
+
+@pytest.mark.asyncio
+async def test_publish_via_x_web_lost_response_reconciles_live_tweet(settings):
+    live = SimpleNamespace(id="5555", text="Hello world https://t.co/abc", created_on=datetime.now(UTC))
+    fake = _FakeTweety(fail_on=(0, RuntimeError("read timeout")), timeline=[live])
+    out = await x_web.publish_via_x_web(
+        expected_username="tbaltzakis", chunks=["Hello world https://cloudless.gr"], media_paths=[],
+        guard=_guard(), client_factory=_factory(fake),
+    )
+    assert out.status == "ok" and out.tweet_ids == ["5555"]
+
+
+@pytest.mark.asyncio
+async def test_publish_via_x_web_lost_response_unconfirmed_is_ambiguous(settings):
+    fake = _FakeTweety(fail_on=(0, RuntimeError("read timeout")))
+    out = await x_web.publish_via_x_web(
+        expected_username="tbaltzakis", chunks=["Hello"], media_paths=[], guard=_guard(), client_factory=_factory(fake),
+    )
+    assert out.status == "ambiguous" and "may or may not be live" in (out.error or "")
+
+
+@pytest.mark.asyncio
+async def test_thread_counts_every_tweet_against_daily_cap(settings):
+    settings.X_WEB_MAX_POSTS_PER_DAY = 3
+    g = _guard()
+    out = await x_web.publish_via_x_web(
+        expected_username="tbaltzakis", chunks=["a", "b", "c", "d"], media_paths=[], guard=g,
+        client_factory=_factory(_FakeTweety()), sleep=AsyncMock(),
+    )
+    assert out.status == "too_long"
+    settings.X_WEB_MIN_GAP_MINUTES = 0
+    settings.X_WEB_MAX_GAP_MINUTES = 0
+    assert (await g.reserve_post_slot(2)).ok
+    d = await g.reserve_post_slot(2)
+    assert not d.ok and "daily cap" in (d.reason or "")
+    assert (await g.reserve_post_slot(1)).ok
 
 
 @pytest.mark.asyncio
@@ -486,6 +541,13 @@ async def test_video_without_x_web_never_posts_without_video(account, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_unresolved_media_asset_blocks_publish(account, settings, tmp_path):
+    post = SimpleNamespace(media_ids=["a", "b"])
+    res = await pub._publish_twitter("tok", "hi", account, post, [_write(tmp_path, "a.jpg", JPEG)])
+    assert not res.success and "1/2 media assets" in res.error
+
+
+@pytest.mark.asyncio
 async def test_invalid_media_fails_permanently(account, settings, tmp_path):
     paths = [_write(tmp_path, f"a{i}.jpg", JPEG) for i in range(5)]
     res = await pub._publish_twitter("tok", "hi", account, SimpleNamespace(), paths)
@@ -574,6 +636,9 @@ async def test_fetch_analytics_tweety_primary_and_interval(settings):
     assert reader.detail_calls == ["333"]
     again, reason2 = await x_web.fetch_x_web_analytics(username="TBaltzakis", user_id="42", guard=g, tweety_factory=_factory(reader))
     assert again is None and "min interval" in (reason2 or "")
+    # Another account is gated independently.
+    other, _ = await x_web.fetch_x_web_analytics(username="OtherBrand", user_id="43", guard=g, tweety_factory=_factory(reader))
+    assert other is not None
 
 
 @pytest.mark.asyncio

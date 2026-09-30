@@ -271,7 +271,7 @@ class Settings(BaseSettings):
     # GraphQL API) used when the official API returns 402 credits-depleted /
     # UsageCapExceeded / quota 429. Cookie auth ONLY (never password login).
     # Off by default — web automation violates X ToS and risks suspension.
-    # See docs/x-web-fallback.md.
+    # See docs/superpowers/guides/17-x-web-fallback.md.
     X_WEB_FALLBACK_ENABLED: bool = False
     X_WEB_AUTH_TOKEN: str = ""
     X_WEB_CT0: str = ""
@@ -289,7 +289,9 @@ class Settings(BaseSettings):
     # already covered by the one-page timeline fetch).
     X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS: int = 10
     # Fallback persistence for breaker/rate-limit state when Redis is down.
-    X_WEB_STATE_FILE: str = "/tmp/x_web_state.json"
+    # Default lives on the uploads bind mount shared by social-api and every
+    # worker, so all containers still see the same breaker.
+    X_WEB_STATE_FILE: str = "/app/uploads/.x_web_state.json"
 
     # Media serving — set to a publicly reachable base URL so Instagram
     # can fetch images. E.g. https://yourdomain.com or an ngrok URL.

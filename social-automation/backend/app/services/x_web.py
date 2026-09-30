@@ -26,6 +26,7 @@ Web automation is against X's ToS; the account can be locked or suspended.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import json
@@ -41,6 +42,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.core.config import get_settings
+from app.core.log_sanitize import sanitize_log_text
 
 # twscrape ships opt-out PostHog telemetry — force it off before any import.
 os.environ["TWS_TELEMETRY"] = "0"
@@ -162,14 +164,16 @@ def _to_jpeg(src: str, dest_dir: str, index: int) -> str:
         import pillow_avif  # type: ignore[import-not-found]  # noqa: F401
 
     ext = os.path.splitext(src)[1].lower()
-    if ext in (".jpg", ".jpeg") and os.path.getsize(src) <= MAX_IMAGE_BYTES:
-        # Already JPEG and small enough — copy under a lowercase extension
-        # (tweety derives the MIME type from the extension, case-sensitively).
-        dest = os.path.join(dest_dir, f"img{index}.jpg")
-        shutil.copyfile(src, dest)
-        return dest
-
     dest = os.path.join(dest_dir, f"img{index}.jpg")
+    if ext in (".jpg", ".jpeg") and os.path.getsize(src) <= MAX_IMAGE_BYTES:
+        with Image.open(src) as probe:
+            baseline_rgb = probe.format == "JPEG" and probe.mode in ("RGB", "L") and not probe.info.get("progressive") and not probe.info.get("progression")
+        if baseline_rgb:
+            # Already a small baseline RGB JPEG — copy under a lowercase
+            # extension (tweety derives the MIME type from it, case-sensitively).
+            shutil.copyfile(src, dest)
+            return dest
+
     with Image.open(src) as im:
         im = ImageOps.exif_transpose(im)
         if im.mode in ("RGBA", "LA", "P"):
@@ -182,7 +186,7 @@ def _to_jpeg(src: str, dest_dir: str, index: int) -> str:
         if max(im.size) > 4096:
             im.thumbnail((4096, 4096))
         for quality in (92, 85, 75, 65, 55):
-            im.save(dest, "JPEG", quality=quality, optimize=True)
+            im.save(dest, "JPEG", quality=quality, optimize=True, progressive=False)
             if os.path.getsize(dest) <= MAX_IMAGE_BYTES:
                 return dest
     raise XWebMediaError(f"could not re-encode image under 5MB: {os.path.basename(src)}")
@@ -287,11 +291,14 @@ def classify_x_web_error(exc: BaseException) -> str | None:
 
 
 class GuardStore(Protocol):
-    def lock(self) -> contextlib.AbstractAsyncContextManager[None]: ...
+    def lock(self) -> contextlib.AbstractAsyncContextManager[None]:
+        """Exclusive lock around a load → mutate → save cycle."""
 
-    async def load(self) -> dict[str, Any]: ...
+    async def load(self) -> dict[str, Any]:
+        """Return the current guard state document ({} when absent)."""
 
-    async def save(self, state: dict[str, Any]) -> None: ...
+    async def save(self, state: dict[str, Any]) -> None:
+        """Persist the guard state document."""
 
 
 class MemoryGuardStore:
@@ -392,6 +399,7 @@ class SlotDecision:
     reason: str | None = None
     retry_after: datetime | None = None
     breaker_open: bool = False
+    permanent: bool = False
 
 
 def _fmt_ts(epoch: float) -> str:
@@ -427,6 +435,7 @@ class XWebGuard:
 
     async def trip(self, reason: str) -> bool:
         """Open the breaker. Returns True when it was closed before (alert once)."""
+        reason = sanitize_log_text(reason, 300)
         hours = float(self._settings().X_WEB_BREAKER_HOURS)
         until = self._now() + hours * 3600
         async with self.store.lock():
@@ -450,8 +459,14 @@ class XWebGuard:
                 logger.warning("[x_web] breaker alert failed", exc_info=True)
         return not was_open
 
-    async def reserve_post_slot(self) -> SlotDecision:
-        """Atomically check breaker/daily cap/min gap and reserve a post slot."""
+    async def reserve_post_slot(self, tweets: int = 1) -> SlotDecision:
+        """Atomically check breaker/daily cap/min gap and reserve ``tweets`` slots.
+
+        Every tweet of a thread counts against the rolling-24h cap; the
+        min gap applies between posts (a thread's replies go out together
+        with a short randomized pause, see ``THREAD_REPLY_DELAY_S``).
+        """
+        tweets = max(1, int(tweets))
         s = self._settings()
         max_per_day = max(0, int(s.X_WEB_MAX_POSTS_PER_DAY))
         gap_min = max(0.0, float(s.X_WEB_MIN_GAP_MINUTES))
@@ -467,9 +482,17 @@ class XWebGuard:
                     retry_after=datetime.fromtimestamp(until, UTC),
                     reason=f"X web circuit breaker open until {_fmt_ts(until)} ({state.get('breaker_reason') or 'unknown reason'})",
                 )
-            posts = [float(t) for t in state.get("post_times", []) if now - float(t) < 24 * 3600]
-            if len(posts) >= max_per_day:
-                retry = (min(posts) + 24 * 3600) if posts else now + 24 * 3600
+            posts = sorted(float(t) for t in state.get("post_times", []) if now - float(t) < 24 * 3600)
+            if tweets > max_per_day:
+                return SlotDecision(
+                    ok=False,
+                    permanent=True,
+                    reason=f"X web: thread of {tweets} tweets exceeds X_WEB_MAX_POSTS_PER_DAY={max_per_day}",
+                )
+            if len(posts) + tweets > max_per_day:
+                # Slot frees when enough of the oldest posts age out of 24h.
+                need = len(posts) + tweets - max_per_day
+                retry = posts[need - 1] + 24 * 3600
                 return SlotDecision(
                     ok=False,
                     retry_after=datetime.fromtimestamp(retry, UTC),
@@ -482,13 +505,14 @@ class XWebGuard:
                     retry_after=datetime.fromtimestamp(next_at, UTC),
                     reason=f"X web minimum gap between posts; next slot {_fmt_ts(next_at)}",
                 )
-            posts.append(now)
+            posts.extend([now] * tweets)
             state["post_times"] = posts
             state["next_post_at"] = now + self._rng.uniform(gap_min, gap_max) * 60
             await self.store.save(state)
             return SlotDecision(ok=True)
 
-    async def reserve_analytics_slot(self) -> SlotDecision:
+    async def reserve_analytics_slot(self, key: str = "default") -> SlotDecision:
+        """Per-account polling floor (``key`` = X handle / user id)."""
         s = self._settings()
         interval = max(0.0, float(s.X_WEB_ANALYTICS_MIN_INTERVAL_HOURS)) * 3600
         async with self.store.lock():
@@ -497,10 +521,13 @@ class XWebGuard:
             until = float(state.get("breaker_until") or 0)
             if until > now:
                 return SlotDecision(ok=False, breaker_open=True, reason=f"X web circuit breaker open until {_fmt_ts(until)}")
-            last = float(state.get("analytics_last") or 0)
+            polls = state.get("analytics_last")
+            polls = polls if isinstance(polls, dict) else {}
+            last = float(polls.get(key) or 0)
             if now - last < interval:
-                return SlotDecision(ok=False, reason=f"X web analytics polled at {_fmt_ts(last)}; min interval {interval / 3600:g}h")
-            state["analytics_last"] = now
+                return SlotDecision(ok=False, reason=f"X web analytics for {key} polled at {_fmt_ts(last)}; min interval {interval / 3600:g}h")
+            polls[key] = now
+            state["analytics_last"] = polls
             await self.store.save(state)
             return SlotDecision(ok=True)
 
@@ -583,7 +610,12 @@ class XWebOutcome:
       tripped     — this attempt tripped the breaker; fail + alert
       media_error — media invalid or upload failed; fail, never post without it
       identity    — cookies belong to a different account; fail
-      error       — other (transient) error; caller may try the next provider
+      too_long    — thread has more tweets than the daily cap allows; fail
+      ambiguous   — create_tweet crossed the publish boundary without a
+                    confirmed id and reconciliation found nothing; fail
+                    without retry (a retry could double-post)
+      error       — other pre-publish (transient) error; caller may try the
+                    next provider
     """
 
     status: str
@@ -605,6 +637,40 @@ def _tweet_id(obj: Any) -> str | None:
     return tid if re.fullmatch(r"\d{1,30}", tid) else None
 
 
+# Pause between the replies of one thread (seconds, randomized). Short on
+# purpose: the whole thread must finish inside one Celery task.
+THREAD_REPLY_DELAY_S = (5.0, 15.0)
+
+
+def _norm_text(text: str) -> str:
+    """Compare tweet texts ignoring URLs (t.co-wrapped) and whitespace."""
+    return re.sub(r"\s+", " ", re.sub(r"https?://\S+", "", text or "")).strip().lower()
+
+
+async def _find_recent_own_tweet(client: Any, text: str) -> str | None:
+    """Reconcile an unconfirmed create_tweet against the account's timeline.
+
+    Returns the tweet id when a matching tweet from the last 15 minutes is
+    found, else None. Raises when the timeline cannot be read.
+    """
+    user = getattr(client, "user", None)
+    ident = getattr(user, "id", None) or getattr(user, "username", None)
+    timeline = await client.get_tweets(ident, pages=1)
+    want = _norm_text(text)[:120]
+    now = datetime.now(UTC)
+    for item in getattr(timeline, "tweets", None) or list(timeline or []):
+        for t in getattr(item, "tweets", None) or [item]:
+            created = getattr(t, "created_on", None) or getattr(t, "date", None)
+            if isinstance(created, datetime):
+                created = created if created.tzinfo else created.replace(tzinfo=UTC)
+                if (now - created).total_seconds() > 15 * 60:
+                    continue
+            got = _norm_text(str(getattr(t, "text", "") or ""))
+            if want and got.startswith(want[:80]):
+                return _tweet_id(t)
+    return None
+
+
 async def publish_via_x_web(
     *,
     expected_username: str | None,
@@ -612,6 +678,7 @@ async def publish_via_x_web(
     media_paths: list[str] | None,
     guard: XWebGuard | None = None,
     client_factory: TweetyFactory | None = None,
+    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
 ) -> XWebOutcome:
     """Post a tweet (or reply-chain thread) with media through tweety."""
     if not is_configured():
@@ -625,8 +692,10 @@ async def publish_via_x_web(
         return XWebOutcome(status="error", error="X web: nothing to post (empty text, no media)")
 
     guard = guard or await default_guard()
-    decision = await guard.reserve_post_slot()
+    decision = await guard.reserve_post_slot(max(1, len(chunks)))
     if not decision.ok:
+        if decision.permanent:
+            return XWebOutcome(status="too_long", error=decision.reason)
         return XWebOutcome(
             status="breaker" if decision.breaker_open else "deferred",
             error=decision.reason,
@@ -637,6 +706,7 @@ async def publish_via_x_web(
     workdir = tempfile.mkdtemp(prefix="x_web_")
     posted: list[str] = []
     stage = "login"
+    client: Any = None
     try:
         client = await factory()
         stage = "identity"
@@ -670,10 +740,11 @@ async def publish_via_x_web(
         first = await client.create_tweet(chunks[0] if chunks else "", files=uploaded or None)
         first_id = _tweet_id(first)
         if not first_id:
-            return XWebOutcome(status="error", error="X web: create_tweet returned no tweet id")
+            raise RuntimeError("create_tweet returned no tweet id")
         posted.append(first_id)
         for chunk in chunks[1:]:
             stage = "thread"
+            await sleep(random.uniform(*THREAD_REPLY_DELAY_S))
             reply = await client.create_tweet(chunk, reply_to=posted[-1])
             rid = _tweet_id(reply)
             if not rid:
@@ -684,13 +755,33 @@ async def publish_via_x_web(
         reason = classify_x_web_error(exc)
         if reason:
             await guard.trip(reason)
-        detail = f"X web {stage} failed: {type(exc).__name__}: {str(exc)[:300]}"
+        detail = sanitize_log_text(f"X web {stage} failed: {type(exc).__name__}: {exc}", 360)
         if posted:
             # Head tweet is live — never re-post; report the incomplete thread.
             logger.warning("[x_web] thread incomplete after %d/%d tweets: %s", len(posted), len(chunks), detail)
             return XWebOutcome(status="ok", tweet_ids=posted, error=detail, partial=True)
         if reason:
+            # An explicit X rejection (auth/lock/limit) — nothing was posted.
             return XWebOutcome(status="tripped", error=f"{detail} — circuit breaker tripped for {get_settings().X_WEB_BREAKER_HOURS:g}h")
+        if stage == "post":
+            # The request crossed the publish boundary: X may have accepted
+            # the tweet even though we saw an error / no id. Reconcile before
+            # anything (another provider, a retry) could post it again.
+            try:
+                found = await _find_recent_own_tweet(client, chunks[0] if chunks else "")
+            except Exception as rexc:  # noqa: BLE001
+                found = None
+                detail += f"; reconcile failed: {type(rexc).__name__}"
+            if found:
+                logger.warning("[x_web] create_tweet errored but tweet %s is live — treating as posted", found)
+                return XWebOutcome(status="ok", tweet_ids=[found], error=detail, partial=len(chunks) > 1)
+            return XWebOutcome(
+                status="ambiguous",
+                error=(
+                    f"{detail} — the tweet may or may not be live; check x.com/{(expected_username or '').lstrip('@')} "
+                    "before retrying (not retried automatically to avoid a duplicate post)"
+                ),
+            )
         if stage == "media" or type(exc).__name__ == "UploadFailed":
             return XWebOutcome(status="media_error", error=f"{detail} — not posting without media")
         return XWebOutcome(status="error", error=detail)
@@ -793,11 +884,14 @@ async def _read_with_tweety(client: Any, username: str, user_id: str | None, wan
 
 
 async def _default_twscrape_api(username: str) -> Any:
+    """twscrape API over a throwaway SQLite pool (cookies never outlive the run)."""
     from twscrape import API  # type: ignore[import-untyped]
 
-    db = os.path.join(tempfile.gettempdir(), "x_web_twscrape.db")
+    workdir = tempfile.mkdtemp(prefix="x_web_tws_")
+    os.chmod(workdir, 0o700)
     proxy = (get_settings().X_WEB_PROXY or "").strip() or None
-    api = API(db, proxy=proxy, raise_when_no_account=True)
+    api = API(os.path.join(workdir, "accounts.db"), proxy=proxy, raise_when_no_account=True)
+    api._x_web_workdir = workdir  # removed by fetch_x_web_analytics
     await api.pool.add_account_cookies(username, _cookie_header(load_cookies()))
     return api
 
@@ -846,7 +940,7 @@ async def fetch_x_web_analytics(
     if not handle:
         return None, "x_web: account has no username"
     guard = guard or await default_guard()
-    decision = await guard.reserve_analytics_slot()
+    decision = await guard.reserve_analytics_slot(handle.lower())
     if not decision.ok:
         return None, decision.reason
     max_lookups = max(0, int(get_settings().X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS))
@@ -863,6 +957,7 @@ async def fetch_x_web_analytics(
             return None, f"x_web tweety read tripped breaker: {reason}"
         errors.append(f"tweety: {type(exc).__name__}: {str(exc)[:200]}")
 
+    api: Any = None
     try:
         api = await (twscrape_factory or _default_twscrape_api)(handle)
         result = await _read_with_twscrape(api, handle, user_id, wanted, max_lookups)
@@ -874,4 +969,8 @@ async def fetch_x_web_analytics(
             await guard.trip(reason)
             return None, f"x_web twscrape read tripped breaker: {reason}"
         errors.append(f"twscrape: {type(exc).__name__}: {str(exc)[:200]}")
+    finally:
+        workdir = getattr(api, "_x_web_workdir", None)
+        if isinstance(workdir, str):
+            shutil.rmtree(workdir, ignore_errors=True)
     return None, "x_web reads failed — " + "; ".join(errors)

@@ -125,7 +125,7 @@ x-worker-env: &worker-env
   - TWITTER_LOGIN_USERNAME=${TWITTER_LOGIN_USERNAME:-}
   - TWITTER_LOGIN_EMAIL=${TWITTER_LOGIN_EMAIL:-}
   - TWITTER_LOGIN_PASSWORD=${TWITTER_LOGIN_PASSWORD:-}
-  # Free X web fallback — see docs/x-web-fallback.md (off by default)
+  # Free X web fallback — see docs/superpowers/guides/17-x-web-fallback.md (off by default)
   - X_WEB_FALLBACK_ENABLED=${X_WEB_FALLBACK_ENABLED:-false}
   - X_WEB_AUTH_TOKEN=${X_WEB_AUTH_TOKEN:-}
   - X_WEB_CT0=${X_WEB_CT0:-}
@@ -765,7 +765,7 @@ services:
       - TWITTER_API_SECRET=${TWITTER_API_SECRET:-}
       - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN:-}
       - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET:-}
-      # Free X web fallback — see docs/x-web-fallback.md (off by default)
+      # Free X web fallback — see docs/superpowers/guides/17-x-web-fallback.md (off by default)
       - X_WEB_FALLBACK_ENABLED=${X_WEB_FALLBACK_ENABLED:-false}
       - X_WEB_AUTH_TOKEN=${X_WEB_AUTH_TOKEN:-}
       - X_WEB_CT0=${X_WEB_CT0:-}

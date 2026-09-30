@@ -662,6 +662,18 @@ async def _publish_twitter(
     """
     from app.services import x_web
 
+    # Every attached asset must have resolved to a local file — the resolver
+    # silently drops assets it could not fetch (R2/MinIO outage, deleted row).
+    expected_media = len(dict.fromkeys(str(m) for m in (getattr(post, "media_ids", None) or [])))
+    if expected_media and len(media_paths) < expected_media:
+        return PublishResult(
+            success=False,
+            error=(
+                f"X post media incomplete: only {len(media_paths)}/{expected_media} media assets could be "
+                "resolved — not publishing without all media"
+            ),
+        )
+
     try:
         plan = x_web.plan_media(media_paths)
     except x_web.XWebMediaError as exc:
@@ -798,7 +810,7 @@ async def _publish_twitter_fallbacks(
             )
         if out.status == "deferred":
             return PublishResult(success=False, error=out.error, retry_after=out.retry_after)
-        if out.status in ("breaker", "tripped", "media_error", "identity"):
+        if out.status in ("breaker", "tripped", "media_error", "identity", "too_long", "ambiguous"):
             return PublishResult(success=False, permanent=True, error=out.error)
         web_error = out.error  # transient — try the browser bridge next
 
