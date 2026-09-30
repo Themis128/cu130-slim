@@ -19,7 +19,7 @@ if not (compose_file.is_file() and example_file.is_file()
     sys.exit(1)
 
 # Match ${VAR} or $VAR but not $$ (escaped dollar)
-ref_re = re.compile(r"(?<!\$)\$\{([A-Z_][A-Z0-9_]*)\}|\$(?!\$)([A-Z_][A-Z0-9_]*)")
+ref_re = re.compile(r"(?<!\$)\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))")
 referenced = sorted({m.group(1) or m.group(2)
                      for m in ref_re.finditer(compose_file.read_text())})
 

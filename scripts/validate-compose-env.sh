@@ -16,7 +16,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 # Match ${VAR} or $VAR but not $$ (escaped dollar)
 # Use perl regex to avoid matching $$ sequences
-grep -oP '(?<!\$)\$\{[A-Z_][A-Z0-9_]*\}|\$(?!\$)[A-Z_][A-Z0-9_]*' "$compose_file" |
+grep -oP '(?<!\$)\$(?:\{[A-Z_][A-Z0-9_]*\}|[A-Z_][A-Z0-9_]*)' "$compose_file" |
   sed -E 's/^\$\{//; s/\}$//; s/^\$//' |
   sort -u > "$tmp_dir/referenced"
 grep -oE '^[A-Z_][A-Z0-9_]*=' "$example_file" |
