@@ -26,9 +26,17 @@ _BUTTON_STYLE = (
 )
 
 
+PLAYBOOK_PATH = "/playbooks/cloud-migration-playbook.pdf"
+
+
 def playbook_url(settings=None) -> str:
+    """Explicit PLAYBOOK_URL, else the PDF served by the frontend at FRONTEND_URL."""
     settings = settings or get_settings()
-    return (getattr(settings, "PLAYBOOK_URL", "") or "").strip()
+    explicit = (getattr(settings, "PLAYBOOK_URL", "") or "").strip()
+    if explicit:
+        return explicit
+    frontend = (getattr(settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
+    return f"{frontend}{PLAYBOOK_PATH}" if frontend else ""
 
 
 def email_sender_configured(settings=None) -> bool:
@@ -145,14 +153,20 @@ async def claim_playbook_send(email: str) -> bool:
     Raises if Redis is unreachable (callers must then not send).
     """
     r = await _redis_client()
-    ok = await r.set(_claim_key(email), datetime.now(UTC).isoformat(), nx=True, ex=_CLAIM_TTL_S)
+    try:
+        ok = await r.set(_claim_key(email), datetime.now(UTC).isoformat(), nx=True, ex=_CLAIM_TTL_S)
+    finally:
+        await r.aclose()  # per-call client: close its pool, don't leak connections
     return bool(ok)
 
 
 async def release_playbook_claim(email: str) -> None:
     try:
         r = await _redis_client()
-        await r.delete(_claim_key(email))
+        try:
+            await r.delete(_claim_key(email))
+        finally:
+            await r.aclose()
     except Exception:  # noqa: BLE001
         logger.warning("Could not release playbook claim", exc_info=True)
 
