@@ -244,3 +244,18 @@ Share on LinkedIn provisioned. LinkedIn's portal directs you to create a new app
 # Check which LinkedIn scopes are currently configured
 .devin/skills/linkedin-api-upgrade/scripts/check-scopes.sh
 ```
+
+### Status check 2026-09-30
+
+- polar@cloudless.gr IMAP sweep: no decision email yet — CMA access request
+  still **pending LinkedIn review** (submitted 2026-09-25; up to 14 business
+  days → expected ~mid-October).
+- Re-verified via live OAuth probe: the main app (227354605) still rejects
+  `r_member_postAnalytics` / `r_member_profileAnalytics` with
+  `unauthorized_scope_error` — expected, CMA can never live there.
+- `sync_linkedin_account` now short-circuits on the recorded scope list:
+  when `r_member_postAnalytics` is provably absent the sync marks posts
+  `member_postAnalytics_scope_missing` without issuing the doomed call
+  (`_member_post_analytics_scope_missing` in `analytics_sync.py`).
+- Once the analytics app (264925843) is approved, follow the "After
+  approval" steps above — do NOT touch `LINKEDIN_EXTRA_SCOPES`.
