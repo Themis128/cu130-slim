@@ -518,6 +518,18 @@ app/worker/tasks/
 ├── instagram_token_refresh.py — refresh_instagram_tokens
 ├── linkedin_session_check.py  — check_linkedin_sessions
 ├── linkedin_session_refresh.py — refresh_linkedin_sessions
+├── session_healer.py       — heal_sessions: hourly self-heal sweep —
+│                             LinkedIn sidecar (429-circuit clear →
+│                             credential login → app-push 2FA wait),
+│                             Facebook sidecar (deep validate → stored
+│                             storage_state re-inject), and every bridge
+│                             platform (persistent-profile detect →
+│                             cookie inject / credential login / Threads
+│                             IG-SSO bootstrap). Persists fresh session
+│                             material to meta_data + secret store;
+│                             Slack-alerts only when human action needed
+│                             (24h per-platform cooldown). On-demand:
+│                             POST /api/v1/ops/session-heal
 ├── workflows.py            — execute_workflow, deploy_workflow
 ├── telegram_digest.py      — send_telegram_group_digests
 ├── paddle_digest.py        — send_paddle_slack_digest (billing digest)
@@ -563,6 +575,9 @@ Beat Schedule:
 │ refresh-expiring-tokens  │ token_refresh.refresh           │ hourly   │
 │ check-instagram-sessions │ instagram_session_check        │ 6h       │
 │ check-linkedin-sessions  │ linkedin_session_check          │ 12h      │
+│ heal-sessions            │ session_healer.heal_sessions    │ hourly   │
+│                          │  (:20 — all browser transports, │          │
+│                          │   auto-recover + persist + alert)│         │
 │ daily-slack-digest       │ digest.send_daily_slack_digest  │ daily 9am│
 │ weekly-slack-digest      │ digest.send_weekly_slack_digest │ weekly   │
 │ monthly-slack-rollup     │ digest.send_weekly_slack_digest │ 1st 9am  │

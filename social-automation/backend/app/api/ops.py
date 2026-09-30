@@ -85,6 +85,23 @@ async def force_release_browser_lock(
         )
 
 
+@router.post("/session-heal")
+async def trigger_session_heal(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Run the session healer sweep synchronously (admin/debug).
+
+    Probes every browser transport (LinkedIn + Facebook sidecars, shared
+    bridge platforms), attempts the cheapest recovery per platform, and
+    returns the per-platform status map. Long-running — the sweep can
+    take several minutes while the bridge is contended.
+    """
+    _ = current_user
+    from app.services.session_healer import heal_all_sessions
+
+    return await heal_all_sessions()
+
+
 @router.post("/daily-digest", response_model=DailyDigestResponse)
 async def trigger_daily_digest(
     days: int = Query(1, ge=1, le=30),
