@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { PricingTable } from '@/components/marketing/PricingTable'
 import { CTASection } from '@/components/marketing/CTASection'
+import { FunnelSection } from '@/components/marketing/FunnelSection'
 
 export const metadata: Metadata = {
   title: 'Pricing - SocialAuto',
@@ -68,6 +69,7 @@ export default function PricingPage() {
         </div>
       </section>
 
+      <FunnelSection />
       <CTASection />
     </>
   )
