@@ -1,7 +1,7 @@
 """Social media publishing pipeline.
 
 Platform capabilities actually used per connected account:
-  Twitter  (@TBaltzakis)           — text + images (up to 4), thread splitting
+  Twitter  (@TBaltzakis)           — text + images (up to 4), GIF, video (x_web), threads
   Facebook (personal user token)   — pages managed by user: text + photos + multi-photo
   Instagram (Business/Creator)     — single image + carousel (requires public image URLs)
   LinkedIn  (person + org page)    — text / single image / multi-image / PDF carousel
@@ -77,6 +77,12 @@ class PublishResult:
     # negative). The queue worker schedules a delayed feed reconciliation
     # for these instead of leaving the target failed forever.
     ambiguous: bool = False
+    # Soft deferral (e.g. X web fallback daily cap / min gap): the worker
+    # re-queues the item for this time without burning an attempt.
+    retry_after: datetime | None = None
+    # Deterministic failure (invalid media, tripped safety breaker, wrong
+    # account): retrying cannot help — fail now and alert once.
+    permanent: bool = False
 
 
 
@@ -101,6 +107,12 @@ _X_QUOTA_MARKERS = (
 def _err_has(text: str | None, markers: tuple[str, ...]) -> bool:
     low = (text or "").lower()
     return any(m.lower() in low for m in markers)
+
+
+def _is_x_quota_error(exc: TwitterAPIError) -> bool:
+    """402 credits-depleted / UsageCapExceeded / quota-type 429 from the X API."""
+    blob = f"{exc} {getattr(exc, 'response_text', '')}"
+    return exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS)
 
 
 def _facebook_group_skip_result(detail: str | None = None) -> PublishResult:
@@ -492,20 +504,29 @@ def _oauth1_auth_header(
     return f"OAuth {header_parts}"
 
 
-async def _twitter_upload_media(path: str) -> str | None:
-    """Upload one image/GIF using Twitter v1.1 (OAuth 1.0a).  Returns media_id_string."""
+async def _twitter_upload_media(path: str) -> str:
+    """Upload one image/GIF using Twitter v1.1 (OAuth 1.0a).  Returns media_id_string.
+
+    Raises ``TwitterAPIError`` on any failure — callers must never fall
+    back to posting the tweet without its media.
+    """
     api_key = _settings.TWITTER_API_KEY
     api_secret = _settings.TWITTER_API_SECRET
     token = _settings.TWITTER_ACCESS_TOKEN
     token_secret = _settings.TWITTER_ACCESS_TOKEN_SECRET
+    upload_url = "https://upload.twitter.com/1.1/media/upload.json"
 
     if not all([api_key, api_secret, token, token_secret]):
-        logger.warning("[twitter] v1 credentials not configured — skipping media upload")
-        return None
+        raise TwitterAPIError(
+            0,
+            "v1 credentials not configured",
+            upload_url,
+            message="X media upload needs TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET (OAuth 1.0a)",
+        )
 
-    upload_url = "https://upload.twitter.com/1.1/media/upload.json"
     with open(path, "rb") as fh:
         img_bytes = fh.read()
+    mime = "image/gif" if path.lower().endswith(".gif") else "image/jpeg"
 
     # OAuth 1.0a for multipart does NOT include file data in signature
     auth_header = _oauth1_auth_header(
@@ -517,15 +538,15 @@ async def _twitter_upload_media(path: str) -> str | None:
         resp = await client.post(
             upload_url,
             headers={"Authorization": auth_header},
-            files={"media": ("media.png", img_bytes, "image/png")},
+            files={"media": (os.path.basename(path), img_bytes, mime)},
         )
         if resp.status_code == 200:
             mid = resp.json().get("media_id_string")
             if mid:
                 logger.info(f"[twitter] uploaded media {mid}")
-                return mid
+                return str(mid)
         logger.warning(f"[twitter] media upload failed {resp.status_code}: {resp.text[:200]}")
-        return None
+        raise TwitterAPIError(resp.status_code, resp.text[:400], upload_url)
 
 
 def _x_weighted_len(text: str) -> int:
@@ -628,25 +649,67 @@ async def _publish_twitter(
     storage_paths: list[str] | None = None,
     db: AsyncSession | None = None,
 ) -> PublishResult:
-    """Publish to X/Twitter using TwitterAPIClient.
+    """Publish to X/Twitter: official API → X web (tweety) → browser bridge.
 
-    Text + thread splitting via v2.  Image upload via v1.1 (OAuth 1.0a)
-    when app-level credentials are configured; up to 4 images per tweet.
+    Text + thread splitting via v2.  Image upload via v1.1 (OAuth 1.0a).
+    Media is validated up front (≤4 images, or 1 GIF, or 1 video) and a
+    post is never published without its media: an upload failure fails
+    the post. Video is only supported by the X web fallback.
     On 401 the OAuth2 token is refreshed once and the request retried —
     X access tokens live only 2h, so self-heal instead of failing the post.
+    On 402 credits-depleted / usage-cap the X web fallback takes over when
+    ``X_WEB_FALLBACK_ENABLED`` (see ``app.services.x_web``).
     """
-    client = TwitterAPIClient(access_token=access_token)
+    from app.services import x_web
 
-    # Upload up to 4 images for the first tweet in the thread
-    media_ids: list[str] = []
-    if media_paths:
-        image_paths = [p for p in media_paths[:4] if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
-        for img_path in image_paths:
-            mid = await _twitter_upload_media(img_path)
-            if mid:
-                media_ids.append(mid)
+    try:
+        plan = x_web.plan_media(media_paths)
+    except x_web.XWebMediaError as exc:
+        return PublishResult(success=False, permanent=True, error=f"X post media invalid — not publishing: {exc}")
 
     tweets = _split_thread(text)
+
+    if plan.kind == "video":
+        # v1.1 simple upload cannot carry video; only the web fallback can.
+        return await _publish_twitter_fallbacks(
+            account, text, tweets, post, plan,
+            reason="official X API path does not support video upload",
+        )
+
+    client = TwitterAPIClient(access_token=access_token)
+    media_ids: list[str] = []
+    if plan.has_media:
+        import tempfile as _tempfile
+
+        workdir = _tempfile.mkdtemp(prefix="x_media_")
+        try:
+            try:
+                upload_paths = x_web.prepare_media(plan, workdir)  # JPEG-normalized
+            except x_web.XWebMediaError as exc:
+                return PublishResult(success=False, permanent=True, error=f"X post media invalid — not publishing: {exc}")
+            for path in upload_paths:
+                try:
+                    media_ids.append(await _twitter_upload_media(path))
+                except TwitterAPIError as exc:
+                    if _is_x_quota_error(exc):
+                        return await _publish_twitter_fallbacks(
+                            account, text, tweets, post, plan, reason=f"{exc} {exc.response_text}",
+                        )
+                    if x_web.is_configured():
+                        return await _publish_twitter_fallbacks(
+                            account, text, tweets, post, plan, reason=f"official media upload failed: {exc}",
+                        )
+                    return PublishResult(
+                        success=False,
+                        error=f"X media upload failed — not posting without media: {str(exc)[:300]}",
+                    )
+        finally:
+            import shutil as _shutil
+
+            _shutil.rmtree(workdir, ignore_errors=True)
+        if len(media_ids) != len(plan.paths):
+            return PublishResult(success=False, error="X media upload incomplete — not posting without media")
+
     first_id: str | None = None
     last_id: str | None = None
     refreshed = False
@@ -657,19 +720,19 @@ async def _publish_twitter(
             tweet_media_ids = media_ids if i == 0 else None
             result = await client.create_tweet(text=chunk, reply_tweet_id=last_id, media_ids=tweet_media_ids)
         except TwitterAPIError as exc:
-            blob = f"{exc} {getattr(exc, 'response_text', '')}"
-            if exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS):
-                # X API write credits / monthly cap — try browser bridge first.
-                browser_result = await _publish_twitter_via_browser(
-                    account, text, post, media_paths
+            if _is_x_quota_error(exc):
+                if first_id:
+                    # Head tweet already live — never re-post the whole thread.
+                    return PublishResult(
+                        success=True,
+                        platform_post_id=first_id,
+                        platform_url=f"https://twitter.com/{account.username}/status/{first_id}",
+                        platform_meta={"x_thread": {"incomplete": True, "posted": i, "total": len(tweets), "error": str(exc)[:200]}},
+                    )
+                # X API write credits / monthly cap — free fallbacks.
+                return await _publish_twitter_fallbacks(
+                    account, text, tweets, post, plan, reason=f"{exc} {getattr(exc, 'response_text', '')}",
                 )
-                if browser_result.success:
-                    return browser_result
-                if not browser_result.skipped:
-                    # Hard failure (e.g. wrong-account session) — surface it
-                    # through retries/alerts instead of a silent quota skip.
-                    return browser_result
-                return _x_quota_skip_result(browser_result.error or blob)
             if exc.status_code in (401, 403) and not refreshed:
                 refreshed = True
                 new_token = await _refresh_oauth2_token(account, db)
@@ -698,6 +761,68 @@ async def _publish_twitter(
     )
 
 
+async def _publish_twitter_fallbacks(
+    account: SocialAccount,
+    text: str,
+    tweets: list[str],
+    post: Post,
+    plan: Any,
+    *,
+    reason: str,
+) -> PublishResult:
+    """Free X fallbacks after the official API refused: x_web → browser bridge.
+
+    ``plan`` is the validated ``x_web.MediaPlan``. The browser bridge can
+    only attach images/GIFs, so video posts never reach it (they fail or
+    soft-skip instead of going out without the video).
+    """
+    from app.services import x_web
+
+    web_error: str | None = None
+    if x_web.is_configured():
+        out = await x_web.publish_via_x_web(
+            expected_username=account.username,
+            chunks=tweets,
+            media_paths=plan.paths,
+        )
+        if out.status == "ok" and out.first_id:
+            handle = (account.username or "").lstrip("@")
+            meta: dict[str, Any] = {"provider": "x_web_tweety", "tweet_ids": out.tweet_ids}
+            if out.partial:
+                meta.update({"thread_incomplete": True, "error": (out.error or "")[:300]})
+            return PublishResult(
+                success=True,
+                platform_post_id=out.first_id,
+                platform_url=f"https://x.com/{handle}/status/{out.first_id}" if handle else None,
+                platform_meta={"x_web": meta},
+            )
+        if out.status == "deferred":
+            return PublishResult(success=False, error=out.error, retry_after=out.retry_after)
+        if out.status in ("breaker", "tripped", "media_error", "identity"):
+            return PublishResult(success=False, permanent=True, error=out.error)
+        web_error = out.error  # transient — try the browser bridge next
+
+    if plan.kind == "video":
+        detail = (
+            "X video posts need the X web fallback (the browser bridge cannot attach video)"
+            + (f"; X web: {web_error}" if web_error else "; set X_WEB_FALLBACK_ENABLED + X_WEB_AUTH_TOKEN/X_WEB_CT0")
+        )
+        if web_error:
+            return PublishResult(success=False, error=f"{detail} (official: {reason[:200]})")
+        return _x_quota_skip_result(f"{detail}. Official: {reason}")
+
+    browser_result = await _publish_twitter_via_browser(account, text, post, plan.paths)
+    if browser_result.success:
+        return browser_result
+    if web_error:
+        return PublishResult(success=False, error=f"{web_error}; browser bridge: {browser_result.error}")
+    if not browser_result.skipped:
+        # Hard failure (e.g. wrong-account session) — surface it
+        # through retries/alerts instead of a silent quota skip.
+        return browser_result
+    return _x_quota_skip_result(browser_result.error or reason)
+
+
 async def _publish_twitter_via_browser(
     account: SocialAccount,
     text: str,
@@ -718,6 +843,15 @@ async def _publish_twitter_via_browser(
         p for p in media_paths[:4]
         if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
     ]
+    if len(image_paths) != len(media_paths):
+        # Never publish with a partial/missing media set.
+        return PublishResult(
+            success=False,
+            error=(
+                "X browser bridge can only attach up to 4 PNG/JPEG/GIF/WEBP images — "
+                "this post's media cannot be attached, not publishing without it"
+            ),
+        )
 
     settings = get_settings()
     client = BrowserBridgeClient(settings.BROWSER_BRIDGE_URL, platform="twitter")

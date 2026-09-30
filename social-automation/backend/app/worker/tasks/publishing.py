@@ -513,7 +513,20 @@ async def _process_publish_queue_async() -> None:
                     if target:
                         target.status = "skipped"
                         target.error_message = pub.error
+                elif getattr(pub, "retry_after", None) is not None:
+                    # Soft deferral (X web fallback daily cap / min gap):
+                    # re-queue for the next slot without burning an attempt.
+                    item.status = QueueStatus.PENDING
+                    item.scheduled_at = pub.retry_after
+                    item.locked_at = None
+                    item.locked_by = None
+                    if target:
+                        target.error_message = f"Deferred: {pub.error}"[:1000] if pub.error else None
                 else:
+                    if getattr(pub, "permanent", False):
+                        # Deterministic failure (invalid media, tripped
+                        # safety breaker): retrying cannot help.
+                        item.attempts = max(item.attempts, item.max_attempts - 1)
                     item.attempts += 1
                     if item.attempts >= item.max_attempts:
                         item.status = QueueStatus.FAILED
