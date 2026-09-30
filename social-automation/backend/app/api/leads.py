@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -108,6 +108,47 @@ class PublicLeadRequest(BaseModel):
     name: str | None = Field(None, max_length=200)
     # Honeypot — rendered hidden in the form; bots fill it, humans don't.
     website: str | None = Field(None, max_length=200)
+    # Optional attribution sent by the cloudless.gr server-side forwarder
+    # (/api/playbook-lead, through Cloudflare Access with a service token).
+    # All bounded + sanitised in ``public_lead_meta``; absent for the
+    # in-app LeadCapture form, which keeps its historical meta_data shape.
+    site: str | None = Field(None, max_length=64)
+    form: str | None = Field(None, max_length=40)
+    page_path: str | None = Field(None, max_length=200)
+    locale: str | None = Field(None, max_length=10)
+    consent: bool | None = None
+    consent_at: str | None = Field(None, max_length=40)
+
+
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_LOCALE_RE = re.compile(r"^[a-z]{2}(?:-[A-Za-z]{2})?$")
+_PATH_RE = re.compile(r"^/[A-Za-z0-9/._~%-]{0,199}$")
+
+
+def _iso_or_none(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        return None
+
+
+def public_lead_meta(body: PublicLeadRequest) -> dict:
+    """meta_data for a public lead: legacy defaults + validated attribution."""
+    meta: dict = {"form": "newsletter", "path": "public_landing"}
+    if body.site and _TOKEN_RE.match(body.site):
+        meta["site"] = body.site
+    if body.form and _TOKEN_RE.match(body.form):
+        meta["form"] = body.form
+    if body.page_path and _PATH_RE.match(body.page_path):
+        meta["path"] = body.page_path
+    if body.locale and _LOCALE_RE.match(body.locale):
+        meta["locale"] = body.locale
+    if body.consent is True:
+        meta["consent"] = True
+        meta["consent_at"] = _iso_or_none(body.consent_at) or datetime.now(UTC).isoformat()
+    return meta
 
 
 @router.post("/public")
@@ -137,10 +178,14 @@ async def create_lead_public(
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Invalid email address")
+    if body.consent is False:
+        # A forwarder that explicitly reports "no consent" must not trigger mail.
+        raise HTTPException(status_code=400, detail="Consent required")
     team_id_raw = settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID
     if not team_id_raw:
         raise HTTPException(status_code=503, detail="Lead capture not configured")
     team_id = uuid.UUID(team_id_raw)
+    meta = public_lead_meta(body)
 
     # Any website lead row for this address already stamped? (rows aren't
     # unique per email). The atomic Redis claim in deliver_playbook is what
@@ -163,8 +208,9 @@ async def create_lead_public(
         name=(body.name or email.split("@", 1)[0])[:200],
         email=email,
         interest=LeadInterest.cloud,
-        notes="newsletter — Free Cloud Migration Playbook",
-        meta_data={"form": "newsletter", "path": "public_landing"},
+        notes=f"{meta['form']} — Free Cloud Migration Playbook"
+        + (f" (via {meta['site']})" if meta.get("site") else ""),
+        meta_data=meta,
     )
 
     delivery = await deliver_playbook(db, lead, email, already_sent=already_sent, settings=settings)
