@@ -1287,6 +1287,9 @@ services:
     environment:
       - LINKEDIN_SIDECAR_PORT=9225
       - TZ=Europe/Athens
+      # Session re-login via POST /login (2FA = SMS to account phone).
+      - LINKEDIN_EMAIL=${LINKEDIN_EMAIL:-}
+      - LINKEDIN_PASSWORD=${LINKEDIN_PASSWORD:-}
       # LinkedIn blocks WARP egress (redirect loops / 429 on the browser
       # fingerprint) — connect directly by default; set LINKEDIN_PROXY to opt in.
       - LINKEDIN_PROXY=${LINKEDIN_PROXY:-}
