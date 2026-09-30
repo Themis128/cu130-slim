@@ -65,7 +65,11 @@ export default function AnalyticsPage() {
   const [compareMode, setCompareMode] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [bestTime, setBestTime] = useState<{ best_hour?: number; best_day?: string; recommendation?: string; confidence?: string } | null>(null)
+  const [bestTime, setBestTime] = useState<{
+    best_times?: Array<{ day: string; time: string; timezone?: string; confidence?: string; avg_engagement_rate?: number }>
+    source?: string
+    posts_analyzed?: number
+  } | null>(null)
 
   const bestTimeMutation = useLinkedinBestTime()
 
@@ -1234,31 +1238,30 @@ export default function AnalyticsPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {bestTime.best_hour != null && (
-                <div className="rounded-lg border p-4 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Best Hour</p>
-                  <p className="text-2xl font-bold tabular-nums">{bestTime.best_hour}:00</p>
-                </div>
-              )}
-              {bestTime.best_day && (
-                <div className="rounded-lg border p-4 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Best Day</p>
-                  <p className="text-2xl font-bold capitalize">{bestTime.best_day}</p>
-                </div>
-              )}
-              {bestTime.confidence && (
-                <div className="rounded-lg border p-4 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Confidence</p>
-                  <p className="text-2xl font-bold capitalize">{bestTime.confidence}</p>
-                </div>
-              )}
-              {bestTime.recommendation && (
-                <div className="sm:col-span-3 rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground mb-1">Recommendation</p>
-                  <p className="text-sm">{bestTime.recommendation}</p>
-                </div>
-              )}
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                {bestTime.source === 'analytics'
+                  ? `Based on ${bestTime.posts_analyzed ?? 0} published posts with engagement data.`
+                  : 'Not enough posts with engagement data yet — showing LinkedIn professional-audience defaults.'}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {(bestTime.best_times ?? []).map((w, i) => (
+                  <div key={`${w.day}-${w.time}-${i}`} className="rounded-lg border p-4 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {w.day}{w.confidence ? ` · ${w.confidence}` : ''}
+                    </p>
+                    <p className="text-2xl font-bold tabular-nums">{w.time}</p>
+                    {w.avg_engagement_rate != null && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {(w.avg_engagement_rate * 100).toFixed(1)}% avg engagement
+                      </p>
+                    )}
+                    {w.timezone && (
+                      <p className="text-[10px] text-muted-foreground/70">{w.timezone}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>

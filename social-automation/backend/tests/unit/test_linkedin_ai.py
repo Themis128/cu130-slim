@@ -122,6 +122,53 @@ async def test_suggest_best_time_to_post():
     assert any(t["day"] == "Wednesday" and t["time"] == "09:00" for t in times)
 
 
+def test_rank_best_time_windows_derives_windows_from_published_at():
+    from datetime import UTC, datetime, timedelta
+
+    # 6 posts published Mondays 07:00 UTC = 09:00 Athens, ER 2.0
+    samples = [(datetime(2026, 1, 5, 7, 0, tzinfo=UTC) + timedelta(days=7 * i), 2.0)
+               for i in range(6)]
+    # 8 posts Wednesdays 17:00 UTC = 19:00 Athens, ER 0.5 (below the mean)
+    samples += [(datetime(2026, 1, 7, 17, 0, tzinfo=UTC) + timedelta(days=7 * i), 0.5)
+                for i in range(8)]
+
+    windows = linkedin_ai.rank_best_time_windows(samples, "Europe/Athens")
+
+    # mean ER ≈ 1.14 — the Monday slot beats it by the 1.25 margin → high
+    assert windows[0]["day"] == "Monday"
+    assert windows[0]["time"] == "09:00"
+    assert windows[0]["confidence"] == "high"
+    assert windows[0]["sample_size"] == 6
+    # The Wednesday slot is below the mean ER — not a recommendation.
+    assert all(w["day"] != "Wednesday" for w in windows)
+
+
+def test_rank_best_time_windows_suppresses_dead_night_scheduler_artifacts():
+    from datetime import UTC, datetime, timedelta
+
+    # 12 posts at 02:00 UTC = 04:00 Athens with the highest ER — a recurring
+    # automation slot. Per PR #143 dead-night hours must never be recommended.
+    samples = [(datetime(2026, 1, 5, 2, 0, tzinfo=UTC) + timedelta(days=i), 5.0)
+               for i in range(12)]
+    # 4 daytime posts so the sample floor is comfortably met.
+    samples += [(datetime(2026, 1, 5, 9, 0, tzinfo=UTC) + timedelta(days=i), 0.5)
+                for i in range(4)]
+
+    windows = linkedin_ai.rank_best_time_windows(samples, "Europe/Athens")
+
+    assert all(w["time"] != "04:00" for w in windows)
+
+
+def test_rank_best_time_windows_requires_min_samples_per_slot():
+    from datetime import UTC, datetime, timedelta
+
+    # 12 posts scattered across different slots — no slot reaches min_n=2.
+    samples = [(datetime(2026, 1, 5, 8, 0, tzinfo=UTC) + timedelta(hours=i), 2.0)
+               for i in range(12)]
+
+    assert linkedin_ai.rank_best_time_windows(samples, "Europe/Athens") == []
+
+
 @pytest.mark.asyncio
 async def test_improve_linkedin_post(mock_inference, mock_plain_english):
     result = await linkedin_ai.improve_linkedin_post("Old post text", goal="clarity")
