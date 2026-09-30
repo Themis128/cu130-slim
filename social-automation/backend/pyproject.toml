@@ -51,6 +51,12 @@ dependencies = [
     "lxml>=6.1.0,<7.0.0",
     # Twitter/X profile updates via v1.1 API (needs Basic/Pro tier)
     "tweepy>=4.14.0,<5.0.0",
+    # Free X web fallback (app/services/x_web.py) — cookie-auth x.com GraphQL.
+    # tweety (MIT): PyPI 2.4.1 is stale, so pin a main-branch commit archive
+    # (2026-09-13, after the 2026-08-26 fix merges #278/#292/#293/#297).
+    "tweety-ns @ https://github.com/mahrtayyab/tweety/archive/f6bfc8610bd3ec8af2fe000076bc1b53a6327e7d.zip",
+    # twscrape (MIT): read-only secondary for tweet/user metrics.
+    "twscrape==0.20.1",
     # TikTok profile updates via private mobile API (signing server)
     "tiktok-private-api>=0.4.3",
     # Browser automation for Facebook/LinkedIn personal profile updates

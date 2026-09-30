@@ -339,6 +339,7 @@ app/services/
 │   ├── tiktok_xbogus.py      — TikTok X-Bogus signing
 │   ├── twitter_api.py        — Twitter/X API v2 client
 │   ├── twitter_profile.py    — Twitter profile management
+│   ├── x_web.py              — Free X web fallback (tweety post/read, twscrape read; cookie auth, breaker + limits)
 │   ├── telegram_api.py       — Telegram Bot API client
 │   ├── whatsapp_api.py       — WhatsApp Business helpers
 │   ├── whatsapp_cloud_client.py — WhatsApp Cloud API client
@@ -592,7 +593,7 @@ Beat Schedule:
 | Facebook | ✓ | ✓ | ✓ | ✓ (Graph) | ✓ Page + Personal (E2EE) + Bot Builder | Page sidecar, browser bridge |
 | Instagram | ✓ | ✓ (Business Login + FB Login) | ✓ | ✓ (Graph + private) | ✓ DM (Messenger Platform) | Private API sidecar, Web API |
 | LinkedIn | ✓ | ✓ | ✓ | ✓ (API + browser) | — | Company Page, browser sidecar |
-| Twitter/X | ✓ (OAuth 2.0 PKCE) | ✓ | ✓ | ✓ (API) | ✓ DM (API v2) | API v2, free tier 50/day |
+| Twitter/X | ✓ (OAuth 2.0 PKCE) | ✓ (API v2 → x_web → browser bridge) | ✓ (API v2 → x_web) | ✓ (API) | ✓ DM (API v2) | API v2; on 402 credits-depleted the opt-in `x_web` fallback (tweety/twscrape, cookie auth, 5 posts/day, 10–30 min gap, 6h breaker) — see [guide 17](superpowers/guides/17-x-web-fallback.md) |
 | TikTok | ✓ | ✓ (Direct Post + Upload) | ✓ | ✓ (API + browser) | ✓ DM (Business Messaging) | Browser sidecar, domain verification, 6-scope OAuth |
 
 > **TikTok ops tooling** (`.devin/skills/`): `check-scopes.sh` audits granted
@@ -1375,6 +1376,7 @@ or managed later from the **Discount tab** on `/settings/billing`:
 | `INSTAGRAM_CLIENT_ID/SECRET` | Instagram |
 | `LINKEDIN_CLIENT_ID/SECRET` | LinkedIn |
 | `TWITTER_CLIENT_ID/SECRET` | Twitter/X |
+| `X_WEB_FALLBACK_ENABLED`, `X_WEB_AUTH_TOKEN`, `X_WEB_CT0` (+ optional `X_WEB_COOKIES_JSON`, limits) | Twitter/X free web fallback |
 | `TIKTOK_CLIENT_KEY/SECRET` | TikTok |
 | `THREADS_CLIENT_ID/SECRET` | Threads |
 

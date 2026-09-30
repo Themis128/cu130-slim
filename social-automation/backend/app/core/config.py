@@ -267,6 +267,32 @@ class Settings(BaseSettings):
     TWITTER_ACCESS_TOKEN: str = ""
     TWITTER_ACCESS_TOKEN_SECRET: str = ""
 
+    # Free X web fallback (tweety/twscrape over x.com's cookie-authenticated
+    # GraphQL API) used when the official API returns 402 credits-depleted /
+    # UsageCapExceeded / quota 429. Cookie auth ONLY (never password login).
+    # Off by default — web automation violates X ToS and risks suspension.
+    # See docs/superpowers/guides/17-x-web-fallback.md.
+    X_WEB_FALLBACK_ENABLED: bool = False
+    X_WEB_AUTH_TOKEN: str = ""
+    X_WEB_CT0: str = ""
+    # Optional full cookie export: JSON object {name: value} or a list of
+    # {"name": ..., "value": ...} objects (browser-extension export format).
+    X_WEB_COOKIES_JSON: str = ""
+    # Optional outbound proxy for x.com requests (http://... or socks5://...).
+    X_WEB_PROXY: str = ""
+    X_WEB_MAX_POSTS_PER_DAY: int = 5
+    X_WEB_MIN_GAP_MINUTES: int = 10
+    X_WEB_MAX_GAP_MINUTES: int = 30
+    X_WEB_BREAKER_HOURS: float = 6.0
+    X_WEB_ANALYTICS_MIN_INTERVAL_HOURS: float = 6.0
+    # Upper bound on per-tweet detail lookups per analytics cycle (targets not
+    # already covered by the one-page timeline fetch).
+    X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS: int = 10
+    # Fallback persistence for breaker/rate-limit state when Redis is down.
+    # Default lives on the uploads bind mount shared by social-api and every
+    # worker, so all containers still see the same breaker.
+    X_WEB_STATE_FILE: str = "/app/uploads/.x_web_state.json"
+
     # Media serving — set to a publicly reachable base URL so Instagram
     # can fetch images. E.g. https://yourdomain.com or an ngrok URL.
     # When empty, Instagram posts without images fall back gracefully.

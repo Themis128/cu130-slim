@@ -1222,6 +1222,64 @@ async def _scrape_twitter_timeline(username: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"posts": [], "followers": None}
 
 
+async def _persist_x_web_analytics(
+    db: AsyncSession,
+    account: SocialAccount,
+    web: Any,
+    id_to_post: dict[str, uuid.UUID],
+    since: datetime,
+    captured_at: datetime,
+    result: SyncResult,
+) -> None:
+    """Store tweet + account metrics read via the X web fallback."""
+    for tid, m in web.tweets.items():
+        known = tid in id_to_post
+        if not known and m.created_at is not None:
+            created = m.created_at if m.created_at.tzinfo else m.created_at.replace(tzinfo=UTC)
+            if created < since:
+                continue
+        metrics = MetricBundle(
+            impressions=int(m.views or 0),
+            likes=int(m.likes or 0),
+            comments=int(m.replies or 0),
+            shares=int(m.retweets or 0) + int(m.quotes or 0),
+            reach=int(m.views or 0),
+            raw={
+                "id": tid,
+                "views": m.views,
+                "likes": m.likes,
+                "replies": m.replies,
+                "retweets": m.retweets,
+                "quotes": m.quotes,
+                "bookmarks": m.bookmarks,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "text": m.text,
+            },
+        )
+        await _persist_snapshot(
+            db, account=account, post_id=id_to_post.get(tid), platform_post_id=tid,
+            metrics=metrics, captured_at=captured_at, source=web.source,
+            result=result, platform="twitter",
+        )
+    if web.followers:
+        _persist_account_event(
+            db, account, captured_at, "account_insights",
+            {
+                "followers_count": int(web.followers or 0),
+                "following_count": int(web.following or 0),
+                "tweet_count": int(web.tweet_count or 0),
+                "listed_count": int(web.listed or 0),
+                "source": web.source,
+            },
+        )
+        db.add(FollowerSnapshot(
+            team_id=account.team_id, social_account_id=account.id,
+            platform="twitter", followers=int(web.followers),
+        ))
+    for err in web.errors[:3]:
+        result.errors.append(f"twitter x_web: {err}"[:300])
+
+
 async def sync_twitter_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -1258,6 +1316,11 @@ async def sync_twitter_account(
         if tid:
             id_to_post[tid] = t.post_id
 
+    from app.services import x_web
+
+    x_web_ready = x_web.is_configured()
+    official_quota = False  # official API refused with 402/credits/usage cap
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         covered: set[str] = set()
         for t in targets:
@@ -1267,6 +1330,7 @@ async def sync_twitter_account(
             covered.add(tweet_id)
             metrics = await _fetch_twitter_metrics(client, token, tweet_id)
             if metrics.notes == "quota_exhausted":
+                official_quota = True
                 # Free tier is out of read credits — every remaining call will
                 # 402 identically. Record one data-gap marker and move on.
                 metrics = MetricBundle(notes="quota_exhausted")
@@ -1326,8 +1390,9 @@ async def sync_twitter_account(
                     )
                     discovered[tid] = id_to_post.get(tid)
             elif resp.status_code == 402:
-                # Expected on the free tier — the browser-scrape fallback
-                # below covers discovery. Data gap, not an error.
+                # Expected on the free tier — the x_web / browser-scrape
+                # fallback below covers discovery. Data gap, not an error.
+                official_quota = True
                 result.skipped += 1
             elif resp.status_code in (401, 403, 429):
                 result.errors.append(
@@ -1343,8 +1408,9 @@ async def sync_twitter_account(
 
         # Browser-scrape fallback — the free X API tier has no timeline read
         # credits, so discovery of native tweets goes through the shared
-        # browser bridge when the API refuses.
-        if not discovered:
+        # browser bridge when the API refuses. Superseded by the x_web
+        # fallback when that is configured (one web reader per account).
+        if not discovered and not x_web_ready:
             try:
                 scraped = await _scrape_twitter_timeline(str(account.username or ""))
                 for tw in scraped.get("posts", []):
@@ -1405,12 +1471,33 @@ async def sync_twitter_account(
                             "listed_count": int(pm.get("listed_count") or 0),
                         },
                     )
+            elif ur.status_code == 402:
+                # Credits depleted — persistent state, not a per-cycle error.
+                official_quota = True
+                result.skipped += 1
             else:
                 result.errors.append(
                     f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}"
                 )
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"twitter users/me: {exc}")
+
+    # Free X web fallback (tweety → twscrape) when the official API is out of
+    # credits. Guarded: breaker + at most one poll per 6h across workers.
+    if official_quota and x_web_ready:
+        wanted = [tid for tid in id_to_post if tid not in discovered]
+        web, skip_reason = await x_web.fetch_x_web_analytics(
+            username=str(account.username or ""),
+            user_id=str(user_id) if user_id else None,
+            wanted_tweet_ids=wanted,
+        )
+        if web is None:
+            if skip_reason:
+                result.notes = f"{result.notes} {skip_reason}".strip()
+                if "failed" in skip_reason or "tripped" in skip_reason:
+                    result.errors.append(skip_reason[:300])
+        else:
+            await _persist_x_web_analytics(db, account, web, id_to_post, since, captured_at, result)
 
     if result.synced == 0:
         result.skipped = len(targets)
