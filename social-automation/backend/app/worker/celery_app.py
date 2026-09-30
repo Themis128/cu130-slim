@@ -37,6 +37,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_ads_control",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
+        "app.worker.tasks.session_healer",
     ],
 )
 
@@ -163,6 +164,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
+        "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -277,6 +279,15 @@ celery_app.conf.update(
         "check-linkedin-sessions": {
             "task": "app.worker.tasks.linkedin_session_check.check_linkedin_sessions",
             "schedule": crontab(minute=45, hour="*/12"),  # every 12h at :45
+        },
+        # Self-healing session sweep every hour at :20 — probes the
+        # LinkedIn/Facebook sidecars and all shared-bridge platforms,
+        # attempts the cheapest recovery (cookie re-inject, credential
+        # login, Threads IG-SSO bootstrap), persists fresh session
+        # material, and Slack-alerts only when human action is needed.
+        "heal-sessions": {
+            "task": "app.worker.tasks.session_healer.heal_sessions",
+            "schedule": crontab(minute=20),
         },
         # Daily LinkedIn Page invite-to-follow batch (10:30 Europe/Athens).
         # Monthly invite credits expire unused at refill — NLP-scored top-N
