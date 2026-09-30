@@ -28,7 +28,7 @@ export default function ContactPage() {
             SocialAuto is operated by Cloudless, headquartered in Greece.
           </p>
           <ul className="list-none pl-6 space-y-1">
-            <li>Website: <a href="https://cloudless.gr" className="text-primary hover:underline">cloudless.gr</a></li>
+            <li>Website: <a href="https://cloudless.gr?utm_source=social&utm_medium=referral&utm_campaign=build-in-public" className="text-primary hover:underline">cloudless.gr</a></li>
             <li>General inquiries: <a href="mailto:hello@cloudless.gr" className="text-primary hover:underline">hello@cloudless.gr</a></li>
           </ul>
         </section>

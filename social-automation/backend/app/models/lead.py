@@ -17,6 +17,7 @@ class LeadSource(enum.StrEnum):
     whatsapp_dm = "whatsapp_dm"
     facebook_messenger = "facebook_messenger"
     instagram_dm = "instagram_dm"
+    website = "website"
 
 
 class LeadInterest(enum.StrEnum):
