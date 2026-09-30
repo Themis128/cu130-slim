@@ -100,7 +100,7 @@ Third-party images (n8n, postgres, redis, etc.) are never touched.
 To roll a service back to a specific commit build, pin its `image:` line to
 `ghcr.io/themis128/cu130-slim:<service>-sha-<sha>` locally (or commit it) and
 `docker compose up -d <service>`. Helper script for bulk re-pinning:
-`scripts/update-compose-image-tags.sh <tag-suffix>`.
+`scripts/update-compose-image-tags.py <tag-suffix>`.
 
 ### Loop prevention
 
@@ -128,7 +128,7 @@ are no longer updated.
 
 ## Manual release
 
-`scripts/build-tag-push-all.sh` builds, tags, and pushes all images to the
+`scripts/build-tag-push-all.py` builds, tags, and pushes all images to the
 single GHCR package (`ghcr.io/<owner>/cu130-slim:<service>-<tag>`) and rewrites
 compose refs. Auth via `gh auth token | docker login ghcr.io -u <user>
 --password-stdin` — no Docker Hub credentials needed for app images.

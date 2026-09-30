@@ -898,7 +898,7 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-  # Second API slot used by scripts/deploy-api.sh. Same env/mounts as
+  # Second API slot used by scripts/deploy-api.py. Same env/mounts as
   # social-api via `extends`; starts under the `bluegreen` profile only so a
   # plain `docker compose up -d` leaves it off.
   social-api-green:

@@ -266,7 +266,7 @@ Important gaps:
   validates expected models, publishes to Redis `dmr:status` (TTL 15 min).
 - **Persistence**: named volume `docker-model-runner-models`;
   `RestartPolicy=always`.
-- **Recovery script**: `scripts/dmr/gpu-runner-recreate.sh` recreates the
+- **Recovery script**: `scripts/dmr/gpu-runner-recreate.py` recreates the
   container if Docker Desktop resets it.
 
 ## vLLM runner specifics (WSL2)
@@ -294,7 +294,7 @@ curl -sf http://localhost:12435/engines/v1/models    # API health
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 docker model unload --all                            # free VRAM
-scripts/dmr/gpu-runner-recreate.sh                   # heal runner
+scripts/dmr/gpu-runner-recreate.py                   # heal runner
 ```
 
 MCP server: `dmr` (`.devin/mcp_config.json`) — status, list, chat, embed,

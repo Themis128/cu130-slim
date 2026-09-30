@@ -25,7 +25,7 @@
 gh auth login
 
 # Run the setup script
-./scripts/setup-github-secrets.sh
+./scripts/setup-github-secrets.py
 ```
 
 ---
