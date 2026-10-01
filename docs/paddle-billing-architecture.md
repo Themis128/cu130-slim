@@ -2,7 +2,7 @@
 
 Monetization layer for SocialAuto. All supported providers are **Merchants of Record** — they handle VAT/sales tax, invoicing, and payment methods. The active provider is selected by `BILLING_PROVIDER` (`paddle` | `polar` | `dodo`).
 
-> **Status**: Paddle's account application was **rejected** (AI/generative-AI product category). Polar was integrated next but its only payout rail is Stripe Connect, which was ruled out. **Dodo Payments** is the target provider: MoR, free to start, pays out directly to a bank account — no Stripe. Paddle code is retained as a fallback path.
+> **Status**: **Polar is the live provider** (`BILLING_PROVIDER=polar` in `.env`; `social.cloudless.gr/pricing` is Polar-backed). Paddle's account application was **rejected** (AI/generative-AI product category). Polar's only payout rail is Stripe Connect, so **Dodo Payments** remains the preferred target: MoR, free to start, pays out directly to a bank account — no Stripe. Paddle code is retained as a fallback path.
 
 ## Provider comparison
 
