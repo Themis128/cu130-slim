@@ -192,6 +192,61 @@ class TestMediaFlow:
         assert d.status_code in (200, 204), f"delete → {d.status_code}: {d.text[:200]}"
 
 
+class TestPresignedUpload:
+    """R2 presigned flow: prepare → PUT bytes → complete → view → delete."""
+
+    def test_presigned_roundtrip(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+
+        p = httpx.post(
+            f"{API_URL}/api/v1/media/upload/prepare",
+            headers=_h(token),
+            json={
+                "filename": "ci-presign.png",
+                "mime_type": "image/png",
+                "size_bytes": len(TINY_PNG),
+            },
+            timeout=15,
+        )
+        assert p.status_code == 200, f"prepare → {p.status_code}: {p.text[:200]}"
+        presign = p.json()
+        assert presign.get("upload_url") and presign.get("key")
+
+        up = httpx.put(
+            presign["upload_url"],
+            content=TINY_PNG,
+            headers={"Content-Type": "image/png"},
+            timeout=60,
+        )
+        assert up.status_code in (200, 201), f"R2 PUT → {up.status_code}: {up.text[:200]}"
+
+        c = httpx.post(
+            f"{API_URL}/api/v1/media/upload/complete",
+            headers=_h(token),
+            json={
+                "key": presign["key"],
+                "filename": "ci-presign.png",
+                "mime_type": "image/png",
+                "size_bytes": len(TINY_PNG),
+                "alt_text": "ci presigned test",
+            },
+            timeout=30,
+        )
+        assert c.status_code in (200, 201), f"complete → {c.status_code}: {c.text[:300]}"
+        asset_id = c.json().get("id") or c.json().get("asset_id") or c.json().get("asset", {}).get("id")
+        assert asset_id, c.text[:200]
+
+        g = httpx.get(f"{API_URL}/api/v1/media/assets/{asset_id}", headers=_h(token), timeout=15)
+        assert g.status_code == 200
+
+        d = httpx.delete(
+            f"{API_URL}/api/v1/media/assets/{asset_id}", headers=_h(token), timeout=15
+        )
+        assert d.status_code in (200, 204), f"delete → {d.status_code}: {d.text[:200]}"
+
+
 class TestSecretsCrud:
     """Set → get → delete a secret key."""
 
