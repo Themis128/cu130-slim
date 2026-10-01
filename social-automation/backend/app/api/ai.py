@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId, check_quota, get_user_team
+from app.api.deps import TeamId, check_quota
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
@@ -31,7 +31,6 @@ from app.services.inference import (
     _call_nvidia_flux_dev,
     _call_nvidia_flux_pipeline,
     call_inference,
-    get_team_id_for_user,
     retrieve_workers_ai_batch,
     submit_workers_ai_batch,
     transcribe_workers_ai,
@@ -516,10 +515,9 @@ async def auto_configure(
 
 @router.post("/analyze-content", response_model=AnalyzeContentResponse)
 async def analyze_content(
-    request: AnalyzeContentRequest,
+    request: AnalyzeContentRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     hashtag_count = request.content.count("#")
     char_count = len(request.content)
 
@@ -589,7 +587,7 @@ Return JSON with:
 
     seo_score = None
     try:
-        team = await get_user_team(db, current_user)
+        team = await db.get(Team, team_id)
         seo_result = await _seo_service.analyze_seo(
             text=request.content,
             platform=request.platform,
@@ -633,12 +631,11 @@ Return JSON with:
 
 @router.post("/seo", response_model=SeoResponse)
 async def analyze_seo_endpoint(
-    request: SeoRequest,
+    request: SeoRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Analyze content for SEO: keywords, score, meta title/description, and recommendations."""
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     team_id = team.id if team else None
 
     result = await seo.analyze_seo(
@@ -714,10 +711,9 @@ class GenerateImageResponse(BaseModel):
 
 @router.post("/generate-image", response_model=GenerateImageResponse)
 async def generate_image(
-    request: GenerateImageRequest,
+    request: GenerateImageRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate an image via a text-to-image provider (local Diffusers, Cloudflare, or NVIDIA FLUX)."""
     import base64
 
@@ -728,7 +724,7 @@ async def generate_image(
         _is_workers_ai_image_model,
     )
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -1017,14 +1013,13 @@ class GenerateImagePipelineResponse(BaseModel):
 
 @router.post("/generate-image-pipeline", response_model=GenerateImagePipelineResponse)
 async def generate_image_pipeline(
-    request: GenerateImagePipelineRequest,
+    request: GenerateImagePipelineRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement)."""
     import base64
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -1139,12 +1134,11 @@ class SaveDraftResponse(BaseModel):
 
 @router.post("/save-draft", response_model=SaveDraftResponse)
 async def save_draft(
-    request: SaveDraftRequest,
+    request: SaveDraftRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Save generated image as draft for later posting."""
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -1187,12 +1181,11 @@ class ListDraftsResponse(BaseModel):
 
 
 @router.get("/drafts", response_model=ListDraftsResponse)
-async def list_drafts(
+async def list_drafts(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List all saved drafts for the current user's team."""
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -1238,14 +1231,13 @@ class PostDraftResponse(BaseModel):
 
 @router.post("/post-draft", response_model=PostDraftResponse)
 async def post_draft(
-    request: PostDraftRequest,
+    request: PostDraftRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Post a saved draft to the selected social platform."""
     from app.models.social_account import SocialAccount
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -1352,10 +1344,9 @@ def _validate_comfyui_job_id(job_id: str) -> str:
 
 @router.get("/generate-image/{job_id}")
 async def get_image_status(
-    job_id: str,
+    job_id: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     safe_job_id = _validate_comfyui_job_id(job_id)
 
     try:
@@ -1376,7 +1367,7 @@ async def get_image_status(
                             # shows up in the Media Library (once per job).
                             asset_id = None
                             storage_path = None
-                            team = await get_user_team(db, current_user)
+                            team = await db.get(Team, team_id)
                             if team:
                                 existing = await db.execute(
                                     select(MediaAsset).where(
@@ -1447,14 +1438,13 @@ class GenerateImageFluxResponse(BaseModel):
 
 @router.post("/generate-image-flux")
 async def generate_image_flux(
-    request: GenerateImageFluxRequest,
+    request: GenerateImageFluxRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API."""
     import base64
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     team_id = team.id if team else None
     if team_id:
         await check_quota("ai_calls_per_month", team_id, db)
@@ -1527,8 +1517,7 @@ async def generate_image_flux(
 
 @router.post("/generate-content", response_model=GenerateContentResponse)
 async def generate_content(
-    request: GenerateContentRequest,
-    team_id: TeamId,
+    request: GenerateContentRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1986,8 +1975,7 @@ Return JSON with:
 
 @router.post("/best-time-to-post", response_model=BestTimeResponse)
 async def best_time_to_post(
-    request: BestTimeRequest,
-    team_id: TeamId,
+    request: BestTimeRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -2077,10 +2065,9 @@ async def best_time_to_post(
 
 @router.post("/improve-content", response_model=ImproveContentResponse)
 async def improve_content(
-    request: ImproveContentRequest,
+    request: ImproveContentRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     prompt = f"""Improve this {request.platform} post for {request.resolved_goal()}:
 
 Original: "{request.content}"
@@ -2105,7 +2092,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
     from app.services.quality_pipeline import apply_quality_pipeline
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     quality = await apply_quality_pipeline(
         content=improved,
@@ -2129,10 +2116,9 @@ Return JSON with: improved_content (string), changes (array of strings describin
 
 @router.post("/generate-workflow", response_model=GenerateWorkflowResponse)
 async def generate_workflow(
-    request: GenerateWorkflowRequest,
+    request: GenerateWorkflowRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db=Depends(get_db),
-):
+    db=Depends(get_db)):
     # Parse intent from prompt using Ollama
     intent_prompt = f"""Analyze this prompt and extract the workflow intent:
 
@@ -2163,7 +2149,7 @@ Return JSON with:
 
     intent = await call_inference(intent_prompt, provider_name="dmr", schema=schema)
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     # Find matching template
     template = None
@@ -2332,12 +2318,11 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
 
 @router.post("/generate-carousel", response_model=GenerateCarouselResponse)
 async def generate_carousel(
-    request: GenerateCarouselRequest,
+    request: GenerateCarouselRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     # Check chroma for similar existing carousel content before generating
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
         similar = await chroma_client.query_similar(str(team.id), request.topic, n_results=3)
@@ -2400,7 +2385,7 @@ Return JSON with:
     }
 
     import httpx as _httpx
-    team_id = await get_team_id_for_user(current_user.id, db)
+
     try:
         result = await call_inference(
             prompt, provider_name=request.provider, db=db, team_id=team_id,
@@ -2518,10 +2503,9 @@ class GenerateCarouselPipelineResponse(BaseModel):
 
 @router.post("/generate-carousel-pipeline", response_model=GenerateCarouselPipelineResponse)
 async def generate_carousel_pipeline(
-    request: GenerateCarouselPipelineRequest,
+    request: GenerateCarouselPipelineRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """CF-only carousel pipeline:
 
     1. LLM slide copy
@@ -2538,7 +2522,7 @@ async def generate_carousel_pipeline(
     from app.services.carousel_pipeline import compose_branded_slide
     from app.services.plain_english import run_nlp_check_and_fix
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2553,6 +2537,7 @@ async def generate_carousel_pipeline(
             provider="dmr",
             model=request.text_model,
         ),
+        team_id=team_id,
         current_user=current_user,
         db=db,
     )
@@ -2737,17 +2722,16 @@ class RunCarouselAndPublishRequest(BaseModel):
 
 @router.post("/run-carousel-and-publish")
 async def run_carousel_and_publish(
-    request: RunCarouselAndPublishRequest,
+    request: RunCarouselAndPublishRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """n8n-friendly full pipeline: copy → NLP → CF images → brand → post → LinkedIn org.
 
     Intended for the Cloudless n8n schedule/webhook workflow.
     """
     from app.services.carousel_pipeline import run_cloudless_carousel_pipeline
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2858,12 +2842,11 @@ async def _save_generation_template(
 
 @router.post("/save-generation-template", response_model=SaveGenerationTemplateResponse)
 async def save_generation_template(
-    request: SaveGenerationTemplateRequest,
+    request: SaveGenerationTemplateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Save a successful generation run as a reusable template in the Workflows page."""
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2957,12 +2940,11 @@ async def spellcheck(
 
 
 @router.post("/seed-default-workflows")
-async def seed_default_workflows(
+async def seed_default_workflows(team_id: TeamId,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+    current_user: User = Depends(get_current_user)):
     """Upsert one default PromptTemplate per content type so Workflows page shows them."""
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -3378,10 +3360,9 @@ async def _remove_background_white(image_b64: str, tolerance: int = 30) -> str:
 @limiter.limit("10/minute")
 async def generate_emoji(
     request: Request,
-    payload: EmojiGenerateRequest,
+    payload: EmojiGenerateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate an emoji or icon for social media content.
 
     Pipeline:
@@ -3406,7 +3387,7 @@ async def generate_emoji(
     )
 
     # Check quota
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
 
@@ -3582,10 +3563,9 @@ class EmojiBatchResponse(BaseModel):
 @limiter.limit("5/minute")
 async def generate_emoji_batch(
     request: Request,
-    payload: EmojiBatchRequest,
+    payload: EmojiBatchRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate multiple emojis/icons in a single request.
 
     Useful for creating a full sticker pack or icon set.
@@ -3597,7 +3577,7 @@ async def generate_emoji_batch(
         raise HTTPException(status_code=400, detail="At least one concept required")
 
     # Check quota
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
 
@@ -3687,10 +3667,9 @@ class GenerateBlogArticleResponse(BaseModel):
 @limiter.limit("10/minute")
 async def generate_blog_article(
     request: Request,
-    body: GenerateBlogArticleRequest,
+    body: GenerateBlogArticleRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a full blog article via DMR and publish it to the
     cloudless.gr datalake so it appears at https://cloudless.gr/blog.
 
@@ -3715,7 +3694,7 @@ async def generate_blog_article(
             social_post=(existing.get("socialPost") or "").strip(),
         )
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     brand_context_str = ""
     if team:

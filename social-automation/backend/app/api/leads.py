@@ -69,8 +69,7 @@ async def list_leads(
 
 @router.post("", response_model=LeadOut)
 async def create_lead_manual(
-    body: LeadCreateRequest,
-    team_id: TeamId,
+    body: LeadCreateRequest, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> LeadOut:

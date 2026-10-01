@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user, log_action, require_admin
-from app.api.deps import get_user_team
+from app.api.deps import TeamId
 from app.core.security import encrypt_token
 from app.db.session import get_db
 from app.models.ai_provider import AIProvider
@@ -56,8 +56,8 @@ class AIProviderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-async def _get_team(user: User, db: AsyncSession) -> Team:
-    team = await get_user_team(db, user)
+async def _get_team(team_id: uuid.UUID, db: AsyncSession) -> Team:
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team
@@ -70,11 +70,10 @@ async def list_catalog():
 
 
 @router.get("", response_model=list[AIProviderOut])
-async def list_providers(
+async def list_providers(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id))
     providers = result.scalars().all()
     return [
@@ -103,11 +102,10 @@ async def list_providers(
 @router.put("/{name}", response_model=AIProviderOut)
 async def upsert_provider(
     name: str,
-    body: AIProviderUpsert,
+    body: AIProviderUpsert,team_id: TeamId,
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
 
     # Look up catalog defaults
     catalog = next((c for c in PROVIDER_CATALOG if c["name"] == name), None)
@@ -190,11 +188,10 @@ async def list_provider_models(
 
 @router.delete("/{name}", status_code=204)
 async def delete_provider(
-    name: str,
+    name: str,team_id: TeamId,
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
     )
@@ -207,14 +204,11 @@ async def delete_provider(
 
 @router.post("/{name}/test")
 async def test_provider(
-    name: str,
+    name: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Quick connectivity test — sends a test request to the provider."""
-    from app.services.inference import call_inference, get_team_id_for_user
-
-    team_id = await get_team_id_for_user(current_user.id, db)
+    from app.services.inference import call_inference
 
     # Image generation providers need different test approach
     IMAGE_GEN_PROVIDERS = {"nvidia-flux", "nvidia-flux-dev", "local-sd35", "nvidia-flux-pipeline"}
@@ -292,13 +286,12 @@ class UsageResponse(BaseModel):
 
 
 @router.get("/usage", response_model=UsageResponse)
-async def get_usage_summary(
+async def get_usage_summary(team_id: TeamId,
     days: int = Query(7, ge=1, le=90),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Aggregate AI usage by provider/model for the dashboard (Phase 4.3)."""
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     since = datetime.now(UTC) - timedelta(days=days)
 
     rows = await db.execute(
@@ -365,12 +358,11 @@ async def get_usage_summary(
 
 @router.post("/{name}/reset-circuit")
 async def reset_circuit_breaker(
-    name: str,
+    name: str,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Manually reset a provider's circuit breaker (Phase 4.5)."""
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
     )

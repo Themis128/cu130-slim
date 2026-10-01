@@ -24,6 +24,14 @@ API_URL = os.environ.get(
     "API_URL", "http://localhost:8000" if _in_container else "http://localhost:8083"
 ).rstrip("/")
 
+# These flows need the configured live stack (admin creds, webhook secrets,
+# lead capture, billing provider). In bare CI the same endpoints correctly
+# return not-configured responses, so the suite is skipped there.
+IN_CI = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+pytestmark = pytest.mark.skipif(
+    IN_CI, reason="functional flows target the live configured stack"
+)
+
 
 def _repo_root() -> Path | None:
     here = Path(__file__).resolve()
@@ -654,6 +662,21 @@ class TestAiGeneration:
         token = _admin_token()
         if not token:
             pytest.skip("admin creds not configured")
+        # Pre-warm the DMR model — engines unload after ~5m idle, and a cold
+        # model load can exceed the request timeout or flip the endpoint to
+        # its CLI fallback. A tiny warm-up call makes the real call fast.
+        dmr_url = os.environ.get("DMR_URL", "http://host.docker.internal:12435/engines/llama.cpp/v1")
+        dmr_model = os.environ.get("DMR_TEXT_MODEL", "ai/qwen3:8b-q4_K_M")
+        try:
+            warm = httpx.post(
+                f"{dmr_url}/chat/completions",
+                json={"model": dmr_model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1},
+                timeout=240,
+            )
+            if warm.status_code >= 400:
+                pytest.skip(f"DMR unreachable: {warm.status_code}")
+        except (httpx.HTTPError, OSError):
+            pytest.skip("DMR not reachable — optional inference infra unavailable")
         r = httpx.post(
             f"{API_URL}/api/v1/ai/generate-content",
             headers=_h(token),

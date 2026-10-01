@@ -120,8 +120,7 @@ class PostListResponse(BaseModel):
 
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(
-    post_data: PostCreate,
-    team_id: TeamId,
+    post_data: PostCreate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -248,8 +247,7 @@ async def get_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Dep
 @router.patch("/posts/{post_id}", response_model=PostResponse)
 async def update_post(
     post_id: uuid.UUID,
-    post_data: PostUpdate,
-    team_id: TeamId,
+    post_data: PostUpdate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -300,8 +298,7 @@ async def update_post(
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
-    post_id: uuid.UUID,
-    team_id: TeamId,
+    post_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
     delete_external: bool = False,
@@ -380,8 +377,7 @@ async def _delete_external_targets(post: Post, db: AsyncSession) -> dict[str, st
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)
 async def schedule_post(
     post_id: uuid.UUID,
-    scheduled_at: str,
-    team_id: TeamId,
+    scheduled_at: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -515,8 +511,7 @@ class CrossPostRequest(BaseModel):
 @router.post("/posts/{post_id}/cross-post", response_model=PostResponse)
 async def cross_post_to_platform(
     post_id: uuid.UUID,
-    request: CrossPostRequest,
-    team_id: TeamId,
+    request: CrossPostRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

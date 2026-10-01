@@ -1445,8 +1445,7 @@ async def _get_messenger_account(
 @router.post("/{account_id}/bot/create")
 async def create_bot(
     account_id: uuid.UUID,
-    req: BotCreateRequest,
-    team_id: TeamId,
+    req: BotCreateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1585,8 +1584,7 @@ async def create_bot(
 
 @router.get("/{account_id}/bot")
 async def get_bot(
-    account_id: uuid.UUID,
-    team_id: TeamId,
+    account_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1618,8 +1616,7 @@ async def get_bot(
 @router.put("/{account_id}/bot")
 async def update_bot(
     account_id: uuid.UUID,
-    config: BotConfig,
-    team_id: TeamId,
+    config: BotConfig, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1649,8 +1646,7 @@ async def update_bot(
 
 @router.post("/{account_id}/bot/activate")
 async def activate_bot(
-    account_id: uuid.UUID,
-    team_id: TeamId,
+    account_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1680,8 +1676,7 @@ async def activate_bot(
 
 @router.post("/{account_id}/bot/deactivate")
 async def deactivate_bot(
-    account_id: uuid.UUID,
-    team_id: TeamId,
+    account_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1710,8 +1705,7 @@ async def deactivate_bot(
 @router.post("/{account_id}/bot/pause-thread/{thread_id}")
 async def bot_pause_thread(
     account_id: uuid.UUID,
-    thread_id: str,
-    team_id: TeamId,
+    thread_id: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1739,8 +1733,7 @@ async def bot_pause_thread(
 @router.post("/{account_id}/bot/resume-thread/{thread_id}")
 async def bot_resume_thread(
     account_id: uuid.UUID,
-    thread_id: str,
-    team_id: TeamId,
+    thread_id: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

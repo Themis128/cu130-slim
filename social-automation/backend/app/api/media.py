@@ -14,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId, get_user_team
+from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
-from app.models.user import User
+from app.models.user import Team, User
 from app.services import minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
 from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
@@ -178,14 +178,13 @@ async def _score_and_store_quality(
     await db.commit()
 
 @router.post("/upload", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
-async def upload_media(
+async def upload_media(team_id: TeamId,
     file: UploadFile = File(...),
     alt_text: str = Form(None),
     tags: str = Form(""),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -343,7 +342,7 @@ async def view_media(
 
 
 @router.get("/assets", response_model=MediaListResponse)
-async def list_media(
+async def list_media(team_id: TeamId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     type: str | None = Query(None, description="Filter: 'image' | 'video' | 'generated' (AI Generated)"),
@@ -352,9 +351,8 @@ async def list_media(
     search: str | None = Query(None, description="Search filename, alt_text, and generation_prompt"),
     collection_id: uuid.UUID | None = Query(None, description="Filter to assets belonging to a specific collection"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         return MediaListResponse(assets=[], total=0, page=page, page_size=page_size)
 
@@ -423,8 +421,7 @@ async def get_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = D
 @router.patch("/assets/{asset_id}", response_model=MediaAssetResponse)
 async def update_media(
     asset_id: uuid.UUID,
-    body: MediaAssetUpdateRequest,
-    team_id: TeamId,
+    body: MediaAssetUpdateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -480,11 +477,10 @@ class BulkDeleteRequest(BaseModel):
 
 @router.post("/assets/bulk-delete", status_code=status.HTTP_200_OK)
 async def bulk_delete_media(
-    body: BulkDeleteRequest,
+    body: BulkDeleteRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -528,10 +524,9 @@ class MediaGenerateImageRequest(BaseModel):
 
 @router.post("/generate-image", response_model=MediaAssetResponse)
 async def generate_image(
-    body: MediaGenerateImageRequest,
+    body: MediaGenerateImageRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate an image via Local Diffusers (primary) with Cloudflare Workers AI fallback.
 
     Fallback chain (first success wins):
@@ -545,7 +540,7 @@ async def generate_image(
         _call_local_diffusers_txt2img,
         _call_workers_ai_image,
     )
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -732,11 +727,10 @@ class CompleteUploadRequest(BaseModel):
 
 @router.post("/upload/prepare", response_model=PresignedUploadResponse)
 async def prepare_upload(
-    body: PresignedUploadRequest,
+    body: PresignedUploadRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -763,11 +757,10 @@ async def prepare_upload(
 
 @router.post("/upload/complete", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
 async def complete_upload(
-    body: CompleteUploadRequest,
+    body: CompleteUploadRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -842,11 +835,10 @@ class CollectionListResponse(BaseModel):
 
 @router.post("/collections", response_model=MediaCollectionResponse, status_code=status.HTTP_201_CREATED)
 async def create_collection(
-    body: MediaCollectionCreateRequest,
+    body: MediaCollectionCreateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -867,11 +859,10 @@ async def create_collection(
     return response
 
 @router.get("/collections", response_model=CollectionListResponse)
-async def list_collections(
+async def list_collections(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -893,8 +884,7 @@ async def list_collections(
 
 @router.get("/collections/{collection_id}", response_model=MediaCollectionResponse)
 async def get_collection(
-    collection_id: uuid.UUID,
-    team_id: TeamId,
+    collection_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -915,8 +905,7 @@ async def get_collection(
 @router.patch("/collections/{collection_id}", response_model=MediaCollectionResponse)
 async def update_collection(
     collection_id: uuid.UUID,
-    body: MediaCollectionUpdateRequest,
-    team_id: TeamId,
+    body: MediaCollectionUpdateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -946,8 +935,7 @@ async def update_collection(
 
 @router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_collection(
-    collection_id: uuid.UUID,
-    team_id: TeamId,
+    collection_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -967,8 +955,7 @@ class CollectionAssetRequest(BaseModel):
 @router.post("/collections/{collection_id}/assets", response_model=MediaAssetResponse)
 async def add_asset_to_collection(
     collection_id: uuid.UUID,
-    body: CollectionAssetRequest,
-    team_id: TeamId,
+    body: CollectionAssetRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -994,8 +981,7 @@ async def add_asset_to_collection(
 @router.delete("/collections/{collection_id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_asset_from_collection(
     collection_id: uuid.UUID,
-    asset_id: uuid.UUID,
-    team_id: TeamId,
+    asset_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1018,7 +1004,7 @@ async def remove_asset_from_collection(
 # ---------------------------------------------------------------------------
 
 @router.get("/search", response_model=MediaListResponse)
-async def search_media(
+async def search_media(team_id: TeamId,
     q: str | None = Query(None),
     mime_type: str | None = Query(None),
     source: str | None = Query(None),
@@ -1030,9 +1016,8 @@ async def search_media(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1088,11 +1073,10 @@ class SimilarAssetResponse(BaseModel):
 
 @router.post("/assets/{asset_id}/tag", response_model=MediaAssetResponse)
 async def retag_asset(
-    asset_id: uuid.UUID,
+    asset_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1114,11 +1098,10 @@ async def retag_asset(
 
 @router.get("/assets/{asset_id}/similar", response_model=list[SimilarAssetResponse])
 async def similar_assets(
-    asset_id: uuid.UUID,
+    asset_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
