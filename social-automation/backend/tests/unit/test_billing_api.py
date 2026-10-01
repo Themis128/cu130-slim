@@ -9,7 +9,6 @@ import hmac
 import json
 import time
 import uuid
-from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
@@ -20,7 +19,6 @@ from app.models.billing import BillingEvent
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services import dodo_api, paddle_api, polar_api
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / fakes
@@ -1624,6 +1622,10 @@ class TestDodoWebhook:
         # stale non-activating ignored; nested customer id stored when applied
         team = _team(plan_tier="pro", subscription_status="active",
                      dodo_subscription_id="ds_A")
+        team2 = _team(dodo_subscription_id="ds_C")
+        team3 = _team()
+        db = FakeDB(users=[User(id=t.owner_id, email="o@x.io")
+                           for t in (team, team2, team3)])
         await billing._handle_dodo_subscription_event(
             db, team, "subscription.updated",
             {"subscription_id": "ds_B", "status": "cancelled"},
@@ -1640,7 +1642,6 @@ class TestDodoWebhook:
         assert team.dodo_customer_id == "dc_n"
 
         # subscription.updated w/ active status → activating for unknown sub
-        team2 = _team(dodo_subscription_id="ds_C")
         await billing._handle_dodo_subscription_event(
             db, team2, "subscription.updated",
             {"subscription_id": "ds_D", "status": "active", "product_id": "dp_pro"},
@@ -1667,7 +1668,6 @@ class TestDodoWebhook:
         assert sent_emails[-1]["subject"] == "SocialAuto subscription ended"
 
         # failed + paused + renewed/unpaused/active-apply coverage
-        team3 = _team()
         await billing._handle_dodo_subscription_event(
             db, team3, "subscription.failed",
             {"subscription_id": "ds_E", "status": "failed"},

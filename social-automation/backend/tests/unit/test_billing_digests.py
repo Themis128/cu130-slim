@@ -126,7 +126,8 @@ class TestPolarDigest:
                  "recurring_interval": "year", "recurring_interval_count": 1,
                  "product": {"id": "pb"}},
                 {"status": "active", "amount": 1000,
-                 "recurring_interval": "week", "recurring_interval_count": 2},
+                 "recurring_interval": "week", "recurring_interval_count": 2,
+                 "product_id": "px_unmapped"},
                 {"status": "active", "amount": 0},  # no product id → skipped
                 {"status": "trialing"},
                 {"status": "past_due"},
