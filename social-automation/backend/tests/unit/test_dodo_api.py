@@ -262,6 +262,219 @@ async def test_live_payments_enabled_true_on_validation_error(monkeypatch, dodo_
     assert await dodo_api.live_payments_enabled() is True
 
 
+class _FakeResp:
+    def __init__(self, status=200, body=None, text="", json_exc=None):
+        self.status_code = status
+        self._body = body
+        self.text = text
+        self._json_exc = json_exc
+
+    def json(self):
+        if self._json_exc:
+            raise self._json_exc
+        return self._body
+
+
+class _FakeClient:
+    last: "_FakeClient | None" = None
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.calls = []
+        _FakeClient.last = self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def request(self, method, url, headers=None, **kwargs):
+        self.calls.append({"method": method, "url": url, "headers": headers, **kwargs})
+        return self._resp
+
+
+def _patch_httpx(monkeypatch, resp):
+    def factory(*a, **kw):
+        return _FakeClient(resp)
+
+    monkeypatch.setattr(dodo_api.httpx, "AsyncClient", factory)
+
+
+@pytest.mark.asyncio
+async def test_request_success_and_headers(monkeypatch, dodo_settings):
+    _patch_httpx(monkeypatch, _FakeResp(body={"ok": True}))
+    assert await dodo_api._request("GET", "/things") == {"ok": True}
+    call = _FakeClient.last.calls[0]
+    assert call["url"] == "https://test.dodopayments.com/things"
+    assert call["headers"]["Authorization"] == "Bearer dodo_test_key"
+
+
+@pytest.mark.asyncio
+async def test_request_non_json_body_returns_empty(monkeypatch, dodo_settings):
+    _patch_httpx(monkeypatch, _FakeResp(json_exc=ValueError("x")))
+    assert await dodo_api._request("GET", "/x") == {}
+
+
+@pytest.mark.asyncio
+async def test_request_error_uses_message_key(monkeypatch, dodo_settings):
+    _patch_httpx(monkeypatch, _FakeResp(status=400, body={"message": "bad req"}))
+    with pytest.raises(dodo_api.DodoError, match="bad req"):
+        await dodo_api._request("POST", "/x")
+
+
+@pytest.mark.asyncio
+async def test_request_error_detail_list_joined(monkeypatch, dodo_settings):
+    _patch_httpx(monkeypatch, _FakeResp(status=422, body={"detail": [{"msg": "a"}, {"msg": "b"}]}))
+    with pytest.raises(dodo_api.DodoError, match="a.*b"):
+        await dodo_api._request("POST", "/x")
+
+
+@pytest.mark.asyncio
+async def test_request_error_falls_back_to_text(monkeypatch, dodo_settings):
+    _patch_httpx(monkeypatch, _FakeResp(status=500, body={}, text="oops"))
+    with pytest.raises(dodo_api.DodoError, match="oops"):
+        await dodo_api._request("GET", "/x")
+
+
+def test_webhook_signature_rejects_non_numeric_timestamp(dodo_settings):
+    key = b"k"
+    dodo_settings.DODO_WEBHOOK_SECRET = "whsec_" + base64.b64encode(key).decode()
+    sig = _sign(b"body", key, "m", int(time.time()))
+    assert dodo_api.verify_webhook_signature(b"body", "m", "bogus", sig) is False
+
+
+def test_webhook_signature_non_base64_secret_falls_back(dodo_settings):
+    """A secret that isn't base64 (after prefix strip) uses raw bytes as key."""
+    secret = "whsec_!!!not-base64!!!"
+    dodo_settings.DODO_WEBHOOK_SECRET = secret
+    raw = b"payload"
+    ts = int(time.time())
+    sig = _sign(raw, secret.encode(), "m9", ts)
+    assert dodo_api.verify_webhook_signature(raw, "m9", str(ts), sig) is True
+
+
+def test_webhook_signature_dodo_prefix(dodo_settings):
+    key = b"dodo-prefixed-key"
+    dodo_settings.DODO_WEBHOOK_SECRET = "dodo_whs_" + base64.b64encode(key).decode()
+    raw = b"data"
+    ts = int(time.time())
+    sig = _sign(raw, key, "m10", ts)
+    assert dodo_api.verify_webhook_signature(raw, "m10", str(ts), sig) is True
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_existing_items(monkeypatch, dodo_settings):
+    async def fake_request(method, path, **kwargs):
+        return {"items": [{"customer_id": "c1", "email": "a@b.c"}]}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.get_or_create_customer("t1", "A@b.c") == "c1"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_existing_data_key(monkeypatch, dodo_settings):
+    async def fake_request(method, path, **kwargs):
+        return {"data": [{"customer_id": "c2", "email": "a@b.c"}]}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.get_or_create_customer("t1", "a@b.c") == "c2"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_creates_when_absent(monkeypatch, dodo_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, kwargs))
+        return {"items": []} if method == "GET" else {"customer_id": "c_new"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.get_or_create_customer("t1", "a@b.c", name="Ann") == "c_new"
+    payload = calls[1][1]["json"]
+    assert payload["name"] == "Ann"
+    assert payload["metadata"]["team_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_omits_name(monkeypatch, dodo_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, kwargs))
+        return {"items": []} if method == "GET" else {"customer_id": "c_new"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    await dodo_api.get_or_create_customer("t1", "a@b.c")
+    assert "name" not in calls[1][1]["json"]
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_with_customer_id(monkeypatch, dodo_settings):
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return {"session_id": "sess_1", "checkout_url": "https://dodo/co/sess_1"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    out = await dodo_api.create_checkout(
+        product_id="pdt_pro", team_id="t1", customer_id="cust_1",
+    )
+    assert out == {"id": "sess_1", "checkout_url": "https://dodo/co/sess_1"}
+    assert captured["customer"] == {"customer_id": "cust_1"}
+    assert captured["product_cart"] == [{"product_id": "pdt_pro", "quantity": 1}]
+    assert captured["metadata"]["team_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_with_email_name(monkeypatch, dodo_settings):
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return {"session_id": "sess_2"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    out = await dodo_api.create_checkout(
+        product_id="pdt_pro", team_id="t1",
+        customer_email="a@b.c", customer_name="Ann",
+    )
+    assert out["checkout_url"] is None
+    assert captured["customer"] == {"email": "a@b.c", "name": "Ann"}
+
+
+@pytest.mark.asyncio
+async def test_get_and_cancel_subscription(monkeypatch, dodo_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"subscription_id": "sub_1"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    assert await dodo_api.get_subscription("sub_1") == {"subscription_id": "sub_1"}
+    assert calls[0][1] == "/subscriptions/sub_1"
+    await dodo_api.cancel_subscription("sub_1")
+    assert calls[1][0] == "PATCH"
+    assert calls[1][2]["json"] == {"cancel_at_next_billing_date": True}
+
+
+@pytest.mark.asyncio
+async def test_create_portal_session(monkeypatch, dodo_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"link": "https://dodo/portal/xyz"}
+
+    monkeypatch.setattr(dodo_api, "_request", fake_request)
+    url = await dodo_api.create_portal_session("cust_9")
+    assert url == "https://dodo/portal/xyz"
+    assert calls[0][1] == "/customers/cust_9/customer-portal/session"
+    assert calls[0][2]["params"]["send_email"] == "false"
+
+
 @pytest.mark.asyncio
 async def test_billing_digest_dispatches_to_dodo(monkeypatch, dodo_settings):
     from app.services import paddle_digest

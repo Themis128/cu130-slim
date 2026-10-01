@@ -199,6 +199,220 @@ async def test_get_discount_id_for_code_only_when_redeemable(monkeypatch, polar_
     assert await polar_api.get_discount_id_for_code("LAUNCH20") == "disc_1"
 
 
+class _FakeResp:
+    def __init__(self, status=200, body=None, text="", json_exc=None):
+        self.status_code = status
+        self._body = body
+        self.text = text
+        self._json_exc = json_exc
+
+    def json(self):
+        if self._json_exc:
+            raise self._json_exc
+        return self._body
+
+
+class _FakeClient:
+    """Stand-in for httpx.AsyncClient — records requests, returns canned resp."""
+
+    last: "_FakeClient | None" = None
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.calls = []
+        _FakeClient.last = self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def request(self, method, url, headers=None, **kwargs):
+        self.calls.append({"method": method, "url": url, "headers": headers, **kwargs})
+        return self._resp
+
+
+def _patch_httpx(monkeypatch, resp):
+    """Route polar_api's httpx.AsyncClient to a canned response."""
+
+    def factory(*a, **kw):
+        return _FakeClient(resp)
+
+    monkeypatch.setattr(polar_api.httpx, "AsyncClient", factory)
+
+
+@pytest.mark.asyncio
+async def test_request_success_returns_json_and_headers(monkeypatch, polar_settings):
+    _patch_httpx(monkeypatch, _FakeResp(body={"ok": True}))
+    out = await polar_api._request("GET", "/things")
+    assert out == {"ok": True}
+    call = _FakeClient.last.calls[0]
+    assert call["url"] == "https://sandbox-api.polar.sh/v1/things"
+    assert call["headers"]["Authorization"] == "Bearer polar_oat_test"
+
+
+@pytest.mark.asyncio
+async def test_request_non_json_body_returns_empty(monkeypatch, polar_settings):
+    _patch_httpx(monkeypatch, _FakeResp(body=None, json_exc=ValueError("bad")))
+    assert await polar_api._request("GET", "/x") == {}
+
+
+@pytest.mark.asyncio
+async def test_request_error_detail_string(monkeypatch, polar_settings):
+    _patch_httpx(monkeypatch, _FakeResp(status=404, body={"detail": "not found"}))
+    with pytest.raises(polar_api.PolarError, match="404.*not found"):
+        await polar_api._request("GET", "/missing")
+
+
+@pytest.mark.asyncio
+async def test_request_error_detail_list_joined(monkeypatch, polar_settings):
+    body = {"detail": [{"msg": "bad field"}, {"msg": "worse"}]}
+    _patch_httpx(monkeypatch, _FakeResp(status=422, body=body))
+    with pytest.raises(polar_api.PolarError, match="bad field.*worse"):
+        await polar_api._request("POST", "/x")
+
+
+@pytest.mark.asyncio
+async def test_request_error_falls_back_to_text(monkeypatch, polar_settings):
+    _patch_httpx(monkeypatch, _FakeResp(status=500, body={}, text="server exploded"))
+    with pytest.raises(polar_api.PolarError, match="server exploded"):
+        await polar_api._request("GET", "/x")
+
+
+def test_webhook_signature_rejects_non_numeric_timestamp(polar_settings):
+    key = b"k"
+    polar_settings.POLAR_WEBHOOK_SECRET = "whsec_" + base64.b64encode(key).decode()
+    sig = _sign(b"body", key, "msg", int(time.time()))
+    assert polar_api.verify_webhook_signature(b"body", "msg", "not-a-ts", sig) is False
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_existing(monkeypatch, polar_settings):
+    async def fake_request(method, path, **kwargs):
+        assert method == "GET" and path == "/customers/external/team-9"
+        return {"id": "cust_existing"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    assert await polar_api.get_or_create_customer("team-9", "a@b.c") == "cust_existing"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_creates_on_404(monkeypatch, polar_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET":
+            raise polar_api.PolarError("Polar GET -> 404: not found")
+        return {"id": "cust_new"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    cid = await polar_api.get_or_create_customer("team-9", "a@b.c", name="Ann")
+    assert cid == "cust_new"
+    payload = calls[1][2]["json"]
+    assert payload["external_id"] == "team-9"
+    assert payload["email"] == "a@b.c"
+    assert payload["name"] == "Ann"
+    assert payload["metadata"]["team_id"] == "team-9"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_omits_name_when_absent(monkeypatch, polar_settings):
+    async def fake_request(method, path, **kwargs):
+        if method == "GET":
+            raise polar_api.PolarError("404")
+        return {"id": "cust_new"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    await polar_api.get_or_create_customer("team-9", "a@b.c")
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_customer_reraises_non_404(monkeypatch, polar_settings):
+    async def fake_request(method, path, **kwargs):
+        raise polar_api.PolarError("Polar GET -> 500: boom")
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    with pytest.raises(polar_api.PolarError, match="500"):
+        await polar_api.get_or_create_customer("team-9", "a@b.c")
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_with_customer_id(monkeypatch, polar_settings):
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return {"id": "chk_1", "url": "https://polar.sh/checkout/chk_1"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    out = await polar_api.create_checkout(
+        product_id="prod_pro", team_id="t1", customer_id="cust_1",
+        customer_email="a@b.c", customer_name="Ann", discount_id="disc_9",
+    )
+    assert out == {"id": "chk_1", "checkout_url": "https://polar.sh/checkout/chk_1"}
+    assert captured["customer_id"] == "cust_1"
+    assert captured["customer_email"] == "a@b.c"
+    assert captured["customer_name"] == "Ann"
+    assert captured["discount_id"] == "disc_9"
+    assert captured["metadata"]["team_id"] == "t1"
+    assert "external_customer_id" not in captured
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_external_customer_when_no_id(monkeypatch, polar_settings):
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return {"id": "chk_2"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    out = await polar_api.create_checkout(product_id="prod_pro", team_id="t2")
+    assert out["checkout_url"] is None
+    assert captured["external_customer_id"] == "t2"
+    assert "customer_id" not in captured
+    assert "discount_id" not in captured
+
+
+@pytest.mark.asyncio
+async def test_get_and_cancel_subscription(monkeypatch, polar_settings):
+    calls = []
+
+    async def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"id": "sub_1"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    assert await polar_api.get_subscription("sub_1") == {"id": "sub_1"}
+    assert calls[0][0] == "GET" and calls[0][1] == "/subscriptions/sub_1"
+    assert await polar_api.cancel_subscription("sub_1") == {"id": "sub_1"}
+    assert calls[1][0] == "PATCH"
+    assert calls[1][2]["json"] == {"cancel_at_period_end": True}
+
+
+@pytest.mark.asyncio
+async def test_create_portal_session(monkeypatch, polar_settings):
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return {"customer_portal_url": "https://polar.sh/portal/abc"}
+
+    monkeypatch.setattr(polar_api, "_request", fake_request)
+    url = await polar_api.create_portal_session("cust_7")
+    assert url == "https://polar.sh/portal/abc"
+    assert captured["customer_id"] == "cust_7"
+
+
+def test_parse_polar_dt_invalid_returns_none():
+    assert polar_api._parse_polar_dt("not-a-date") is None
+    assert polar_api._parse_polar_dt(None) is None
+    naive = polar_api._parse_polar_dt("2026-01-01T00:00:00")
+    assert naive.tzinfo == UTC
+
+
 @pytest.mark.asyncio
 async def test_billing_digest_dispatches_to_polar(monkeypatch, polar_settings):
     """build_billing_digest uses the Polar digest when BILLING_PROVIDER=polar."""
