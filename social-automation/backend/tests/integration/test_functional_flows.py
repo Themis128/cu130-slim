@@ -68,6 +68,33 @@ def _h(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _sweep_orphaned_ci_teams():
+    """Delete admin-owned `ci-*` teams left behind by killed runs.
+
+    test_team_lifecycle creates a `ci-*` team owned by the admin; if the
+    process dies before its finally-block, the orphan persists — and a
+    later login JWT can claim it as the active team, silently splitting
+    reads/writes across two teams (media 404s, empty calendar). Sweeping
+    at session start keeps stale debris from poisoning this run.
+    """
+    token = _admin_token()
+    if not token:
+        return
+    try:
+        r = httpx.get(f"{API_URL}/api/v1/teams", headers=_h(token), timeout=15)
+        if r.status_code != 200:
+            return
+        for team in r.json():
+            name = str(team.get("name") or "")
+            if name.startswith("ci-") and str(team.get("role") or "").lower() == "owner":
+                httpx.delete(
+                    f"{API_URL}/api/v1/teams/{team['id']}", headers=_h(token), timeout=15
+                )
+    except Exception:
+        pass  # best-effort hygiene sweep — never fail the suite over cleanup
+
+
 # 1x1 red pixel PNG
 TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
