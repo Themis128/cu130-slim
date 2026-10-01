@@ -15,6 +15,7 @@ Providers:
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import logging
 import smtplib
 import ssl
@@ -213,6 +214,19 @@ def _recipients(settings) -> list[str]:
     ]
 
 
+def _filter_suppressed(addrs: list[str], settings) -> list[str]:
+    """Drop recipients matching EMAIL_SUPPRESS_ADDR_PATTERNS (fnmatch, case-insensitive)."""
+    raw = getattr(settings, "EMAIL_SUPPRESS_ADDR_PATTERNS", "") or ""
+    patterns = [p.strip().lower() for p in raw.split(",") if p.strip()]
+    if not patterns:
+        return addrs
+    keep = [a for a in addrs if not any(fnmatch.fnmatch(a.lower(), p) for p in patterns)]
+    dropped = [a for a in addrs if a not in keep]
+    if dropped:
+        logger.info("suppressing email recipients per EMAIL_SUPPRESS_ADDR_PATTERNS: %s", dropped)
+    return keep
+
+
 def _attach_files(msg: EmailMessage, attachments: list[dict]) -> None:
     """Attach files to a message; items with a ``cid`` are inline images."""
     for att in attachments:
@@ -395,6 +409,14 @@ async def send_email(
     settings = get_settings()
     html = html_body or f"<pre>{_html_escape(text_body)}</pre>"
     provider = (settings.EMAIL_PROVIDER or "local").strip().lower()
+
+    # CI/e2e registrations point at non-existent mailboxes — suppress before any
+    # provider is invoked so Postfix doesn't bounce them to the admin inbox.
+    if to_addrs is not None:
+        to_addrs = _filter_suppressed(to_addrs, settings)
+        if not to_addrs:
+            logger.info("send_email suppressed — all recipients match EMAIL_SUPPRESS_ADDR_PATTERNS")
+            return
 
     if provider in {"cloudflare", "cf"}:
         # The REST API carries no attachments — SMTP submit (its built-in
