@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -40,8 +41,8 @@ class WebAnalyticsConfigIn(BaseModel):
 
 
 class WebAnalyticsConfigOut(BaseModel):
-    id: str
-    team_id: str
+    id: uuid.UUID
+    team_id: uuid.UUID
     domain: str
     ga4_enabled: bool
     ga4_measurement_id: str | None
