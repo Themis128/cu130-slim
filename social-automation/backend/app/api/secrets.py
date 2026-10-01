@@ -89,9 +89,17 @@ async def update_secret(
 
 @router.delete("/{key}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_secret(key: str, current_user: User = Depends(get_current_user)):
-    """Delete a secret from all stores."""
+    """Delete a secret from D1 + Postgres + .env stores."""
     _require_authenticated(current_user)
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Secret deletion is not yet supported",
-    )
+    existing = await secret_store.get(key)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Secret not found: {key}")
+    sources = await secret_store.delete(key)
+    if not any(sources.values()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Secret {key} could not be deleted from any store "
+                "(env-sourced secrets must be removed from the environment)"
+            ),
+        )

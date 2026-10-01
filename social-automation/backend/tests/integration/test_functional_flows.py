@@ -70,7 +70,7 @@ class TestAuthLifecycle:
     """register → login → me → refresh → delete-account → login fails."""
 
     def test_full_lifecycle(self):
-        email = f"ci-test-{uuid.uuid4().hex[:10]}@example.invalid"
+        email = f"ci-test-{uuid.uuid4().hex[:10]}@cloudless.gr"
         password = "CiTest!x" + uuid.uuid4().hex[:8]
 
         r = httpx.post(
@@ -150,7 +150,10 @@ class TestContentCrud:
         p = httpx.patch(
             f"{API_URL}/api/v1/content/posts/{post_id}",
             headers=_h(token),
-            json={"content_text": f"[{marker}] updated"},
+            json={
+                "content_text": f"[{marker}] updated",
+                "target_account_ids": [],
+            },
             timeout=15,
         )
         assert p.status_code == 200
