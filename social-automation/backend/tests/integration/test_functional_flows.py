@@ -246,6 +246,351 @@ class TestLeadFunnel:
         assert marker in lst.text, "submitted lead not found in admin leads"
 
 
+def _register_user() -> tuple[str, str, str]:
+    """Register a throwaway user; returns (email, password, access_token)."""
+    email = f"ci-test-{uuid.uuid4().hex[:10]}@cloudless.gr"
+    password = "CiTest!x" + uuid.uuid4().hex[:8]
+    r = httpx.post(
+        f"{API_URL}/api/v1/auth/register",
+        json={"email": email, "password": password, "name": "CI Test"},
+        timeout=20,
+    )
+    assert r.status_code in (200, 201), f"register → {r.status_code}: {r.text[:200]}"
+    token = r.json().get("access_token")
+    if not token:
+        r = httpx.post(
+            f"{API_URL}/api/v1/auth/login",
+            data={"username": email, "password": password},
+            timeout=15,
+        )
+        token = r.json()["access_token"]
+    return email, password, token
+
+
+def _delete_account(token: str, password: str) -> None:
+    httpx.request(
+        "DELETE",
+        f"{API_URL}/api/v1/auth/account",
+        headers=_h(token),
+        json={"password": password},
+        timeout=20,
+    )
+
+
+def _totp(secret: str, when: int | None = None) -> str:
+    """RFC 6238 TOTP — SHA1, 6 digits, 30s period."""
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    key = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    counter = int((when or time.time()) // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(code % 1_000_000).zfill(6)
+
+
+class TestTeamsFlow:
+    """Team create → rename → invite → second user accepts → delete."""
+
+    def test_team_lifecycle(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+
+        marker = f"ci-team-{uuid.uuid4().hex[:8]}"
+        c = httpx.post(
+            f"{API_URL}/api/v1/teams",
+            headers=_h(token),
+            json={"name": marker},
+            timeout=15,
+        )
+        assert c.status_code in (200, 201), f"create → {c.status_code}: {c.text[:200]}"
+        team = c.json()
+        team_id = team.get("id") or team.get("team", {}).get("id")
+        assert team_id
+
+        try:
+            p = httpx.patch(
+                f"{API_URL}/api/v1/teams/{team_id}",
+                headers=_h(token),
+                json={"name": f"{marker}-renamed"},
+                timeout=15,
+            )
+            assert p.status_code == 200, f"rename → {p.status_code}: {p.text[:200]}"
+
+            # Invite a throwaway user, who accepts with the returned token.
+            invitee_email, invitee_pw, invitee_tok = _register_user()
+            try:
+                inv = httpx.post(
+                    f"{API_URL}/api/v1/teams/{team_id}/invite",
+                    headers=_h(token),
+                    json={"email": invitee_email, "role": "editor"},
+                    timeout=15,
+                )
+                assert inv.status_code in (200, 201), f"invite → {inv.status_code}: {inv.text[:200]}"
+                invite_token = inv.json().get("token")
+                if invite_token:
+                    acc = httpx.post(
+                        f"{API_URL}/api/v1/teams/accept-invite",
+                        headers=_h(invitee_tok),
+                        json={"token": invite_token},
+                        timeout=15,
+                    )
+                    assert acc.status_code in (200, 201), f"accept → {acc.status_code}: {acc.text[:200]}"
+            finally:
+                _delete_account(invitee_tok, invitee_pw)
+        finally:
+            d = httpx.delete(f"{API_URL}/api/v1/teams/{team_id}", headers=_h(token), timeout=15)
+            assert d.status_code in (200, 204), f"team delete → {d.status_code}: {d.text[:200]}"
+
+
+class TestTeamScopedSandbox:
+    """Brand CRUD + post scheduling inside a throwaway user's own team.
+
+    A freshly registered user gets an auto-created personal team — that is
+    the sandbox. All team-scoped mutations land there, and account deletion
+    at the end cleans everything up.
+    """
+
+    def test_brand_and_schedule(self):
+        _email, password, sandbox_token = _register_user()
+
+        try:
+            # Brand is a per-team singleton — create it, then a second POST
+            # must 409.
+            b = httpx.post(
+                f"{API_URL}/api/v1/brand",
+                headers=_h(sandbox_token),
+                json={"name": "CI Test Brand", "tagline": "functional coverage"},
+                timeout=20,
+            )
+            assert b.status_code in (200, 201), f"brand create → {b.status_code}: {b.text[:200]}"
+
+            g = httpx.get(f"{API_URL}/api/v1/brand", headers=_h(sandbox_token), timeout=15)
+            assert g.status_code == 200, f"brand get → {g.status_code}: {g.text[:200]}"
+
+            dup = httpx.post(
+                f"{API_URL}/api/v1/brand",
+                headers=_h(sandbox_token),
+                json={"name": "CI Test Brand 2"},
+                timeout=15,
+            )
+            assert dup.status_code == 409, f"brand dup → {dup.status_code}: {dup.text[:200]}"
+
+            u = httpx.put(
+                f"{API_URL}/api/v1/brand",
+                headers=_h(sandbox_token),
+                json={"tagline": "updated by functional suite"},
+                timeout=15,
+            )
+            assert u.status_code == 200, f"brand put → {u.status_code}: {u.text[:200]}"
+
+            # Scheduled post: create → schedule → shows on calendar → delete
+            marker = f"ci-sched-{uuid.uuid4().hex[:8]}"
+            pc = httpx.post(
+                f"{API_URL}/api/v1/content/posts",
+                headers=_h(sandbox_token),
+                json={"content_text": f"[{marker}] scheduled draft", "target_account_ids": []},
+                timeout=20,
+            )
+            assert pc.status_code in (200, 201), f"post → {pc.status_code}: {pc.text[:200]}"
+            post_id = pc.json().get("id") or pc.json().get("post", {}).get("id")
+
+            future = "2099-01-01T12:00:00Z"
+            sc = httpx.post(
+                f"{API_URL}/api/v1/content/posts/{post_id}/schedule",
+                headers=_h(sandbox_token),
+                params={"scheduled_at": future},
+                timeout=15,
+            )
+            assert sc.status_code == 200, f"schedule → {sc.status_code}: {sc.text[:200]}"
+
+            cal = httpx.get(
+                f"{API_URL}/api/v1/content/posts/calendar",
+                headers=_h(sandbox_token),
+                params={"start": "2098-01-01T00:00:00Z", "end": "2100-01-01T00:00:00Z"},
+                timeout=15,
+            )
+            assert cal.status_code == 200 and marker in cal.text
+
+            dp = httpx.delete(
+                f"{API_URL}/api/v1/content/posts/{post_id}",
+                headers=_h(sandbox_token),
+                timeout=15,
+            )
+            assert dp.status_code in (200, 204)
+
+            db_ = httpx.delete(f"{API_URL}/api/v1/brand", headers=_h(sandbox_token), timeout=15)
+            assert db_.status_code in (200, 204), f"brand delete → {db_.status_code}: {db_.text[:200]}"
+
+            rb = httpx.post(
+                f"{API_URL}/api/v1/brand",
+                headers=_h(sandbox_token),
+                json={"name": "CI Test Brand", "tagline": "recreated"},
+                timeout=20,
+            )
+            assert rb.status_code in (200, 201), f"brand recreate → {rb.status_code}: {rb.text[:200]}"
+        finally:
+            _delete_account(sandbox_token, password)
+
+
+class TestAnalyticsConfigCrud:
+    """Web analytics config create → list → update → delete (UUID regression)."""
+
+    def test_config_roundtrip(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+
+        domain = f"ci-{uuid.uuid4().hex[:8]}.cloudless.gr"
+        c = httpx.post(
+            f"{API_URL}/api/v1/analytics/web/configs",
+            headers=_h(token),
+            json={"domain": domain},
+            timeout=15,
+        )
+        assert c.status_code in (200, 201), f"create → {c.status_code}: {c.text[:200]}"
+        cfg_id = c.json().get("id")
+        assert cfg_id
+
+        try:
+            lst = httpx.get(
+                f"{API_URL}/api/v1/analytics/web/configs", headers=_h(token), timeout=15
+            )
+            assert lst.status_code == 200 and domain in lst.text
+
+            u = httpx.put(
+                f"{API_URL}/api/v1/analytics/web/configs/{cfg_id}",
+                headers=_h(token),
+                json={"domain": domain, "ga4_enabled": False},
+                timeout=15,
+            )
+            assert u.status_code == 200, f"update → {u.status_code}: {u.text[:200]}"
+        finally:
+            d = httpx.delete(
+                f"{API_URL}/api/v1/analytics/web/configs/{cfg_id}",
+                headers=_h(token),
+                timeout=15,
+            )
+            assert d.status_code in (200, 204), f"delete → {d.status_code}: {d.text[:200]}"
+
+
+class TestNotificationPrefs:
+    """PUT notification preferences → response echoes new values."""
+
+    def test_prefs_update(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+
+        me = httpx.get(f"{API_URL}/api/v1/auth/me", headers=_h(token), timeout=15)
+        original = (me.json().get("notification_preferences") or {}) if me.status_code == 200 else {}
+
+        marker = {"email_analytics": not original.get("email_analytics", True)}
+        u = httpx.put(
+            f"{API_URL}/api/v1/auth/notifications/preferences",
+            headers=_h(token),
+            json=marker,
+            timeout=15,
+        )
+        assert u.status_code == 200, f"prefs → {u.status_code}: {u.text[:200]}"
+
+        me2 = httpx.get(f"{API_URL}/api/v1/auth/me", headers=_h(token), timeout=15)
+        if me2.status_code == 200 and me2.json().get("notification_preferences") is not None:
+            assert me2.json()["notification_preferences"].get("email_analytics") == marker[
+                "email_analytics"
+            ]
+
+        # restore
+        if original:
+            httpx.put(
+                f"{API_URL}/api/v1/auth/notifications/preferences",
+                headers=_h(token),
+                json=original,
+                timeout=15,
+            )
+
+
+class TestTwoFactorAndExport:
+    """Throwaway user: GDPR export → 2FA setup → TOTP verify → disable → delete."""
+
+    def test_2fa_and_export(self):
+        email, password, token = _register_user()
+        try:
+            ex = httpx.get(f"{API_URL}/api/v1/auth/export-data", headers=_h(token), timeout=20)
+            assert ex.status_code == 200, f"export → {ex.status_code}: {ex.text[:200]}"
+            assert email in ex.text
+
+            s = httpx.post(f"{API_URL}/api/v1/auth/2fa/setup", headers=_h(token), timeout=15)
+            assert s.status_code == 200, f"2fa setup → {s.status_code}: {s.text[:200]}"
+            secret = s.json()["secret"]
+
+            v = httpx.post(
+                f"{API_URL}/api/v1/auth/2fa/verify",
+                headers=_h(token),
+                json={"code": _totp(secret)},
+                timeout=15,
+            )
+            assert v.status_code == 200, f"2fa verify → {v.status_code}: {v.text[:200]}"
+
+            d = httpx.request(
+                "DELETE",
+                f"{API_URL}/api/v1/auth/2fa",
+                headers=_h(token),
+                json={"current_password": password},
+                timeout=15,
+            )
+            assert d.status_code in (200, 204), f"2fa off → {d.status_code}: {d.text[:200]}"
+        finally:
+            _delete_account(token, password)
+
+
+class TestInitiativeEvent:
+    """POST a real initiative tracking event."""
+
+    def test_event_ingest(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+        r = httpx.post(
+            f"{API_URL}/api/v1/analytics/initiative-events",
+            headers=_h(token),
+            json={
+                "initiative": f"ci-test-{uuid.uuid4().hex[:8]}",
+                "event": "functional_test",
+                "metadata": {"suite": "test_functional_flows"},
+            },
+            timeout=15,
+        )
+        assert r.status_code in (200, 201, 202, 422), f"event → {r.status_code}: {r.text[:200]}"
+        if r.status_code == 422:
+            pytest.fail(f"initiative event schema mismatch: {r.text[:300]}")
+
+
+class TestAccountOps:
+    """Run the connectivity test on a connected account."""
+
+    def test_account_test_endpoint(self):
+        token = _admin_token()
+        if not token:
+            pytest.skip("admin creds not configured")
+        accs = httpx.get(f"{API_URL}/api/v1/accounts", headers=_h(token), timeout=20)
+        assert accs.status_code == 200
+        body = accs.json()
+        accounts = body if isinstance(body, list) else body.get("accounts") or body.get("items") or []
+        if not accounts:
+            pytest.skip("no connected accounts")
+        aid = accounts[0].get("id")
+        t = httpx.post(f"{API_URL}/api/v1/accounts/{aid}/test", headers=_h(token), timeout=60)
+        # The probe itself may report a dead session — that is data, not an
+        # endpoint failure. Only hard server errors count as test failures.
+        assert t.status_code in (200, 201, 400, 404, 422), f"test → {t.status_code}: {t.text[:200]}"
+        assert t.status_code != 500
+
+
 class TestAiGeneration:
     """One real inference call through the fallback chain (DMR → CF AI)."""
 
