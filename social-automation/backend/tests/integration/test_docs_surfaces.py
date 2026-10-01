@@ -54,6 +54,8 @@ if _env.exists():
 def _documented_api_paths() -> set[str]:
     """Pull every `/api/v1/...` or `/health` path mentioned in the docs."""
     found: set[str] = set()
+    if REPO_ROOT is None:
+        return found
     for rel in DOC_FILES:
         f = REPO_ROOT / rel
         if not f.exists():
