@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import dotenv_values
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 
 from app.db.session import async_session_maker
@@ -227,6 +228,61 @@ class SecretStore:
         except Exception as exc:
             _log_secret_failure("Could not sync to .env", key, exc)
             return False
+
+    async def _delete_from_d1(self, key: str) -> bool:
+        if not d1_client.enabled or not await d1_client.health():
+            return False
+        try:
+            await d1_client.execute(
+                f"DELETE FROM {self._d1_table} WHERE key = ?",
+                [key],
+            )
+            return True
+        except Exception as exc:
+            _log_secret_failure("D1 secret delete failed", key, exc)
+            return False
+
+    async def _delete_from_postgres(self, key: str) -> bool:
+        try:
+            async with async_session_maker() as session:
+                result = await session.execute(
+                    sa_delete(SocialSecret).where(SocialSecret.key == key)
+                )
+                await session.commit()
+                return bool(result.rowcount)
+        except Exception as exc:
+            _log_secret_failure("Postgres secret delete failed", key, exc)
+            return False
+
+    def _delete_from_env_file(self, key: str) -> bool:
+        """Remove a `KEY=...` line from .env if present and writable.
+
+        Process-env values can't be deleted (they come from the container
+        environment) — this only removes the file entry.
+        """
+        if not _ENV_FILE.exists() or not os.access(_ENV_FILE, os.W_OK):
+            return False
+        try:
+            lines = _ENV_FILE.read_text().splitlines()
+            new_lines = [ln for ln in lines if not ln.startswith(f"{key}=")]
+            if len(new_lines) == len(lines):
+                return False
+            _ENV_FILE.write_text("\n".join(new_lines) + "\n")
+            return True
+        except Exception as exc:
+            _log_secret_failure("Could not delete from .env", key, exc)
+            return False
+
+    async def delete(self, key: str) -> dict[str, bool]:
+        """Delete a secret from D1 + Postgres + .env.
+
+        Process-environment variables are outside the store's control — a
+        key sourced only from `os.environ` reports env: False.
+        """
+        d1_ok = await self._delete_from_d1(key)
+        pg_ok = await self._delete_from_postgres(key)
+        env_ok = self._delete_from_env_file(key)
+        return {"d1": d1_ok, "postgres": pg_ok, "env": env_ok}
 
     async def list_keys(self) -> list[dict[str, Any]]:
         """List all secret keys (values are masked)."""
