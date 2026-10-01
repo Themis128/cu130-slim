@@ -21,7 +21,10 @@ Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails o
 | `socialauto-public` | `/api/v1/health` | monitoring |
 | `socialauto-oauth-callbacks` | `/api/v1/auth/oauth/` | OAuth redirects from Meta/TikTok/X/LinkedIn |
 | `socialauto-meta-data-deletion` | `/api/v1/auth/data-deletion` | Meta POSTs signed_request server-to-server |
+| `socialauto-media-view` | `/api/v1/media/view` | Public media serving for platform fetches (TikTok `PULL_FROM_URL`, Meta `image_url`) — unauthenticated by design, required on the TikTok-verified `cloudless.gr` domain |
 | (pre-existing bypasses) | `/api/v1/messenger/webhook`, `/api/v1/whatsapp/webhook`, `/api/v1/telegram/webhook/`, `/api/v1/billing/*` webhooks | Meta/Telegram/Polar/Dodo webhooks |
+
+Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypass — the site forwards with a Cloudflare Access **service token**; see "Public Edge & Lead Funnel" in `application-architecture.md`.
 
 **Gotcha:** OAuth callback URLs registered in the Meta app must be reachable without Access — verify with `curl -o /dev/null -w "%{http_code}" https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback` → `422` is good (reached origin), `302` to cloudflareaccess.com is bad.
 
