@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import get_user_team
+from app.api.deps import TeamId
 from app.db.session import get_db
 from app.models.digital_card import DigitalCard
 from app.models.social_account import SocialAccount
@@ -25,8 +25,8 @@ router = APIRouter()
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-async def _get_team(user: User, db: AsyncSession) -> Team:
-    team = await get_user_team(db, user)
+async def _get_team(team_id: uuid.UUID, db: AsyncSession) -> Team:
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     return team
@@ -282,11 +282,10 @@ async def _send_card_template(
 
 
 @router.get("", response_model=list[DigitalCardOut])
-async def list_cards(
+async def list_cards(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard)
         .where(DigitalCard.team_id == team.id)
@@ -304,11 +303,10 @@ async def list_cards(
 
 @router.post("", response_model=DigitalCardOut, status_code=201)
 async def create_card(
-    data: DigitalCardCreate,
+    data: DigitalCardCreate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     card = DigitalCard(
         team_id=team.id,
         brand_id=data.brand_id,
@@ -340,11 +338,10 @@ async def create_card(
 
 @router.get("/{card_id}", response_model=DigitalCardOut)
 async def get_card(
-    card_id: uuid.UUID,
+    card_id: uuid.UUID,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -360,11 +357,10 @@ async def get_card(
 @router.patch("/{card_id}", response_model=DigitalCardOut)
 async def update_card(
     card_id: uuid.UUID,
-    data: DigitalCardUpdate,
+    data: DigitalCardUpdate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -392,11 +388,10 @@ async def update_card(
 
 @router.delete("/{card_id}", status_code=204)
 async def delete_card(
-    card_id: uuid.UUID,
+    card_id: uuid.UUID,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -412,11 +407,10 @@ async def delete_card(
 
 @router.get("/{card_id}/vcard", response_class=PlainTextResponse)
 async def download_vcard(
-    card_id: uuid.UUID,
+    card_id: uuid.UUID,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _get_team(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -496,10 +490,9 @@ async def track_card_action(
 @router.post("/{card_id}/send", response_model=SendCardResult)
 async def send_card(
     card_id: uuid.UUID,
-    data: SendCardRequest,
+    data: SendCardRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Send the card link via WhatsApp Cloud API or Facebook Messenger.
 
     For WhatsApp: uses the WhatsApp Cloud API (Graph API) to send a text
@@ -509,7 +502,7 @@ async def send_card(
     For Messenger: uses the Messenger Platform API to send a message
     to a PSID. Requires a Facebook Page account connected.
     """
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -656,16 +649,15 @@ async def send_card(
 
 
 @router.post("/from-brand", response_model=DigitalCardOut, status_code=201)
-async def create_card_from_brand(
+async def create_card_from_brand(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Auto-create a digital card from the team's brand identity and social accounts."""
     from sqlalchemy.orm import selectinload
 
     from app.models.brand import Brand
 
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
 
     # Get brand with voice eagerly loaded
     result = await db.execute(

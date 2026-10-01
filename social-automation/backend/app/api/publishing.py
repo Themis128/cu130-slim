@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
-from app.api.deps import get_user_team
+from app.api.deps import TeamId
 from app.db.session import get_db
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
@@ -123,14 +123,13 @@ async def add_to_queue(
 
 
 @router.get("/queue", response_model=QueueListResponse)
-async def list_queue(
+async def list_queue(team_id: TeamId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status_filter: QueueStatus | None = Query(None, alias="status"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         return QueueListResponse(items=[], total=0, page=page, page_size=page_size)
 
@@ -287,13 +286,12 @@ async def _retry_queue_item_impl(
 
 
 @router.get("/history", response_model=list[dict])
-async def publish_history(
+async def publish_history(team_id: TeamId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         return []
 

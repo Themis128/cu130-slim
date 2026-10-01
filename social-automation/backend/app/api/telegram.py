@@ -249,8 +249,7 @@ PERSONALITY_PRESETS = {
 
 @router.post("/connect", response_model=dict)
 async def connect_telegram_bot(
-    body: TelegramConnectRequest,
-    team_id: TeamId,
+    body: TelegramConnectRequest, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

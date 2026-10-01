@@ -151,8 +151,7 @@ def require_team_role(min_role: UserRole):
     """
 
     async def _check(
-        current_user: CurrentUser,
-        team_id: TeamId,
+        current_user: CurrentUser, team_id: TeamId,
         db: DbSession,
     ) -> User:
         role = await get_user_role_in_team(current_user, team_id, db)

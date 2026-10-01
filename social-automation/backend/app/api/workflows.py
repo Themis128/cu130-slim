@@ -8,10 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId, get_user_team
+from app.api.deps import TeamId
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import Team, User
 from app.models.workflow import ContentPromptTemplate, GeneratedWorkflow, PromptTemplate
 
 router = APIRouter()
@@ -68,12 +68,11 @@ class GeneratedWorkflowResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 @router.get("", response_model=list[GeneratedWorkflowResponse])
-async def list_workflows(
+async def list_workflows(team_id: TeamId,
     status: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         return []
 
@@ -86,12 +85,11 @@ async def list_workflows(
     return rows.scalars().all()
 
 @router.get("/templates", response_model=list[PromptTemplateResponse])
-async def list_templates(
+async def list_templates(team_id: TeamId,
     category: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         return []
 
@@ -105,11 +103,10 @@ async def list_templates(
 
 @router.post("/templates", response_model=PromptTemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_template(
-    template_data: PromptTemplateCreate,
+    template_data: PromptTemplateCreate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await get_user_team(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -132,8 +129,7 @@ async def create_template(
 
 @router.get("/templates/{template_id}", response_model=PromptTemplateResponse)
 async def get_template(
-    template_id: uuid.UUID,
-    team_id: TeamId,
+    template_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -149,8 +145,7 @@ async def get_template(
 @router.patch("/templates/{template_id}", response_model=PromptTemplateResponse)
 async def update_template(
     template_id: uuid.UUID,
-    updates: dict,
-    team_id: TeamId,
+    updates: dict, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -176,8 +171,7 @@ async def update_template(
 
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
-    template_id: uuid.UUID,
-    team_id: TeamId,
+    template_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -220,14 +214,13 @@ class ContentTemplateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 @router.get("/content-templates", response_model=list[ContentTemplateOut])
-async def list_content_templates(
+async def list_content_templates(team_id: TeamId,
     pillar_id: uuid.UUID | None = None,
     platform: str | None = None,
     tone: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team_id = await _resolve_team_id(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team_id = await _resolve_team_id(team_id, db)
     q = select(ContentPromptTemplate).where(ContentPromptTemplate.team_id == team_id)
     if pillar_id:
         q = q.where(ContentPromptTemplate.pillar_id == pillar_id)
@@ -241,11 +234,10 @@ async def list_content_templates(
 
 @router.post("/content-templates", response_model=ContentTemplateOut, status_code=status.HTTP_201_CREATED)
 async def create_content_template(
-    data: ContentTemplateCreate,
+    data: ContentTemplateCreate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team_id = await _resolve_team_id(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team_id = await _resolve_team_id(team_id, db)
     tpl = ContentPromptTemplate(team_id=team_id, **data.model_dump())
     db.add(tpl)
     await db.commit()
@@ -255,11 +247,10 @@ async def create_content_template(
 @router.patch("/content-templates/{template_id}", response_model=ContentTemplateOut)
 async def update_content_template(
     template_id: uuid.UUID,
-    data: ContentTemplateCreate,
+    data: ContentTemplateCreate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team_id = await _resolve_team_id(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team_id = await _resolve_team_id(team_id, db)
     result = await db.execute(
         select(ContentPromptTemplate).where(ContentPromptTemplate.id == template_id, ContentPromptTemplate.team_id == team_id)
     )
@@ -274,11 +265,10 @@ async def update_content_template(
 
 @router.delete("/content-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_content_template(
-    template_id: uuid.UUID,
+    template_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team_id = await _resolve_team_id(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    team_id = await _resolve_team_id(team_id, db)
     result = await db.execute(
         select(ContentPromptTemplate).where(ContentPromptTemplate.id == template_id, ContentPromptTemplate.team_id == team_id)
     )
@@ -290,8 +280,7 @@ async def delete_content_template(
 
 @router.get("/{workflow_id}", response_model=GeneratedWorkflowResponse)
 async def get_workflow(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -306,8 +295,7 @@ async def get_workflow(
 
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -323,8 +311,7 @@ async def delete_workflow(
 
 @router.post("/{workflow_id}/undeploy")
 async def undeploy_workflow(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -360,8 +347,7 @@ async def undeploy_workflow(
 
 @router.post("/generate", response_model=WorkflowGenerateResponse)
 async def generate_workflow(
-    request: WorkflowGenerateRequest,
-    team_id: TeamId,
+    request: WorkflowGenerateRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -399,7 +385,7 @@ async def generate_workflow(
         n8n_workflow["name"] = f"Generated: {request.prompt[:50]}"
     else:
         # Generate workflow JSON using AI
-        team = await get_user_team(db, current_user)
+        team = await db.get(Team, team_id)
 
         ai_prompt = (
             "You are an n8n workflow generator. Given a natural-language description, "
@@ -446,7 +432,7 @@ async def generate_workflow(
             n8n_workflow = _fallback_workflow(request.prompt)
 
     # Save generated workflow
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
 
     gen_workflow = GeneratedWorkflow(
         team_id=team.id if team else uuid.uuid4(),
@@ -508,15 +494,14 @@ def _fallback_workflow(prompt: str) -> dict:
     }
 
 @router.post("/import-cloudless-carousel")
-async def import_cloudless_carousel(
+async def import_cloudless_carousel(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Register the Cloudless CF→LinkedIn n8n workflow in app templates + workflows."""
     import json
     import os
 
-    team = await get_user_team(db, current_user)
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -627,8 +612,7 @@ async def import_cloudless_carousel(
 
 @router.post("/deploy/{workflow_id}")
 async def deploy_workflow(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -657,8 +641,7 @@ async def deploy_workflow(
 
 @router.post("/execute/{workflow_id}")
 async def execute_workflow(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     data: dict | None = None,
@@ -687,8 +670,7 @@ async def execute_workflow(
 
 @router.get("/{workflow_id}/executions")
 async def get_workflow_executions(
-    workflow_id: uuid.UUID,
-    team_id: TeamId,
+    workflow_id: uuid.UUID, team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = 10,
@@ -726,8 +708,8 @@ async def get_workflow_executions(
     return runs
 
 
-async def _resolve_team_id(user: User, db: AsyncSession) -> uuid.UUID:
-    team = await get_user_team(db, user)
+async def _resolve_team_id(team_id: uuid.UUID, db: AsyncSession) -> uuid.UUID:
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team.id

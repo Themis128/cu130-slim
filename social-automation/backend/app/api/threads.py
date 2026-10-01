@@ -174,8 +174,7 @@ async def get_threads_profile(
 
 @router.put("/profile", response_model=ThreadsProfileUpdateResponse)
 async def update_threads_profile(
-    request: ThreadsProfileUpdateRequest,
-    team_id: TeamId,
+    request: ThreadsProfileUpdateRequest, team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -239,8 +238,7 @@ async def get_threads_insights(
 
 @router.get("/posts/{media_id}/insights", response_model=ThreadsPostInsightsResponse)
 async def get_threads_post_insights(
-    media_id: str,
-    team_id: TeamId,
+    media_id: str, team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     metric: str = Query("views", description="Insight metric: views, likes, replies, reposts, quotes"),
     db: AsyncSession = Depends(get_db),
@@ -362,8 +360,7 @@ async def list_threads_posts(
 
 @router.post("/posts/{media_id}/reply", response_model=ThreadsReplyResponse)
 async def reply_to_thread(
-    media_id: str,
-    team_id: TeamId,
+    media_id: str, team_id: TeamId,
     request: ThreadsReplyRequest,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
@@ -419,8 +416,7 @@ async def reply_to_thread(
 
 @router.delete("/posts/{media_id}", response_model=ThreadsDeleteResponse)
 async def delete_threads_post(
-    media_id: str,
-    team_id: TeamId,
+    media_id: str, team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -484,8 +480,7 @@ class ThreadsAutoReplyConfig(BaseModel):
 
 @router.get("/{account_id}/dm/auto-reply")
 async def get_threads_dm_auto_reply(
-    account_id: uuid.UUID,
-    team_id: TeamId,
+    account_id: uuid.UUID, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Get the Threads DM auto-reply configuration for an account."""
@@ -506,8 +501,7 @@ async def get_threads_dm_auto_reply(
 @router.put("/{account_id}/dm/auto-reply")
 async def update_threads_dm_auto_reply(
     account_id: uuid.UUID,
-    body: ThreadsAutoReplyConfig,
-    team_id: TeamId,
+    body: ThreadsAutoReplyConfig, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the Threads DM auto-reply configuration for an account."""
@@ -526,8 +520,7 @@ async def update_threads_dm_auto_reply(
 
 @router.get("/{account_id}/dm/conversations")
 async def list_threads_dm_conversations(
-    account_id: uuid.UUID,
-    team_id: TeamId,
+    account_id: uuid.UUID, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """List Threads DM conversations via the browser bridge."""
@@ -545,8 +538,7 @@ async def list_threads_dm_conversations(
 @router.get("/{account_id}/dm/threads/{thread_id}")
 async def read_threads_dm_thread(
     account_id: uuid.UUID,
-    thread_id: str,
-    team_id: TeamId,
+    thread_id: str, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Read messages in a Threads DM thread via the browser bridge."""
@@ -565,8 +557,7 @@ async def read_threads_dm_thread(
 async def send_threads_dm(
     account_id: uuid.UUID,
     thread_id: str,
-    body: dict,
-    team_id: TeamId,
+    body: dict, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Send a message in a Threads DM thread via the browser bridge."""
@@ -591,8 +582,7 @@ async def send_threads_dm(
 
 @router.post("/{account_id}/dm/login")
 async def threads_dm_login(
-    account_id: str,
-    team_id: TeamId,
+    account_id: str, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Open Threads in the browser bridge for manual login.
@@ -622,8 +612,7 @@ async def threads_dm_login(
 
 @router.get("/{account_id}/dm/session-status")
 async def threads_dm_session_status(
-    account_id: str,
-    team_id: TeamId,
+    account_id: str, team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Check if the Threads browser session is active."""

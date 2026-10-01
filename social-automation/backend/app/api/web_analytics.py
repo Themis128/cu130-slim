@@ -13,9 +13,10 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, User
 from app.models.web_analytics import WebAnalyticsConfig, WebAnalyticsEvent
 from app.services.web_analytics import ingest_event
 
@@ -76,16 +77,12 @@ class WebEventOut(BaseModel):
     forwarded: dict[str, Any]
 
 
-async def _get_team_for_user(db: AsyncSession, user: User) -> Team:
-    result = await db.execute(
-        select(Team)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == user.id)
-    )
-    team = result.scalars().first()
+async def _get_team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team:
+    team = await db.get(Team, team_id)
     if not team:
-        raise HTTPException(status_code=404, detail="No team found for user")
+        raise HTTPException(status_code=404, detail="Team not found")
     return team
+
 
 
 def _verify_webhook_signature(payload: bytes, secret: str, signature: str | None) -> bool:
@@ -93,7 +90,6 @@ def _verify_webhook_signature(payload: bytes, secret: str, signature: str | None
         return False
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected.lower(), signature.lower().lstrip("sha256=").strip())
-
 
 def _env_fallback_config(domain: str) -> WebAnalyticsConfig | None:
     """Build a transient config from env vars for the default cloudless.gr domain.
@@ -124,7 +120,6 @@ def _env_fallback_config(domain: str) -> WebAnalyticsConfig | None:
         meta_pixel_id=settings.META_PIXEL_ID or None,
         meta_capi_access_token=settings.META_CAPI_ACCESS_TOKEN or None,
     )
-
 
 @router.post(
     "/webhooks/cloudless-analytics",
@@ -180,11 +175,10 @@ async def receive_cloudless_event(
 
 
 @router.get("/configs", response_model=list[WebAnalyticsConfigOut])
-async def list_configs(
+async def list_configs(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> list[WebAnalyticsConfigOut]:
-    team = await _get_team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)) -> list[WebAnalyticsConfigOut]:
+    team = await _get_team_for_user(db, team_id)
     result = await db.execute(
         select(WebAnalyticsConfig).where(WebAnalyticsConfig.team_id == team.id)
     )
@@ -193,11 +187,10 @@ async def list_configs(
 
 @router.post("/configs", response_model=WebAnalyticsConfigOut, status_code=status.HTTP_201_CREATED)
 async def create_config(
-    data: WebAnalyticsConfigIn,
+    data: WebAnalyticsConfigIn, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> WebAnalyticsConfigOut:
-    team = await _get_team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)) -> WebAnalyticsConfigOut:
+    team = await _get_team_for_user(db, team_id)
 
     existing = await db.execute(
         select(WebAnalyticsConfig).where(
@@ -234,11 +227,10 @@ async def create_config(
 @router.put("/configs/{config_id}", response_model=WebAnalyticsConfigOut)
 async def update_config(
     config_id: str,
-    data: WebAnalyticsConfigIn,
+    data: WebAnalyticsConfigIn, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> WebAnalyticsConfigOut:
-    team = await _get_team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)) -> WebAnalyticsConfigOut:
+    team = await _get_team_for_user(db, team_id)
     result = await db.execute(
         select(WebAnalyticsConfig).where(
             WebAnalyticsConfig.id == config_id,
@@ -273,11 +265,10 @@ async def update_config(
 
 @router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_config(
-    config_id: str,
+    config_id: str, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    team = await _get_team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)) -> None:
+    team = await _get_team_for_user(db, team_id)
     result = await db.execute(
         select(WebAnalyticsConfig).where(
             WebAnalyticsConfig.id == config_id,
@@ -302,12 +293,11 @@ class WebAnalyticsSummary(BaseModel):
 
 
 @router.get("/summary", response_model=WebAnalyticsSummary)
-async def get_summary(
+async def get_summary(team_id: TeamId,
     days: int = 30,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> WebAnalyticsSummary:
-    team = await _get_team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)) -> WebAnalyticsSummary:
+    team = await _get_team_for_user(db, team_id)
     since = datetime.now(UTC) - timedelta(days=days)
 
     total_result = await db.execute(
