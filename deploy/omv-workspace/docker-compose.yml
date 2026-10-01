@@ -1,0 +1,101 @@
+services:
+  nextcloud-db:
+    image: postgres:16-alpine
+    container_name: nextcloud-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+      - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    dns: [1.1.1.1, 8.8.8.8]
+
+  redis:
+    image: redis:7-alpine
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    dns: [1.1.1.1, 8.8.8.8]
+
+  nextcloud:
+    image: nextcloud:34-apache
+    container_name: nextcloud
+    restart: unless-stopped
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=nextcloud-db
+      - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+      - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+      - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
+      - NEXTCLOUD_ADMIN_PASSWORD=${NEXTCLOUD_ADMIN_PASSWORD}
+      - NEXTCLOUD_TRUSTED_DOMAINS=cloud.cloudless.gr 192.168.1.200 localhost
+      - OVERWRITEPROTOCOL=https
+      - OVERWRITEHOST=cloud.cloudless.gr
+      - TRUSTED_PROXIES=172.16.0.0/12 192.168.0.0/16 10.0.0.0/8
+      - APACHE_DISABLE_REWRITE_IP=1
+      - PHP_MEMORY_LIMIT=1024M
+      - PHP_UPLOAD_LIMIT=4G
+      - TZ=Europe/Athens
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+    ports:
+      - "11000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/status.php || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    dns: [1.1.1.1, 8.8.8.8]
+
+  nextcloud-cron:
+    image: nextcloud:34-apache
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+    entrypoint: /cron.sh
+    dns: [1.1.1.1, 8.8.8.8]
+
+  collabora:
+    image: collabora/code:25.04.7.2.1
+    container_name: collabora
+    restart: unless-stopped
+    ports:
+      - "9980:9980"
+    environment:
+      - aliasgroup1=https://cloud\\.cloudless\\.gr:443
+      - server_name=office.cloudless.gr
+      - username=admin
+      - password=${COLLABORA_ADMIN_PASSWORD}
+      - DONT_GEN_SSL_CERT=true
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.proto=IPv4 --o:welcome.enable=false
+      - TZ=Europe/Athens
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    dns: [1.1.1.1, 8.8.8.8]
