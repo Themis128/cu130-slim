@@ -14,7 +14,9 @@ if not is_ci:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
-                    os.environ[key] = value.strip('"')
+                    # Real env vars take precedence over .env so callers can
+                    # override (e.g. point DATABASE_URL at a *_test database).
+                    os.environ.setdefault(key, value.strip('"'))
 
 # Override UPLOAD_DIR for tests to a temporary directory
 os.environ["UPLOAD_DIR"] = "/tmp/uploads"
