@@ -374,7 +374,7 @@ async def send_instagram_session_alert_email(
         "To restore it:\n"
         "1. Log in to Instagram in a real browser.\n"
         "2. Copy the `sessionid` cookie from devtools.\n"
-        "3. Import it: .devin/skills/instagram-private-api/scripts/import-session.sh <sessionid>\n\n"
+        "3. Import it: .devin/skills/instagram-private-api/scripts/import-session.py <sessionid>\n\n"
         "— SocialAuto"
     )
     html = _html_wrapper(
@@ -389,7 +389,7 @@ async def send_instagram_session_alert_email(
           <li>Log in to Instagram in a real browser.</li>
           <li>Copy the <code>sessionid</code> cookie from devtools.</li>
           <li>Import it via
-            <code>.devin/skills/instagram-private-api/scripts/import-session.sh &lt;sessionid&gt;</code>
+            <code>.devin/skills/instagram-private-api/scripts/import-session.py &lt;sessionid&gt;</code>
           </li>
         </ol>
         """,
