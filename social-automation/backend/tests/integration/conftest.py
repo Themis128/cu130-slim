@@ -6,9 +6,13 @@ import pytest
 # Only load .env file if not in CI environment
 is_ci = os.environ.get("CI") == "true"
 if not is_ci:
-    # Load environment variables from .env file if it exists
-    env_path = Path(__file__).parent.parent.parent / ".env"
-    if env_path.exists():
+    # Find the nearest .env walking up — covers both the container layout
+    # (/app/tests/… → /app/.env) and host runs (…/backend/tests/… → repo .env).
+    env_path = next(
+        (p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()),
+        None,
+    )
+    if env_path and env_path.exists():
         with open(env_path) as f:
             for line in f:
                 line = line.strip()
