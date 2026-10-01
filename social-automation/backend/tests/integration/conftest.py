@@ -22,11 +22,15 @@ os.environ["UPLOAD_DIR"] = "/tmp/uploads"
 # Ensure the uploads directory exists
 os.makedirs(os.environ["UPLOAD_DIR"], exist_ok=True)
 
-# Only override database URL for local development (not CI)
+# Only override database URL for local development (not CI).
+# Default to the dedicated ``social_automation_test`` database — never the live
+# ``social_automation`` DB, which the ``engine`` fixture would drop.
 if not is_ci and "DATABASE_URL" not in os.environ:
-    # Override the database URL to use the host port for the social-postgres container
     # The social-postgres container is mapped to port 5433 on the host
-    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres_password@localhost:5433/social"
+    os.environ["DATABASE_URL"] = (
+        f"postgresql+asyncpg://{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+        f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}@localhost:5433/social_automation_test"
+    )
 
 # Only override redis URL for local development (not CI)
 if not is_ci and "REDIS_URL" not in os.environ:
@@ -56,8 +60,19 @@ def pytest_collection_modifyitems(items):
 
 @pytest_asyncio.fixture(scope="function")
 async def engine():
-    """Create a new database engine for each test."""
-    database_url = os.environ.get("DATABASE_URL")
+    """Create a fresh-schema database engine for each test.
+
+    SAFETY: this fixture runs ``drop_all``/``create_all`` — it must never touch
+    a production database. It refuses to run unless the target DB name ends in
+    ``_test`` (or ``ALLOW_DESTRUCTIVE_TEST_DB=1`` is set explicitly).
+    """
+    database_url = os.environ.get("DATABASE_URL", "")
+    db_name = database_url.rsplit("/", 1)[-1].split("?")[0]
+    if not db_name.endswith("_test") and os.environ.get("ALLOW_DESTRUCTIVE_TEST_DB") != "1":
+        pytest.skip(
+            f"Refusing drop_all on non-test database '{db_name}' — set DATABASE_URL "
+            "to a *_test database (or ALLOW_DESTRUCTIVE_TEST_DB=1 to override)"
+        )
     print(f"Using DATABASE_URL: {database_url}")
     eng = create_async_engine(database_url, echo=False)
     async with eng.begin() as conn:
