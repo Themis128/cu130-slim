@@ -300,7 +300,7 @@ async def get_mentions(
 # description, and test data for the App Review submission.
 
 @router.get("/app-review/guide")
-async def get_app_review_guide():
+async def get_app_review_guide(current_user: User = Depends(get_current_user)):
     """Get the App Review submission guide for instagram_business_manage_messages.
 
     Returns the required text, screencast description, and test data

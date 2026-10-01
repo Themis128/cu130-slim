@@ -7,6 +7,7 @@ Set SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD (repo .env is auto-loaded) for
 the authenticated probes; unauthenticated checks run regardless.
 """
 
+import functools
 import os
 import re
 from pathlib import Path
@@ -77,6 +78,7 @@ def _openapi_paths() -> dict:
     return r.json()["paths"]
 
 
+@functools.lru_cache(maxsize=1)
 def _admin_token() -> str | None:
     email = os.environ.get("SOCIAL_ADMIN_EMAIL")
     password = os.environ.get("SOCIAL_ADMIN_PASSWORD")
@@ -127,6 +129,19 @@ class TestDocsCoverRealRoutes:
                 missing.append(f"{doc_path} → {r.status_code}")
         assert not missing, f"documented but not served: {missing}"
 
+    def test_every_route_is_inventoried(self):
+        """Reverse coverage: every live route must appear in
+        docs/api-surface-inventory.md (regenerate when adding routes)."""
+        inv = REPO_ROOT / "docs" / "api-surface-inventory.md"
+        if not inv.exists():
+            pytest.fail("docs/api-surface-inventory.md missing — regenerate it")
+        listed = set(re.findall(r"`(/api/v1/[^`\s]+|/health)`", inv.read_text()))
+        missing = [
+            p for p in _openapi_paths()
+            if p not in listed
+        ]
+        assert not missing, f"routes missing from inventory: {missing}"
+
 
 class TestLiveProbes:
     """Smoke the documented live surfaces — none may 5xx."""
@@ -165,6 +180,170 @@ class TestLiveProbes:
         r = httpx.get(
             f"{API_URL}{path}",
             headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
+            # inbox aggregates across sidecars — can be slow
+            timeout=120,
         )
         assert r.status_code < 500, f"{path} → {r.status_code}: {r.text[:200]}"
+
+
+# ---------------------------------------------------------------------------
+# Full-route sweep — every GET in the OpenAPI schema gets a real request.
+# ---------------------------------------------------------------------------
+
+# GETs that legitimately cause work or external calls — excluded from the sweep
+# but still checked for existence via the schema itself.
+SWEEP_SKIP = re.compile(
+    r"oauth/.*/(authorize|callback)$|instagram2?/authorize|instagram2/callback|"
+    r"export-data|reports/export|generate-image|webhook|data-deletion"
+)
+
+# GET endpoints that must respond WITHOUT auth (everything else must 401/403).
+KNOWN_PUBLIC_GET = {
+    "/health",
+    "/api/v1/health",
+    "/api/v1/media/view",  # public media serving — Access bypass by design
+    "/api/v1/cf-db/health",  # documented ops probe (tokens_available counts, no secrets)
+    "/api/v1/ai-providers/catalog",  # deliberately public — static provider metadata
+    "/api/v1/openapi.json",  # if served under /api/v1
+}
+
+DUMMY_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _fill_params(path: str, ids: dict[str, str]) -> str:
+    """Substitute {param} path params with real IDs where we have them."""
+    def repl(m: re.Match) -> str:
+        name = m.group(1)
+        if name == "platform":
+            return "facebook"
+        if name in ids:
+            return ids[name]
+        # heuristic: {x_id} / {xId} → look up by suffix or return dummy
+        for k, v in ids.items():
+            if name.endswith(k.removesuffix("_id")) or k.endswith(name):
+                return v
+        return DUMMY_ID
+    return re.sub(r"\{([^}]+)\}", repl, path)
+
+
+def _seed_ids(token: str | None) -> dict[str, str]:
+    """Pull one real ID per resource type so param'd routes hit real rows."""
+    ids: dict[str, str] = {}
+    if not token:
+        return ids
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    sources = {
+        "account_id": "/api/v1/accounts",
+        "team_id": "/api/v1/teams",
+        "post_id": "/api/v1/content/posts?limit=1",
+        "asset_id": "/api/v1/media?limit=1",
+        "queue_id": "/api/v1/publishing/queue?limit=1",
+        "collection_id": "/api/v1/media/collections",
+    }
+    for key, url in sources.items():
+        try:
+            r = httpx.get(f"{API_URL}{url}", headers=headers, timeout=15)
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            items = data if isinstance(data, list) else data.get(
+                "items") or data.get("accounts") or data.get("posts") or data.get("assets") or data.get("teams") or data.get("results") or []
+            if items:
+                first = items[0]
+                ids[key] = str(first.get("id") or first.get("account_id") or first.get("team_id") or DUMMY_ID)
+        except Exception:
+            continue
+    return ids
+
+
+@pytest.fixture(scope="module")
+def api_client():
+    with httpx.Client(base_url=API_URL, timeout=45) as c:
+        yield c
+
+
+@pytest.fixture(scope="module")
+def admin_token():
+    t = _admin_token()
+    if not t:
+        pytest.skip("admin creds not configured")
+    return t
+
+
+@pytest.fixture(scope="module")
+def get_routes():
+    paths = _openapi_paths()
+    return [
+        p for p, ops in paths.items()
+        if "get" in ops and not SWEEP_SKIP.search(p)
+    ]
+
+
+class TestFullGetSweep:
+    """Every GET route in the schema gets a real request — none may 5xx."""
+
+    def test_all_gets_respond_under_500(self, api_client, admin_token, get_routes):
+        ids = _seed_ids(admin_token)
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        failures = []
+        for p in get_routes:
+            url = _fill_params(p, ids)
+            try:
+                r = api_client.get(url, headers=headers)
+            except httpx.HTTPError as e:
+                failures.append(f"{p} → {type(e).__name__}")
+                continue
+            if r.status_code >= 500:
+                failures.append(f"{p} → {r.status_code}: {r.text[:120]}")
+        assert not failures, "5xx GETs:\n" + "\n".join(failures)
+
+    def test_no_unintentionally_public_gets(self, api_client, get_routes):
+        """Security net: GET without auth must 401/403 unless allowlisted."""
+        leaks = []
+        for p in get_routes:
+            url = _fill_params(p, {})
+            try:
+                r = api_client.get(url)
+            except httpx.HTTPError:
+                continue
+            if r.status_code == 200 and p not in KNOWN_PUBLIC_GET:
+                leaks.append(f"{p} → 200 without auth")
+        assert not leaks, "unauthenticated 200s (potential data leak):\n" + "\n".join(leaks)
+
+
+class TestPostFlows:
+    """Key POST surfaces — negative + validation paths, no live mutations."""
+
+    WEBHOOK_ROUTES = [
+        "/api/v1/messenger/webhook",
+        "/api/v1/telegram/webhook/",
+        "/api/v1/whatsapp/webhook",
+        "/api/v1/billing/polar-webhook",
+        "/api/v1/auth/data-deletion",
+    ]
+
+    @pytest.mark.parametrize("path", WEBHOOK_ROUTES)
+    def test_webhook_rejects_unsigned_post(self, path: str):
+        """Webhooks must reject unsigned/forged bodies — never 200/5xx."""
+        r = httpx.post(
+            f"{API_URL}{path}",
+            json={"forged": True},
+            timeout=15,
+        )
+        assert r.status_code not in (200, 201), (
+            f"{path} accepted an unsigned webhook → {r.status_code}"
+        )
+        assert r.status_code < 500, f"{path} → {r.status_code}: {r.text[:120]}"
+
+    def test_login_rejects_bad_credentials(self):
+        r = httpx.post(
+            f"{API_URL}/api/v1/auth/login",
+            data={"username": "nobody@example.invalid", "password": "wrong"},
+            timeout=15,
+        )
+        assert r.status_code in (400, 401, 403, 429)
+
+    def test_leads_public_rejects_empty(self):
+        r = httpx.post(f"{API_URL}/api/v1/leads/public", json={}, timeout=15)
+        assert r.status_code in (400, 401, 403, 422)
+        assert r.status_code < 500
