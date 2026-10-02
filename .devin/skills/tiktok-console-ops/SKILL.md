@@ -127,6 +127,43 @@ log in once via noVNC / Playwright MCP interactively.
 5. Prefer Playwright Docker (`mcr.microsoft.com/playwright:v1.62.1`) for console; dismiss cookie banner before clicks
 6. After console URL/redirect edits, re-run SocialAuto OAuth reconnect if scopes/URI changed
 
+## Session recovery ladder (2026-10 update)
+
+When `GET :9224/session` reports `logged_in:false` / `reason:no_session`, try in order:
+
+1. **Stored web cookies** — `social_accounts.meta_data->'tiktok_web_cookies'` in
+   Postgres holds a full real cookie set (`sessionid`, `sid_tt`, `uid_tt`,
+   `msToken`, …). `sidecar-session.py restore` pulls it and `POST /session`s it —
+   cookies stay valid for months and this restored the session 2026-10-02.
+2. **Sidecar native QR** — `sidecar-session.py qr` calls the new
+   `POST :9224/login/qr` (returns the QR as base64 PNG) and polls
+   `GET :9224/login/qr/status`. Faster than the bridge flow, BUT the sidecar is
+   headless — see the headless-QR caveat below.
+3. **Headed bridge QR** (reliable, documented below) — the noVNC bridge at
+   `:9223` with a real Xvfb display.
+4. `sidecar-session.py ensure` — credential login; CAPTCHA/rate-limit-prone.
+
+**Persistence**: since PR #246 the sidecar writes `/data/tiktok-session.json`
+on successful `POST /session` and on QR approval, and reloads it at startup —
+container restarts no longer drop the login (previously sessions were
+memory-only and silently vanished on every restart).
+
+**Headless-QR caveat (verified 2026-10-02)**: TikTok authorizes QR logins only
+from trusted browser contexts. From the headless sidecar, the QR renders and
+the app-side scan registers ("QR code scanned"), but the mobile **Confirm**
+is silently ignored — the page never navigates, no `sessionid` is issued, and
+the same context later draws a slider CAPTCHA. The `/login/qr` endpoint is
+kept for diagnostics; expect it to fail — use stored cookies or the headed
+bridge instead.
+
+**Console truth on domain verification**: `cloudless.gr` is listed under
+**Verified properties → Domain** in the app's **Production** URL properties
+(verified via console DOM 2026-10-02). No `tiktok-domain-verification` TXT
+record exists in DNS and none is needed — the verification was completed
+console-side. Historical `url_ownership_unverified` digest errors predate the
+verification. `domainTokenPresent:false` from `console-inspect.py` is expected
+— the token only appears while a verification is pending.
+
 ## Sidecar login via QR (no password needed)
 
 When `TIKTOK_DEV_PASSWORD` doesn't match tiktok.com (it is the **developer
