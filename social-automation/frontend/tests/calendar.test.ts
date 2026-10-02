@@ -106,6 +106,7 @@ test.describe('Calendar grid — seeded post', () => {
   // beforeAll may wait out the auth rate-limit window when workers collide
   test.setTimeout(150_000);
   let tokens: AuthTokens;
+  let seededPostId: string | undefined;
 
   test.beforeAll(async ({ request }, testInfo) => {
     // Register may wait out the auth rate-limit window when workers collide
@@ -123,6 +124,17 @@ test.describe('Calendar grid — seeded post', () => {
       data: { content_text: 'Calendar E2E seeded post', scheduled_at: when.toISOString() },
     });
     expect(res.ok(), await res.text()).toBeTruthy();
+    seededPostId = (await res.json()).id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    // Remove the seed — leftover scheduled posts with no targets get marked
+    // FAILED by the worker and pollute the publish-failure digests.
+    if (seededPostId) {
+      await request.delete(`${API_BASE}/api/v1/content/posts/${seededPostId}`, {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+    }
   });
 
   test.beforeEach(async ({ page }) => {
