@@ -571,8 +571,10 @@ class InstagramAPIClient:
         if media_type not in ("IMAGE", "VIDEO"):
             raise ValueError("media_type must be 'IMAGE' or 'VIDEO'")
 
+        # Meta requires media_type=STORIES on story containers; the media kind
+        # is expressed by the image_url/video_url key, not the media_type value.
         payload: dict[str, Any] = {
-            "media_type": media_type,
+            "media_type": "STORIES",
             "image_url" if media_type == "IMAGE" else "video_url": media_url,
         }
         if link:
@@ -602,9 +604,11 @@ class InstagramAPIClient:
         alt_text: str | None = None,
         timeout: float = 120.0,
     ) -> str:
-        """One-call story publish: create container, wait (if video), publish.
+        """One-call story publish: create container, wait, publish.
 
-        For video stories, polls the container until processing is complete.
+        Polls the container until processing completes for both image and
+        video stories — Meta processes story containers asynchronously and
+        publishing before FINISHED returns 9007 "Media ID is not available".
         Returns the published media id.
         """
         container_id = await self.create_story_container(
@@ -613,8 +617,7 @@ class InstagramAPIClient:
             link=link,
             alt_text=alt_text,
         )
-        if media_type == "VIDEO":
-            await self.wait_for_container_ready(container_id, timeout=timeout)
+        await self.wait_for_container_ready(container_id, timeout=timeout)
         return await self.publish_container(container_id)
 
     # ── Feature 5: Mentions tracking (tagged_media) ──────────────────────
