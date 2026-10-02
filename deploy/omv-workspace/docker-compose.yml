@@ -33,6 +33,8 @@ services:
     image: nextcloud:34-apache
     container_name: nextcloud
     restart: unless-stopped
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
     depends_on:
       nextcloud-db:
         condition: service_healthy

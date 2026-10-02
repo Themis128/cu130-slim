@@ -72,20 +72,34 @@ committed): `NEXTCLOUD_DB_*`, `NEXTCLOUD_ADMIN_*`, `COLLABORA_ADMIN_PASSWORD`,
 
 ## Installed apps
 
-`richdocuments` (Collabora WOPI), `calendar`, `contacts`, `spreed` (Talk),
-`groupfolders`, `twofactor_totp` (2FA enforced for all users), `notify_push`,
-`mail`, `deck`, `tasks`, `notes`, `files_external` — all enabled.
+Core workspace: `richdocuments` (Collabora WOPI), `calendar`, `contacts`,
+`spreed` (Talk), `mail`, `deck`, `tasks`, `notes`, `collectives` (wiki),
+`tables`, `forms`, `polls`, `passwords` (team credential store),
+`announcementcenter`, `groupfolders`, `files_external`, `files_pdfviewer`,
+`viewer`, `text`, `photos`, `previewgenerator`.
+Security/ops: `twofactor_totp` (enforced), `twofactor_nextcloud_notification`,
+`admin_audit`, `suspicious_login`, `bruteforcesettings`, `logreader`,
+`notify_push`.
+Disabled: `files_rightclick` (incompatible with NC 34), `encryption`,
+`user_ldap`.
+
 Collabora: `wopi_url=http://collabora:9980`,
 `public_wopi_url=https://office.cloudless.gr`.
 Talk signaling registered via `occ talk:signaling:add https://signal.cloudless.gr <secret>`
 (secret in `workspace/signaling/server.conf` → `[backend1] secret`).
 
+Retention policy: file versions ≤ 1 year, trash auto-purge 90 days, activity
+log 365 days — keeps SSD growth bounded.
+
 ## Configured integrations
 
-- **Mail app** → omv-ha dovecot/postfix (`192.168.1.130`, imaps:993 +
-  submission:587, account `tbaltzakis@cloudless.gr`). Self-signed LAN cert →
-  `app.mail.verify-tls-peer=false` in system config (safe: LAN-only path).
-  Mailbox password aligned to the unified admin credential.
+- **Mail app** → omv-ha dovecot/postfix (`mail.cloudless.gr`, imaps:993 +
+  submission:587, account `tbaltzakis@cloudless.gr`). TLS verification is ON:
+  the self-signed `CN=mail.cloudless.gr` cert is imported into Nextcloud's
+  certificate store (`occ security:certificates:import`, valid → Nov 2028)
+  and `extra_hosts` pins `mail.cloudless.gr → 192.168.1.130` inside the
+  nextcloud container (public DNS resolves to the WAN IP, unreachable for
+  IMAP). Mailbox password aligned to the unified admin credential.
 - **External storage** → `OMV Storage` SFTP mount (id 1) exposing the whole
   1 TB SSD (`/srv/dev-disk-by-uuid-fa6231ab-…`) inside Files — Backups,
   Documents, Media, etc. are browsable from Nextcloud.
@@ -121,9 +135,21 @@ auto-upload, DAVx⁵ (Android) and app-password CalDAV/CardDAV (iOS).
 
 ## Backups
 
-- Data dirs under the 1TB SSD `workspace/` path — back up with the existing
-  OMV backup jobs (or `rsync`/restic to another disk).
-- DB dumps: `docker exec nextcloud-db pg_dump -U nextcloud nextcloud`.
+`/usr/local/sbin/nas-backup` (nightly 02:00) now includes a workspace section —
+verified 2026-10-02, ~191 MB per run:
+
+- `pg_dump` of the `nextcloud` DB → `nextcloud-db.sql.gz`
+- `nextcloud-data/` (files, appdata, avatars)
+- `nextcloud-config/` (from `nextcloud-html/config`)
+- `branding/`, `signaling/`, `appapi-certs/`, `RECOVERY_SECRETS.txt`
+
+Written to **both** the same-disk `Backups/` snapshot and the cross-disk
+`NAS-Backup/workspace/` (second disk `a9a5a108-…`). Manual run:
+
+```bash
+docker exec nextcloud-db pg_dump -U nextcloud nextcloud   # DB only
+sudo /usr/local/sbin/nas-backup                          # full nightly job
+```
 
 ## Headroom notes
 
