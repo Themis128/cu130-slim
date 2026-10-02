@@ -82,8 +82,18 @@ The "Report a Problem" form can be partially automated via Playwright MCP:
 - Uploading screenshot files via the file input
 
 ### What CANNOT be automated:
-- The "Capture Screen" step (requires native browser screen capture dialog)
-- The final "Submit report" click (blocked until screen area is selected)
+- The "Capture Screen" step (requires native browser screen capture dialog —
+  `getDisplayMedia` returns nothing in headless Chromium)
+
+**Verified 2026-10-02: screenshots are OPTIONAL.** The Submit button stays
+enabled with details filled even when no media is attached — "Input Details
+is valid" appears next to the field and the report submits cleanly (dialog
+closes, no error). Reports are fire-and-forget: they do NOT create a case in
+Support Inbox. The full flow (profile pic → Help & support → Report a problem
+→ Include → fill Details → Submit report) works end-to-end via the FB sidecar
+`/debug/eval` — click menuitems with full MouseEvent sequences
+(pointerdown→mousedown→pointerup→mouseup→click), and click the last
+`[aria-label="Your profile"]` element (not the first).
 
 ### Filling the textarea (React workaround)
 
