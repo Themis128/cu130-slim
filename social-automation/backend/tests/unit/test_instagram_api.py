@@ -461,7 +461,7 @@ async def test_create_story_container_image(client):
         )
 
     assert result == "17890012350"
-    assert fake.calls[0]["data"]["media_type"] == "IMAGE"
+    assert fake.calls[0]["data"]["media_type"] == "STORIES"
     assert fake.calls[0]["data"]["image_url"] == "https://example.com/story.jpg"
     assert fake.calls[0]["data"]["link"] == "https://cloudless.gr"
     assert fake.calls[0]["data"]["alt_text"] == "Cloudless story"
@@ -478,7 +478,7 @@ async def test_create_story_container_video(client):
         )
 
     assert result == "17890012351"
-    assert fake.calls[0]["data"]["media_type"] == "VIDEO"
+    assert fake.calls[0]["data"]["media_type"] == "STORIES"
     assert fake.calls[0]["data"]["video_url"] == "https://example.com/story.mp4"
 
 
@@ -492,6 +492,7 @@ async def test_create_story_container_invalid_type(client):
 async def test_publish_story_image_one_call(client):
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"id": "17890012352"}),
+        _FakeResponse(200, {"status_code": "FINISHED"}),
         _FakeResponse(200, {"id": "17890012354"}),
     ])
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
@@ -500,6 +501,7 @@ async def test_publish_story_image_one_call(client):
             media_url="https://example.com/story.jpg",
             media_type="IMAGE",
             link="https://cloudless.gr",
+            timeout=5.0,
         )
 
     assert media_id == "17890012354"
