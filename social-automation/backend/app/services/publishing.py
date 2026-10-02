@@ -38,8 +38,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import decrypt_field, decrypt_token
-from app.models.content import MediaAsset, Post
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
+from app.services.duplicate_detector import is_duplicate
 from app.services.facebook_api import FacebookAPIClient
 from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
@@ -207,6 +208,22 @@ async def publish_to_platform(
             text = corrected
     except Exception:
         pass  # spellcheck is advisory — never block publishing
+
+    # No-duplicates guard (owner rule 2026-10-02): refuse to publish a post
+    # whose text or media matches something this account already published
+    # in the last 30 days — catches retry/draft accidents and same-story
+    # repackaging before it reaches the platform.
+    dup = await _find_duplicate_post(db, post, account, text)
+    if dup is not None:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                f"Duplicate content: matches published post {str(dup.id)[:8]} "
+                "from the last 30 days — refusing to re-publish."
+            ),
+        )
+
     media_paths = await _resolve_media_paths(post, db)
     storage_paths = await _resolve_media_storage_paths(post, db)
 
@@ -258,6 +275,41 @@ async def publish_to_platform(
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+_DUP_WINDOW_DAYS = 30
+_DUP_TEXT_THRESHOLD = 0.55  # stricter than the field-level default (0.48)
+
+
+async def _find_duplicate_post(
+    db: AsyncSession,
+    post: Post,
+    account: SocialAccount,
+    text: str,
+) -> Post | None:
+    """Return a recently published post to this account that duplicates the
+    candidate — same media asset or near-identical caption text."""
+    since = datetime.now(UTC) - timedelta(days=_DUP_WINDOW_DAYS)
+    rows = (
+        await db.execute(
+            select(Post)
+            .join(PostTarget, PostTarget.post_id == Post.id)
+            .where(
+                PostTarget.social_account_id == account.id,
+                Post.status == PostStatus.PUBLISHED,
+                Post.id != post.id,
+                Post.published_at >= since,
+            )
+        )
+    ).scalars().all()
+
+    media_set = {str(m) for m in (post.media_ids or [])}
+    for other in rows:
+        if media_set and media_set & {str(m) for m in (other.media_ids or [])}:
+            return other
+        if is_duplicate(text, _build_post_text(other, account.platform), threshold=_DUP_TEXT_THRESHOLD):
+            return other
+    return None
+
 
 async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
     if not post.media_ids:
