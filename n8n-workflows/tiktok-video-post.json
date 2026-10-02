@@ -207,172 +207,6 @@
     },
     {
       "parameters": {
-        "jsCode": "const cfg = $('Resolve Config').item.json;\nconst scene = $('Generate Video Prompt (DMR)').item.json.content || 'clouds drifting over a calm blue sea, soft sunlight';\nconst seed = cfg.seed || Math.floor(Math.random() * 1e15);\nconst graph = {\n  \"1\": {\"class_type\": \"UnetLoaderGGUF\", \"inputs\": {\"unet_name\": \"ltx-video-2b-v0.9-Q8_0.gguf\"}},\n  \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"t5xxl_fp8_e4m3fn_scaled.safetensors\", \"type\": \"ltxv\"}},\n  \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"LTX-Video-VAE-BF16.safetensors\"}},\n  \"4\": {\"class_type\": \"CLIPTextEncode\", \"inputs\": {\"text\": \"cinematic vertical shot, \" + scene, \"clip\": [\"2\", 0]}},\n  \"5\": {\"class_type\": \"CLIPTextEncode\", \"inputs\": {\"text\": \"worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text\", \"clip\": [\"2\", 0]}},\n  \"6\": {\"class_type\": \"LTXVConditioning\", \"inputs\": {\"positive\": [\"4\", 0], \"negative\": [\"5\", 0], \"frame_rate\": cfg.frame_rate}},\n  \"14\": {\"class_type\": \"EmptyLTXVLatentVideo\", \"inputs\": {\"width\": cfg.width, \"height\": cfg.height, \"length\": cfg.num_frames, \"batch_size\": 1}},\n  \"15\": {\"class_type\": \"KSampler\", \"inputs\": {\"model\": [\"1\", 0], \"positive\": [\"6\", 0], \"negative\": [\"6\", 1], \"latent_image\": [\"14\", 0], \"seed\": seed, \"steps\": cfg.steps, \"cfg\": cfg.cfg, \"sampler_name\": \"euler\", \"scheduler\": \"normal\", \"denoise\": 1.0}},\n  \"13\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"15\", 0], \"vae\": [\"3\", 0]}},\n  \"12\": {\"class_type\": \"VHS_VideoCombine\", \"inputs\": {\"frame_rate\": cfg.frame_rate, \"loop_count\": 0, \"filename_prefix\": \"n8n-tiktok\", \"format\": \"video/h264-mp4\", \"pix_fmt\": \"yuv420p\", \"crf\": 19, \"save_metadata\": false, \"pingpong\": false, \"save_output\": true, \"images\": [\"13\", 0]}}\n};\nreturn [{ json: { body: JSON.stringify({ prompt: graph }) } }];"
-      },
-      "name": "Build ComfyUI Prompt",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1680,
-        60
-      ],
-      "id": "build-comfyui-prompt-1"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Resolve Config').item.json.comfy + '/prompt' }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $('Build ComfyUI Prompt').item.json.body }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "name": "Submit Video Job (ComfyUI)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1680,
-        -80
-      ],
-      "id": "submit-video-job-comfyui-75c32d"
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $('Resolve Config').item.json.comfy + '/history/' + $('Submit Video Job (ComfyUI)').item.json.prompt_id }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "name": "Poll Video Job",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1920,
-        -80
-      ],
-      "id": "poll-video-job-b571a8"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "has-video",
-              "leftValue": "={{ Object.values($json)[0] && Object.values($json)[0].outputs && Object.values($json)[0].outputs['12'] ? 'done' : '' }}",
-              "rightValue": "done",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "name": "Video Ready?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2160,
-        -80
-      ],
-      "id": "video-ready-792615"
-    },
-    {
-      "parameters": {
-        "amount": 15,
-        "unit": "seconds"
-      },
-      "name": "Wait 15s",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        2160,
-        100
-      ],
-      "webhookId": "wait-video",
-      "id": "wait-15s-43a016"
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $('Resolve Config').item.json.comfy + '/view?filename=' + Object.values($json)[0].outputs['12'].gifs[0].filename + '&type=output' }}",
-        "options": {
-          "timeout": 120000,
-          "response": {
-            "response": {
-              "responseFormat": "file"
-            }
-          }
-        }
-      },
-      "name": "Download Video",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2400,
-        -80
-      ],
-      "id": "download-video-526fd6"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/media/upload' }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "parameterType": "formBinaryData",
-              "name": "file",
-              "inputDataFieldName": "data"
-            },
-            {
-              "parameterType": "formData",
-              "name": "tags",
-              "value": "comfyui,ltxv,tiktok,generated"
-            },
-            {
-              "parameterType": "formData",
-              "name": "alt_text",
-              "value": "={{ 'AI-generated video: ' + $('Resolve Config').item.json.topic }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 120000
-        }
-      },
-      "name": "Upload Media",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2640,
-        -80
-      ],
-      "id": "upload-media-b970b4"
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
         "sendHeaders": true,
@@ -386,7 +220,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"media_ids\": {{ JSON.stringify([$json.id]) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"platform_specific\": {\"tiktok\": {\"publish_mode\": {{ JSON.stringify($('Resolve Config').item.json.publish_mode) }}, \"privacy_level\": {{ JSON.stringify($('Resolve Config').item.json.privacy_level) }}, \"is_aigc\": true}}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"media_ids\": {{ JSON.stringify([$('Poll Video Task').item.json.asset_id]) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"platform_specific\": {\"tiktok\": {\"publish_mode\": {{ JSON.stringify($('Resolve Config').item.json.publish_mode) }}, \"privacy_level\": {{ JSON.stringify($('Resolve Config').item.json.privacy_level) }}, \"is_aigc\": true}}\n}",
         "options": {
           "timeout": 60000
         }
@@ -395,7 +229,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2880,
+        2640,
         -80
       ],
       "id": "create-post-71cb13"
@@ -436,7 +270,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3120,
+        2880,
         -80
       ],
       "id": "publish-938805"
@@ -462,7 +296,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3360,
+        3120,
         -140
       ],
       "onError": "continueRegularOutput",
@@ -476,7 +310,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3600,
+        3360,
         -80
       ],
       "id": "normalize-result-7738ae"
@@ -502,6 +336,184 @@
         0,
         120
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/media/generate-video' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"prompt\": \"cinematic vertical shot, \" + ($('Generate Video Prompt (DMR)').item.json.content || 'clouds drifting over a calm blue sea, soft sunlight'),\n  \"options\": {\n    \"width\": $('Resolve Config').item.json.width,\n    \"height\": $('Resolve Config').item.json.height,\n    \"num_frames\": $('Resolve Config').item.json.num_frames,\n    \"frame_rate\": $('Resolve Config').item.json.frame_rate,\n    \"steps\": $('Resolve Config').item.json.steps,\n    \"cfg_scale\": $('Resolve Config').item.json.cfg,\n    \"seed\": $('Resolve Config').item.json.seed || null,\n    \"tags\": [\"comfyui\",\"ltxv\",\"tiktok\",\"generated\"],\n    \"alt_text\": \"AI-generated video: \" + $('Resolve Config').item.json.topic\n  }\n}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Start Video Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -80
+      ],
+      "id": "start-video-gen-1"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "name": "Wait 15s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        -80
+      ],
+      "id": "wait-15s-1"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/media/generate-video/' + $('Start Video Generation').item.json.task_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Poll Video Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -80
+      ],
+      "id": "poll-video-task-1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "done",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "failed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "FAILURE",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "disabled": true
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Video Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        -80
+      ],
+      "id": "video-done-1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "={{ 'video_generation_failed: ' + String($json.error || $json.status) }}",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "tiktok",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Generation Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        120
+      ],
+      "id": "gen-failed-1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "failed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "FAILURE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Video Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        80
+      ],
+      "id": "video-failed-1"
     }
   ],
   "connections": {
@@ -582,80 +594,7 @@
       "main": [
         [
           {
-            "node": "Build ComfyUI Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Submit Video Job (ComfyUI)": {
-      "main": [
-        [
-          {
-            "node": "Wait 15s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wait 15s": {
-      "main": [
-        [
-          {
-            "node": "Poll Video Job",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Poll Video Job": {
-      "main": [
-        [
-          {
-            "node": "Video Ready?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Video Ready?": {
-      "main": [
-        [
-          {
-            "node": "Download Video",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Wait 15s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Download Video": {
-      "main": [
-        [
-          {
-            "node": "Upload Media",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Upload Media": {
-      "main": [
-        [
-          {
-            "node": "Create Post",
+            "node": "Start Video Generation",
             "type": "main",
             "index": 0
           }
@@ -702,22 +641,80 @@
         ]
       ]
     },
-    "Build ComfyUI Prompt": {
+    "Every 2 Days": {
       "main": [
         [
           {
-            "node": "Submit Video Job (ComfyUI)",
+            "node": "Resolve Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Every 2 Days": {
+    "Start Video Generation": {
       "main": [
         [
           {
-            "node": "Resolve Config",
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s": {
+      "main": [
+        [
+          {
+            "node": "Poll Video Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Video Task": {
+      "main": [
+        [
+          {
+            "node": "Video Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Done?": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Video Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Failed?": {
+      "main": [
+        [
+          {
+            "node": "Generation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 15s",
             "type": "main",
             "index": 0
           }

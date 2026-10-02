@@ -104,6 +104,11 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 300,
         },
+        # ComfyUI T2V: cold model load + sampling — ~30s-15min worst case.
+        "app.worker.tasks.media.generate_video_asset_task": {
+            "soft_time_limit": 1200,
+            "time_limit": 1500,
+        },
         "app.worker.tasks.media_enhance.batch_enhance_task": {
             "soft_time_limit": 1800,
             "time_limit": 2400,
@@ -150,6 +155,7 @@ celery_app.conf.update(
         "app.worker.tasks.token_refresh.refresh_expiring_tokens": {"queue": "publishing"},
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
+        "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},

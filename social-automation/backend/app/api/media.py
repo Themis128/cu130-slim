@@ -699,6 +699,91 @@ async def generate_image(
 
     return asset
 
+
+# ---------------------------------------------------------------------------
+# Video generation (ComfyUI LTX-Video on the local GPU node)
+# ---------------------------------------------------------------------------
+
+class MediaGenerateVideoOptions(BaseModel):
+    width: int = 480            # multiple of 32 — 480x832 is TikTok 9:16
+    height: int = 832
+    num_frames: int = 41        # must be 8n+1
+    frame_rate: int = 25
+    steps: int = 25
+    cfg_scale: float = 3.0
+    seed: int | None = None
+    negative_prompt: str = ""
+    tags: list[str] | None = None
+    alt_text: str | None = None
+
+class MediaGenerateVideoRequest(BaseModel):
+    prompt: str
+    options: MediaGenerateVideoOptions | None = None
+
+class MediaGenerateVideoResponse(BaseModel):
+    task_id: str
+    status: str = "queued"
+    poll_url: str
+
+class MediaGenerateVideoStatus(BaseModel):
+    task_id: str
+    status: str
+    asset_id: str | None = None
+    error: str | None = None
+
+
+@router.post("/generate-video", response_model=MediaGenerateVideoResponse, status_code=status.HTTP_202_ACCEPTED)
+async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Enqueue a text-to-video job on the local ComfyUI node (LTX-Video 2B GGUF).
+
+    Returns a Celery task id; poll ``GET /media/generate-video/{task_id}``
+    until ``status=SUCCESS`` and ``asset_id`` is populated.
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if not (body.prompt or "").strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    opts = (body.options or MediaGenerateVideoOptions()).model_dump()
+    try:
+        # Validate the graph constraints before queueing a doomed task.
+        from app.services.comfyui_video import build_t2v_prompt
+        build_t2v_prompt(
+            prompt=body.prompt,
+            negative_prompt=opts["negative_prompt"] or None,
+            width=opts["width"], height=opts["height"],
+            num_frames=opts["num_frames"], frame_rate=opts["frame_rate"],
+            steps=opts["steps"], cfg=opts["cfg_scale"], seed=opts["seed"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    task = celery_app.send_task(
+        "app.worker.tasks.media.generate_video_asset_task",
+        args=[str(team.id), str(current_user.id), body.prompt, opts],
+    )
+    return MediaGenerateVideoResponse(
+        task_id=task.id,
+        poll_url=f"/api/v1/media/generate-video/{task.id}",
+    )
+
+
+@router.get("/generate-video/{task_id}", response_model=MediaGenerateVideoStatus)
+async def generate_video_status(task_id: str, team_id: TeamId,
+    current_user: User = Depends(get_current_user)):
+    """Poll a queued/running video generation task."""
+    from celery.result import AsyncResult
+    res = AsyncResult(task_id, app=celery_app)
+    out = MediaGenerateVideoStatus(task_id=task_id, status=res.status)
+    if res.successful():
+        out.asset_id = str(res.result)
+    elif res.failed():
+        out.error = str(res.result)[:500]
+    return out
+
 # ---------------------------------------------------------------------------
 # Presigned R2 upload flow
 # ---------------------------------------------------------------------------
