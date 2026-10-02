@@ -150,6 +150,19 @@ nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
 - **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m`.
 - **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (256m OOMs; 384m is the practical minimum).
 
+## OMV workspace (self-hosted office suite)
+
+A separate self-hosted workspace stack runs on the **omv node** (not this
+host) — Nextcloud + Collabora + Talk (HPB/recording) + notify-push + AppAPI
+HaRP, replacing M365/Google Workspace. Managed natively by the OMV Compose
+plugin; all data on the 1 TB USB SSD.
+
+- Deployment, endpoints, ops commands: [`deploy/omv-workspace/README.md`](deploy/omv-workspace/README.md)
+- Phone/tablet onboarding (Nextcloud, Talk, DAVx⁵, CalDAV/CardDAV):
+  [`deploy/omv-workspace/MOBILE_SETUP.md`](deploy/omv-workspace/MOBILE_SETUP.md)
+- Public: `cloud.cloudless.gr` (files/office), `office.cloudless.gr` (Collabora),
+  `signal.cloudless.gr` (Talk signaling) — all via the `social-cloudflared` tunnel.
+
 ## User guides
 
 Step-by-step guides live in `docs/superpowers/guides/`:
