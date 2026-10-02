@@ -365,6 +365,21 @@ export const mediaApi = {
       ...(options?.width != null ? { width: options.width } : {}),
       ...(options?.height != null ? { height: options.height } : {}),
     }),
+  generateVideo: (prompt: string, options?: {
+    width?: number
+    height?: number
+    num_frames?: number
+    frame_rate?: number
+    steps?: number
+    cfg_scale?: number
+    seed?: number
+    negative_prompt?: string
+    tags?: string[]
+    alt_text?: string
+  }) =>
+    api.post('/media/generate-video', { prompt, options }),
+  getVideoGenerationStatus: (taskId: string) =>
+    api.get(`/media/generate-video/${taskId}`),
 }
 
 // Workflow endpoints
