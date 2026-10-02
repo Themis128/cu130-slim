@@ -791,6 +791,10 @@ async function handleCheckSession(req, res) {
   try {
     await ensureBrowser();
     const loggedIn = await navigateAndCheck("https://www.linkedin.com/feed/");
+    // Push-approved 2FA logins complete after handleLogin has already
+    // returned — persist the freshly-approved cookies here or they're
+    // lost on the next browser close.
+    if (loggedIn) await saveSession();
     res.json({ status: "ok", logged_in: loggedIn, url: page.url() });
   } catch (err) {
     const status =
