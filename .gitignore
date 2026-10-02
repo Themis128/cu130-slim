@@ -147,3 +147,11 @@ metabase-data/
 
 # Generated artifacts
 meta-support-report-package.tar.gz
+
+# Model weights — never commit multi-GB binaries (keep put_*_here placeholders)
+storage-models/**/*.safetensors
+storage-models/**/*.gguf
+storage-models/**/*.ckpt
+storage-models/**/*.pt
+storage-models/**/*.pth
+storage-models/**/*.bin

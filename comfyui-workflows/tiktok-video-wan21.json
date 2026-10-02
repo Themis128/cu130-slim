@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "name": "TikTok vertical video — Wan 2.1 T2V 1.3B fp16 (fallback)",
+    "hardware": "RTX 3070 Laptop 8GB VRAM / ComfyUI --lowvram --force-fp16 --fp16-vae --dont-upcast-attention --reserve-vram 4",
+    "models": {
+      "diffusion": "models/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+      "clip": "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors (type: wan)",
+      "vae": "models/vae/wan_2.1_vae.safetensors"
+    },
+    "custom_nodes": ["ComfyUI-VideoHelperSuite"],
+    "tested": "2026-10-02 — 480x832 33f @16fps, 8 steps, ~7.3s/step, ~153s total incl. model load, h264 mp4 verified",
+    "notes": "Slower than the LTX GGUF path (~2.5x) but only core nodes required. Dimensions must be multiples of 16; frame count 4n+1."
+  },
+  "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "wan2.1_t2v_1.3B_fp16.safetensors", "weight_dtype": "fp16"}},
+  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "type": "wan"}},
+  "3": {"class_type": "VAELoader", "inputs": {"vae_name": "wan_2.1_vae.safetensors"}},
+  "4": {"class_type": "CLIPTextEncode", "inputs": {"text": "PROMPT_HERE", "clip": ["2", 0]}},
+  "5": {"class_type": "CLIPTextEncode", "inputs": {"text": "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text", "clip": ["2", 0]}},
+  "14": {"class_type": "EmptyHunyuanLatentVideo", "inputs": {"width": 480, "height": 832, "length": 33, "batch_size": 1}},
+  "15": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["14", 0], "seed": 0, "steps": 8, "cfg": 6.0, "sampler_name": "uni_pc", "scheduler": "simple", "denoise": 1.0}},
+  "13": {"class_type": "VAEDecode", "inputs": {"samples": ["15", 0], "vae": ["3", 0]}},
+  "12": {"class_type": "VHS_VideoCombine", "inputs": {"frame_rate": 16, "loop_count": 0, "filename_prefix": "tiktok", "format": "video/h264-mp4", "pix_fmt": "yuv420p", "crf": 19, "save_metadata": true, "pingpong": false, "save_output": true, "images": ["13", 0]}}
+}
