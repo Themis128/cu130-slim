@@ -367,8 +367,12 @@ async function handleQrLoginStatus(req, res) {
   }
   try {
     const url = page.url();
+    // Require a real sessionid cookie — checkLoggedIn can false-positive on
+    // transitional pages while TikTok finishes authorizing the QR confirm.
+    const cookies = await context.cookies("https://www.tiktok.com");
+    const hasAuth = cookies.some((c) => c.name === "sessionid" && c.value);
     const isLoggedIn =
-      !url.includes("/login") && (await checkLoggedIn());
+      hasAuth && !url.includes("/login") && (await checkLoggedIn());
     if (isLoggedIn) {
       await captureSessionCookies();
       qrLoginInFlight = null;
