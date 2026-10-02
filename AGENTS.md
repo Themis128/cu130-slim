@@ -1,5 +1,17 @@
 # Agent working notes for cu130-slim / SocialAuto
 
+## Cursor Cloud specific instructions
+
+Cloud Agents run the app on the host, not via Docker Compose. `.cursor/install.sh` creates the backend virtualenv (including dev extras) and installs frontend dependencies. `.cursor/start.sh` starts PostgreSQL and Redis, creates database `social_automation` owned by `social_user`, and runs `alembic upgrade head`.
+
+- API: `http://localhost:8000` (terminal `social-api`). Health: `curl http://localhost:8000/health`. Swagger: `/docs`.
+- Frontend: `http://localhost:3001` (terminal `social-frontend`). It proxies `/api/v1/*` to the API.
+- Local env file: `social-automation/backend/.env.local` (gitignored). Seeded admin is `admin@example.com` / `admin_password_123`. `D1_ENABLED=false`, so Postgres is the database until Cloudflare tokens are set.
+- Node must be `>= 22.22.2`. If `node -v` is older, `/usr/bin/node` from NodeSource is the one to use (`PATH="/usr/bin:$PATH"`).
+- Unit tests (same filter as CI): `cd social-automation/backend && . .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`.
+- Frontend typecheck: `cd social-automation/frontend && PATH="/usr/bin:$PATH" ./node_modules/.bin/tsc --noEmit --incremental false`.
+- LanguageTool, n8n, and the browser sidecars are not part of this environment. Spellcheck falls back to the original text. Do not publish to live social accounts from here.
+
 ## Landing changes on master (all agents — incl. Grok Build CLI)
 
 `master` is **protected**: direct pushes are always rejected (`GH006`), including `git push origin <branch>:master`. Required checks: `validate` + `secret-scan`. The only way to land work:
