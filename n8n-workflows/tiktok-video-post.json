@@ -1,0 +1,703 @@
+{
+  "name": "TikTok Video Post (ComfyUI LTX)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiktok-video-post",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "tiktok-video-post",
+      "id": "manual-webhook-7971bc"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr self-hosted cloud stack';\nconst accountId = body.account_id || $env.CLOUDLESS_TIKTOK_ACCOUNT_ID || 'dcda73fb-75b6-47af-b9d1-c1ba404d91a8';\nconst tone = body.tone || 'energetic';\nconst publish = body.publish === false ? false : true;\nconst comfy = body.comfyui_url || 'http://social-media-comfyui-gpu:8000';\nconst v = body.video || {};\nreturn [{ json: {\n  topic, account_id: accountId, tone, platform: 'tiktok', publish, comfy,\n  width: v.width || 480, height: v.height || 832,\n  num_frames: v.num_frames || 41, frame_rate: v.frame_rate || 25,\n  steps: v.steps || 25, cfg: v.cfg || 3.0, seed: v.seed || 0,\n  publish_mode: v.publish_mode || 'DIRECT_POST',\n  privacy_level: v.privacy_level || 'PUBLIC_TO_EVERYONE'\n} }];"
+      },
+      "name": "Resolve Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "resolve-config-1437e6"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        480,
+        140
+      ],
+      "id": "generate-totp-eaa63f",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "id": "login-social-api-d74577",
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        960,
+        0
+      ],
+      "id": "login-ok-d2a685",
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "tiktok",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        960,
+        140
+      ],
+      "id": "login-failed-06a825",
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"prompt\": $('Resolve Config').item.json.topic,\n  \"platform\": \"tiktok\",\n  \"tone\": $('Resolve Config').item.json.tone,\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Generate Caption (DMR)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -80
+      ],
+      "id": "generate-caption-dmr-1c0c9e"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"prompt\": \"Write ONE single-sentence cinematic video scene prompt (max 40 words) for an AI text-to-video model, as a vertical background clip for a TikTok about: \" + $('Resolve Config').item.json.topic + \". Describe only visuals: subject, motion, lighting, mood. No text, no logos, no people facing camera.\",\n  \"platform\": \"tiktok\",\n  \"tone\": \"descriptive\",\n  \"length\": \"short\",\n  \"include_hashtags\": false,\n  \"include_emojis\": false\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "Generate Video Prompt (DMR)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        -80
+      ],
+      "id": "generate-video-prompt-dmr-e6d71f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Resolve Config').item.json;\nconst scene = $('Generate Video Prompt (DMR)').item.json.content || 'clouds drifting over a calm blue sea, soft sunlight';\nconst seed = cfg.seed || Math.floor(Math.random() * 1e15);\nconst graph = {\n  \"1\": {\"class_type\": \"UnetLoaderGGUF\", \"inputs\": {\"unet_name\": \"ltx-video-2b-v0.9-Q8_0.gguf\"}},\n  \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"t5xxl_fp8_e4m3fn_scaled.safetensors\", \"type\": \"ltxv\"}},\n  \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"LTX-Video-VAE-BF16.safetensors\"}},\n  \"4\": {\"class_type\": \"CLIPTextEncode\", \"inputs\": {\"text\": \"cinematic vertical shot, \" + scene, \"clip\": [\"2\", 0]}},\n  \"5\": {\"class_type\": \"CLIPTextEncode\", \"inputs\": {\"text\": \"worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text\", \"clip\": [\"2\", 0]}},\n  \"6\": {\"class_type\": \"LTXVConditioning\", \"inputs\": {\"positive\": [\"4\", 0], \"negative\": [\"5\", 0], \"frame_rate\": cfg.frame_rate}},\n  \"14\": {\"class_type\": \"EmptyLTXVLatentVideo\", \"inputs\": {\"width\": cfg.width, \"height\": cfg.height, \"length\": cfg.num_frames, \"batch_size\": 1}},\n  \"15\": {\"class_type\": \"KSampler\", \"inputs\": {\"model\": [\"1\", 0], \"positive\": [\"6\", 0], \"negative\": [\"6\", 1], \"latent_image\": [\"14\", 0], \"seed\": seed, \"steps\": cfg.steps, \"cfg\": cfg.cfg, \"sampler_name\": \"euler\", \"scheduler\": \"normal\", \"denoise\": 1.0}},\n  \"13\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"15\", 0], \"vae\": [\"3\", 0]}},\n  \"12\": {\"class_type\": \"VHS_VideoCombine\", \"inputs\": {\"frame_rate\": cfg.frame_rate, \"loop_count\": 0, \"filename_prefix\": \"n8n-tiktok\", \"format\": \"video/h264-mp4\", \"pix_fmt\": \"yuv420p\", \"crf\": 19, \"save_metadata\": false, \"pingpong\": false, \"save_output\": true, \"images\": [\"13\", 0]}}\n};\nreturn [{ json: { body: JSON.stringify({ prompt: graph }) } }];"
+      },
+      "name": "Build ComfyUI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        60
+      ],
+      "id": "build-comfyui-prompt-1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Resolve Config').item.json.comfy + '/prompt' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Build ComfyUI Prompt').item.json.body }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Submit Video Job (ComfyUI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -80
+      ],
+      "id": "submit-video-job-comfyui-75c32d"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Resolve Config').item.json.comfy + '/history/' + $('Submit Video Job (ComfyUI)').item.json.prompt_id }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Poll Video Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -80
+      ],
+      "id": "poll-video-job-b571a8"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-video",
+              "leftValue": "={{ Object.values($json)[0] && Object.values($json)[0].outputs && Object.values($json)[0].outputs['12'] ? 'done' : '' }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Video Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        -80
+      ],
+      "id": "video-ready-792615"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "name": "Wait 15s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        100
+      ],
+      "webhookId": "wait-video",
+      "id": "wait-15s-43a016"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Resolve Config').item.json.comfy + '/view?filename=' + Object.values($json)[0].outputs['12'].gifs[0].filename + '&type=output' }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "name": "Download Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        -80
+      ],
+      "id": "download-video-526fd6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/media/upload' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "parameterType": "formData",
+              "name": "tags",
+              "value": "comfyui,ltxv,tiktok,generated"
+            },
+            {
+              "parameterType": "formData",
+              "name": "alt_text",
+              "value": "={{ 'AI-generated video: ' + $('Resolve Config').item.json.topic }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Upload Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        -80
+      ],
+      "id": "upload-media-b970b4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"media_ids\": {{ JSON.stringify([$json.id]) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"platform_specific\": {\"tiktok\": {\"publish_mode\": {{ JSON.stringify($('Resolve Config').item.json.publish_mode) }}, \"privacy_level\": {{ JSON.stringify($('Resolve Config').item.json.privacy_level) }}, \"is_aigc\": true}}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Create Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        -80
+      ],
+      "id": "create-post-71cb13"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        -80
+      ],
+      "id": "publish-938805"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -140
+      ],
+      "onError": "continueRegularOutput",
+      "id": "publish-now-4cb6f5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nreturn [{ json: { ok, platform: 'tiktok', post_type: 'video', post_id: raw.id || null, status: raw.status || (ok ? 'scheduled' : 'failed'), error: ok ? null : (raw.detail || raw.message || 'publish_failed') } }];"
+      },
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -80
+      ],
+      "id": "normalize-result-7738ae"
+    }
+  ],
+  "connections": {
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Config": {
+      "main": [
+        [
+          {
+            "node": "Generate TOTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Generate Caption (DMR)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Caption (DMR)": {
+      "main": [
+        [
+          {
+            "node": "Generate Video Prompt (DMR)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Video Prompt (DMR)": {
+      "main": [
+        [
+          {
+            "node": "Build ComfyUI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Video Job (ComfyUI)": {
+      "main": [
+        [
+          {
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s": {
+      "main": [
+        [
+          {
+            "node": "Poll Video Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Video Job": {
+      "main": [
+        [
+          {
+            "node": "Video Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Ready?": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Upload Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Media": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Post": {
+      "main": [
+        [
+          {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build ComfyUI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Submit Video Job (ComfyUI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "id": "tiktok-video-post",
+  "active": false,
+  "tags": []
+}
