@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -1636,34 +1636,9 @@ async def generate_content(
     pillar_section = ""
     pillar_obj = None
     if request.pillar and team:
-        from app.models.content import Pillar, Post
+        from app.services.pillars import resolve_pillar
 
-        if request.pillar.strip().lower() == "auto":
-            since_14d = datetime.now(UTC) - timedelta(days=14)
-            counts = (
-                await db.execute(
-                    select(Pillar, func.count(Post.id))
-                    .outerjoin(
-                        Post,
-                        (Post.pillar_id == Pillar.id) & (Post.created_at >= since_14d),
-                    )
-                    .where(Pillar.team_id == team.id)
-                    .group_by(Pillar.id)
-                    .order_by(func.count(Post.id), Pillar.sort_order)
-                )
-            ).all()
-            pillar_obj = counts[0][0] if counts else None
-        else:
-            try:
-                pid = uuid.UUID(request.pillar)
-                cond = Pillar.id == pid
-            except ValueError:
-                cond = func.lower(Pillar.name) == request.pillar.strip().lower()
-            pillar_obj = (
-                await db.execute(
-                    select(Pillar).where(Pillar.team_id == team.id, cond)
-                )
-            ).scalars().first()
+        pillar_obj = await resolve_pillar(db, team.id, request.pillar)
         if pillar_obj:
             pillar_section = (
                 f"\n\nCONTENT PILLAR (3P system): {pillar_obj.name}\n"
