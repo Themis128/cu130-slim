@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr self-hosted cloud stack';\nconst accountId = body.account_id || $env.CLOUDLESS_TIKTOK_ACCOUNT_ID || 'dcda73fb-75b6-47af-b9d1-c1ba404d91a8';\nconst tone = body.tone || 'energetic';\nconst publish = body.publish === false ? false : true;\nconst comfy = body.comfyui_url || 'http://social-media-comfyui-gpu:8000';\nconst v = body.video || {};\nreturn [{ json: {\n  topic, account_id: accountId, tone, platform: 'tiktok', publish, comfy,\n  width: v.width || 480, height: v.height || 832,\n  num_frames: v.num_frames || 41, frame_rate: v.frame_rate || 25,\n  steps: v.steps || 25, cfg: v.cfg || 3.0, seed: v.seed || 0,\n  publish_mode: v.publish_mode || 'DIRECT_POST',\n  privacy_level: v.privacy_level || 'PUBLIC_TO_EVERYONE'\n} }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst scheduled = !body.topic && !body.prompt && !body.publish && !body.video; // schedule trigger emits empty item\nconst topic = body.topic || body.prompt || 'cloudless.gr self-hosted cloud stack';\nconst accountId = body.account_id || $env.CLOUDLESS_TIKTOK_ACCOUNT_ID || 'dcda73fb-75b6-47af-b9d1-c1ba404d91a8';\nconst tone = body.tone || 'energetic';\nconst publish = body.publish === false ? false : true;\nconst comfy = body.comfyui_url || 'http://social-media-comfyui-gpu:8000';\nconst v = body.video || {};\nreturn [{ json: {\n  topic, account_id: accountId, tone, platform: 'tiktok', publish, comfy,\n  width: v.width || 480, height: v.height || 832,\n  num_frames: v.num_frames || 41, frame_rate: v.frame_rate || 25,\n  steps: v.steps || 25, cfg: v.cfg || 3.0, seed: v.seed || 0,\n  publish_mode: v.publish_mode || (scheduled ? 'MEDIA_UPLOAD' : 'DIRECT_POST'),\n  privacy_level: v.privacy_level || 'PUBLIC_TO_EVERYONE'\n} }];"
       },
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
@@ -480,6 +480,28 @@
         -80
       ],
       "id": "normalize-result-7738ae"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 2,
+              "triggerAtHour": 19,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "schedule-tiktok-video-1",
+      "name": "Every 2 Days",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        120
+      ]
     }
   ],
   "connections": {
@@ -685,6 +707,17 @@
         [
           {
             "node": "Submit Video Job (ComfyUI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 2 Days": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
             "type": "main",
             "index": 0
           }
