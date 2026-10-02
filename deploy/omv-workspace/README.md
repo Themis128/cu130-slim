@@ -73,11 +73,28 @@ committed): `NEXTCLOUD_DB_*`, `NEXTCLOUD_ADMIN_*`, `COLLABORA_ADMIN_PASSWORD`,
 ## Installed apps
 
 `richdocuments` (Collabora WOPI), `calendar`, `contacts`, `spreed` (Talk),
-`groupfolders`, `twofactor_totp` (2FA enforced for all users), `notify_push` —
-all enabled. Collabora: `wopi_url=http://collabora:9980`,
+`groupfolders`, `twofactor_totp` (2FA enforced for all users), `notify_push`,
+`mail`, `deck`, `tasks`, `notes`, `files_external` — all enabled.
+Collabora: `wopi_url=http://collabora:9980`,
 `public_wopi_url=https://office.cloudless.gr`.
 Talk signaling registered via `occ talk:signaling:add https://signal.cloudless.gr <secret>`
 (secret in `workspace/signaling/server.conf` → `[backend1] secret`).
+
+## Configured integrations
+
+- **Mail app** → omv-ha dovecot/postfix (`192.168.1.130`, imaps:993 +
+  submission:587, account `tbaltzakis@cloudless.gr`). Self-signed LAN cert →
+  `app.mail.verify-tls-peer=false` in system config (safe: LAN-only path).
+  Mailbox password aligned to the unified admin credential.
+- **External storage** → `OMV Storage` SFTP mount (id 1) exposing the whole
+  1 TB SSD (`/srv/dev-disk-by-uuid-fa6231ab-…`) inside Files — Backups,
+  Documents, Media, etc. are browsable from Nextcloud.
+- **Branding** → theming app: name `Cloudless`, slogan "Clear skies. Zero
+  friction.", color `#0a7785`, Cloudless wordmark/icon/favicon from
+  `cloudless.gr/BRANDING/cloudless-brand/`.
+- **Defaults** → `default_phone_region=GR`; link shares get a 30-day default
+  expiry (not enforced); activity digest daily; availability Mon–Fri 09:00–18:00
+  Europe/Athens (free/busy); lookup-server data sharing off.
 
 ## Outgoing mail
 
