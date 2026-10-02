@@ -51,7 +51,9 @@ services:
       - TRUSTED_PROXIES=172.16.0.0/12 192.168.0.0/16 10.0.0.0/8
       - APACHE_DISABLE_REWRITE_IP=1
       - PHP_MEMORY_LIMIT=1024M
-      - PHP_UPLOAD_LIMIT=4G
+      - PHP_UPLOAD_LIMIT=10G
+      - PHP_OPCACHE_MEMORY_CONSUMPTION=256
+      - PHP_MAX_TIME=3600
       - TZ=Europe/Athens
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
@@ -79,7 +81,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   collabora:
-    image: collabora/code:25.04.7.2.1
+    image: collabora/code:26.04.4.2.1
     container_name: collabora
     restart: unless-stopped
     ports:
@@ -87,15 +89,72 @@ services:
     environment:
       - aliasgroup1=https://cloud\\.cloudless\\.gr:443
       - server_name=office.cloudless.gr
-      - username=admin
+      - username=tbaltzakis@cloudless.gr
       - password=${COLLABORA_ADMIN_PASSWORD}
       - DONT_GEN_SSL_CERT=true
-      - extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.proto=IPv4 --o:welcome.enable=false
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.proto=IPv4 --o:welcome.enable=false --o:home_mode.enable=true --o:help_url=https://cloudless.gr
       - TZ=Europe/Athens
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9980/hosting/discovery || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/branding/toolbar-bg-logo.svg:/usr/share/coolwsd/browser/dist/nextcloud/images/toolbar-bg-logo.svg:ro
+    dns: [1.1.1.1, 8.8.8.8]
+
+  talk-hpb:
+    image: nextcloud/aio-talk:20260929_105435
+    container_name: nextcloud-talk-hpb
+    restart: unless-stopped
+    init: true
+    environment:
+      - NC_DOMAIN=cloud.cloudless.gr
+      - TALK_HOST=signal.cloudless.gr
+      - TALK_PORT=3478
+      - TURN_SECRET=${TALK_TURN_SECRET}
+      - SIGNALING_SECRET=${TALK_SIGNALING_SECRET}
+      - INTERNAL_SECRET=${TALK_INTERNAL_SECRET}
+      - TZ=Europe/Athens
+    ports:
+      - "8090:8081"
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+    dns: [1.1.1.1, 8.8.8.8]
+
+  talk-recording:
+    image: nextcloud/aio-talk-recording:latest
+    container_name: nextcloud-talk-recording
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - talk-hpb
+    environment:
+      - NC_DOMAIN=cloud.cloudless.gr
+      - INTERNAL_SECRET=${TALK_INTERNAL_SECRET}
+      - RECORDING_SECRET=${TALK_RECORDING_SECRET}
+      - TZ=Europe/Athens
+    dns: [1.1.1.1, 8.8.8.8]
+
+  appapi-harp:
+    image: ghcr.io/nextcloud/nextcloud-appapi-harp:release
+    container_name: nextcloud-appapi-harp
+    restart: unless-stopped
+    environment:
+      - HP_SHARED_KEY=${APPAPI_HARP_KEY}
+      - NC_INSTANCE_URL=http://nextcloud
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/appapi-certs:/certs
+    dns: [1.1.1.1, 8.8.8.8]
+
+  notify-push:
+    image: nextcloud:34-apache
+    container_name: nextcloud-notify-push
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data:ro
+    entrypoint: /var/www/html/custom_apps/notify_push/bin/aarch64/notify_push --bind 0.0.0.0 --port 7867 /var/www/html/config/config.php
+    environment:
+      - NEXTCLOUD_URL=http://nextcloud
+    ports:
+      - "7867:7867"
     dns: [1.1.1.1, 8.8.8.8]
