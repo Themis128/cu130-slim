@@ -447,6 +447,12 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "noreply@cloudless.gr"
     DIGEST_EMAIL_TO: str = "tbaltzakis@cloudless.gr"
     DIGEST_EMAIL_ISSUES_ONLY: bool = False
+    # Comma-separated fnmatch patterns for recipients we never mail — CI/e2e
+    # test registrations point at mailboxes that don't exist and Postfix
+    # bounces them back to the admin inbox (550 5.1.1).
+    EMAIL_SUPPRESS_ADDR_PATTERNS: str = (
+        "ci-test*@*,*e2e*@*,reset-*@*,*@*.invalid,*@example.com,*@example.org,*@example.net,*@socialauto.dev"
+    )
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
     # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
     # Default link is the copy on the public cloudless.gr site: social.cloudless.gr

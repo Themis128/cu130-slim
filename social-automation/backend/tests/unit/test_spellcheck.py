@@ -75,9 +75,24 @@ def test_preprocess_emoji_only_string():
 
 # -- auto_correct (integration -- requires live LanguageTool) ------------------
 
+
+def _require_languagetool():
+    """Skip auto_correct tests when the LanguageTool sidecar is unreachable —
+    ``auto_correct`` swallows connection errors and returns input unchanged."""
+    import httpx
+
+    from app.core.config import get_settings
+    lt_url = get_settings().LANGUAGETOOL_URL.rstrip("/")
+    try:
+        httpx.get(f"{lt_url}/v2/languages", timeout=5).raise_for_status()
+    except Exception:
+        pytest.skip(f"LanguageTool unavailable at {lt_url}")
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_fixes_spelling():
+    _require_languagetool()
     result = await auto_correct("I havve a speling misteak here.")
     assert "havve" not in result
 
@@ -85,6 +100,7 @@ async def test_auto_correct_fixes_spelling():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_clean_text_unchanged():
+    _require_languagetool()
     text = "We help small teams ship fast."
     result = await auto_correct(text)
     assert result == text
@@ -93,6 +109,7 @@ async def test_auto_correct_clean_text_unchanged():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_returns_normalized_form():
+    _require_languagetool()
     # Fullwidth H -> ASCII H after NFKC normalization.
     text = "Ｈello world"
     result = await auto_correct(text)
@@ -103,6 +120,7 @@ async def test_auto_correct_returns_normalized_form():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_empty_string():
+    _require_languagetool()
     assert await auto_correct("") == ""
     assert await auto_correct("   ") == "   "
 
@@ -110,6 +128,7 @@ async def test_auto_correct_empty_string():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_offsets_stable_after_normalize():
+    _require_languagetool()
     # Result must be valid text -- no truncation or garbling.
     text = "Ths is a tset sentance."
     result = await auto_correct(text)
@@ -132,6 +151,7 @@ def test_protected_spans_cover_configured_words():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_auto_correct_never_mangles_protected_words():
+    _require_languagetool()
     # LanguageTool flags Redis→Regis; the protected-word list must win.
     text = "Added a Redis flag that remembers dead sessions."
     result = await auto_correct(text)

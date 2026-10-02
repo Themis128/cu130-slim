@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import get_user_team
+from app.api.deps import TeamId
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.analytics import PostAnalyticsSnapshot
@@ -126,8 +126,8 @@ class GenerateCommentResponse(BaseModel):
     comment: str
 
 
-async def _team_for_user(db: AsyncSession, user: User) -> Team:
-    team = await get_user_team(db, user)
+async def _team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team:
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     return team
@@ -135,12 +135,11 @@ async def _team_for_user(db: AsyncSession, user: User) -> Team:
 
 @router.post("/generate-post", response_model=GeneratePostResponse)
 async def linkedin_generate_post(
-    request: GeneratePostRequest,
+    request: GeneratePostRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a LinkedIn-ready post with plain-English caption + hashtags."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     result = await generate_linkedin_post(
         request.topic,
         tone=request.tone,
@@ -158,12 +157,11 @@ async def linkedin_generate_post(
 
 @router.post("/generate-article", response_model=GenerateArticleResponse)
 async def linkedin_generate_article(
-    request: GenerateArticleRequest,
+    request: GenerateArticleRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a long-form LinkedIn article in plain English."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     result = await generate_linkedin_article(
         request.topic,
         tone=request.tone,
@@ -180,12 +178,11 @@ async def linkedin_generate_article(
 
 @router.post("/generate-hashtags", response_model=GenerateHashtagsResponse)
 async def linkedin_generate_hashtags(
-    request: GenerateHashtagsRequest,
+    request: GenerateHashtagsRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Suggest LinkedIn hashtags for the supplied content."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     hashtags = await generate_linkedin_hashtags(
         request.content,
         count=request.count,
@@ -198,11 +195,10 @@ async def linkedin_generate_hashtags(
 
 
 @router.get("/best-time", response_model=BestTimeResponse)
-async def linkedin_best_time(
+async def linkedin_best_time(team_id: TeamId,
     account_type: str = Query("organization"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Return recommended posting windows for LinkedIn.
 
     Derives windows from the team's own published-post engagement history
@@ -210,7 +206,7 @@ async def linkedin_best_time(
     engagement_rate). Falls back to professional-audience defaults when fewer
     than 10 posts with analytics exist.
     """
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
 
     # Which of the team's LinkedIn accounts match the requested type? If none
     # match exactly, fall back to all LinkedIn accounts for the team.
@@ -256,12 +252,11 @@ async def linkedin_best_time(
 
 @router.post("/improve-post", response_model=ImprovePostResponse)
 async def linkedin_improve_post(
-    request: ImprovePostRequest,
+    request: ImprovePostRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Improve an existing LinkedIn post for a specific goal."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     result = await improve_linkedin_post(
         request.content,
         goal=request.goal,
@@ -276,12 +271,11 @@ async def linkedin_improve_post(
 
 @router.post("/generate-comment", response_model=GenerateCommentResponse)
 async def linkedin_generate_comment(
-    request: GenerateCommentRequest,
+    request: GenerateCommentRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a plain-English LinkedIn comment or reply."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     comment = await generate_linkedin_comment(
         request.post_text,
         reply_context=request.reply_context,

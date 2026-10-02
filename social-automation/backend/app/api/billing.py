@@ -232,8 +232,7 @@ async def get_discount(
 
 @router.put("/discount")
 async def set_discount(
-    body: DiscountCodeRequest,
-    team_id: TeamId,
+    body: DiscountCodeRequest, team_id: TeamId,
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
@@ -270,8 +269,7 @@ async def clear_discount(
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
-    body: CheckoutRequest,
-    team_id: TeamId,
+    body: CheckoutRequest, team_id: TeamId,
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):

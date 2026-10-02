@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import get_user_team
+from app.api.deps import TeamId
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
@@ -27,8 +27,8 @@ from app.services.meta_graph import facebook_graph_url
 router = APIRouter()
 
 
-async def _get_team(db: AsyncSession, user: User) -> Team | None:
-    return await get_user_team(db, user)
+async def _get_team(db: AsyncSession, team_id: uuid.UUID) -> Team | None:
+    return await db.get(Team, team_id)
 
 
 async def _get_ig_client(
@@ -115,13 +115,12 @@ class MentionsResponse(BaseModel):
 
 
 @router.get("/quota", response_model=QuotaResponse)
-async def get_publishing_quota(
+async def get_publishing_quota(team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Check the 24-hour content publishing limit for an Instagram account."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -143,14 +142,13 @@ async def get_publishing_quota(
 
 @router.get("/comments/{media_id}", response_model=CommentListResponse)
 async def list_comments(
-    media_id: str,
+    media_id: str,team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List comments on a published Instagram media object."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -174,13 +172,12 @@ async def list_comments(
 @router.post("/comments/{comment_id}/reply", response_model=CommentOut)
 async def reply_to_comment(
     comment_id: str,
-    request: ReplyRequest,
+    request: ReplyRequest,team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Reply to an existing Instagram comment."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -198,14 +195,13 @@ async def reply_to_comment(
 
 @router.post("/comments/{comment_id}/hide", response_model=CommentActionResponse)
 async def hide_comment(
-    comment_id: str,
+    comment_id: str,team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     hide: bool = Query(True),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Hide or unhide an Instagram comment."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -218,13 +214,12 @@ async def hide_comment(
 
 @router.delete("/comments/{comment_id}", response_model=CommentActionResponse)
 async def delete_comment(
-    comment_id: str,
+    comment_id: str,team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Delete an Instagram comment."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -237,13 +232,12 @@ async def delete_comment(
 
 @router.post("/stories", response_model=StoryPublishResponse)
 async def publish_story(
-    request: StoryPublishRequest,
+    request: StoryPublishRequest,team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Publish an Instagram story with optional link and alt text."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -262,14 +256,13 @@ async def publish_story(
 
 
 @router.get("/mentions", response_model=MentionsResponse)
-async def get_mentions(
+async def get_mentions(team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Fetch media where the Instagram account is tagged (brand mentions/UGC)."""
-    team = await _get_team(db, current_user)
+    team = await _get_team(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     client = await _get_ig_client(db, team, account_id)
@@ -300,7 +293,7 @@ async def get_mentions(
 # description, and test data for the App Review submission.
 
 @router.get("/app-review/guide")
-async def get_app_review_guide():
+async def get_app_review_guide(current_user: User = Depends(get_current_user)):
     """Get the App Review submission guide for instagram_business_manage_messages.
 
     Returns the required text, screencast description, and test data

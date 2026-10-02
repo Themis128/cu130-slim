@@ -10,43 +10,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.db.session import get_db
 from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines, BrandVisual, BrandVoice
-from app.models.user import Team, TeamMember, User
+from app.models.user import Team, User
 
 router = APIRouter()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _get_team(user: User, db: AsyncSession) -> Team:
-    from sqlalchemy import case
-
-    from app.models.user import UserRole
-    _tier_rank = case(
-        (Team.plan_tier == "enterprise", 4),
-        (Team.plan_tier == "business", 3),
-        (Team.plan_tier == "pro", 2),
-        (Team.plan_tier == "free", 1),
-        else_=0,
-    )
-    result = await db.execute(
-        select(Team)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == user.id)
-        .order_by(
-            (TeamMember.role == UserRole.OWNER).desc(),
-            _tier_rank.desc(),
-        )
-    )
-    team = result.scalars().first()
+async def _get_team(team_id: uuid.UUID, db: AsyncSession) -> Team:
+    team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team
 
 
-async def _get_brand(user: User, db: AsyncSession) -> Brand:
-    team = await _get_team(user, db)
+async def _get_brand(team_id: uuid.UUID, db: AsyncSession) -> Brand:
+    team = await _get_team(team_id, db)
     result = await db.execute(
         select(Brand)
         .where(Brand.team_id == team.id)
@@ -222,13 +204,12 @@ class BrandFullOut(BaseModel):
 # ── Brand CRUD ────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=BrandFullOut | None)
-async def get_brand(
+async def get_brand(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Get the current team's brand with all nested data."""
     try:
-        brand = await _get_brand(current_user, db)
+        brand = await _get_brand(team_id, db)
         return brand
     except HTTPException as exc:
         if exc.status_code == 404 and "Brand not found" in exc.detail:
@@ -238,12 +219,11 @@ async def get_brand(
 
 @router.post("", response_model=BrandFullOut)
 async def create_brand(
-    data: BrandCreate,
+    data: BrandCreate, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Create a brand for the current team. One brand per team."""
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
 
     existing = await db.execute(select(Brand).where(Brand.team_id == team.id))
     if existing.scalars().first():
@@ -288,12 +268,11 @@ async def create_brand(
 
 @router.put("", response_model=BrandOut)
 async def update_brand(
-    data: BrandUpdate,
+    data: BrandUpdate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Update the current team's brand identity fields."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
 
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
@@ -305,12 +284,11 @@ async def update_brand(
 
 
 @router.delete("", status_code=204)
-async def delete_brand(
+async def delete_brand(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Delete the current team's brand and all related data."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     await db.delete(brand)
     await db.commit()
 
@@ -318,11 +296,10 @@ async def delete_brand(
 # ── Brand Voice ───────────────────────────────────────────────────────────────
 
 @router.get("/voice", response_model=BrandVoiceOut)
-async def get_brand_voice(
+async def get_brand_voice(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    brand = await _get_brand(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    brand = await _get_brand(team_id, db)
     if not brand.voice:
         raise HTTPException(status_code=404, detail="Brand voice not found")
     return brand.voice
@@ -330,12 +307,11 @@ async def get_brand_voice(
 
 @router.put("/voice", response_model=BrandVoiceOut)
 async def update_brand_voice(
-    data: BrandVoiceUpdate,
+    data: BrandVoiceUpdate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Update the brand voice (tone, banned phrases, messaging pillars)."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     if not brand.voice:
         voice = BrandVoice(brand_id=brand.id, **data.model_dump())
         db.add(voice)
@@ -352,11 +328,10 @@ async def update_brand_voice(
 # ── Brand Visual ──────────────────────────────────────────────────────────────
 
 @router.get("/visual", response_model=BrandVisualOut)
-async def get_brand_visual(
+async def get_brand_visual(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    brand = await _get_brand(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    brand = await _get_brand(team_id, db)
     if not brand.visual:
         raise HTTPException(status_code=404, detail="Brand visual not found")
     return brand.visual
@@ -364,12 +339,11 @@ async def get_brand_visual(
 
 @router.put("/visual", response_model=BrandVisualOut)
 async def update_brand_visual(
-    data: BrandVisualUpdate,
+    data: BrandVisualUpdate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Update the brand visual identity (colors, fonts, logo)."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     if not brand.visual:
         visual = BrandVisual(brand_id=brand.id, **data.model_dump())
         db.add(visual)
@@ -386,11 +360,10 @@ async def update_brand_visual(
 # ── Brand Guidelines ──────────────────────────────────────────────────────────
 
 @router.get("/guidelines", response_model=BrandGuidelinesOut)
-async def get_brand_guidelines(
+async def get_brand_guidelines(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    brand = await _get_brand(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    brand = await _get_brand(team_id, db)
     if not brand.guidelines:
         raise HTTPException(status_code=404, detail="Brand guidelines not compiled yet")
     return brand.guidelines
@@ -412,12 +385,11 @@ async def get_brand_guidelines_by_token(
 
 
 @router.post("/guidelines/compile", response_model=BrandGuidelinesOut)
-async def compile_brand_guidelines(
+async def compile_brand_guidelines(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Compile brand guidelines from the brand, voice, and visual records."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
 
     content = {
         "brand": {
@@ -479,22 +451,20 @@ async def compile_brand_guidelines(
 # ── Brand Assets ──────────────────────────────────────────────────────────────
 
 @router.get("/assets", response_model=list[BrandAssetOut])
-async def list_brand_assets(
+async def list_brand_assets(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    brand = await _get_brand(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    brand = await _get_brand(team_id, db)
     return brand.assets
 
 
 @router.post("/assets", response_model=BrandAssetOut)
 async def create_brand_asset(
-    data: BrandAssetCreate,
+    data: BrandAssetCreate,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Add a brand asset (logo, template, OG image, etc.)."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     asset = BrandAsset(
         brand_id=brand.id,
         asset_type=data.asset_type,
@@ -511,11 +481,10 @@ async def create_brand_asset(
 
 @router.delete("/assets/{asset_id}", status_code=204)
 async def delete_brand_asset(
-    asset_id: uuid.UUID,
+    asset_id: uuid.UUID,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    brand = await _get_brand(current_user, db)
+    db: AsyncSession = Depends(get_db)):
+    brand = await _get_brand(team_id, db)
     result = await db.execute(
         select(BrandAsset).where(BrandAsset.id == asset_id, BrandAsset.brand_id == brand.id)
     )
@@ -545,17 +514,16 @@ class AdKitAssetOut(BaseModel):
 
 @router.post("/ad-kit", response_model=list[AdKitAssetOut])
 async def generate_ad_brand_kit(
-    data: AdKitRequest,
+    data: AdKitRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a full branded ad-creative kit in all LinkedIn ad sizes
     (1200x627 landscape, 1080x1080 square, 1080x1350 portrait), persist each
     at full resolution in the media library, and register them as brand assets.
     """
     from app.services.carousel_pipeline import build_ad_brand_kit
 
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     brand = (await db.execute(select(Brand).where(Brand.team_id == team.id))).scalars().first()
 
     assets = await build_ad_brand_kit(
@@ -645,10 +613,9 @@ class ComplianceRequest(BaseModel):
 
 @router.post("/compliance")
 async def score_compliance(
-    data: ComplianceRequest,
+    data: ComplianceRequest,team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Score content against the team's brand guidelines.
 
     Checks banned phrases, preferred phrases, and uses AI to score
@@ -656,7 +623,7 @@ async def score_compliance(
     """
     from app.services.brand_compliance import score_brand_compliance
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     brand_dict = {
         "name": brand.name,
         "positioning_statement": brand.positioning_statement,
@@ -705,10 +672,9 @@ class GenerateLogoResponse(BaseModel):
 
 @router.post("/generate-logo", response_model=GenerateLogoResponse)
 async def generate_brand_logo(
-    data: GenerateLogoRequest,
+    data: GenerateLogoRequest, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a brand logo using Cloudflare Workers AI text-to-image.
 
     Uses the brand's name, industry, colors, and image style to build an
@@ -721,7 +687,7 @@ async def generate_brand_logo(
     from app.services.inference import _call_workers_ai_image, _get_provider_config, _is_workers_ai_image_model
     from app.services.media_storage import persist_generated_image
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
 
     # Build the logo generation prompt from brand context
     brand_name = brand.name
@@ -751,7 +717,7 @@ async def generate_brand_logo(
     prompt += "No text overlay, no watermark. High quality vector-style logo on transparent or solid background."
 
     # Generate the image via Cloudflare Workers AI
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     team_id = team.id
 
     _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
@@ -815,10 +781,9 @@ class GenerateFaviconResponse(BaseModel):
 
 
 @router.post("/generate-favicon", response_model=GenerateFaviconResponse)
-async def generate_brand_favicon(
+async def generate_brand_favicon(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Generate a favicon from the brand logo using AI.
 
     Takes the brand's logo concept and generates a simplified 512x512
@@ -831,7 +796,7 @@ async def generate_brand_favicon(
     from app.services.inference import _call_workers_ai_image, _get_provider_config, _is_workers_ai_image_model
     from app.services.media_storage import persist_generated_image
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     if not brand.visual or not brand.visual.logo_url:
         raise HTTPException(status_code=400, detail="Generate a logo first before creating a favicon")
 
@@ -852,7 +817,7 @@ async def generate_brand_favicon(
         f"No text, no watermark. Clean vector-style icon on solid background."
     )
 
-    team = await _get_team(current_user, db)
+    team = await _get_team(team_id, db)
     team_id = team.id
 
     _, model, api_key = await _get_provider_config("cloudflare", team_id, db)
@@ -954,14 +919,13 @@ class HealthScoreOut(BaseModel):
 
 
 @router.get("/mentions", response_model=list[MentionOut])
-async def list_brand_mentions(
+async def list_brand_mentions(team_id: TeamId,
     platform: str | None = None,
     limit: int = 50,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List brand mentions from monitoring sources."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     query = select(BrandMention).where(BrandMention.brand_id == brand.id)
     if platform:
         query = query.where(BrandMention.platform == platform)
@@ -971,26 +935,24 @@ async def list_brand_mentions(
 
 
 @router.post("/mentions/collect", response_model=list[MentionOut])
-async def collect_brand_mentions(
+async def collect_brand_mentions(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Trigger mention collection from all sources (Twitter, Reddit, Google News)."""
     import os
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
     mentions = await collect_mentions(db, brand, twitter_token)
     return mentions
 
 
 @router.get("/competitors", response_model=list[CompetitorSnapshotOut])
-async def list_competitor_snapshots(
+async def list_competitor_snapshots(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List competitor snapshots."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     result = await db.execute(
         select(CompetitorSnapshot)
         .where(CompetitorSnapshot.brand_id == brand.id)
@@ -1001,28 +963,26 @@ async def list_competitor_snapshots(
 
 @router.post("/competitors/snapshot", response_model=CompetitorSnapshotOut)
 async def take_competitor_snapshot(
-    competitor_name: str,
+    competitor_name: str,team_id: TeamId,
     platform: str = "twitter",
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Take a snapshot of a competitor's metrics."""
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     snapshot = await snapshot_competitor(db, brand, competitor_name, platform)
     return snapshot
 
 
 @router.get("/health", response_model=HealthScoreOut)
-async def get_brand_health(
+async def get_brand_health(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Calculate and return brand health score."""
     from sqlalchemy import func
 
     from app.models.content import Post, PostStatus
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
 
     # Get mentions from last 30 days
     # Note: brand_mentions.mentioned_at is timestamp without time zone (naive),
@@ -1083,18 +1043,17 @@ class TrendScoutOut(BaseModel):
 
 
 @router.post("/autopilot/run", response_model=AutopilotResultOut)
-async def run_brand_autopilot(
+async def run_brand_autopilot(team_id: TeamId,
     days: int = 7,
     min_compliance_score: int = 4,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Run the autonomous brand content agent.
 
     Finds empty calendar slots, generates on-brand content from messaging
     pillars, checks compliance, and creates draft posts.
     """
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     result = await run_autopilot(
         db=db,
         team_id=brand.team_id,
@@ -1106,14 +1065,13 @@ async def run_brand_autopilot(
 
 
 @router.get("/trends", response_model=TrendScoutOut)
-async def get_trends(
+async def get_trends(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Get trending topics from Twitter/X, Reddit, and top-performing posts."""
     import os
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
     result = await scout_trends(db, brand.team_id, twitter_token)
     return result
@@ -1189,14 +1147,13 @@ def _build_vcard(
 
 
 @router.get("/digital-card", response_model=DigitalCardOut)
-async def get_digital_card(
+async def get_digital_card(team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Get the digital business card for the current team (auth required)."""
     import os
 
-    brand = await _get_brand(current_user, db)
+    brand = await _get_brand(team_id, db)
     visual = brand.visual
     guidelines = brand.guidelines
 

@@ -932,6 +932,7 @@ async def update_notification_preferences(
 async def export_user_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
 ):
     """Export all user data (posts, media metadata, analytics) as JSON."""
     from app.api.deps import get_user_team
@@ -939,7 +940,22 @@ async def export_user_data(
     from app.models.content import MediaAsset, Post
     from app.models.social_account import SocialAccount
 
-    team = await get_user_team(db, current_user)
+    # Honor the active ``team_id`` JWT claim (same rule as TeamId dep); fall
+    # back to the primary team for legacy tokens without the claim.
+    team = None
+    payload = decode_token(token)
+    if payload and payload.get("team_id"):
+        candidate = uuid.UUID(payload["team_id"])
+        membership = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == candidate,
+                TeamMember.user_id == current_user.id,
+            )
+        )
+        if membership.scalar_one_or_none() is not None:
+            team = await db.get(Team, candidate)
+    if team is None:
+        team = await get_user_team(db, current_user)
     if not team:
         return {"user": {"email": current_user.email}, "posts": [], "media": [], "accounts": [], "analytics": []}
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
@@ -21,7 +22,7 @@ from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalytics
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
-from app.models.user import Team, TeamMember, User, UserRole
+from app.models.user import Team, TeamMember, User
 from app.services.analytics_sync import sync_team_analytics
 from app.services.insights_engine import build_team_insights
 from app.services.linkedin_api import LinkedInAPIClient
@@ -39,32 +40,10 @@ def _event_count_expr():
 
 
 
-async def _team_for_user(db: AsyncSession, user: User) -> Team | None:
-    """Resolve the user's active team.
+async def _team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team | None:
+    """Resolve the request's active team (JWT ``team_id`` claim via ``TeamId`` dep)."""
+    return await db.get(Team, team_id)
 
-    Mirrors the logic in ``app.api.deps.get_current_team_id``:
-    prefer teams where the user is the owner, then prefer higher plan tiers
-    (enterprise > business > pro > free).  This prevents a user who belongs
-    to multiple teams from being defaulted to the wrong (lower-tier, empty)
-    team when the database returns memberships in arbitrary order.
-    """
-    _tier_rank = case(
-        (Team.plan_tier == "enterprise", 4),
-        (Team.plan_tier == "business", 3),
-        (Team.plan_tier == "pro", 2),
-        (Team.plan_tier == "free", 1),
-        else_=0,
-    )
-    result = await db.execute(
-        select(Team)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == user.id)
-        .order_by(
-            (TeamMember.role == UserRole.OWNER).desc(),
-            _tier_rank.desc(),
-        )
-    )
-    return result.scalars().first()
 
 
 def _athens_day_expr(column=None):
@@ -75,14 +54,11 @@ def _athens_day_expr(column=None):
         func.timezone(settings.APP_TIMEZONE, col),
     )
 
-
 def _engagement_sum(event_counts: dict[str, int]) -> int:
     return sum(event_counts.get(e, 0) for e in ENGAGEMENT_TYPES)
 
-
 def _engagement_rate(engagement: int, impressions: int) -> float:
     return engagement / impressions if impressions > 0 else 0.0
-
 
 def _org_urn(account: SocialAccount) -> str:
     """Build the LinkedIn organization URN for a Company Page account."""
@@ -90,7 +66,6 @@ def _org_urn(account: SocialAccount) -> str:
     if meta.get("author_urn") and str(meta["author_urn"]).startswith("urn:li:organization:"):
         return str(meta["author_urn"])
     return f"urn:li:organization:{account.account_id}"
-
 
 async def _linkedin_follower_count(account: SocialAccount) -> int:
     """Fetch live follower count for a LinkedIn Company Page account.
@@ -487,12 +462,11 @@ class PublishPipelineOut(BaseModel):
 
 
 @router.get("/overview", response_model=OverviewMetrics)
-async def get_overview(
+async def get_overview(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -885,30 +859,28 @@ async def get_account_insights(
 
 
 @router.get("/insights")
-async def get_team_insights(
+async def get_team_insights(team_id: TeamId,
     days: int = Query(90, ge=7, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Cross-platform insights engine: per-platform performance, best posting
     windows, content-type performance, follower trends, momentum — plus
     rule-based recommendations (where/when/what to post, ads guidance)
     grounded in each platform's documented best practices."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return await build_team_insights(db, team.id, days=days)
 
 
 @router.get("/top-posts", response_model=list[TopPost])
-async def get_top_posts(
+async def get_top_posts(team_id: TeamId,
     limit: int = Query(10, ge=1, le=50),
     platform: str | None = None,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1005,13 +977,12 @@ async def get_top_posts(
 
 
 @router.get("/engagement", response_model=list[EngagementPoint])
-async def get_engagement_trends(
+async def get_engagement_trends(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     platform: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
     if not team:
         return []
 
@@ -1083,18 +1054,17 @@ async def get_engagement_trends(
 
 
 @router.get("/followers", response_model=list[FollowerSeries])
-async def get_follower_counts(
+async def get_follower_counts(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Return follower-growth time series per platform from persisted snapshots.
 
     Each platform gets: current count, net change over the period, and a
     daily-resolution series of ``{date, followers}`` points.  When no
     historical snapshots exist yet, the series contains only the live count.
     """
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         return []
 
@@ -1172,12 +1142,11 @@ async def get_follower_counts(
 
 
 @router.get("/platforms", response_model=list[PlatformMetrics])
-async def get_platform_metrics(
+async def get_platform_metrics(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
     if not team:
         return []
 
@@ -1268,18 +1237,17 @@ async def get_platform_metrics(
 
 
 @router.get("/pipeline", response_model=PublishPipelineOut)
-async def get_publish_pipeline(
+async def get_publish_pipeline(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Live publishing-pipeline health: queue depth, per-platform delivery
     stats, daily publish volume, account/token health, upcoming schedule.
 
     This is the operational view — it answers "is my post actually going
     out?" rather than engagement performance.
     """
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1456,7 +1424,7 @@ async def get_publish_pipeline(
 
 
 @router.get("/reports/export")
-async def export_report(
+async def export_report(team_id: TeamId,
     format: str = Query("csv", pattern="^(csv|json)$"),
     days: int = Query(30, ge=1, le=365),
     platform: str | None = Query(None, description="Filter by platform (linkedin, twitter, etc.)"),
@@ -1465,9 +1433,8 @@ async def export_report(
     start_date: datetime | None = Query(None, description="ISO start date (overrides days)"),
     end_date: datetime | None = Query(None, description="ISO end date (overrides days)"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    team = await _team_for_user(db, current_user)
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1625,14 +1592,13 @@ class SnapshotOut(BaseModel):
 
 
 @router.post("/sync", response_model=SyncAnalyticsResponse)
-async def trigger_analytics_sync(
+async def trigger_analytics_sync(team_id: TeamId,
     body: SyncAnalyticsRequest | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Pull LinkedIn (and future platforms) post metrics into Postgres snapshots."""
     body = body or SyncAnalyticsRequest()
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -1651,15 +1617,14 @@ async def trigger_analytics_sync(
 
 
 @router.get("/snapshots", response_model=list[SnapshotOut])
-async def list_analytics_snapshots(
+async def list_analytics_snapshots(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     post_id: uuid.UUID | None = None,
     limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List stored post metric snapshots for further processing / export."""
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         return []
     since = datetime.now(UTC) - timedelta(days=days)
@@ -1700,13 +1665,12 @@ class TikTokVideoListOut(BaseModel):
 
 
 @router.get("/tiktok/videos", response_model=TikTokVideoListOut)
-async def list_tiktok_videos(
+async def list_tiktok_videos(team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="TikTok social account ID"),
     cursor: int = Query(0, ge=0),
     max_count: int = Query(20, ge=1, le=20),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """List the TikTok creator's videos with engagement metrics via Display API.
 
     Requires the ``video.list`` scope on the connected TikTok account.
@@ -1714,7 +1678,7 @@ async def list_tiktok_videos(
     """
     from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -1795,18 +1759,17 @@ class CloudflareOverview(BaseModel):
 
 
 @router.get("/bots/summary", response_model=BotAnalyticsSummary)
-async def get_bot_analytics_summary(
+async def get_bot_analytics_summary(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Bot reply analytics from local PostgreSQL (AnalyticsEvent).
 
     Tracks: total replies, success/failure rate, guardrail triggers,
     language breakdown (Greek/English), latency, per-provider and
     per-account breakdowns, and daily time series.
     """
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2001,17 +1964,16 @@ class AdCampaignsOut(BaseModel):
 
 
 @router.get("/ad-campaigns", response_model=AdCampaignsOut)
-async def get_ad_campaigns(
+async def get_ad_campaigns(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Ad campaign metrics from ``ad_campaign_snapshots`` (LinkedIn Campaign
     Manager daily scrape). Returns latest metrics + full time series per
     campaign so the dashboard can chart spend/CTR/CPC over time."""
     from app.models.linkedin_ads import AdCampaignSnapshot
 
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
@@ -2118,10 +2080,9 @@ class InitiativeOut(BaseModel):
 
 @router.post("/initiative-events", response_model=InitiativeOut)
 async def record_initiative_event(
-    body: InitiativeEventIn,
+    body: InitiativeEventIn, team_id: TeamId,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Record a growth-initiative action (e.g. "sent 40 LinkedIn page
     invites"). Events land in ``analytics_events`` with ``post_id=NULL`` so
     they export to the datalake as account-events automatically."""
@@ -2136,7 +2097,7 @@ async def record_initiative_event(
             status_code=400,
             detail=f"Unknown event_type — expected one of {sorted(INITIATIVE_TYPES)}",
         )
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     if body.social_account_id:
@@ -2188,16 +2149,15 @@ async def record_initiative_event(
 
 
 @router.get("/initiatives", response_model=list[InitiativeOut])
-async def list_initiatives(
+async def list_initiatives(team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    db: AsyncSession = Depends(get_db)):
     """Growth-initiative rollup: units sent and follower delta on the
     linked account since the initiative started."""
     from app.services.growth_initiatives import initiative_summary
 
-    team = await _team_for_user(db, current_user)
+    team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
     return await initiative_summary(db, team.id, days=days)

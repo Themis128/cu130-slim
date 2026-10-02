@@ -7,6 +7,18 @@ import httpx
 import pytest
 
 from app.services import publishing as pub
+from app.services import x_web
+
+
+@pytest.fixture(autouse=True)
+def _isolate_x_web_fallback(monkeypatch):
+    """Keep browser-fallback tests off live X_WEB_FALLBACK_ENABLED config.
+
+    When the real x_web fallback is configured, _publish_twitter_fallbacks
+    consults the live Redis ``x_web:guard`` rate limiter before reaching the
+    mocked browser bridge — making results depend on real publish history.
+    """
+    monkeypatch.setattr(x_web, "is_configured", lambda: False)
 
 
 class _FakeResponse:
