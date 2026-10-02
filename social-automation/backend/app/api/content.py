@@ -126,6 +126,15 @@ async def create_post(
 ):
     await check_quota("posts_per_month", team_id, db)
 
+    # 3P coverage rotation — posts created without an explicit pillar get the
+    # least-covered one so the digest's pillar balance stays meaningful.
+    pillar_id = post_data.pillar_id
+    if pillar_id is None:
+        from app.services.pillars import least_covered_pillar
+
+        auto_pillar = await least_covered_pillar(db, team_id)
+        pillar_id = auto_pillar.id if auto_pillar else None
+
     corrected_text = await auto_correct(post_data.content_text or "")
     body = strip_embedded_metadata(
         corrected_text or post_data.content_text, post_data.hashtags, post_data.link_url
@@ -145,7 +154,7 @@ async def create_post(
         scheduled_at=post_data.scheduled_at,
         meta_data=post_data.metadata,
         music_asset_id=post_data.music_asset_id,
-        pillar_id=post_data.pillar_id,
+        pillar_id=pillar_id,
         content_brief_id=post_data.content_brief_id,
         is_recurring=post_data.is_recurring,
         recurrence_pattern=post_data.recurrence_pattern,
