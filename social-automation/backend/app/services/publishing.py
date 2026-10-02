@@ -1049,12 +1049,30 @@ async def _publish_linkedin(
     author_urn = _linkedin_author_urn(account, client)
     post_title = (post.content_text or "Carousel")[:80]
 
-    # Detect PDF files in the media list — these are pre-built carousels
-    # that should be uploaded as LinkedIn documents, not images.
+    # Detect media types — video and PDF get dedicated upload flows;
+    # everything else is treated as an image.
+    video_paths = [
+        p for p in media_paths
+        if p.lower().endswith((".mp4", ".mov", ".webm", ".avi", ".mkv"))
+    ]
     pdf_paths = [p for p in media_paths if p.lower().endswith(".pdf")]
-    image_paths = [p for p in media_paths if not p.lower().endswith(".pdf")]
+    image_paths = [
+        p for p in media_paths
+        if p not in video_paths and not p.lower().endswith(".pdf")
+    ]
 
-    if pdf_paths:
+    if video_paths:
+        # Native video takes precedence — a video post cannot also carry
+        # images/documents on LinkedIn.
+        with open(video_paths[0], "rb") as fh:
+            video_bytes = fh.read()
+        result = await client.create_video_post(
+            author_urn=author_urn,
+            commentary=text,
+            video_bytes=video_bytes,
+            title=post_title,
+        )
+    elif pdf_paths:
         # Upload the first PDF as a document post (LinkedIn carousel).
         # If there are multiple PDFs, combine them; if there are also
         # images, they are ignored (PDF takes precedence as carousel).

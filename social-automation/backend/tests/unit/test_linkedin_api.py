@@ -478,3 +478,105 @@ async def test_create_document_post_success(monkeypatch, client, no_sleep):
 
     put_call = [c for c in fake.calls if c["method"] == "PUT"][0]
     assert put_call["content"] == pdf_bytes
+
+
+@pytest.mark.asyncio
+async def test_create_video_post_happy_path(monkeypatch, client, no_sleep):
+    video_bytes = b"\x00" * 1024
+    responses = [
+        _FakeResponse(200, {
+            "value": {
+                "video": "urn:li:video:vid1",
+                "uploadToken": "tok-xyz",
+                "uploadInstructions": [
+                    {"uploadUrl": "https://up.example/part1", "firstByte": 0, "lastByte": 1023}
+                ],
+            }
+        }),
+        _FakeResponse(201, {}, headers={"ETag": '"etag-1"'}),
+        _FakeResponse(201, {}),                      # finalizeUpload
+        _FakeResponse(200, {"status": "AVAILABLE"}),  # poll
+        _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3AugcPost%3Avid1"}),
+    ]
+    fake = _FakeAsyncClient(responses)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await client.create_video_post(
+        author_urn="urn:li:organization:12345",
+        commentary="Video post",
+        video_bytes=video_bytes,
+        title="My Video",
+    )
+
+    assert result.success is True
+    assert result.platform_post_id == "urn:li:ugcPost:vid1"
+
+    # init sends fileSizeBytes so LinkedIn can split the upload
+    init_call = fake.calls[0]
+    assert init_call["json"]["initializeUploadRequest"]["fileSizeBytes"] == 1024
+
+    put_call = [c for c in fake.calls if c["method"] == "PUT"][0]
+    assert put_call["content"] == video_bytes
+
+    # finalize carries the part ETag
+    fin_call = [
+        c for c in fake.calls
+        if c["method"] == "POST" and "finalizeUpload" in c["url"]
+    ][0]
+    assert fin_call["json"]["finalizeUploadRequest"]["uploadedPartIds"] == ["etag-1"]
+
+    final_call = fake.calls[-1]
+    assert final_call["json"]["content"]["media"]["id"] == "urn:li:video:vid1"
+    assert final_call["json"]["content"]["media"]["title"] == "My Video"
+
+
+@pytest.mark.asyncio
+async def test_create_video_post_multipart_splits_byte_ranges(monkeypatch, client, no_sleep):
+    video_bytes = b"x" * 300
+    responses = [
+        _FakeResponse(200, {
+            "value": {
+                "video": "urn:li:video:mp1",
+                "uploadToken": "tok",
+                "uploadInstructions": [
+                    {"uploadUrl": "https://up.example/p1", "firstByte": 0, "lastByte": 99},
+                    {"uploadUrl": "https://up.example/p2", "firstByte": 100, "lastByte": 199},
+                    {"uploadUrl": "https://up.example/p3", "firstByte": 200, "lastByte": 299},
+                ],
+            }
+        }),
+        _FakeResponse(201, {}, headers={"ETag": "e1"}),
+        _FakeResponse(201, {}, headers={"ETag": "e2"}),
+        _FakeResponse(201, {}, headers={"ETag": "e3"}),
+        _FakeResponse(201, {}),                      # finalize
+        _FakeResponse(200, {"status": "AVAILABLE"}),  # poll
+        _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3Ashare%3Avid2"}),
+    ]
+    fake = _FakeAsyncClient(responses)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await client.create_video_post(
+        author_urn="urn:li:organization:12345",
+        commentary="v",
+        video_bytes=video_bytes,
+    )
+
+    assert result.success is True
+    puts = [c for c in fake.calls if c["method"] == "PUT"]
+    assert [len(c["content"]) for c in puts] == [100, 100, 100]
+    assert puts[0]["content"] == video_bytes[0:100]
+    assert puts[1]["content"] == video_bytes[100:200]
+
+
+@pytest.mark.asyncio
+async def test_create_video_post_init_error(monkeypatch, client, no_sleep):
+    fake = _FakeAsyncClient(_FakeResponse(403, {"status": 403}))
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+
+    result = await client.create_video_post(
+        author_urn="urn:li:organization:12345",
+        commentary="v",
+        video_bytes=b"data",
+    )
+    assert result.success is False
+    assert "403" in result.error
