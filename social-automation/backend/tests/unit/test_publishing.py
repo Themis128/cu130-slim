@@ -978,3 +978,83 @@ def test_tiktok_clarify_unaudited():
     )
     assert "MEDIA_UPLOAD" in msg
     assert "audit" in msg.lower()
+
+
+# ── duplicate-content guard ──────────────────────────────────────────────────
+
+class _StubScalars:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _StubResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return _StubScalars(self._rows)
+
+
+class _StubDB:
+    """AsyncSession stand-in — execute() returns preset rows."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, _query):
+        return _StubResult(self._rows)
+
+
+def _fake_post(post_id, content, media_ids=None):
+    return SimpleNamespace(
+        id=post_id,
+        content_text=content,
+        media_ids=media_ids or [],
+    )
+
+
+@pytest.mark.asyncio
+async def test_find_duplicate_post_matches_shared_media(monkeypatch):
+    import uuid
+    other = _fake_post(uuid.uuid4(), "totally different caption", media_ids=[uuid.uuid4()])
+    shared = other.media_ids[0]
+    candidate = _fake_post(uuid.uuid4(), "fresh text", media_ids=[shared])
+    monkeypatch.setattr(pub, "_build_post_text", lambda post, platform: post.content_text)
+
+    account = SimpleNamespace(id=uuid.uuid4(), platform="linkedin")
+    hit = await pub._find_duplicate_post(_StubDB([other]), candidate, account, "fresh text")
+    assert hit is other
+
+
+@pytest.mark.asyncio
+async def test_find_duplicate_post_matches_near_identical_caption(monkeypatch):
+    import uuid
+    same = "We spent €100 of promo credit on a LinkedIn boost. The results beat the platform average by 9x — here's exactly what worked."
+    other = _fake_post(uuid.uuid4(), same)
+    candidate = _fake_post(uuid.uuid4(), "x", media_ids=[])
+    monkeypatch.setattr(pub, "_build_post_text", lambda post, platform: post.content_text)
+
+    account = SimpleNamespace(id=uuid.uuid4(), platform="linkedin")
+    hit = await pub._find_duplicate_post(
+        _StubDB([other]), candidate, account,
+        "We spent €100 of promo credit on a LinkedIn boost. The results beat the platform average by 9x — here's what worked.",
+    )
+    assert hit is other
+
+
+@pytest.mark.asyncio
+async def test_find_duplicate_post_ignores_distinct_content(monkeypatch):
+    import uuid
+    other = _fake_post(uuid.uuid4(), "Notes on Postgres indexing strategies for small teams.")
+    candidate = _fake_post(uuid.uuid4(), "x", media_ids=[])
+    monkeypatch.setattr(pub, "_build_post_text", lambda post, platform: post.content_text)
+
+    account = SimpleNamespace(id=uuid.uuid4(), platform="linkedin")
+    hit = await pub._find_duplicate_post(
+        _StubDB([other]), candidate, account,
+        "New Grafana dashboard tracks container memory pressure across the cluster.",
+    )
+    assert hit is None

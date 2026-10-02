@@ -605,6 +605,141 @@ class LinkedInAPIClient:
                 platform_url=f"https://www.linkedin.com/feed/update/{post_id}" if post_id else None,
             )
 
+    async def create_video_post(
+        self,
+        author_urn: str,
+        commentary: str,
+        video_bytes: bytes,
+        *,
+        title: str = "Video",
+        alt_text: str = "",
+    ) -> LinkedInPostResult:
+        """Publish a LinkedIn post with a native video (mp4).
+
+        Flow per LinkedIn docs: initializeUpload → PUT each byte range to
+        the returned uploadInstructions → finalizeUpload with the part
+        ETags → poll the video URN until AVAILABLE → create the post.
+        """
+        if not author_urn.startswith("urn:li:"):
+            return LinkedInPostResult(success=False, error=f"Invalid author URN: {author_urn}")
+
+        init_url = f"{LINKEDIN_REST_BASE}/videos?action=initializeUpload"
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            reg = await client.post(
+                init_url,
+                headers=self._headers(),
+                json={
+                    "initializeUploadRequest": {
+                        "owner": author_urn,
+                        "fileSizeBytes": len(video_bytes),
+                        "uploadCaptions": False,
+                        "uploadThumbnail": False,
+                    }
+                },
+            )
+            if reg.status_code >= 400:
+                self._log_api_error(init_url, reg)
+                return LinkedInPostResult(
+                    success=False,
+                    error=f"HTTP {reg.status_code}: {reg.text[:400]}",
+                )
+
+            value = (reg.json() or {}).get("value") or {}
+            video_urn = value.get("video")
+            upload_token = value.get("uploadToken")
+            instructions = value.get("uploadInstructions") or []
+            if not video_urn or not instructions:
+                return LinkedInPostResult(
+                    success=False,
+                    error="LinkedIn video upload initialization returned no upload details",
+                )
+
+            part_ids: list[str] = []
+            for instr in instructions:
+                upload_url = instr.get("uploadUrl")
+                if not upload_url:
+                    continue
+                first = int(instr.get("firstByte", 0))
+                last = int(instr.get("lastByte", len(video_bytes) - 1))
+                up = await client.put(
+                    upload_url,
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                    content=video_bytes[first : last + 1],
+                )
+                if up.status_code >= 400:
+                    self._log_api_error(upload_url, up)
+                    return LinkedInPostResult(
+                        success=False,
+                        error=f"Video upload failed: HTTP {up.status_code}: {up.text[:400]}",
+                    )
+                etag = up.headers.get("ETag")
+                if etag:
+                    part_ids.append(etag.strip('"'))
+
+            # Finalize is required for multi-part uploads and harmless for
+            # single-part ones.
+            if upload_token or len(instructions) > 1:
+                fin_url = f"{LINKEDIN_REST_BASE}/videos?action=finalizeUpload"
+                fin = await client.post(
+                    fin_url,
+                    headers=self._headers(),
+                    json={
+                        "finalizeUploadRequest": {
+                            "video": video_urn,
+                            "uploadToken": upload_token or "",
+                            "uploadedPartIds": part_ids,
+                        }
+                    },
+                )
+                if fin.status_code >= 400:
+                    self._log_api_error(fin_url, fin)
+                    return LinkedInPostResult(
+                        success=False,
+                        error=f"Video finalize failed: HTTP {fin.status_code}: {fin.text[:400]}",
+                    )
+
+            encoded = quote(video_urn, safe="")
+            poll_url = f"{LINKEDIN_REST_BASE}/videos/{encoded}"
+            status = await self._poll_asset_status(
+                client,
+                poll_url,
+                self._headers(),
+                max_attempts=60,
+                interval=2.0,
+            )
+            if status != "AVAILABLE":
+                return LinkedInPostResult(
+                    success=False,
+                    error=f"Video processing failed or timed out (status={status})",
+                )
+
+            content: dict[str, Any] = {
+                "media": {
+                    "id": video_urn,
+                    "title": title[:200],
+                    **({"altText": alt_text[:400]} if alt_text else {}),
+                }
+            }
+            payload = self._post_payload(
+                author_urn=author_urn,
+                commentary=commentary,
+                content=content,
+            )
+            post_url = f"{LINKEDIN_REST_BASE}/posts"
+            pr = await client.post(post_url, headers=self._headers(), json=payload)
+            if pr.status_code >= 400:
+                self._log_api_error(post_url, pr)
+                return LinkedInPostResult(
+                    success=False,
+                    error=f"HTTP {pr.status_code}: {pr.text[:400]}",
+                )
+            post_id = unquote(pr.headers.get("x-restli-id", "") or "")
+            return LinkedInPostResult(
+                success=True,
+                platform_post_id=post_id,
+                platform_url=f"https://www.linkedin.com/feed/update/{post_id}" if post_id else None,
+            )
+
     async def _poll_asset_status(
         self,
         client: httpx.AsyncClient,
