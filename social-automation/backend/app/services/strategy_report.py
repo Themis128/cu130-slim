@@ -41,6 +41,29 @@ _MAX_POSTS_PER_PLATFORM = 4
 _CONTENT_PREVIEW_CHARS = 90
 _RECENT_POSTS_DAYS = 7
 
+# Follower thresholds where each platform's monetization unlocks — the
+# "money gates" the growth strategy optimizes toward. Ordered ascending.
+# LinkedIn is absent on purpose: its realistic monetization at our scale is
+# selling services to the existing audience (BrandLink is invite-only and
+# video-gated), so it gets a KPI note rather than a follower gate.
+_MONETIZATION_GATES: dict[str, list[tuple[int, str]]] = {
+    "instagram": [
+        (50, "benchmark tracking"),
+        (10_000, "Subscriptions · Live Badges · Gifts"),
+    ],
+    "facebook": [
+        (500, "Stars (held 30 consecutive days)"),
+        (10_000, "in-stream ads · content monetization"),
+    ],
+    "tiktok": [
+        (10_000, "Creator Rewards (+ 100K views/30d, personal acct)"),
+    ],
+    "youtube": [
+        (1_000, "Partner Program (+ 4K watch hrs)"),
+    ],
+}
+_KPI_PLATFORM = "instagram"  # growth bet — the single KPI that unlocks the rest
+
 
 @dataclass
 class BriefMedia:
@@ -85,6 +108,7 @@ class PlaybookItem:
     time_athens: str = ""        # "HH:MM" Athens local
     format: str = ""             # text | image | carousel | video
     media_required: bool = False
+    rescheduled_from: str = ""   # original time when auto-shifted for a slot conflict
 
 
 _KNOWN_PLATFORMS = (
@@ -159,12 +183,36 @@ def _agent_playbook_block(items: list[PlaybookItem], tz_name: str) -> str:
                 "time_local": it.time_athens or None,
                 "format": it.format or None,
                 "media_required": it.media_required,
+                "rescheduled_from": it.rescheduled_from or None,
                 "instruction": it.instruction,
             }
             for it in items
         ],
     }
     return "```json\n" + json.dumps(payload, indent=2, ensure_ascii=False) + "\n```"
+
+
+def _resolve_slot_conflicts(items: list[PlaybookItem]) -> list[PlaybookItem]:
+    """Shift duplicate platform+time slots — the LLM is told not to emit them
+    but sometimes does. Second and later occurrences move +90 min (capped at
+    22:59) and keep ``rescheduled_from`` so the agent block stays honest."""
+    seen: set[tuple[str, str]] = set()
+    for it in items:
+        if not it.platform or not it.time_athens:
+            continue
+        while (it.platform, it.time_athens) in seen:
+            hh, mm = int(it.time_athens[:2]), int(it.time_athens[3:])
+            mm += 90
+            hh += mm // 60
+            mm %= 60
+            if not it.rescheduled_from:
+                it.rescheduled_from = it.time_athens
+            if hh > 22:
+                it.time_athens = "22:59"
+                break  # end of day — accept the slot rather than loop forever
+            it.time_athens = f"{hh:02d}:{mm:02d}"
+        seen.add((it.platform, it.time_athens))
+    return items
 
 
 @dataclass
@@ -258,15 +306,35 @@ class StrategyReport:
             if starved:
                 lines.append(f"  → post from {starved[0]} next — it's had zero coverage")
             lines.append("")
+        milestones = self._milestone_rows()
+        if milestones:
+            lines.append("MONETIZATION MILESTONES")
+            for name, cur, progress, _to_go in milestones:
+                lines.append(f"  {name}: {cur:,} followers · next: {progress}")
+            kpi = [r for r in milestones if r[0] == _KPI_PLATFORM]
+            if kpi and kpi[0][3] is not None:
+                lines.append(
+                    f"  → KPI: {_KPI_PLATFORM} followers — "
+                    f"{kpi[0][3]:,} to the next gate"
+                )
+            lines.append("")
         lines.extend(self._recent_posts_text(tz))
         lines.append("TOMORROW'S PLAYBOOK")
         if self.actions:
             for i, a in enumerate(self.actions, 1):
                 lines.append(f"  {i}. {a}")
             items = sorted(
-                (_parse_playbook_item(a) for a in self.actions),
+                _resolve_slot_conflicts(
+                    [_parse_playbook_item(a) for a in self.actions]
+                ),
                 key=lambda it: it.time_athens or "99:99",
             )
+            for it in items:
+                if it.rescheduled_from:
+                    lines.append(
+                        f"  → {it.platform} moved {it.rescheduled_from} → "
+                        f"{it.time_athens} (duplicate slot)"
+                    )
             lines.append("")
             lines.append("AGENT DEPLOYMENT BLOCK — paste to your Devin agent")
             lines.append(_agent_playbook_block(items, self.timezone))
@@ -361,12 +429,20 @@ class StrategyReport:
         agent_block_html = ""
         if self.actions:
             items = sorted(
-                (_parse_playbook_item(a) for a in self.actions),
+                _resolve_slot_conflicts(
+                    [_parse_playbook_item(a) for a in self.actions]
+                ),
                 key=lambda it: it.time_athens or "99:99",
             )
             action_rows = "".join(
                 "<tr>"
-                f"<td><b>{esc(it.time_athens or '—')}</b></td>"
+                f"<td><b>{esc(it.time_athens or '—')}</b>"
+                + (
+                    f" <span style='color:#a16207;font-size:11px'>"
+                    f"(was {esc(it.rescheduled_from)})</span>"
+                    if it.rescheduled_from else ""
+                )
+                + "</td>"
                 f"<td>{esc(it.platform.capitalize() if it.platform else '—')}</td>"
                 f"<td>{esc(it.format.capitalize() if it.format else '—')}"
                 f"{' 📎' if it.media_required else ''}</td>"
@@ -407,6 +483,29 @@ class StrategyReport:
                 f"{p_rows}</table>"
             )
 
+        milestones_block = ""
+        milestones = self._milestone_rows()
+        if milestones:
+            m_rows = "".join(
+                f"<tr><td><b>{esc(name)}</b></td><td>{cur:,}</td>"
+                f"<td>{esc(progress)}</td></tr>"
+                for name, cur, progress, _to_go in milestones
+            )
+            kpi = [r for r in milestones if r[0] == _KPI_PLATFORM]
+            kpi_note = (
+                f"<p style='color:#374151;font-size:13px'>→ KPI: "
+                f"{esc(_KPI_PLATFORM)} followers — "
+                f"{kpi[0][3]:,} to the next gate</p>"
+                if kpi and kpi[0][3] is not None else ""
+            )
+            milestones_block = (
+                "<h3>Monetization milestones</h3>"
+                '<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">'
+                "<tr><th align='left'>Platform</th><th>Followers</th>"
+                "<th align='left'>Next gate</th></tr>"
+                f"{m_rows}</table>{kpi_note}"
+            )
+
         initiatives_block = self._initiatives_html(esc)
 
         issues = self.digest.issues if self.digest else []
@@ -427,6 +526,7 @@ class StrategyReport:
   {digest_block}
   {platform_block}
   {pillar_block}
+  {milestones_block}
   {recent_block}
   {actions_block}
   {initiatives_block}
@@ -444,6 +544,26 @@ class StrategyReport:
             platforms.items(),
             key=lambda kv: (tier_rank.get(kv[1].get("focus_tier", "last"), 3), kv[0]),
         )
+
+    def _milestone_rows(self) -> list[tuple[str, int, str, int | None]]:
+        """(platform, followers_now, progress_text, followers_to_next_gate).
+
+        One row per platform that has a follower-gated monetization step
+        still ahead of it — the brief's "distance to money" table."""
+        rows: list[tuple[str, int, str, int | None]] = []
+        for name, p in self._platform_rows():
+            cur = (p.get("follower_growth") or {}).get("current")
+            gates = _MONETIZATION_GATES.get(name)
+            if cur is None or not gates:
+                continue
+            nxt = next(((g, lbl) for g, lbl in gates if cur < g), None)
+            if nxt is None:
+                g, lbl = gates[-1]
+                rows.append((name, cur, f"{lbl} — reached ✓", None))
+            else:
+                g, lbl = nxt
+                rows.append((name, cur, f"{lbl} at {g:,} ({g - cur:,} to go)", g - cur))
+        return rows
 
     def _initiatives_text(self) -> list[str]:
         """GROWTH INITIATIVES section — sent / accepted / pending / credits."""
@@ -844,6 +964,7 @@ def _compact_insights(insights: dict[str, Any]) -> dict[str, Any]:
             "momentum_7d_engagement_pct": p.get("momentum_7d_engagement_pct"),
             "momentum_7d_impressions_pct": p.get("momentum_7d_impressions_pct"),
             "benchmark_verdict": (p.get("benchmark") or {}).get("verdict"),
+            "followers": (p.get("follower_growth") or {}).get("current"),
             "best_weekday_athens": p.get("best_weekday_athens"),
             "best_hour_athens": best_hour,
             "best_hour_sample": best_hour_sample,
@@ -904,10 +1025,18 @@ async def _llm_actions(
         "'week-over-week growth' not 'momentum'). Every action MUST "
         "explicitly state: the platform name, the Athens time as HH:MM, the "
         "format (text / image / carousel / video), and one concrete reason "
-        "grounded in the numbers. Instagram cannot publish text-only posts "
+        "grounded in the numbers. Channel strategy: LinkedIn is the revenue "
+        "channel — its actions should funnel readers toward Cloudless "
+        "services or the free audit, not chase platform payouts. Instagram "
+        "is the growth bet — its KPI is follower growth toward monetization "
+        "gates, so prefer formats that follow/convert. TikTok gets "
+        "repurposed content only (reuse a proven post, no original effort). "
+        "Facebook and X are deprioritized — at most one action between "
+        "them. Instagram cannot publish text-only posts "
         "— for Instagram always specify image or carousel. TikTok needs "
         "video. Do not repeat the same platform+time "
-        "action twice. Never recommend posting between 00:00–06:00 Athens "
+        "action twice — stagger same-platform actions by at least 60 "
+        "minutes. Never recommend posting between 00:00–06:00 Athens "
         "— overnight 'best hours' are scheduler artifacts, not audience "
         "activity; prefer the platform baseline windows instead. "
         "No preamble, no closing remarks — only the numbered list."

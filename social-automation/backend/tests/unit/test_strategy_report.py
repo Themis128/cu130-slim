@@ -17,6 +17,7 @@ from app.services.strategy_report import (
     _parse_actions,
     _parse_playbook_item,
     _preview_text,
+    _resolve_slot_conflicts,
     _rule_actions,
 )
 
@@ -389,3 +390,102 @@ def test_best_window_dead_night_renders_baseline():
         if "linkedin" in ln and "baseline" in ln
     )
     assert "02:00" not in row
+
+
+def test_resolve_slot_conflicts_shifts_duplicate_platform_time():
+    items = [
+        _parse_playbook_item("Post a carousel on LinkedIn at 19:00 Athens time"),
+        _parse_playbook_item("Post a second carousel on LinkedIn at 19:00 Athens time"),
+        _parse_playbook_item("Post a text update on Threads at 12:00 Athens time"),
+    ]
+    resolved = _resolve_slot_conflicts(items)
+    assert resolved[0].time_athens == "19:00"
+    assert resolved[0].rescheduled_from == ""
+    assert resolved[1].time_athens == "20:30"
+    assert resolved[1].rescheduled_from == "19:00"
+    assert resolved[2].time_athens == "12:00"  # different platform — untouched
+
+
+def test_resolve_slot_conflicts_chains_past_a_second_dup_and_caps_late():
+    items = [
+        _parse_playbook_item("Post an image on Instagram at 21:00 Athens time"),
+        _parse_playbook_item("Post a reel on Instagram at 21:00 Athens time"),
+        _parse_playbook_item("Post a story recap on Instagram at 21:00 Athens time"),
+    ]
+    resolved = _resolve_slot_conflicts(items)
+    assert resolved[1].time_athens == "22:30"
+    # Third item would exceed 22:59 — caps rather than looping forever.
+    assert resolved[2].time_athens == "22:59"
+    assert resolved[2].rescheduled_from == "21:00"
+
+
+def test_agent_block_marks_rescheduled_slot():
+    import json as _json
+    import re as _re
+
+    from app.services.strategy_report import _agent_playbook_block
+
+    items = _resolve_slot_conflicts([
+        _parse_playbook_item("Post a carousel on LinkedIn at 19:00 Athens time"),
+        _parse_playbook_item("Post a second carousel on LinkedIn at 19:00 Athens time"),
+    ])
+    payload = _json.loads(_re.search(r"```json\n(.+)\n```", _agent_playbook_block(items, "Europe/Athens"), _re.S).group(1))
+    assert payload["actions"][0]["rescheduled_from"] is None
+    assert payload["actions"][1]["rescheduled_from"] == "19:00"
+    assert payload["actions"][1]["time_local"] == "20:30"
+
+
+def test_milestone_rows_track_follower_gates():
+    import copy
+    insights = copy.deepcopy(INSIGHTS)
+    insights["platforms"]["instagram"] = {
+        "focus_tier": "secondary",
+        "follower_growth": {"current": 9, "net": 4, "accounts": 1, "anomaly": None},
+    }
+    insights["platforms"]["facebook"] = {
+        "focus_tier": "secondary",
+        "follower_growth": {"current": 66, "net": 2, "accounts": 1, "anomaly": None},
+    }
+    rows = _report(insights=insights)._milestone_rows()
+    by_name = {r[0]: r for r in rows}
+    assert by_name["instagram"][1] == 9
+    assert "50" in by_name["instagram"][2]
+    assert "41" in by_name["instagram"][2]
+    assert "500" in by_name["facebook"][2]
+    # LinkedIn has no follower gate — absent even if it appears in pulse.
+    assert "linkedin" not in by_name
+
+
+def test_milestones_render_in_text_and_html():
+    import copy
+    insights = copy.deepcopy(INSIGHTS)
+    insights["platforms"]["instagram"] = {
+        "follower_growth": {"current": 9, "net": 4, "accounts": 1, "anomaly": None},
+    }
+    r = _report(insights=insights)
+    text = r.to_text()
+    assert "MONETIZATION MILESTONES" in text
+    assert "KPI: instagram followers" in text
+    html = r.to_html()
+    assert "Monetization milestones" in html
+    assert "benchmark tracking" in html
+
+
+def test_milestones_skip_platforms_without_gates_or_counts():
+    # INSIGHTS has no follower_growth on any platform — section must hide.
+    r = _report()
+    assert "MONETIZATION MILESTONES" not in r.to_text()
+    assert "Monetization milestones" not in r.to_html()
+
+
+def test_compact_insights_includes_follower_counts():
+    insights = {
+        "platforms": {
+            "instagram": {
+                "posts": 5,
+                "follower_growth": {"current": 9, "net": 4},
+            },
+        },
+    }
+    compact = _compact_insights(insights)
+    assert compact["platforms"]["instagram"]["followers"] == 9
