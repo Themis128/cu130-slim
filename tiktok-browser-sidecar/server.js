@@ -11,6 +11,7 @@
 
 import express from "express";
 import { chromium } from "patchright";
+import fs from "fs/promises";
 
 const PORT = process.env.TIKTOK_SIDECAR_PORT || 9224;
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || "cloudless.gr";
@@ -29,6 +30,44 @@ let page = null;
 let sessionId = null;
 let userId = null;
 let extraCookies = {};
+let qrLoginInFlight = null;
+
+const SESSION_FILE = "/data/tiktok-session.json";
+
+/** Persist the session so container restarts don't drop the login. */
+async function saveSession() {
+  try {
+    await fs.writeFile(
+      SESSION_FILE,
+      JSON.stringify({ sessionId, userId, cookies: extraCookies }),
+    );
+  } catch {
+    // /data may be unavailable in some deployments — non-fatal
+  }
+}
+
+/** Restore a persisted session into memory (no browser launch). */
+async function loadSession() {
+  try {
+    const raw = JSON.parse(await fs.readFile(SESSION_FILE, "utf8"));
+    sessionId = raw.sessionId || null;
+    userId = raw.userId || null;
+    extraCookies = raw.cookies && typeof raw.cookies === "object" ? raw.cookies : {};
+  } catch {
+    // No prior session file — fine, stay logged out
+  }
+}
+
+/** Snapshot the browser's real cookies into the session fields + disk. */
+async function captureSessionCookies() {
+  const all = await context.cookies("https://www.tiktok.com");
+  const map = {};
+  for (const c of all) map[c.name] = c.value;
+  sessionId = map.sessionid || sessionId;
+  delete map.sessionid;
+  extraCookies = map;
+  await saveSession();
+}
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
@@ -223,6 +262,7 @@ async function handleSetSession(req, res) {
     await page.waitForTimeout(3000);
     const title = await page.title();
     const isLoggedIn = await checkLoggedIn();
+    if (isLoggedIn) await saveSession();
     res.json({
       status: "ok",
       logged_in: isLoggedIn,
@@ -252,6 +292,92 @@ async function handleCheckSession(req, res) {
       profile_url: page.url(),
       title,
     });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+// ── API: QR login ──────────────────────────────────────────────────────────
+
+/**
+ * Start a QR-code login: navigate to tiktok.com/login, show the QR tab,
+ * and return the QR image as base64. The user scans it with the TikTok
+ * mobile app; GET /login/qr/status detects the approval and captures the
+ * resulting session cookies.
+ */
+async function handleQrLoginStart(req, res) {
+  try {
+    if (!qrLoginInFlight) {
+      qrLoginInFlight = (async () => {
+        await closeBrowser();
+        sessionId = null;
+        extraCookies = {};
+        await ensureBrowser();
+        await page.goto("https://www.tiktok.com/login", {
+          waitUntil: "networkidle",
+          timeout: 60000,
+        });
+        await page.waitForTimeout(3000);
+        // QR is one of the login-method options, not its own route.
+        const qrOption = page
+          .getByText("Use QR code", { exact: true })
+          .first();
+        if (await qrOption.isVisible({ timeout: 10000 }).catch(() => false)) {
+          await qrOption.click();
+          await page.waitForTimeout(2000);
+        }
+      })();
+    }
+    await qrLoginInFlight;
+  } catch (err) {
+    qrLoginInFlight = null;
+    return res.status(500).json({ error: err.message });
+  }
+
+  // The QR code renders inside an <img> (or canvas) — grab whichever exists.
+  const qrSel = '[data-e2e="qr-code-img"], img[src^="data:image"], canvas';
+  const qrEl = page.locator(qrSel).first();
+  try {
+    await qrEl.waitFor({ state: "visible", timeout: 15000 });
+    let png;
+    const tag = await qrEl.evaluate((el) => el.tagName);
+    if (tag === "IMG") {
+      const src = await qrEl.getAttribute("src");
+      png = src.startsWith("data:image") ? src.split(",")[1] : null;
+    }
+    if (!png) {
+      png = (await qrEl.screenshot()).toString("base64");
+    }
+    res.json({ status: "ok", qr_png_b64: png, url: page.url() });
+  } catch {
+    qrLoginInFlight = null;
+    res
+      .status(502)
+      .json({ error: "QR code element not found on login page" });
+  }
+}
+
+/**
+ * Poll the QR login: once the mobile app approves, TikTok redirects and the
+ * context gains auth cookies. Capture + persist them, then report.
+ */
+async function handleQrLoginStatus(req, res) {
+  if (!qrLoginInFlight && !page) {
+    return res.json({ status: "ok", logged_in: false, reason: "no_qr_flow" });
+  }
+  try {
+    const url = page.url();
+    // Require a real sessionid cookie — checkLoggedIn can false-positive on
+    // transitional pages while TikTok finishes authorizing the QR confirm.
+    const cookies = await context.cookies("https://www.tiktok.com");
+    const hasAuth = cookies.some((c) => c.name === "sessionid" && c.value);
+    const isLoggedIn =
+      hasAuth && !url.includes("/login") && (await checkLoggedIn());
+    if (isLoggedIn) {
+      await captureSessionCookies();
+      qrLoginInFlight = null;
+    }
+    res.json({ status: "ok", logged_in: isLoggedIn, url });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -1048,6 +1174,8 @@ app.get("/health", (req, res) => {
 // Session
 app.post("/session", handleSetSession);
 app.get("/session", handleCheckSession);
+app.post("/login/qr", handleQrLoginStart);
+app.get("/login/qr/status", handleQrLoginStatus);
 
 // Browse (Docker Playwright page already logged in)
 app.post("/browse", handleBrowse);
@@ -1088,6 +1216,7 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+  await loadSession();
   console.log(`TikTok browser sidecar listening on port ${PORT}`);
 });

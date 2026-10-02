@@ -92,11 +92,15 @@ def _error_result(msg: str) -> dict[str, Any]:
     return _text_result(msg, is_error=True)
 
 
+_INTERPRETERS = {".py": "python3", ".mjs": "node", ".sh": "bash"}
+
+
 def _run_script(name: str, args: list[str] | None = None, timeout: int = 600) -> dict[str, Any]:
     script = SCRIPTS / name
     if not script.exists():
         return _error_result(f"Script missing: {script}")
-    cmd = ["bash", str(script), *(args or [])]
+    interp = _INTERPRETERS.get(script.suffix, "bash")
+    cmd = [interp, str(script), *(args or [])]
     try:
         proc = subprocess.run(
             cmd,
@@ -154,28 +158,28 @@ def _admin_token() -> str:
 
 def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name == "tiktok_check_config":
-        return _run_script("check-config.sh", timeout=120)
+        return _run_script("check-config.py", timeout=120)
 
     if name == "tiktok_sidecar_status":
-        return _run_script("sidecar-session.sh", ["status"], timeout=60)
+        return _run_script("sidecar-session.py", ["status"], timeout=60)
 
     if name == "tiktok_sidecar_ensure_session":
-        return _run_script("sidecar-session.sh", ["ensure"], timeout=300)
+        return _run_script("sidecar-session.py", ["ensure"], timeout=300)
 
     if name == "tiktok_dns_list":
-        return _run_script("dns-tiktok-txt.sh", ["list"], timeout=60)
+        return _run_script("dns-tiktok-txt.py", ["list"], timeout=60)
 
     if name == "tiktok_dns_add_domain_txt":
         token = args.get("token", "")
         if not str(token).startswith("tiktok-domain-verification="):
             return _error_result("token must start with tiktok-domain-verification=")
-        return _run_script("dns-tiktok-txt.sh", ["add", str(token)], timeout=60)
+        return _run_script("dns-tiktok-txt.py", ["add", str(token)], timeout=60)
 
     if name == "tiktok_console_inspect":
-        return _run_script("console-inspect.sh", timeout=300)
+        return _run_script("console-inspect.py", timeout=300)
 
     if name == "tiktok_domain_verify":
-        return _run_script("domain-verify.sh", timeout=600)
+        return _run_script("domain-verify.py", timeout=600)
 
     if name == "tiktok_api_smoke":
         try:
