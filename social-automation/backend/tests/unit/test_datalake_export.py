@@ -53,13 +53,15 @@ class _Resp:
 
 
 class _TempoClient:
-    """AsyncClient stub; `responses` is a list/iterator of _Resp."""
+    """AsyncClient stub; responds to TraceQL status filters per query."""
 
-    responses: list = []
+    main: list = []
+    e5xx: list = []
+    e4xx: list = []
     fail_with: Exception | None = None
 
     def __init__(self, *a, **k):
-        self._it = iter(type(self).responses)
+        pass
 
     async def __aenter__(self):
         return self
@@ -70,7 +72,12 @@ class _TempoClient:
     async def get(self, url, params=None):
         if type(self).fail_with:
             raise type(self).fail_with
-        return next(self._it)
+        q = (params or {}).get("q", "")
+        if ">= 500" in q:
+            return _Resp({"traces": type(self).e5xx})
+        if ">= 400" in q:
+            return _Resp({"traces": type(self).e4xx})
+        return _Resp({"traces": type(self).main})
 
 
 def _run(coro):
@@ -82,10 +89,9 @@ def _run(coro):
 def test_edge_metrics_aggregates(monkeypatch):
     from app.worker.tasks import datalake_export as de
 
-    _TempoClient.responses = [
-        _Resp({"traces": [{"durationMs": 10}, {"durationMs": 50}, {"durationMs": 200}]})
-        for _ in de._EDGE_HOSTS
-    ]
+    _TempoClient.main = [{"durationMs": 10}, {"durationMs": 50}, {"durationMs": 200}]
+    _TempoClient.e5xx = [{"durationMs": 9000}]
+    _TempoClient.e4xx = [{"durationMs": 3}, {"durationMs": 4}]
     _TempoClient.fail_with = None
     monkeypatch.setattr(de.httpx, "AsyncClient", _TempoClient)
     out = _run(de._export_edge_metrics())
@@ -94,28 +100,30 @@ def test_edge_metrics_aggregates(monkeypatch):
     assert h["sampled_traces"] == 3
     assert h["p50_ms"] == 50
     assert h["max_ms"] == 200
+    assert h["errors_5xx"] == 1
+    assert h["errors_4xx"] == 2
 
 
 def test_edge_metrics_empty_and_malformed(monkeypatch):
     from app.worker.tasks import datalake_export as de
 
-    _TempoClient.responses = [
-        _Resp({"traces": []}),  # empty
-        *[_Resp({"traces": [{"durationMs": 5}, {}]}) for _ in de._EDGE_HOSTS[1:]],
-    ]
+    _TempoClient.main = []
+    _TempoClient.e5xx = _TempoClient.e4xx = []
     _TempoClient.fail_with = None
     monkeypatch.setattr(de.httpx, "AsyncClient", _TempoClient)
     out = _run(de._export_edge_metrics())
     assert out["hosts"][0]["sampled_traces"] == 0
     assert "p50_ms" not in out["hosts"][0]
+
+    _TempoClient.main = [{"durationMs": 5}, {}]
+    out = _run(de._export_edge_metrics())
     # malformed span (no durationMs) treated as 0
-    assert out["hosts"][1]["sampled_traces"] == 2
+    assert out["hosts"][0]["sampled_traces"] == 2
 
 
 def test_edge_metrics_http_error_isolated(monkeypatch):
     from app.worker.tasks import datalake_export as de
 
-    _TempoClient.responses = []
     _TempoClient.fail_with = RuntimeError("boom")
     monkeypatch.setattr(de.httpx, "AsyncClient", _TempoClient)
     out = _run(de._export_edge_metrics())

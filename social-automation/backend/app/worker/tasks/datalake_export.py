@@ -405,19 +405,36 @@ async def _export_edge_metrics() -> dict:
         for host, pattern in _EDGE_HOSTS:
             entry: dict[str, Any] = {"host": host}
             try:
-                resp = await client.get(
-                    f"{base}/api/search",
-                    params={
-                        "q": f'{{span.url.full =~ "{pattern}.*"}}',
-                        "start": start,
-                        "end": end,
-                        "limit": 1000,
-                    },
+                span_q = f'{{span.url.full =~ "{pattern}.*"}}'
+
+                async def _search(extra: str = "") -> list:
+                    resp = await client.get(
+                        f"{base}/api/search",
+                        params={
+                            "q": span_q + extra,
+                            "start": start,
+                            "end": end,
+                            "limit": 1000,
+                        },
+                    )
+                    resp.raise_for_status()
+                    return resp.json().get("traces", [])
+
+                traces = await _search()
+                # CF stores status_code as a string attribute but TraceQL
+                # indexes it numerically — compare as int, and use a
+                # structural && spanset since status lives on a different
+                # span than url.full.
+                entry["errors_5xx"] = len(
+                    await _search(" && {span.http.response.status_code >= 500}")
                 )
-                resp.raise_for_status()
-                durs = sorted(
-                    t.get("durationMs", 0) for t in resp.json().get("traces", [])
+                entry["errors_4xx"] = len(
+                    await _search(
+                        " && {span.http.response.status_code >= 400"
+                        " && span.http.response.status_code < 500}"
+                    )
                 )
+                durs = sorted(t.get("durationMs", 0) for t in traces)
                 entry["sampled_traces"] = len(durs)
                 if durs:
                     entry["p50_ms"] = durs[len(durs) // 2]
