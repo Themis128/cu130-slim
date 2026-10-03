@@ -26,10 +26,12 @@ import hashlib
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+import httpx
 from celery import shared_task
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -369,6 +371,152 @@ async def _export_ad_demographics(db: AsyncSession) -> list[dict]:
     ]
 
 
+# Hostnames traced by Cloudflare zone tracing — per-host aggregates are
+# computed against Tempo so the lake keeps edge latency beyond Tempo's
+# 7-day retention. Apex pattern is anchored so cloud./www. don't leak in.
+# TraceQL regex strings do not support \. escapes — a bare "." in the
+# pattern already matches the literal dot (and would only over-match on
+# hostnames like "cloudless_gr" which don't exist on this zone).
+_EDGE_HOSTS = [
+    ("cloudless.gr", "https://cloudless.gr/"),
+    ("cloud.cloudless.gr", "https://cloud.cloudless.gr/"),
+    ("office.cloudless.gr", "https://office.cloudless.gr/"),
+    ("social.cloudless.gr", "https://social.cloudless.gr/"),
+    ("espocrm.cloudless.gr", "https://espocrm.cloudless.gr/"),
+    ("webmail.cloudless.gr", "https://webmail.cloudless.gr/"),
+    ("grafana.cloudless.gr", "https://grafana.cloudless.gr/"),
+]
+
+_NOTEBOOK_OUTPUT = Path("/notebooks/output")
+
+
+async def _export_edge_metrics() -> dict:
+    """Last-24h Tempo aggregates per hostname: sampled traces + latency.
+
+    TraceQL on span.url.full; durationMs is the full edge request time.
+    Counts are *sampled* (10% zone sampling) — flagged so downstream
+    doesn't mistake them for request totals.
+    """
+    end = int(datetime.now(UTC).timestamp())
+    start = end - 86400
+    base = settings.TEMPO_API_URL.rstrip("/")
+    hosts: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for host, pattern in _EDGE_HOSTS:
+            entry: dict[str, Any] = {"host": host}
+            try:
+                resp = await client.get(
+                    f"{base}/api/search",
+                    params={
+                        "q": f'{{span.url.full =~ "{pattern}.*"}}',
+                        "start": start,
+                        "end": end,
+                        "limit": 1000,
+                    },
+                )
+                resp.raise_for_status()
+                durs = sorted(
+                    t.get("durationMs", 0) for t in resp.json().get("traces", [])
+                )
+                entry["sampled_traces"] = len(durs)
+                if durs:
+                    entry["p50_ms"] = durs[len(durs) // 2]
+                    entry["p95_ms"] = durs[min(len(durs) - 1, int(len(durs) * 0.95))]
+                    entry["max_ms"] = durs[-1]
+            except Exception as exc:  # noqa: BLE001 — one host's failure ≠ all
+                entry["error"] = str(exc)[:200]
+            hosts.append(entry)
+    return {
+        "window_hours": 24,
+        "sampled": True,
+        "sampling_ratio": 0.1,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "hosts": hosts,
+    }
+
+
+async def _export_reports_index() -> list[dict]:
+    """Index of every rendered notebook report (manifest files)."""
+    out = []
+    if not _NOTEBOOK_OUTPUT.is_dir():
+        return out
+    for p in sorted(_NOTEBOOK_OUTPUT.glob("*.manifest.json")):
+        try:
+            m = json.loads(p.read_text())
+            reports = m.get("reports") or ([m] if m else [])
+            out.append(
+                {
+                    "manifest": p.name,
+                    "generated_at": datetime.fromtimestamp(
+                        p.stat().st_mtime, UTC
+                    ).isoformat(),
+                    "subjects": [r.get("subject") for r in reports],
+                    "files": [
+                        f
+                        for r in reports
+                        for f in (
+                            [r.get("html_file"), r.get("text_file")]
+                            + [a.get("file") for a in r.get("attachments", [])]
+                        )
+                        if f
+                    ],
+                }
+            )
+        except Exception:  # noqa: BLE001 — skip unreadable manifest
+            continue
+    return out
+
+
+async def _export_ops_health(db: AsyncSession) -> dict:
+    """Current ops snapshot: queue state, recent failures, sync freshness."""
+    queue = (
+        await db.execute(
+            text(
+                "SELECT sa.platform, pq.status, count(*) n"
+                " FROM publish_queue pq"
+                " JOIN social_accounts sa ON sa.id=pq.social_account_id"
+                " GROUP BY 1,2 ORDER BY 1,2"
+            )
+        )
+    ).mappings().all()
+    failed_7d = (
+        await db.execute(
+            text(
+                "SELECT sa.platform, pt.status, count(*) n"
+                " FROM post_targets pt"
+                " JOIN posts p ON p.id=pt.post_id"
+                " JOIN social_accounts sa ON sa.id=pt.social_account_id"
+                " WHERE pt.status IN ('failed','skipped')"
+                " AND p.created_at > now() - interval '7 days'"
+                " GROUP BY 1,2"
+            )
+        )
+    ).mappings().all()
+    freshness = (
+        await db.execute(
+            text(
+                "SELECT sa.platform, sa.username,"
+                " (SELECT max(pas.captured_at) FROM post_analytics_snapshots pas"
+                "  WHERE pas.social_account_id=sa.id) AS last_metrics"
+                " FROM social_accounts sa WHERE sa.status='active'"
+            )
+        )
+    ).mappings().all()
+    now = datetime.now(UTC)
+    stale_accounts = [
+        f"{r['platform']}/@{r['username']}"
+        for r in freshness
+        if r["last_metrics"] is None
+        or (now - r["last_metrics"].replace(tzinfo=UTC)) > timedelta(hours=2)
+    ]
+    return {
+        "generated_at": now.isoformat(),
+        "queue": [dict(r) for r in queue],
+        "failed_or_skipped_7d": [dict(r) for r in failed_7d],
+        "stale_sync_accounts": stale_accounts,
+    }
+
+
 @shared_task
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
@@ -394,7 +542,11 @@ async def _export_async() -> dict:
             "lake/socialauto-ads/snapshots.json": await _export_ad_snapshots(db),
             "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
             "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
+            "lake/socialauto-ops/health.json": await _export_ops_health(db),
         }
+
+        tables["lake/socialauto-edge-metrics/daily.json"] = await _export_edge_metrics()
+        tables["lake/socialauto-reports/reports.json"] = await _export_reports_index()
 
         # Insights engine output — one gold-ready file per team.
         teams = (await db.execute(select(Team))).scalars().all()
