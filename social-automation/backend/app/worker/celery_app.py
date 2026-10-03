@@ -106,8 +106,8 @@ celery_app.conf.update(
         },
         # ComfyUI T2V: cold model load + sampling — ~30s-15min worst case.
         "app.worker.tasks.media.generate_video_asset_task": {
-            "soft_time_limit": 1200,
-            "time_limit": 1500,
+            "soft_time_limit": 1800,
+            "time_limit": 2100,
         },
         "app.worker.tasks.media_enhance.batch_enhance_task": {
             "soft_time_limit": 1800,

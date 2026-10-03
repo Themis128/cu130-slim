@@ -713,6 +713,8 @@ class MediaGenerateVideoOptions(BaseModel):
     cfg_scale: float = 3.0
     seed: int | None = None
     negative_prompt: str = ""
+    duration_seconds: int | None = None  # >0 → multi-segment long-form (max 60)
+    scene_prompts: list[str] | None = None  # explicit per-segment shot list
     tags: list[str] | None = None
     alt_text: str | None = None
 
@@ -760,6 +762,12 @@ async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    max_seconds = 60  # ~37 LTX segments; keeps the media task under its time limit
+    if opts["duration_seconds"] and opts["duration_seconds"] > max_seconds:
+        raise HTTPException(status_code=400, detail=f"duration_seconds must be ≤ {max_seconds}")
+    if opts["scene_prompts"] and len(opts["scene_prompts"]) > 40:
+        raise HTTPException(status_code=400, detail="scene_prompts limited to 40 segments")
 
     task = celery_app.send_task(
         "app.worker.tasks.media.generate_video_asset_task",

@@ -24,6 +24,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import subprocess
+import tempfile
+from pathlib import Path
 
 import httpx
 
@@ -229,3 +232,88 @@ async def generate_video(
                 }
 
         raise ComfyUIVideoError(f"ComfyUI video job timed out after {timeout_s:.0f}s")
+
+
+def _concat_mp4s(blobs: list[bytes], frame_rate: int) -> bytes:
+    """Concatenate MP4 segments (same codec/params) via the ffmpeg concat demuxer."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmpdir = Path(tmp)
+        names = []
+        for i, blob in enumerate(blobs):
+            name = f"seg_{i:03d}.mp4"
+            (tmpdir / name).write_bytes(blob)
+            names.append(name)
+        listfile = tmpdir / "list.txt"
+        listfile.write_text("".join(f"file '{n}'\n" for n in names))
+        out = tmpdir / "out.mp4"
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(listfile), "-c", "copy", str(out),
+            ],
+            capture_output=True, timeout=120,
+        )
+        if proc.returncode != 0 or not out.exists():
+            raise ComfyUIVideoError(
+                f"ffmpeg concat failed: {proc.stderr.decode(errors='replace')[-400:]}"
+            )
+        return out.read_bytes()
+
+
+async def generate_video_segments(
+    *,
+    prompts: list[str],
+    negative_prompt: str | None = None,
+    width: int = 480,
+    height: int = 832,
+    num_frames: int = 41,
+    frame_rate: int = 25,
+    steps: int = 25,
+    cfg: float = 3.0,
+    seed: int | None = None,
+    filename_prefix: str = "socialauto",
+    per_segment_timeout_s: float = 900.0,
+) -> tuple[bytes, dict]:
+    """Generate N video segments sequentially and stitch them into one MP4.
+
+    Used for long-form output (e.g. 60s+ Creator-Rewards clips): each segment
+    gets its own prompt (shot list) or repeats the base prompt. Segments run
+    one at a time — the GPU can only sample one LTX job at a time anyway.
+    """
+    if not prompts:
+        raise ValueError("prompts must contain at least one scene prompt")
+
+    blobs: list[bytes] = []
+    metas: list[dict] = []
+    for i, scene_prompt in enumerate(prompts):
+        data, meta = await generate_video(
+            prompt=scene_prompt,
+            negative_prompt=negative_prompt,
+            width=width, height=height,
+            num_frames=num_frames, frame_rate=frame_rate,
+            steps=steps, cfg=cfg,
+            seed=None if seed is None else seed + i,
+            filename_prefix=f"{filename_prefix}_seg{i:03d}",
+            timeout_s=per_segment_timeout_s,
+        )
+        blobs.append(data)
+        metas.append(meta)
+        logger.info("[comfyui-video] segment %d/%d done (%s, %d bytes)",
+                    i + 1, len(prompts), meta["filename"], len(data))
+
+    if len(blobs) == 1:
+        return blobs[0], metas[0]
+
+    combined = await asyncio.to_thread(_concat_mp4s, blobs, frame_rate)
+    seg_duration = num_frames / float(frame_rate)
+    return combined, {
+        "prompt_id": metas[0]["prompt_id"],
+        "filename": f"{filename_prefix}_long.mp4",
+        "subfolder": "",
+        "width": width,
+        "height": height,
+        "frame_rate": frame_rate,
+        "num_frames": num_frames * len(blobs),
+        "segments": len(blobs),
+        "duration_seconds": round(seg_duration * len(blobs), 2),
+    }

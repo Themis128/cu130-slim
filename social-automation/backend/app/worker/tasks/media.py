@@ -62,18 +62,42 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
         try:
             factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
             async with factory() as db:
-                data, meta = await comfyui_video.generate_video(
-                    prompt=prompt,
-                    negative_prompt=options.get("negative_prompt"),
-                    width=int(options.get("width") or 480),
-                    height=int(options.get("height") or 832),
-                    num_frames=int(options.get("num_frames") or 41),
-                    frame_rate=int(options.get("frame_rate") or 25),
-                    steps=int(options.get("steps") or 25),
-                    cfg=float(options.get("cfg_scale") or 3.0),
-                    seed=options.get("seed"),
-                    filename_prefix="socialauto",
-                )
+                num_frames = int(options.get("num_frames") or 41)
+                frame_rate = int(options.get("frame_rate") or 25)
+                # Long-form path: explicit shot list, or duration_seconds split
+                # into per-segment prompts (Creator Rewards needs 60s+).
+                scene_prompts = options.get("scene_prompts") or []
+                duration = int(options.get("duration_seconds") or 0)
+                if not scene_prompts and duration > 0:
+                    seg_len = num_frames / float(frame_rate)
+                    n = max(1, round(duration / seg_len))
+                    scene_prompts = [prompt] * n
+                if scene_prompts:
+                    data, meta = await comfyui_video.generate_video_segments(
+                        prompts=[p if (p or "").strip() else prompt for p in scene_prompts],
+                        negative_prompt=options.get("negative_prompt"),
+                        width=int(options.get("width") or 480),
+                        height=int(options.get("height") or 832),
+                        num_frames=num_frames,
+                        frame_rate=frame_rate,
+                        steps=int(options.get("steps") or 25),
+                        cfg=float(options.get("cfg_scale") or 3.0),
+                        seed=options.get("seed"),
+                        filename_prefix="socialauto",
+                    )
+                else:
+                    data, meta = await comfyui_video.generate_video(
+                        prompt=prompt,
+                        negative_prompt=options.get("negative_prompt"),
+                        width=int(options.get("width") or 480),
+                        height=int(options.get("height") or 832),
+                        num_frames=num_frames,
+                        frame_rate=frame_rate,
+                        steps=int(options.get("steps") or 25),
+                        cfg=float(options.get("cfg_scale") or 3.0),
+                        seed=options.get("seed"),
+                        filename_prefix="socialauto",
+                    )
                 asset = await save_uploaded_media(
                     db,
                     team_id=uuid.UUID(team_id),
