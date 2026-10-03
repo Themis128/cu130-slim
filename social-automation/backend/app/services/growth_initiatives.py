@@ -231,13 +231,14 @@ async def initiative_summary(
             followers_now = await _followers_latest(db, r.social_account_id)
             if followers_start is not None and followers_now is not None:
                 delta = followers_now - followers_start
-                conv = round(delta / r.units * 100, 1) if r.units else None
         # LinkedIn credit math: every accepted invite = +1 follower and
-        # refunds its credit. Accepted ≈ follower delta; pending =
-        # sent − accepted − known-declined.
+        # refunds its credit. Accepted ≈ follower delta — but the delta also
+        # counts organic follows, so it can exceed invites sent; cap it.
+        # pending = sent − accepted − known-declined.
         units = int(r.units or 0)
         declined = int(r.declined or 0)
-        accepted = delta if delta is not None else None
+        accepted = min(delta, units) if delta is not None else None
+        conv = round(accepted / units * 100, 1) if accepted is not None and units else None
         pending = (
             max(0, units - (accepted or 0) - declined) if accepted is not None else None
         )
