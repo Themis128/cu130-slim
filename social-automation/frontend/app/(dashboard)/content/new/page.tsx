@@ -36,6 +36,7 @@ import {
 import { cn, athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 import { pruneIdsToKnown } from '@/lib/platforms'
 import toast from 'react-hot-toast'
+import { normalizeTag } from '@/lib/hashtags'
 
 type PreviewProps = { content: string; media: File[]; identity: PreviewIdentity }
 
@@ -690,7 +691,7 @@ export default function NewPostPage() {
       const data = result.data
       const generated = data.content || ''
       const hashtags: string[] = data.hashtags || []
-      setContent(hashtags.length ? `${generated}\n\n${hashtags.map((h: string) => `#${h}`).join(' ')}` : generated)
+      setContent(hashtags.length ? `${generated}\n\n${hashtags.map((h: string) => `#${normalizeTag(h)}`).filter(t => t !== '#').join(' ')}` : generated)
       setAiUsed(true)
       setProviderInfo({ provider: data._provider, fallback: data._fallback, primary: data._primary_provider })
       if (data.brand_compliance) {
@@ -743,7 +744,7 @@ export default function NewPostPage() {
           const data = result.data
           const gen: string = data.content || ''
           const hashtags: string[] = data.hashtags || []
-          return { pid, text: hashtags.length ? `${gen}\n\n${hashtags.map((h: string) => `#${h}`).join(' ')}` : gen }
+          return { pid, text: hashtags.length ? `${gen}\n\n${hashtags.map((h: string) => `#${normalizeTag(h)}`).filter(t => t !== '#').join(' ')}` : gen }
         })
       )
       const newVariants: Record<string, string> = {}

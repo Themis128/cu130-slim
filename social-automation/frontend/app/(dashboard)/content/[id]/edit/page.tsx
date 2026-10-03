@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2, Heart, MessageCircle, Share2, Eye, TrendingUp, CheckCircle2, XCircle, MessageSquare, Clock } from 'lucide-react'
+import { ArrowLeft, Save, Send, Trash2, X, Image as ImageIcon, Calendar, Loader2, Heart, MessageCircle, Share2, Eye, TrendingUp, CheckCircle2, XCircle, MessageSquare, Clock, Sparkles, Wand2, Link2, Video } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -10,8 +10,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia, usePostAnalytics, useSubmitForReview, useApprovePost, useRejectPost, useAddComment, usePillars, useBriefs } from '@/hooks/useQueries'
-import { contentApi } from '@/services/api'
+import { usePost, useUpdatePost, useDeletePost, usePublishPost, useUploadMedia, usePostAnalytics, useSubmitForReview, useApprovePost, useRejectPost, useAddComment, usePillars, useBriefs, useGenerateImage, useGenerateVideo, useGenerateHashtags } from '@/hooks/useQueries'
+import { contentApi, mediaApi } from '@/services/api'
 import type { Post } from '@/types'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -20,6 +20,7 @@ import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 import { SeoPanel } from '@/components/content/SeoPanel'
 import { ObjectUrlImage } from '@/components/content/previewIdentity'
 import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
+import { normalizeTag, normalizeTagList } from '@/lib/hashtags'
 
 export default function EditPostPage() {
   const router = useRouter()
@@ -53,11 +54,22 @@ export default function EditPostPage() {
   const [commentText, setCommentText] = useState('')
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([])
+  const [linkPreview, setLinkPreview] = useState<{ url: string; title: string; description: string; image: string; site_name: string } | null>(null)
+  const [linkPreviewLoading, setLinkPreviewLoading] = useState(false)
+  const [genOpen, setGenOpen] = useState(false)
+  const [genType, setGenType] = useState<'image' | 'video'>('image')
+  const [genPrompt, setGenPrompt] = useState('')
+  const [genBusy, setGenBusy] = useState(false)
+
+  const generateImageMutation = useGenerateImage()
+  const generateVideoMutation = useGenerateVideo()
+  const generateHashtagsMutation = useGenerateHashtags()
 
   useEffect(() => {
     if (post) {
       setContent((post as Post).content_text || '')
-      setHashtags((post as Post).hashtags || [])
+      setHashtags(normalizeTagList((post as Post).hashtags || []))
       setLinkUrl((post as Post).link_url || '')
       setMediaIds(((post as Post).media_ids || []).map(String))
       setScheduleDate((post as Post).scheduled_at ? toAthensDateTimeLocal((post as Post).scheduled_at!) : '')
@@ -207,9 +219,79 @@ export default function EditPostPage() {
   }
 
   const addHashtag = () => {
-    const tag = hashtagInput.trim().replace(/^#/, '')
-    if (tag && !hashtags.includes(tag)) setHashtags(prev => [...prev, tag])
+    const tag = normalizeTag(hashtagInput)
+    if (tag && !hashtags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+      setHashtags(prev => [...prev, tag])
+    }
     setHashtagInput('')
+  }
+
+  const postPlatform = ((post as Post | undefined)?.targets?.[0]?.social_account?.platform as string | undefined) ?? 'linkedin'
+
+  const handleSuggestHashtags = async () => {
+    if (!content.trim()) { toast.error('Write some content first'); return }
+    try {
+      const res = await generateHashtagsMutation.mutateAsync({ content, platform: postPlatform, count: 8 })
+      const raw = ((res as { data?: { hashtags?: string[] } })?.data?.hashtags ?? [])
+      const clean = normalizeTagList(raw).filter(t => !hashtags.some(h => h.toLowerCase() === t.toLowerCase()))
+      setSuggestedTags(clean)
+    } catch {
+      toast.error('Hashtag suggestions failed')
+    }
+  }
+
+  const handlePreviewLink = async () => {
+    if (!linkUrl.trim()) return
+    setLinkPreviewLoading(true)
+    setLinkPreview(null)
+    try {
+      const res = await contentApi.getLinkPreview(linkUrl.trim())
+      setLinkPreview((res as { data: typeof linkPreview }).data)
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(detail ?? 'Could not fetch link preview')
+    } finally {
+      setLinkPreviewLoading(false)
+    }
+  }
+
+  const handleGenerateMedia = async () => {
+    if (!genPrompt.trim()) { toast.error('Describe the media first'); return }
+    setGenBusy(true)
+    try {
+      if (genType === 'image') {
+        const res = await generateImageMutation.mutateAsync({ prompt: genPrompt.trim() })
+        const assetId = (res as { data?: { asset_id?: string } })?.data?.asset_id
+        if (assetId) setMediaIds(prev => [...prev, String(assetId)])
+        toast.success('Image generated and attached')
+      } else {
+        const res = await generateVideoMutation.mutateAsync({ prompt: genPrompt.trim() })
+        const taskId = (res as { data?: { task_id?: string } })?.data?.task_id
+        if (taskId) {
+          toast('Video generating — usually 1-2 minutes')
+          for (let i = 0; i < 90; i++) {
+            await new Promise(r => setTimeout(r, 5000))
+            const st = await mediaApi.getVideoGenerationStatus(taskId)
+            const data = (st as { data?: { status?: string; asset_id?: string; error?: string } }).data
+            if (data?.status === 'SUCCESS' && data.asset_id) {
+              setMediaIds(prev => [...prev, String(data.asset_id)])
+              toast.success('Video generated and attached')
+              break
+            }
+            if (data?.status === 'FAILURE') {
+              toast.error(data.error || 'Video generation failed')
+              break
+            }
+          }
+        }
+      }
+      setGenOpen(false)
+      setGenPrompt('')
+    } catch {
+      toast.error(`Failed to generate ${genType}`)
+    } finally {
+      setGenBusy(false)
+    }
   }
 
   if (isLoading) {
@@ -273,12 +355,31 @@ export default function EditPostPage() {
           <SpellCheckButton text={content} onApply={setContent} />
           <div>
             <label className="block text-sm font-medium mb-2">Link URL</label>
-            <Input
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              placeholder="https://example.com"
-              type="url"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={linkUrl}
+                onChange={(e) => { setLinkUrl(e.target.value); setLinkPreview(null) }}
+                placeholder="https://example.com"
+                type="url"
+              />
+              <Button variant="outline" onClick={handlePreviewLink} disabled={linkPreviewLoading || !linkUrl.trim()}>
+                {linkPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                Preview
+              </Button>
+            </div>
+            {linkPreview && (
+              <div className="mt-3 flex gap-3 rounded-lg border bg-muted/30 p-3">
+                {linkPreview.image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={linkPreview.image} alt="" className="h-20 w-32 rounded object-cover flex-shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{linkPreview.title || linkPreview.url}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{linkPreview.description}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{linkPreview.site_name}</p>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -295,7 +396,30 @@ export default function EditPostPage() {
               placeholder="Add hashtag (press Enter)"
             />
             <Button variant="outline" onClick={addHashtag}>Add</Button>
+            <Button
+              variant="outline"
+              onClick={handleSuggestHashtags}
+              disabled={generateHashtagsMutation.isPending || !content.trim()}
+              title={`Suggest hashtags for ${postPlatform}`}
+            >
+              {generateHashtagsMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+              Suggest
+            </Button>
           </div>
+          {suggestedTags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {suggestedTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => { setHashtags(prev => [...prev, tag]); setSuggestedTags(prev => prev.filter(t => t !== tag)) }}
+                  className="rounded-full border border-dashed border-primary/50 px-3 py-1 text-xs text-primary hover:bg-primary/10 transition-colors"
+                >
+                  + #{tag}
+                </button>
+              ))}
+            </div>
+          )}
           {hashtags.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {hashtags.map((tag) => (
@@ -327,10 +451,20 @@ export default function EditPostPage() {
             className="hidden"
             onChange={(e) => e.target.files && handleMediaUpload(e.target.files)}
           />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploadMediaMutation.isPending}>
-            {uploadMediaMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-2 h-4 w-4" />}
-            Add Media
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploadMediaMutation.isPending}>
+              {uploadMediaMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-2 h-4 w-4" />}
+              Add Media
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setGenType('image'); setGenOpen(true) }}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate Image
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setGenType('video'); setGenOpen(true) }}>
+              <Video className="mr-2 h-4 w-4" />
+              Generate Video
+            </Button>
+          </div>
           {mediaIds.length > 0 && (
             <p className="text-sm text-muted-foreground">{mediaIds.length} media file(s) attached</p>
           )}
@@ -600,6 +734,38 @@ export default function EditPostPage() {
             <Button variant="outline" onClick={() => setScheduleOpen(false)}>Cancel</Button>
             <Button onClick={handleSchedule} disabled={!scheduleDate || updateMutation.isPending}>
               Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI media generation dialog */}
+      <Dialog open={genOpen} onOpenChange={(open) => { if (!genBusy) setGenOpen(open) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate {genType === 'image' ? 'Image' : 'Video'}</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <label className="block text-sm font-medium">Prompt</label>
+            <Textarea
+              value={genPrompt}
+              onChange={(e) => setGenPrompt(e.target.value)}
+              placeholder={genType === 'image'
+                ? 'e.g. A minimal dark dashboard on a laptop, cloud metrics, blue accent light'
+                : 'e.g. Slow pan over a server rack in a dark room, cool blue lighting, cinematic'}
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">
+              {genType === 'image'
+                ? 'Generated locally/cloud-side and saved to the media library.'
+                : 'Generated on the ComfyUI LTX pipeline (~1-2 min for a short clip). Vertical format.'}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGenOpen(false)} disabled={genBusy}>Cancel</Button>
+            <Button onClick={handleGenerateMedia} disabled={genBusy || !genPrompt.trim()}>
+              {genBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              {genBusy ? 'Generating...' : 'Generate'}
             </Button>
           </DialogFooter>
         </DialogContent>

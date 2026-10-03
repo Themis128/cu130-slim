@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.content import ContentBrief, Pillar, Post, PostComment, PostStatus, PostTarget, RecurrencePattern
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.services.content_renderer import render_post_text, strip_embedded_metadata
+from app.services.content_renderer import normalize_hashtags, render_post_text, strip_embedded_metadata
 from app.services.spellcheck import auto_correct
 
 router = APIRouter()
@@ -51,6 +51,11 @@ class PostCreate(BaseModel):
             raise ValueError("Post must include text, media, or a link")
         return self
 
+    @field_validator("hashtags")
+    @classmethod
+    def _normalize_tag_list(cls, v: list[str]) -> list[str]:
+        return normalize_hashtags(v)
+
 
 class PostUpdate(BaseModel):
     content_text: str | None = None
@@ -71,6 +76,11 @@ class PostUpdate(BaseModel):
     recurrence_pattern: RecurrencePattern | None = None
     recurrence_interval: int | None = None
     recurrence_max: int | None = None
+
+    @field_validator("hashtags")
+    @classmethod
+    def _normalize_tag_list(cls, v: list[str] | None) -> list[str] | None:
+        return normalize_hashtags(v) if v is not None else None
 
 
 class PostResponse(BaseModel):
@@ -933,6 +943,27 @@ class BriefCreate(BaseModel):
     pillar_id: uuid.UUID | None = None
     target_platforms: list[str] = []
     tone: str | None = None
+
+
+class LinkPreviewResponse(BaseModel):
+    url: str
+    title: str
+    description: str
+    image: str
+    site_name: str
+
+
+@router.get("/link-preview", response_model=LinkPreviewResponse)
+async def link_preview(url: str = Query(..., min_length=8, max_length=2048), current_user: User = Depends(get_current_user)):
+    """Fetch OG/Twitter-card metadata for a post's link_url (Edit Post preview)."""
+    from app.services.link_preview import fetch_link_preview
+
+    try:
+        return await fetch_link_preview(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not fetch link preview: {exc}") from exc
 
 
 class BriefOut(BaseModel):

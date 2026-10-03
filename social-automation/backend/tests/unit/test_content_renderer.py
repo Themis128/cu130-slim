@@ -1,6 +1,7 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
 from app.models.content import Post
 from app.services.content_renderer import (
+    normalize_hashtags,
     render_post_text,
     sanitize_generated_text,
     strip_embedded_metadata,
@@ -177,3 +178,21 @@ class TestRenderPostTextDedupe:
         )
         text = render_post_text(post, "linkedin")
         assert text.lower().count("cloudless.gr") == 1
+
+
+class TestNormalizeHashtags:
+    def test_strips_hash_prefix(self):
+        assert normalize_hashtags(["#cloudless", "serverless"]) == ["cloudless", "serverless"]
+
+    def test_strips_repeated_hashes(self):
+        assert normalize_hashtags(["##cloudless", "###tag"]) == ["cloudless", "tag"]
+
+    def test_dedupes_case_insensitive(self):
+        assert normalize_hashtags(["Cloud", "#cloud", "#CLOUD"]) == ["Cloud"]
+
+    def test_drops_empty_entries(self):
+        assert normalize_hashtags(["#", "", "  ", "ok"]) == ["ok"]
+
+    def test_none_and_empty(self):
+        assert normalize_hashtags(None) == []
+        assert normalize_hashtags([]) == []

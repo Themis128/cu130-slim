@@ -84,6 +84,24 @@ def sanitize_generated_text(text: str) -> str:
     return text.strip()
 
 
+def normalize_hashtags(hashtags: list[str] | None) -> list[str]:
+    """Canonical hashtag form: no ``#`` prefix, trimmed, deduped (case-insensitive).
+
+    Posts store bare tag names (``"cloudless"``); renderers add the ``#``.
+    Older write paths persisted the prefix itself, producing ``##cloudless``
+    in the UI. Applies to every tag-like value entering a post field.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in hashtags or []:
+        tag = str(raw).strip().lstrip("#").strip()
+        if not tag or tag.lower() in seen:
+            continue
+        seen.add(tag.lower())
+        out.append(tag)
+    return out
+
+
 def _normalize_url(url: str) -> str:
     """Normalize a URL for comparison — scheme, www prefix, and trailing slash
     are stripped so ``www.cloudless.gr`` matches ``https://cloudless.gr/``."""
