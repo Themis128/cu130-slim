@@ -21,3 +21,24 @@ search:
 ui:
   default_theme: simple
   query_in_title: false
+
+# Engine mix tuned for a datacenter IP: Google is always captcha/consent-
+# walled from VPS ranges, Brave rate-limits quickly — keep several engines
+# so a single suspended engine never yields zero results.
+engines:
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: wikipedia
+    disabled: false
