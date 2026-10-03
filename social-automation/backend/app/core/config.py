@@ -98,6 +98,10 @@ class Settings(BaseSettings):
         "instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
     )
 
+    # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
+    # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.
+    SEARXNG_URL: str = "http://searxng:8080"
+
     # Local NVIDIA NIM for Stable Diffusion 3.5
     LOCAL_NIM_URL: str = "http://host.docker.internal:8000/v1/infer"
 
