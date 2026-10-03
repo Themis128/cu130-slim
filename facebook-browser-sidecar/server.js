@@ -1599,6 +1599,8 @@ async function handlePostText(req, res) {
   // privacy: 'public' | 'friends' | 'only_me' (default: friends)
   try {
     await ensureBrowser();
+    const recent = await findRecentDuplicate(message);
+    if (recent) return respondWithDuplicate(res, recent);
     await page.goto("https://www.facebook.com/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -1691,8 +1693,8 @@ async function handlePostText(req, res) {
     await settle();
     // Confirm the post actually landed and surface its permalink — callers
     // (publishing.py) treat a missing post id/url as a failed publish.
-    const postUrl = await verifyPosted(message, attemptAt);
-    if (!postUrl) {
+    const verified = await verifyPosted(message, attemptAt);
+    if (!verified) {
       return res
         .status(502)
         .json({ error: "Post click succeeded but the post was not found on the profile — unconfirmed" });
@@ -1700,8 +1702,8 @@ async function handlePostText(req, res) {
     res.json({
       status: "ok",
       posted: true,
-      url: postUrl,
-      post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+      url: verified.url,
+      post_id: verified.postId,
       message: "Text status posted to personal profile",
     });
   } catch (err) {
@@ -1724,6 +1726,8 @@ async function handlePostPhoto(req, res) {
   }
   try {
     await ensureBrowser();
+    const recent = await findRecentDuplicate(message);
+    if (recent) return respondWithDuplicate(res, recent);
     await page.goto("https://www.facebook.com/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -1885,8 +1889,8 @@ async function handlePostPhoto(req, res) {
 
       // Wait for upload + post to complete (photo uploads take longer)
       await settle(60000);
-      const postUrl = await verifyPosted(message, attemptAt);
-      if (!postUrl) {
+      const verified = await verifyPosted(message, attemptAt);
+      if (!verified) {
         return res.status(502).json({
           error:
             "Post click succeeded but the post was not found on the profile — unconfirmed",
@@ -1895,8 +1899,8 @@ async function handlePostPhoto(req, res) {
       res.json({
         status: "ok",
         posted: true,
-        url: postUrl,
-        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+        url: verified.url,
+        post_id: verified.postId,
         photo_count: images.length,
         message: "Photo post submitted to personal profile",
       });
@@ -1917,6 +1921,8 @@ async function handlePostLink(req, res) {
   if (!url) return res.status(400).json({ error: "url is required" });
   try {
     await ensureBrowser();
+    const recent = await findRecentDuplicate(message);
+    if (recent) return respondWithDuplicate(res, recent);
     await page.goto("https://www.facebook.com/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -1973,8 +1979,8 @@ async function handlePostLink(req, res) {
     }
 
     await settle();
-    const postUrl = await verifyPosted(message, attemptAt);
-    if (!postUrl) {
+    const verified = await verifyPosted(message, attemptAt);
+    if (!verified) {
       return res.status(502).json({
         error:
           "Post click succeeded but the post was not found on the profile — unconfirmed",
@@ -1983,8 +1989,8 @@ async function handlePostLink(req, res) {
     res.json({
       status: "ok",
       posted: true,
-      url: postUrl,
-      post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+      url: verified.url,
+      post_id: verified.postId,
       shared_url: url,
       message: "Link post submitted to personal profile",
     });
@@ -2001,6 +2007,8 @@ async function handlePostVideo(req, res) {
     return res.status(400).json({ error: "video_base64 is required" });
   try {
     await ensureBrowser();
+    const recent = await findRecentDuplicate(message);
+    if (recent) return respondWithDuplicate(res, recent);
     await page.goto("https://www.facebook.com/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -2085,8 +2093,8 @@ async function handlePostVideo(req, res) {
 
       // Video processing takes longer — wait up to 120s
       await settle(120000);
-      const postUrl = await verifyPosted(message, attemptAt);
-      if (!postUrl) {
+      const verified = await verifyPosted(message, attemptAt);
+      if (!verified) {
         return res.status(502).json({
           error:
             "Post click succeeded but the post was not found on the profile — unconfirmed",
@@ -2095,8 +2103,8 @@ async function handlePostVideo(req, res) {
       res.json({
         status: "ok",
         posted: true,
-        url: postUrl,
-        post_id: postUrl.split("?")[0].split("/").filter(Boolean).pop(),
+        url: verified.url,
+        post_id: verified.postId,
         message: "Video post submitted to personal profile",
       });
     } finally {
@@ -2596,6 +2604,32 @@ async function clickPost() {
  * claim success without it (publishing.py treats a missing post id/url as
  * a failed publish, and earlier "posted:true" responses produced false
  * positives that were recorded as published but never appeared). */
+/** Pre-publish dedup (owner rule: no duplicated posts): if an identical
+ * caption already reached the Content Library within the last 15 minutes,
+ * a previous attempt succeeded but its verification false-negatived —
+ * re-posting now would create the duplicate the retry was meant to avoid.
+ * Returns the library record ({ postId, contentId }) or null. */
+async function findRecentDuplicate(message) {
+  const needle = (message || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find(Boolean);
+  const probe = needle ? needle.slice(0, 60) : null;
+  if (!probe) return null;
+  return verifyViaContentLibrary(probe, Date.now() - 15 * 60 * 1000);
+}
+
+function respondWithDuplicate(res, lib) {
+  return res.json({
+    status: "ok",
+    posted: true,
+    deduplicated: true,
+    url: `https://www.facebook.com/content/insights/?content_id=${encodeURIComponent(lib.contentId)}`,
+    post_id: lib.postId,
+    message: "Identical post already published — returning existing record",
+  });
+}
+
 async function verifyPosted(message, attemptAt) {
   try {
     const needle = (message || "")
@@ -2610,6 +2644,10 @@ async function verifyPosted(message, attemptAt) {
       timeout: 60000,
     });
     await settle(10000);
+    // Capture the resolved profile URL now — after the content-library
+    // fallback navigates away, page.url() is the dashboard path and building
+    // `/<slug>/posts/<id>` from it yields a dead dashboard URL.
+    const meUrl = new URL(page.url());
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const found = await page.evaluate((probe) => {
         const units = [
@@ -2647,7 +2685,11 @@ async function verifyPosted(message, attemptAt) {
         }
         return null;
       }, probe);
-      if (found) return found;
+      if (found)
+        return {
+          url: found,
+          postId: found.split("?")[0].split("/").filter(Boolean).pop(),
+        };
       // Feed can lag a few seconds behind a successful Post click — a false
       // negative here makes the queue retry and publish a duplicate.
       await page.waitForTimeout(4000);
@@ -2658,26 +2700,36 @@ async function verifyPosted(message, attemptAt) {
     // timestamps — the unit scan above can't see anything. The professional
     // dashboard content library renders real rows: status "Published",
     // a same-day timestamp, and a content_id whose decoded payload carries
-    // the post id. Resolving /<slug>/posts/<id> then redirects to the
-    // canonical permalink (e.g. /reel/<id>).
-    const libId = await verifyViaContentLibrary(probe, attemptAt);
-    if (!libId) return null;
-    const u = new URL(page.url());
-    let postUrl;
-    if (u.pathname === "/profile.php" && u.searchParams.get("id")) {
-      postUrl = `https://www.facebook.com/story.php?story_fbid=${libId}&id=${u.searchParams.get("id")}`;
+    // the post id. Composer posts on a pro-mode profile are feed-distribution
+    // objects — the numeric id is a Content Library id, not a story_fbid, so
+    // /<slug>/posts/<id> and story.php links 404. The row's insights URL is
+    // the only link Facebook itself provides that resolves to the object.
+    const lib = await verifyViaContentLibrary(probe, attemptAt);
+    if (!lib) return null;
+    const insightsUrl = `https://www.facebook.com/content/insights/?content_id=${encodeURIComponent(lib.contentId)}`;
+    let postUrl = insightsUrl;
+    if (meUrl.pathname === "/profile.php" && meUrl.searchParams.get("id")) {
+      postUrl = `https://www.facebook.com/story.php?story_fbid=${lib.postId}&id=${meUrl.searchParams.get("id")}`;
     } else {
-      const slug = u.pathname.replace(/\/?$/, "/");
-      postUrl = `https://www.facebook.com${slug}posts/${libId}`;
+      const slug = meUrl.pathname.replace(/\/?$/, "/");
+      postUrl = `https://www.facebook.com${slug}posts/${lib.postId}`;
     }
     await page
       .goto(postUrl, { waitUntil: "domcontentloaded", timeout: 60000 })
       .catch(() => {});
     await settle(5000);
     const canonical = page.url();
-    return /\/reel\/|\/posts\/|pfbid|story_fbid|\/videos\//.test(canonical)
-      ? canonical
-      : postUrl;
+    // Media posts can still redirect to a real permalink (/reel/<id>,
+    // pfbid, /videos/<id>) — prefer it when Facebook actually rewrote the
+    // URL; otherwise the insights URL is the truthful fallback, never the
+    // dead constructed one. postId stays the Content Library id either way —
+    // it is the only stable identifier these objects expose.
+    const finalUrl =
+      canonical !== postUrl &&
+      /\/reel\/|\/posts\/|pfbid|story_fbid|\/videos\//.test(canonical)
+        ? canonical
+        : insightsUrl;
+    return { url: finalUrl, postId: lib.postId };
   } catch (_) {
     return null;
   }
@@ -2737,9 +2789,10 @@ async function verifyViaContentLibrary(probe, attemptAt) {
           );
           if (!m) continue;
           try {
-            const decoded = atob(decodeURIComponent(m[1]));
-            const ids = decoded.match(/\d{8,}/g);
-            if (ids && ids.length) return ids[ids.length - 1];
+            const contentId = decodeURIComponent(m[1]);
+            const ids = atob(contentId).match(/\d{8,}/g);
+            if (ids && ids.length)
+              return { postId: ids[ids.length - 1], contentId };
           } catch (_) {
             /* decode failures skip this row */
           }
