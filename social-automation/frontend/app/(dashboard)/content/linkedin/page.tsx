@@ -30,6 +30,7 @@ import { useAccounts, useLinkedinGeneratePost, useLinkedinImprovePost, useLinked
 import type { SocialAccount } from '@/types'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+import { normalizeTag } from '@/lib/hashtags'
 
 const TONES = [
   { value: 'professional', label: 'Professional' },
@@ -229,7 +230,7 @@ export default function LinkedInPage() {
     )
   }
 
-  const captionWithHashtags = content + (hashtags.length ? `\n\n${hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ')}` : '')
+  const captionWithHashtags = content + (hashtags.length ? `\n\n${hashtags.map((h) => `#${normalizeTag(h)}`).join(' ')}` : '')
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -329,7 +330,7 @@ export default function LinkedInPage() {
               <div className="flex flex-wrap gap-2">
                 {hashtags.map((tag) => (
                   <Badge key={tag} variant="secondary" className="cursor-pointer" onClick={() => setHashtags(hashtags.filter((h) => h !== tag))}>
-                    #{tag.replace(/^#/, '')}
+                    #{normalizeTag(tag)}
                   </Badge>
                 ))}
               </div>

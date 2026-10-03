@@ -298,6 +298,8 @@ export const contentApi = {
     api.post(`/content/posts/${id}/reject`, body ? { body } : undefined),
   addComment: (id: string, body: string, action?: string) =>
     api.post(`/content/posts/${id}/comments`, { body, action }),
+  getLinkPreview: (url: string) =>
+    api.get(`/content/link-preview`, { params: { url } }),
   // Pillars
   listPillars: () => api.get('/content/pillars'),
   createPillar: (data: { name: string; description?: string; color?: string; sort_order?: number }) =>
@@ -376,6 +378,8 @@ export const mediaApi = {
     negative_prompt?: string
     tags?: string[]
     alt_text?: string
+    duration_seconds?: number
+    scene_prompts?: string[]
   }) =>
     api.post('/media/generate-video', { prompt, options }),
   getVideoGenerationStatus: (taskId: string) =>

@@ -14,6 +14,7 @@ import { useAccounts } from '@/hooks/useQueries'
 import { useCreatePost, useUploadMedia } from '@/hooks/useQueries'
 import { contentApi, aiApi } from '@/services/api'
 import toast from 'react-hot-toast'
+import { normalizeTag } from '@/lib/hashtags'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -601,7 +602,7 @@ export default function CarouselNewPage() {
     if (selectedPublishPlatforms.length === 0) { toast.error('Select at least one platform'); return }
     setPublishing(true)
     try {
-      const fullCaption = `${caption}\n\n${hashtags.map(h => `#${h}`).join(' ')}`
+      const fullCaption = `${caption}\n\n${hashtags.map(h => `#${normalizeTag(h)}`).filter(t => t !== '#').join(' ')}`
       // Build targets for all selected platforms; for LinkedIn always use cloudless-gr org
       const seen = new Set<string>()
       const targets: Array<{ social_account_id: string }> = []
@@ -1026,7 +1027,7 @@ export default function CarouselNewPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Caption</label>
                   <Textarea
-                    value={`${caption}\n\n${hashtags.map(h => `#${h}`).join(' ')}`}
+                    value={`${caption}\n\n${hashtags.map(h => `#${normalizeTag(h)}`).filter(t => t !== '#').join(' ')}`}
                     onChange={e => setCaption(e.target.value)}
                     rows={4}
                     className="text-sm"
