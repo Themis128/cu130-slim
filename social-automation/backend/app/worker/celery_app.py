@@ -243,6 +243,22 @@ celery_app.conf.update(
                 "fallback_to_code": True,
             },
         },
+        # Ops health check 15min after the strategy brief — queue state,
+        # failed targets, follower-series anomalies, sync freshness, content
+        # scoreboard. No code-path equivalent, so a notebook failure must not
+        # substitute a strategy brief.
+        "daily-ops-health": {
+            "task": "app.worker.tasks.notebook_reports.run_notebook_report",
+            "schedule": crontab(
+                hour=settings.STRATEGY_REPORT_HOUR,
+                minute=(settings.STRATEGY_REPORT_MINUTE + 15) % 60,
+            ),
+            "kwargs": {
+                "notebook": "ops_health",
+                "send": True,
+                "fallback_to_code": False,
+            },
+        },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {
             "task": "app.worker.tasks.paddle_digest.send_paddle_slack_digest",
