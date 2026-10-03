@@ -144,6 +144,7 @@ nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
 
 - **`--gpu-only`**, **`--force-fp16`**, **`--reserve-vram 1`** — keep headroom for DMR / local-diffusers.
 - Host port `127.0.0.1:8000`. Idle CUDA context still consumes VRAM — pause ComfyUI before large vision/8B loads if free VRAM is tight.
+- **Text-to-video**: LTX-Video 2B GGUF Q8 (primary; `ltxv-2b-0.9.8-distilled-fp8` is broken on this stack) + Wan 2.1 T2V 1.3B fallback. Served to SocialAuto via `POST /api/v1/media/generate-video` (multi-segment `duration_seconds`/`scene_prompts` → ffmpeg concat). Model notes + constraints in `docs/media-creation-architecture.md`; reproducible graphs in `comfyui-workflows/`; weights in `storage-models/` (gitignored).
 
 ### Java heap limits (RAM savings)
 
