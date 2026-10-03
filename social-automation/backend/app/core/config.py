@@ -324,6 +324,9 @@ class Settings(BaseSettings):
     # Analytics datalake bucket (cloudless.gr lakehouse) — separate from the
     # media bucket; the same Cloudflare API token writes both.
     DATALAKE_R2_BUCKET: str = "datalake-bucket"
+    # Tempo query-API base for the edge-metrics lake export (HTTP :3200 on omv;
+    # the OTLP ingest :4318 is a different listener).
+    TEMPO_API_URL: str = "http://192.168.1.200:3200"
 
     # Webhook fired after every successful publish. Payload is a JSON object:
     # {event, post_id, platform, account_id, platform_url, published_at,
