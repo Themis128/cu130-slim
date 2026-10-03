@@ -1,0 +1,23 @@
+# SearXNG config for the LAN-only metasearch instance on omv.
+# The JSON API (format=json) is what social-api calls.
+# secret_key is generated at deploy time — never committed.
+use_default_settings: true
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "CHANGE_ME_AT_DEPLOY"
+  limiter: false          # internal LAN service — no bot detection needed
+  image_proxy: false
+  method: "GET"
+
+search:
+  safe_search: 0
+  autocomplete: "duckduckgo"
+  formats:
+    - html
+    - json
+
+ui:
+  default_theme: simple
+  query_in_title: false

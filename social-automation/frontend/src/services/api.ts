@@ -1262,4 +1262,29 @@ export const inboxApi = {
   getInbox: () => api.get<UnifiedInboxResponse>('/inbox/inbox'),
 }
 
+export interface ReportNotebook {
+  name: string
+  size_bytes: number
+  modified: string
+}
+
+export interface ReportRun {
+  run: string
+  notebook: string
+  subject: string | null
+  html_file: string | null
+  files: string[]
+  created: string
+}
+
+export const reportsApi = {
+  listNotebooks: () => api.get<{ notebooks: ReportNotebook[] }>('/reports/notebooks'),
+  list: (params?: { limit?: number; notebook?: string }) =>
+    api.get<{ reports: ReportRun[] }>('/reports', { params }),
+  fileUrl: (name: string) => `${API_BASE}/reports/files/${encodeURIComponent(name)}`,
+  getFile: (name: string) => api.get<string>(`/reports/files/${encodeURIComponent(name)}`, { responseType: 'text' }),
+  run: (notebook: string, parameters: Record<string, unknown> = {}, send = false) =>
+    api.post<{ queued: boolean; task_id: string; notebook: string }>('/reports/run', { notebook, parameters, send }),
+}
+
 export default api

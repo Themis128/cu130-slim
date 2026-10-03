@@ -1,0 +1,22 @@
+# SearXNG — self-hosted metasearch on the omv node.
+# Free web grounding for /api/v1/ai/generate-content (web_search=true) and
+# /api/v1/ai/web-search. LAN-only on port 8890 — no Cloudflare Tunnel route,
+# and CGNAT makes WAN exposure impossible anyway.
+#
+# Deployed as its own compose project (project dir
+# /srv/dev-disk-by-uuid-…/compose-files/searxng/) — deliberately NOT inside
+# the OMV-plugin-managed `workspace` project so GUI saves can't clobber it.
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      - BASE_URL=http://192.168.1.200:8890/
+      - INSTANCE_NAME=cloudless-searxng
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    ports:
+      - "8890:8080"
+    dns: [1.1.1.1, 8.8.8.8]

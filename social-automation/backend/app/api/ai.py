@@ -83,6 +83,9 @@ class GenerateContentRequest(BaseModel):
     pillar: str | None = (
         None  # pillar UUID or name; "auto" = the pillar posted least in 14d
     )
+    web_search: bool = (
+        False  # ground the post in live web results via self-hosted SearXNG
+    )
 
 
 class GenerateContentResponse(BaseModel):
@@ -95,6 +98,9 @@ class GenerateContentResponse(BaseModel):
     quality: dict | None = None
     pillar_id: str | None = None  # resolved pillar — persist as Post.pillar_id
     pillar_name: str | None = None
+    web_sources: list[dict] | None = (
+        None  # SearXNG results used for grounding when web_search=true
+    )
 
 
 class SuggestHashtagsRequest(BaseModel):
@@ -1649,6 +1655,16 @@ async def generate_content(
 
     from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
 
+    # Optional web grounding — live SearXNG results so the model can write
+    # about current events instead of relying on its knowledge cutoff.
+    web_section = ""
+    web_sources: list[dict] = []
+    if request.web_search:
+        from app.services.web_search import format_search_context, web_search
+
+        web_sources = await web_search(request.prompt)
+        web_section = f"\n\n{format_search_context(web_sources, request.prompt)}\n" if web_sources else ""
+
     # Build prompt — use saved template if available, otherwise default
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
     if saved_template:
@@ -1667,13 +1683,14 @@ async def generate_content(
             elif var == "length":
                 user_prompt = user_prompt.replace(placeholder, request.length)
         prompt = (
-            f"{saved_template.system_prompt}\n\n{user_prompt}{pillar_section}"
+            f"{saved_template.system_prompt}\n\n{user_prompt}"
+            f"{pillar_section}{web_section}"
             "\n\nReturn JSON with: content, hashtags (array), "
             "suggested_media (string or null)"
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}{pillar_section}
+{brand_section}{pillar_section}{web_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
@@ -1768,7 +1785,22 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         quality=quality.to_dict(),
         pillar_id=str(pillar_obj.id) if pillar_obj else None,
         pillar_name=pillar_obj.name if pillar_obj else None,
+        web_sources=web_sources or None,
     )
+
+
+@router.get("/web-search")
+async def ai_web_search(
+    q: str,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+):
+    """Query the self-hosted SearXNG instance — used by content generation
+    for live web grounding, and directly usable for ad-hoc research."""
+    _ = current_user
+    from app.services.web_search import web_search
+
+    return {"query": q, "results": await web_search(q, limit)}
 
 
 @router.post("/generate-hashtags", response_model=SuggestHashtagsResponse)
