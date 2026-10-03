@@ -21,17 +21,17 @@ fallback chain. Based on real benchmarks on this hardware (WSL2, RTX 3070 8GB). 
 │                Enhancements                                          │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
-          ┌────────────────┼────────┬──────────────┐
-          ▼                ▼        ▼              ▼
-   ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-   │ Cloudflare   │ │ local-   │ │ DMR      │ │ PIL      │
-   │ Workers AI   │ │ diffusers│ │ (CPU)    │ │ (local)  │
-   │ (cloud)      │ │ (GPU)    │ │          │ │          │
-   │              │ │          │ │          │ │          │
-   │ TEXT PRIMARY │ │ IMAGE    │ │ TEXT     │ │ COMPOSE  │
-   │ IMAGE FALLBACK│ │ PRIMARY │ │ HELPER   │ │ RENDER   │
-   │ VISION       │ │          │ │ VISION   │ │ PDF      │
-   └──────────────┘ └──────────┘ └──────────┘ └──────────┘
+          ┌────────────────┼────────┬──────────────┬───────────┐
+          ▼                ▼        ▼              ▼           ▼
+   ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+   │ Cloudflare   │ │ local-   │ │ DMR      │ │ PIL      │ │ ComfyUI  │
+   │ Workers AI   │ │ diffusers│ │ (llama/  │ │ (local)  │ │ (GPU)    │
+   │ (cloud)      │ │ (GPU)    │ │  vllm)   │ │          │ │ :8000    │
+   │              │ │          │ │          │ │          │ │          │
+   │ TEXT PRIMARY │ │ IMAGE    │ │ TEXT     │ │ COMPOSE  │ │ VIDEO    │
+   │ IMAGE FALLBACK│ │ PRIMARY │ │ HELPER   │ │ RENDER   │ │ PRIMARY  │
+   │ VISION       │ │          │ │ VISION   │ │ PDF      │ │ LTX-2B   │
+   └──────────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘
 ```
 
 ## Network Endpoints
@@ -185,17 +185,21 @@ If login returns `{"detail":"Invalid credentials"}`:
 
 ### 6. TikTok Video / Slideshow
 
-**What:** Video or photo carousel published to TikTok.
+**What:** AI-generated video or photo carousel published to TikTok.
 
 | Step | Engine | Method | Time |
 |------|--------|--------|------|
+| Video generation | ComfyUI LTX-Video 2B GGUF | `POST /media/generate-video` (async task) | ~25s/segment |
+| Long-form (60s+) | ComfyUI + ffmpeg concat | `options.duration_seconds` / `scene_prompts` | ~18min |
 | Video upload | TikTok API | FILE_UPLOAD (bytes) | ~10s |
 | Photo post | TikTok API | PULL_FROM_URL (up to 35 photos) | ~5s |
 | Draft → inbox | TikTok API | MEDIA_UPLOAD mode | ~2s |
 
-**Output:** Video MP4 or photo carousel on TikTok.
+**Output:** Video MP4 (480×832 9:16 H.264) or photo carousel on TikTok.
+**Generation:** `POST /api/v1/media/generate-video` → poll `GET /api/v1/media/generate-video/{task_id}` — see `media-creation-architecture.md` for the model table and constraints (dims ×32, frames 8n+1).
 **Endpoint:** Publishing via `POST /api/v1/content/posts/{id}/publish`
 **Limit:** 5 pending shares per 24h (spam protection).
+**Automation:** n8n `tiktok-video-post` (schedule every 2 days 19:00 Athens, or webhook `/webhook/tiktok-video-post`) — DMR caption + scene prompt → generate-video → post with `media_ids` → MEDIA_UPLOAD (scheduled) / DIRECT_POST (explicit `publish:true`).
 
 ### 7. Instagram Photo / Carousel
 
@@ -332,6 +336,7 @@ If login returns `{"detail":"Invalid credentials"}`:
 │  Image transform        │  PIL (local)      │  N/A                 │
 │  PDF assembly           │  PIL (local)      │  N/A                 │
 │  Brand compose          │  PIL (local)      │  N/A                 │
+│  Text-to-video (TikTok) │  ComfyUI LTX-2B   │  Wan 2.1 T2V 1.3B    │
 │  Audio transcription    │  CF Workers AI    │  N/A                 │
 │  Embeddings             │  DMR qwen3-embed  │  CF Workers AI       │
 │  Similarity search      │  ChromaDB         │  CF Vectorize        │
@@ -368,6 +373,16 @@ If login returns `{"detail":"Invalid credentials"}`:
 **Embedding model:** `ai/qwen3-embedding`
 
 **Timeouts:** 180s for schema/JSON, 30s for plain text, 120s for embeddings.
+
+### ComfyUI (Video GPU)
+
+**Container:** `social-media-comfyui-gpu` (compose service `comfyui`, CUDA, RTX 3070 8GB, lowvram profile)
+**Endpoint (container):** `http://comfyui:8000` — set as `COMFYUI_URL`
+**Primary model:** `ltx-video-2b-v0.9-Q8_0.gguf` (UnetLoaderGGUF) + `t5xxl_fp8_e4m3fn_scaled` (CLIP) + `LTX-Video-VAE-BF16` — ~1 it/s, ~25s for 41f@25fps 480×832
+**Fallback model:** `wan2.1_t2v_1.3B_fp16.safetensors` (core nodes) — ~7.3s/step, ~153s
+**Broken:** `ltxv-2b-0.9.8-distilled-fp8` safetensors → noise (pack dropped 0.9.x support)
+**Constraints:** dims multiple of 32, frames = 8n+1. Multi-segment long-form via `generate_video_segments` + ffmpeg concat.
+**Service:** `app/services/comfyui_video.py`; task `generate_video_asset_task` (media queue, 1800/2100s limits); graphs in `comfyui-workflows/`.
 
 ### PIL (Local Compositing)
 

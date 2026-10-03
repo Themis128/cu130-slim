@@ -16,10 +16,12 @@ POST /api/v1/ai/generate-carousel-│   Cloudflare Workers AI      ├──▶ 
 POST /api/v1/ai/run-carousel-and- │                                3. convert to requested fmt    │   (pub-*.r2.dev)
     publish (n8n)                 │   text:   DMR :12435         │    (JPEG default; PNG for      │
 POST /api/v1/media/upload         │        ↓ fallback            │    transparency, PDF for       │
-worker task media_enhance         ┘   Cloudflare Workers AI      ┘    carousels)                   │
-                                                                   4. matching extension + MIME
-                                                                   5. storage backend write
-                                                                   6. media_assets row
+POST /api/v1/media/generate-video │   Cloudflare Workers AI      ┘    carousels)                   │
+    (+ /{task_id} poll)           │                                4. matching extension + MIME
+worker task media_enhance         ┘   video:  ComfyUI :8000          5. storage backend write
+                                      (LTX-Video 2B GGUF, GPU)       6. media_assets row
+                                           ↓ multi-segment
+                                      ffmpeg concat (60s+ clips)
 ```
 
 ## Generation paths
@@ -31,6 +33,16 @@ worker task media_enhance         ┘   Cloudflare Workers AI      ┘    carous
 | Brand logo / favicon | `POST /brand/logo`, `POST /brand/favicon` | Pass `extension=".png"` explicitly to preserve alpha. |
 | LinkedIn carousel | `run_cloudless_carousel_pipeline` (`carousel_pipeline.py`) | Copy (CF) → NLP fix (DMR `ai/llama3.2`) → spellcheck → per-slide CF txt2img background → `compose_branded_slide` (PIL brand canvas) → single multi-page PDF. Creates a draft Post + PostTarget for the Company Page; `publish=true` schedules it. |
 | Media enhance | worker task `app.worker.tasks.media_enhance` | Upscales/restyles existing assets. |
+| Text-to-video | `POST /media/generate-video` → `generate_video_asset_task` (media queue) → `services/comfyui_video.py` | LTX-Video 2B GGUF Q8 on ComfyUI (`COMFYUI_URL`, GPU). Async: returns `{task_id, poll_url}`; poll `GET /media/generate-video/{task_id}` → `{status, asset_id}`. Output H.264/yuv420p MP4. Options: `width`/`height` (multiples of 32 — 480×832 = TikTok 9:16), `num_frames` (8n+1), `frame_rate`, `steps`, `cfg_scale`, `seed`, `negative_prompt`, `duration_seconds` (≤60), `scene_prompts` (≤40). Nonzero `duration_seconds` or a `scene_prompts` shot list runs `generate_video_segments` — sequential per-scene LTX jobs stitched via the ffmpeg concat demuxer (60s+ Creator-Rewards clips). `source=comfyui-ltxv`, `duration_seconds` recorded on the asset. Task limits 1800/2100s. |
+
+## Video model notes (benchmarked 2026-10-02, RTX 3070 8GB, lowvram profile)
+
+- **Primary: `ltx-video-2b-v0.9-Q8_0.gguf`** (city96 quants) via `UnetLoaderGGUF` + core `KSampler` + `LTXVConditioning` + `EmptyLTXVLatentVideo` + `VHS_VideoCombine`. ~1 it/s → ~25s for a 41-frame 480×832 clip. Requires `ComfyUI-GGUF`, `ComfyUI-LTXVideo`, `ComfyUI-VideoHelperSuite`.
+- **Fallback: `wan2.1_t2v_1.3B_fp16`** — core nodes only, ~7.3s/step (~153s total); softer output. Stored graphs in `comfyui-workflows/`.
+- **Do not use `ltxv-2b-0.9.8-distilled-fp8.safetensors`** — produces noise on ComfyUI 0.38 + current pack (LTX-2.x era dropped 0.9.x support; `KeyError: skip_block_list`).
+- Long-form = N sequential segments stitched by ffmpeg (`generate_video_segments`) — e.g. `duration_seconds=60` ≈ 37 segments ≈ ~18 min GPU time.
+- Model weights live on the ComfyUI models volume (`storage-models/`, gitignored), not in the repo.
+- n8n `tiktok-video-post` workflow drives the pipeline every 2 days 19:00 Athens (webhook `/webhook/tiktok-video-post`): DMR caption + scene prompt → this endpoint → post with `media_ids` → `MEDIA_UPLOAD` (scheduled) or `DIRECT_POST` (explicit). `publish:false` = draft-only dry run.
 
 ## Persistence — `persist_generated_image` (`services/media_storage.py`)
 
