@@ -13,6 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api import api_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.tracing import instrument_app
 from app.db.session import init_db
 from app.services.metrics import PrometheusMiddleware, register_route_metrics
 
@@ -48,6 +49,8 @@ app = FastAPI(
     docs_url="/docs" if (settings.DEBUG or settings.EXPOSE_API_DOCS) else None,
     redoc_url="/redoc" if (settings.DEBUG or settings.EXPOSE_API_DOCS) else None,
 )
+instrument_app(app)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
