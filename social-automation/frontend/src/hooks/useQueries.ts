@@ -281,6 +281,23 @@ export function useGenerateImage() {
   })
 }
 
+export function useGenerateVideo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      prompt,
+      options,
+    }: {
+      prompt: string
+      options?: Parameters<typeof mediaApi.generateVideo>[1]
+    }) => mediaApi.generateVideo(prompt, options),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+      toast.success('Video generation started')
+    },
+  })
+}
+
 // Workflow hooks
 export function useTemplates(category?: string) {
   return useQuery({
