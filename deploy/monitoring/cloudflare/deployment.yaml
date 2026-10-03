@@ -1,0 +1,71 @@
+# Cloudflare analytics collector for the omv monitoring stack.
+# lablabs/cloudflare_exporter cannot emit zone metrics on the Free plan (its
+# zone query requires httpRequests1mGroups, a paid dataset), so this runs a
+# small Python collector (collector.py, mounted from the ConfigMap below)
+# that only queries Free-plan GraphQL datasets and exposes /metrics on :8080.
+# The API token lives in secret "cloudflare-exporter" (key: token) — created
+# out-of-band, never committed. Token is read-only:
+#   Analytics Read (zone) + Account Analytics Read + Account Settings Read
+#   + Zone Read + Zone Observability Read
+# Deploy: ./apply.sh   (builds the collector.py ConfigMap from source)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+    component: metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+  template:
+    metadata:
+      labels:
+        app: cloudflare-exporter
+        component: metrics
+    spec:
+      containers:
+        - name: exporter
+          image: python:3.12-slim
+          command:
+            - /bin/sh
+            - -c
+            - pip install --quiet --no-cache-dir prometheus_client && exec python /src/collector.py
+          env:
+            - name: CF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-exporter
+                  key: token
+            - name: CF_ACCOUNT_ID
+              value: "fb7dc7b69b662480cd5961a4d1913c78"
+            - name: CF_ZONE_ID
+              value: "7025298073d6a5c645a6ad9add0cbf0e" # cloudless.gr
+            - name: POLL_SECONDS
+              value: "300"
+          volumeMounts:
+            - name: src
+              mountPath: /src
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 150m
+              memory: 128Mi
+      volumes:
+        - name: src
+          configMap:
+            name: cloudflare-exporter
