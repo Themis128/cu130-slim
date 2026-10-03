@@ -157,7 +157,7 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `brand`
 
-- `/api/v1/brand` — GET, PUT, POST, DELETE
+- `/api/v1/brand` — GET, POST, PUT, DELETE
 - `/api/v1/brand/ad-kit` — POST
 - `/api/v1/brand/analyze-voice` — POST
 - `/api/v1/brand/assets` — GET, POST
@@ -194,12 +194,13 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/content/briefs` — GET, POST
 - `/api/v1/content/briefs/{brief_id}` — DELETE
+- `/api/v1/content/link-preview` — GET
 - `/api/v1/content/media` — GET
 - `/api/v1/content/media/upload` — POST
 - `/api/v1/content/media/{media_id}` — DELETE
 - `/api/v1/content/pillars` — GET, POST
 - `/api/v1/content/pillars/{pillar_id}` — PATCH, DELETE
-- `/api/v1/content/posts` — POST, GET
+- `/api/v1/content/posts` — GET, POST
 - `/api/v1/content/posts/calendar` — GET
 - `/api/v1/content/posts/{post_id}` — GET, PATCH, DELETE
 - `/api/v1/content/posts/{post_id}/approve` — POST
@@ -296,6 +297,8 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/enhance/batch` — POST
 - `/api/v1/media/enhance/presets` — GET
 - `/api/v1/media/generate-image` — POST
+- `/api/v1/media/generate-video` — POST
+- `/api/v1/media/generate-video/{task_id}` — GET
 - `/api/v1/media/search` — GET
 - `/api/v1/media/upload` — POST
 - `/api/v1/media/upload/complete` — POST
@@ -375,8 +378,8 @@ asserts every live route appears here — regenerate this file when adding route
 ## `publishing`
 
 - `/api/v1/publishing/history` — GET
-- `/api/v1/publishing/queue` — POST, GET
-- `/api/v1/publishing/queue/{queue_id}` — DELETE, GET
+- `/api/v1/publishing/queue` — GET, POST
+- `/api/v1/publishing/queue/{queue_id}` — GET, DELETE
 - `/api/v1/publishing/queue/{queue_id}/cancel` — POST
 - `/api/v1/publishing/queue/{queue_id}/retry` — POST
 - `/api/v1/publishing/retry/{queue_id}` — POST
@@ -480,13 +483,13 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/whatsapp/{account_id}/bot/deactivate` — POST
 - `/api/v1/whatsapp/{account_id}/bot/personalities` — GET
 - `/api/v1/whatsapp/{account_id}/credentials` — PUT
-- `/api/v1/whatsapp/{account_id}/flows` — POST, GET
+- `/api/v1/whatsapp/{account_id}/flows` — GET, POST
 - `/api/v1/whatsapp/{account_id}/flows/from-template` — POST
 - `/api/v1/whatsapp/{account_id}/flows/send` — POST
 - `/api/v1/whatsapp/{account_id}/flows/templates/list` — GET
 - `/api/v1/whatsapp/{account_id}/flows/templates/{template_id}/json` — GET
 - `/api/v1/whatsapp/{account_id}/flows/{flow_id}` — GET, PUT, DELETE
-- `/api/v1/whatsapp/{account_id}/flows/{flow_id}/json` — PUT, GET
+- `/api/v1/whatsapp/{account_id}/flows/{flow_id}/json` — GET, PUT
 - `/api/v1/whatsapp/{account_id}/flows/{flow_id}/publish` — POST
 - `/api/v1/whatsapp/{account_id}/flows/{flow_id}/validate` — POST
 - `/api/v1/whatsapp/{account_id}/index-brand` — POST
