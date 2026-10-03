@@ -43,6 +43,13 @@ dependencies = [
     "emoji>=2.14.0",
     # Prometheus scrape endpoint (/metrics) — HTTP + business vitals
     "prometheus-client>=0.21,<1.0",
+    # OpenTelemetry tracing — OTLP/HTTP export to self-hosted Tempo on omv.
+    # Continues the Cloudflare edge trace via forwarded traceparent headers.
+    "opentelemetry-api>=1.27.0,<2.0",
+    "opentelemetry-sdk>=1.27.0,<2.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.27.0,<2.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0",
+    "opentelemetry-instrumentation-httpx>=0.48b0,<1.0",
     # TikTok profile-grid scraping for analytics gap-fill (MEDIA_UPLOAD
     # posts have no Display API video id; cookies from account meta_data)
     "yt-dlp==2026.08.19",

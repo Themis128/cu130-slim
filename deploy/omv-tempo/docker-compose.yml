@@ -1,0 +1,34 @@
+# Tempo — self-hosted trace backend on omv (separate compose project so the
+# OMV compose-plugin can't overwrite it).
+#
+# Ingest paths:
+#   - Cloudflare Traces OTLP export → https://otel.cloudless.gr/v1/traces
+#     (tunnel route -> tempo-proxy :4319, X-OTLP-Token header enforced)
+#   - Local apps (social-api etc.) → http://192.168.1.200:4318/v1/traces
+# Query: Grafana datasource "Tempo" → http://192.168.1.200:3200
+# Retention: 7d (matches Cloudflare free-tier window).
+services:
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: tempo
+    restart: unless-stopped
+    pull_policy: always
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./tempo.yml:/etc/tempo.yml:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/tempo-data:/var/tempo
+    ports:
+      - "3200:3200"   # query (Grafana datasource, LAN only)
+      - "4318:4318"   # OTLP/HTTP ingest (LAN-trusted apps)
+    dns: [1.1.1.1, 8.8.8.8]
+
+  tempo-proxy:
+    # Public OTLP ingest — tunnel targets this port; requires X-OTLP-Token.
+    image: nginx:alpine
+    container_name: tempo-proxy
+    restart: unless-stopped
+    volumes:
+      - ./tempo-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "4319:4319"
+    depends_on: [tempo]

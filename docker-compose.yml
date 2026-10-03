@@ -821,6 +821,11 @@ services:
       - MESSENGER_SIDECAR_URL=http://messenger-sidecar:9230
       # Self-hosted SearXNG metasearch (runs on omv — deploy/omv-workspace).
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      # OpenTelemetry → self-hosted Tempo on omv (OTLP/HTTP, LAN).
+      # Continues Cloudflare zone traces via forwarded traceparent headers.
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-social-api}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://192.168.1.200:4318}
     volumes:
       - ./.env:/app/.env:ro
       - ./social-automation/backend/app:/app/app
