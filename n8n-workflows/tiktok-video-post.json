@@ -78,7 +78,10 @@
       ],
       "onError": "continueRegularOutput",
       "id": "login-social-api-d74577",
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
@@ -174,7 +177,10 @@
         1200,
         -80
       ],
-      "id": "generate-caption-dmr-1c0c9e"
+      "id": "generate-caption-dmr-1c0c9e",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
@@ -203,7 +209,10 @@
         1440,
         -80
       ],
-      "id": "generate-video-prompt-dmr-e6d71f"
+      "id": "generate-video-prompt-dmr-e6d71f",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
@@ -232,7 +241,10 @@
         2640,
         -80
       ],
-      "id": "create-post-71cb13"
+      "id": "create-post-71cb13",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
@@ -364,7 +376,10 @@
         1680,
         -80
       ],
-      "id": "start-video-gen-1"
+      "id": "start-video-gen-1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
@@ -404,7 +419,10 @@
         2160,
         -80
       ],
-      "id": "poll-video-task-1"
+      "id": "poll-video-task-1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
     },
     {
       "parameters": {
