@@ -980,7 +980,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    stop_grace_period: 90s
+    # Video generation tasks run up to ~15min (segmented long-form); a short
+    # grace period SIGKILLs them mid-run and the task only redelivers after
+    # the 3600s broker visibility timeout — stuck "STARTED" for an hour.
+    stop_grace_period: 15m
     restart: unless-stopped
 
   social-worker-default:

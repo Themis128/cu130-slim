@@ -64,10 +64,17 @@ def build_t2v_prompt(
     """Build the ComfyUI API-format prompt for LTX-Video 2B GGUF T2V."""
     if width % 32 or height % 32:
         raise ValueError("LTX-Video dimensions must be multiples of 32")
+    for name, dim in (("width", width), ("height", height)):
+        if not 128 <= dim <= 1216:
+            raise ValueError(f"{name} must be 128..1216 (LTX-Video 2B range)")
     if num_frames % 8 != 1:
         raise ValueError("LTX-Video frame count must be 8n+1 (e.g. 25, 33, 41, 97)")
+    if not 9 <= num_frames <= 257:
+        raise ValueError("num_frames must be 9..257 (~0.3-10s at 25fps)")
     if not 1 <= steps <= 60:
         raise ValueError("steps must be 1..60")
+    if not 1 <= frame_rate <= 60:
+        raise ValueError("frame_rate must be 1..60")
 
     return {
         "prompt": {
@@ -146,6 +153,25 @@ def build_t2v_prompt(
     }
 
 
+async def _cancel_prompt(client: httpx.AsyncClient, prompt_id: str) -> None:
+    """Best-effort ComfyUI cleanup for a prompt we no longer wait on.
+
+    Only calls ``/interrupt`` when *our* prompt is the running job —
+    interrupting blindly would kill another tenant's job. Otherwise the
+    prompt is still queued and a ``/queue`` delete removes it.
+    """
+    try:
+        q = await client.get("/queue", timeout=10)
+        q.raise_for_status()
+        running = {item[1] for item in (q.json() or {}).get("queue_running", []) if len(item) > 1}
+        if prompt_id in running:
+            await client.post("/interrupt", timeout=10)
+        else:
+            await client.post("/queue", json={"delete": [prompt_id]}, timeout=10)
+    except Exception as exc:  # noqa: BLE001 — cleanup must never mask the real error
+        logger.warning("[comfyui-video] cancel of prompt %s failed: %s", prompt_id, exc)
+
+
 async def generate_video(
     *,
     prompt: str,
@@ -195,42 +221,48 @@ async def generate_video(
                     prompt_id, width, height, num_frames, frame_rate)
 
         deadline = asyncio.get_event_loop().time() + timeout_s
-        while asyncio.get_event_loop().time() < deadline:
-            await asyncio.sleep(poll_s)
-            h = await client.get(f"/history/{prompt_id}")
-            h.raise_for_status()
-            entry = (h.json() or {}).get(prompt_id)
-            if not entry:
-                continue
-            status = entry.get("status") or {}
-            if status.get("status_str") == "error":
-                msgs = [m[1].get("exception_message", "?")
-                        for m in status.get("messages", []) if m[0] == "execution_error"]
-                raise ComfyUIVideoError(f"ComfyUI execution failed: {msgs or status}")
-            outputs = entry.get("outputs") or {}
-            vids = (outputs.get("12") or {}).get("gifs") or []
-            if vids:
-                meta_out = vids[0]
-                params = {
-                    "filename": meta_out["filename"],
-                    "type": meta_out.get("type", "output"),
-                    "subfolder": meta_out.get("subfolder", ""),
-                }
-                d = await client.get("/view", params=params, timeout=300.0)
-                d.raise_for_status()
-                if len(d.content) < 1024:
-                    raise ComfyUIVideoError("ComfyUI returned a suspiciously small video")
-                return d.content, {
-                    "prompt_id": prompt_id,
-                    "filename": meta_out["filename"],
-                    "subfolder": meta_out.get("subfolder", ""),
-                    "width": width,
-                    "height": height,
-                    "frame_rate": frame_rate,
-                    "num_frames": num_frames,
-                    "duration_seconds": round(num_frames / float(frame_rate), 2),
-                }
-
+        try:
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(poll_s)
+                h = await client.get(f"/history/{prompt_id}")
+                h.raise_for_status()
+                entry = (h.json() or {}).get(prompt_id)
+                if not entry:
+                    continue
+                status = entry.get("status") or {}
+                if status.get("status_str") == "error":
+                    msgs = [m[1].get("exception_message", "?")
+                            for m in status.get("messages", []) if m[0] == "execution_error"]
+                    raise ComfyUIVideoError(f"ComfyUI execution failed: {msgs or status}")
+                outputs = entry.get("outputs") or {}
+                vids = (outputs.get("12") or {}).get("gifs") or []
+                if vids:
+                    meta_out = vids[0]
+                    params = {
+                        "filename": meta_out["filename"],
+                        "type": meta_out.get("type", "output"),
+                        "subfolder": meta_out.get("subfolder", ""),
+                    }
+                    d = await client.get("/view", params=params, timeout=300.0)
+                    d.raise_for_status()
+                    if len(d.content) < 1024:
+                        raise ComfyUIVideoError("ComfyUI returned a suspiciously small video")
+                    return d.content, {
+                        "prompt_id": prompt_id,
+                        "filename": meta_out["filename"],
+                        "subfolder": meta_out.get("subfolder", ""),
+                        "width": width,
+                        "height": height,
+                        "frame_rate": frame_rate,
+                        "num_frames": num_frames,
+                        "duration_seconds": round(num_frames / float(frame_rate), 2),
+                    }
+        except asyncio.CancelledError:
+            # Celery revoke / worker shutdown — don't leave the GPU job running.
+            await _cancel_prompt(client, prompt_id)
+            raise
+        # Timeout — the prompt may still be queued or running in ComfyUI.
+        await _cancel_prompt(client, prompt_id)
         raise ComfyUIVideoError(f"ComfyUI video job timed out after {timeout_s:.0f}s")
 
 

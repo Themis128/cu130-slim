@@ -15,7 +15,13 @@ async def correct_text(text: str | None, language: str = "en-US") -> str | None:
 
 
 async def correct_tags(tags: list[str] | None, language: str = "en-US") -> list[str]:
-    """Correct each tag individually and return the deduplicated, non-empty list."""
+    """Correct each tag individually and return the deduplicated, non-empty list.
+
+    Single-token tags are treated as identifiers and passed through
+    unchanged — LanguageTool mangles machine tokens (``comfyui`` →
+    ``comfy``, ``ltxv`` → ``LTV``), which breaks search and filtering.
+    Only multi-word tags go through correction.
+    """
     if not tags:
         return []
     corrected = []
@@ -23,7 +29,11 @@ async def correct_tags(tags: list[str] | None, language: str = "en-US") -> list[
         tag = tag.strip()
         if not tag:
             continue
-        fixed = (await auto_correct(tag, language=language)).strip()
+        fixed = (
+            (await auto_correct(tag, language=language)).strip()
+            if " " in tag
+            else tag
+        )
         if fixed:
             corrected.append(fixed)
     # Dedupe while preserving order
