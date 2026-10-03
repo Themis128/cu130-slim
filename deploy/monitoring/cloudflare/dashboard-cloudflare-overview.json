@@ -1,0 +1,173 @@
+{
+  "uid": "cloudflare-overview",
+  "title": "Cloudflare Overview",
+  "description": "All Cloudflare services for the cloudless.gr account on one screen: edge traffic, tunnels, Workers, and R2. Sources: cloudflare-exporter (GraphQL analytics, 5-min window) + cloudflared native /metrics. Free-plan datasets only — per-minute edge TTFB and firewall-event detail are plan-gated and absent by design.",
+  "timezone": "browser",
+  "tags": ["cloudflare", "cloudless"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {"from": "now-24h", "to": "now"},
+  "editable": true,
+  "panels": [
+    {
+      "type": "row", "id": 100, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "title": "Edge — cloudless.gr zone", "collapsed": false, "panels": []
+    },
+    {
+      "id": 1, "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
+      "title": "Edge requests by hostname",
+      "description": "Requests hitting Cloudflare's edge for each hostname in the zone, per scrape window. Watch for sudden drops on expected hosts (tunnel/origin down) or spikes on unexpected hosts (abuse, misconfigured clients).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (host) (cloudflare_zone_requests_total)", "legendFormat": "{{host}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 2, "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
+      "title": "Edge response status mix",
+      "description": "Edge response codes returned to clients, grouped by class. A rising 5xx line means the edge (or origin through the tunnel) is failing — check tunnel HA and the origin service below. Sustained 4xx growth is usually probing or auth failures, not an outage.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (status) (cloudflare_zone_requests_total)", "legendFormat": "{{status}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"stacking": {"mode": "normal"}, "drawStyle": "bars"}}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 3, "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 0, "y": 9},
+      "title": "Cache hit ratio",
+      "description": "Share of edge requests served from Cloudflare cache vs. sent to origin. Higher is better — every miss costs origin CPU and tunnel bandwidth. Low values are normal here since most hosts are dynamic apps behind tunnels.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(cloudflare_zone_cache_requests_total{cache_status=\"hit\"}) / sum(cloudflare_zone_cache_requests_total) * 100", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "yellow", "value": 40}, {"color": "green", "value": 70}]}}, "overrides": []},
+      "options": {"graphMode": "area", "textMode": "value"}
+    },
+    {
+      "id": 4, "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 6, "y": 9},
+      "title": "Threats today",
+      "description": "Requests Cloudflare classified as threats for the current UTC day (WAF decisions, bot scores, reputation). Sourced from the free daily dataset — a spike usually means scanning/bot floods, not a breach; blocked traffic never reaches origin.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "max(cloudflare_zone_daily_threats)", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 500}, {"color": "red", "value": 2000}]}}, "overrides": []},
+      "options": {"graphMode": "area", "textMode": "value"}
+    },
+    {
+      "id": 5, "type": "timeseries", "gridPos": {"h": 4, "w": 12, "x": 12, "y": 9},
+      "title": "Origin response time (ms)",
+      "description": "How fast origins answer through the edge — p50/p95/p99 quantiles over the scrape window. p99 climbing while p50 stays flat = a few slow endpoints (check which host via the misses panel). Everything above ~1s p95 deserves a look at the origin service.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "avg by (quantile) (cloudflare_zone_origin_duration_ms)", "legendFormat": "p{{quantile}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 6, "type": "timeseries", "gridPos": {"h": 6, "w": 12, "x": 0, "y": 13},
+      "title": "Daily traffic totals",
+      "description": "Full-day request, bandwidth and page-view totals per UTC day (free 1-day dataset). Use this for trend: growth here is real reach; the 5-minute panels above are for debugging. Bandwidth matters for the 10GB R2/egress-adjacent limits on free plans.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (date) (cloudflare_zone_daily_requests)", "legendFormat": "requests {{date}}", "range": true, "instant": false},
+        {"refId": "B", "expr": "sum by (date) (cloudflare_zone_daily_pageviews)", "legendFormat": "pageviews {{date}}", "range": true, "instant": false}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 7, "type": "timeseries", "gridPos": {"h": 6, "w": 12, "x": 12, "y": 13},
+      "title": "Requests by country",
+      "description": "Client countries hitting the edge in the window. Confirms the audience is who we think it is; an unexpected dominant country usually means crawler traffic or a misconfigured integration rather than real users.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "topk(8, sum by (country) (cloudflare_zone_requests_country_total))", "legendFormat": "{{country}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "type": "row", "id": 101, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 19},
+      "title": "Tunnels — cloudflared native metrics", "collapsed": false, "panels": []
+    },
+    {
+      "id": 8, "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 0, "y": 20},
+      "title": "Tunnel HA connections",
+      "description": "Active cloudflared connections to Cloudflare's edge per host (.128 = social-auto host, .130 = omv-ha). Cloudflared keeps 4 HA connections when healthy; anything <4 means the tunnel is degraded — public hostnames behind it may flap.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "cloudflared_tunnel_ha_connections", "legendFormat": "{{instance}}", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "yellow", "value": 1}, {"color": "green", "value": 4}]}}, "overrides": []},
+      "options": {"graphMode": "area", "textMode": "value"}
+    },
+    {
+      "id": 9, "type": "timeseries", "gridPos": {"h": 4, "w": 9, "x": 6, "y": 20},
+      "title": "Tunnel request rate",
+      "description": "Requests proxied through each cloudflared daemon per second. Correlates with edge traffic — if edge requests are up but tunnel requests are flat, responses are being served from cache or failing before the origin.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (instance) (rate(cloudflared_tunnel_total_requests[5m]))", "legendFormat": "{{instance}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 10, "type": "timeseries", "gridPos": {"h": 4, "w": 9, "x": 15, "y": 20},
+      "title": "Tunnel response errors",
+      "description": "Errors returned by origins through the tunnel (connection refused, timeouts, 5xx from the app). Should stay near zero; a sustained rise points at the origin service behind that hostname, not at Cloudflare.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (instance) (rate(cloudflared_tunnel_response_by_code{response_code=~\"5..\"}[5m]))", "legendFormat": "{{instance}} 5xx", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "type": "row", "id": 102, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 24},
+      "title": "Workers & R2 — account scope", "collapsed": false, "panels": []
+    },
+    {
+      "id": 11, "type": "timeseries", "gridPos": {"h": 7, "w": 12, "x": 0, "y": 25},
+      "title": "Worker invocations",
+      "description": "Invocations per Worker script and status (success/exceeded/errors) in each window. This is where Workers-AI-adjacent traffic shows up too — postiz-ai-proxy, mail-ingest and the carousel fan-out run on the same free 100k-requests/day budget. Watch total volume against that cap.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (script, status) (cloudflare_worker_requests_total)", "legendFormat": "{{script}} ({{status}})", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 12, "type": "timeseries", "gridPos": {"h": 7, "w": 12, "x": 12, "y": 25},
+      "title": "Worker errors & p99 CPU",
+      "description": "Left axis: error count per script — anything nonzero repeatedly is a bug to ship a fix for. Right axis: p99 CPU microseconds — Workers free tier allows ~10ms CPU per request; scripts trending toward that get throttled.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (script) (cloudflare_worker_errors_total)", "legendFormat": "{{script}} errors", "range": true, "instant": false},
+        {"refId": "B", "expr": "max by (script) (cloudflare_worker_cpu_time_us{quantile=\"0.99\"})", "legendFormat": "{{script}} p99 cpu", "range": true, "instant": false}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": [{"matcher": {"id": "byFrameRefID", "options": "B"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "µs"}]}]},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 13, "type": "bargauge", "gridPos": {"h": 7, "w": 12, "x": 0, "y": 32},
+      "title": "R2 storage per bucket",
+      "description": "Current object storage footprint per bucket. Free tier: 10GB/month storage + 1M writes/10M reads. datalake-bucket holds the heaviest data — if it approaches the cap, prune old exports before Cloudflare starts billing or rejecting writes.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "cloudflare_r2_payload_bytes", "legendFormat": "{{bucket}}", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 7516192768}, {"color": "red", "value": 9663676416}]}}, "overrides": []},
+      "options": {"displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true}
+    },
+    {
+      "id": 14, "type": "timeseries", "gridPos": {"h": 7, "w": 12, "x": 12, "y": 32},
+      "title": "R2 operations",
+      "description": "Class-A (write) and Class-B (read) API operations per bucket in the window. Free quota: 1M Class-A + 10M Class-B per month — a runaway exporter or sync job shows up here before it shows up on a bill.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (bucket, action) (cloudflare_r2_operations_total)", "legendFormat": "{{bucket}} {{action}}", "range": true, "instant": false}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "type": "row", "id": 103, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 39},
+      "title": "Collector health", "collapsed": false, "panels": []
+    },
+    {
+      "id": 15, "type": "stat", "gridPos": {"h": 4, "w": 8, "x": 0, "y": 40},
+      "title": "Collector status",
+      "description": "1 = the last GraphQL poll of the Cloudflare account succeeded; 0 = the API token or a dataset failed. If this drops, all Cloudflare panels above go stale while infrastructure panels (tunnels, origin) keep updating.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "cloudflare_exporter_up", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "none", "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}, "overrides": []},
+      "options": {"graphMode": "none", "textMode": "value"}
+    }
+  ],
+  "templating": {"list": []},
+  "annotations": {"list": []}
+}

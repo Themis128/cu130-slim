@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+    component: metrics
+    release: kube-prom
+spec:
+  selector:
+    app: cloudflare-exporter
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
