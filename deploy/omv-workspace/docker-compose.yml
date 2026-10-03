@@ -59,9 +59,15 @@ services:
       - TZ=Europe/Athens
     tmpfs:
       - /var/cache/fontconfig
+    # gid 100 = host "users" group — grants the container's www-data
+    # read access to the OMV SSD tree bound at /omv-storage (replaces the
+    # flaky self-SFTP external-storage mount).
+    group_add:
+      - "100"
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
     ports:
       - "11000:80"
     healthcheck:
@@ -80,9 +86,12 @@ services:
       - nextcloud
     tmpfs:
       - /var/cache/fontconfig
+    group_add:
+      - "100"
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
     entrypoint: /cron.sh
     dns: [1.1.1.1, 8.8.8.8]
 
@@ -157,9 +166,12 @@ services:
       - nextcloud
     tmpfs:
       - /var/cache/fontconfig
+    group_add:
+      - "100"
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage:ro
     entrypoint: /var/www/html/custom_apps/notify_push/bin/aarch64/notify_push --bind 0.0.0.0 --port 7867 /var/www/html/config/config.php
     environment:
       - NEXTCLOUD_URL=http://nextcloud
