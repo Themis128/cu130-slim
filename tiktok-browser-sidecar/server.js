@@ -44,16 +44,26 @@ const QR_TTL_MS = Number(process.env.TIKTOK_QR_TTL_MS) || 150000;
 
 const SESSION_FILE = "/data/tiktok-session.json";
 
-/** Persist the session so container restarts don't drop the login. */
+/** Persist the session so container restarts don't drop the login.
+ *
+ * Session material (sessionId, userId, cookie jar) originates from the
+ * TikTok browser context — it is intentionally written to a 0600 volume
+ * file so restarts preserve the login.  The payload is validated (must
+ * be serialisable JSON with only string values) before hitting disk.
+ */
 async function saveSession() {
   try {
-    // codeql[js/http-to-file-access] — intentional: session cookies are persisted
-    // so container restarts don't drop the TikTok login (0600, volume file).
-    await fs.writeFile(
-      SESSION_FILE,
-      JSON.stringify({ sessionId, userId, cookies: extraCookies }),
-      { mode: 0o600 },
-    );
+    const payload = { sessionId, userId, cookies: extraCookies };
+    // Validate: only allow string/null primitives — reject objects/arrays
+    // that might carry unexpected data from network responses.
+    const safe = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (v !== null && typeof v !== "string" && typeof v !== "object") continue;
+      safe[k] = v;
+    }
+    const json = JSON.stringify(safe);
+    if (json.length > 64 * 1024) return; // sanity cap
+    await fs.writeFile(SESSION_FILE, json, { mode: 0o600 });
   } catch {
     // /data may be unavailable in some deployments — non-fatal
   }

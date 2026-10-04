@@ -173,12 +173,13 @@ async def _check_daily_quota(
             )
             total = int(total_row.scalar() or 0)
             if total >= budget * 0.8:
+                safe_team = str(team_id).replace("\n", "").replace("\r", "")
                 logger.warning(
-                    "⚠️ Daily Cloudflare neuron usage for team %s: %d / %d (%.0f%%) — budget alert",
-                    _sanitize_log_text(str(team_id)),
+                    "Daily Cloudflare neuron usage for team %s: %d / %d (%.0f%%) — budget alert",
+                    safe_team,
                     int(total),
                     int(budget),
                     (total / budget) * 100,
                 )
     except Exception as exc:
-        logger.warning("Quota check failed: %s", _sanitize_log_text(str(exc)))
+        logger.warning("Quota check failed: %s", str(exc).replace("\n", "\\n").replace("\r", "\\r")[:400])

@@ -22,7 +22,7 @@ print("==========================================")
 print(" WhatsApp Phone Auto-Verification")
 print("==========================================")
 print(f"Account:  {account_id}")
-print(f"PIN:      {pin}")
+print(f"PIN:      {'*' * len(pin)}")
 print(f"Method:   {method}")
 print(f"Language: {language}")
 print("==========================================\n")
@@ -58,7 +58,7 @@ for attempt in range(1, MAX_ATTEMPTS + 1):
         time.sleep(SLEEP_SECONDS)
     else:
         print(f"  ❌ Unexpected error: {err}")
-        print(f"  Response: {resp}")
+        print("  (response details omitted — may contain sensitive data)")
         sys.exit(1)
 
 print("\n[3/6] Enter the 6-digit verification code received on your phone.")
@@ -75,7 +75,7 @@ if err:
     sys.exit(1)
 print("  ✅ Code verified successfully!")
 
-print(f"\n[5/6] Registering phone number with PIN {pin}...")
+print(f"\n[5/6] Registering phone number with PIN {'*' * len(pin)}...")
 resp = register_phone(account_id, pin)
 err = has_error(resp)
 if err:

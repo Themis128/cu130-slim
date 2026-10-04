@@ -33,8 +33,10 @@ if state_file.exists():
             pass
 
 print("Phone: ***")  # display_phone_number is PII — never echoed
-print(f'Status: {d.get("code_verification_status", "?")}')
-print(f'Quality: {d.get("quality_rating", "?")}')
+status_val = d.get("code_verification_status", "?")
+quality_val = d.get("quality_rating", "?")
+print(f"Status: {status_val}")
+print(f"Quality: {quality_val}")
 print(f"Rate limited: {rate_limited}")
 if rate_limited:
     print(f"Cooldown expires: {cooldown_expires}")
@@ -42,4 +44,11 @@ if rate_limited:
           f"({seconds_until // 60}m {seconds_until % 60}s)")
 
 if len(sys.argv) > 2 and sys.argv[2] == "--json":
-    print(state_file.read_text() if state_file.exists() else "{}")
+    # Only emit non-sensitive fields from the state file.
+    if state_file.exists():
+        safe_state = json.loads(state_file.read_text())
+        safe_state.pop("display_phone_number", None)
+        safe_state.pop("phone_number", None)
+        print(json.dumps(safe_state))
+    else:
+        print("{}")

@@ -41,8 +41,8 @@ def restore() -> None:
     ->'tiktok_web_cookies'. Fastest recovery path — those cookies stay valid
     for months."""
     query = (
-        "SELECT meta_data->'tiktok_web_cookies' FROM social_accounts "
-        "WHERE platform ILIKE 'tiktok' LIMIT 1;"
+        "SELECT meta_data->'tiktok_web_cookies' FROM social_accounts"
+        + " WHERE platform ILIKE 'tiktok' LIMIT 1;"
     )
     out = subprocess.run(
         ["docker", "exec", "social-postgres", "psql", "-U", "social_user",

@@ -230,9 +230,10 @@ def _filter_suppressed(addrs: list[str], settings) -> list[str]:
     keep = [a for a in addrs if not any(fnmatch.fnmatch(a.lower(), p) for p in patterns)]
     dropped = [a for a in addrs if a not in keep]
     if dropped:
+        safe_list = [a.replace("\n", "").replace("\r", "")[:200] for a in dropped]
         logger.info(
             "suppressing email recipients per EMAIL_SUPPRESS_ADDR_PATTERNS: %s",
-            [_sanitize_log_text(a) for a in dropped],
+            safe_list,
         )
     return keep
 

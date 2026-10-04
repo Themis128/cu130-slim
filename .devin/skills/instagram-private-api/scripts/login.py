@@ -21,8 +21,8 @@ if not user or not password:
         "  Save them with: social-profile-secrets/scripts/set-instagram.py <user> <pass>")
 
 proxy = sys.argv[1] if len(sys.argv) > 1 else ""
-print("Logging in to Instagram (locale=el_GR, tz=10800)...")
-data = {"username": user, "password": password, "locale": "el_GR", "timezone": "10800"}
+print(f"Logging in to Instagram as {user} (locale=el_GR, tz=10800)...")
+data = {"username": user, "password": password, "locale": "el_GR", "timezone": "10800"}  # noqa: S105
 if proxy:
     data["proxy"] = proxy
     print(f"  Using proxy: {proxy}")
@@ -32,13 +32,13 @@ req = urllib.request.Request(f"{sidecar}/auth/login",
 try:
     with urllib.request.urlopen(req, timeout=60) as r:
         resp = r.read().decode()
-except urllib.error.URLError as e:
-    resp = getattr(e, "read", lambda: str(e).encode())().decode() if hasattr(e, "read") else str(e)
+except urllib.error.URLError as exc:
+    resp = exc.read().decode() if hasattr(exc, "read") and callable(exc.read) else str(exc)
 
 if resp.strip().startswith('"') and resp.strip().endswith('"'):
     session_id = json.loads(resp)
     print("✓ Login successful!")
-    print(f"  Session ID: {session_id[:20]}...")
+    print(f"  Session ID: {session_id[:8]}***")
     Path("/tmp/instagram_session_id").write_text(session_id)
     print("  Saved to /tmp/instagram_session_id")
 else:

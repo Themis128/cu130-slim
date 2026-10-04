@@ -3,16 +3,20 @@
 Useful for checking error codes, API changes, and new features.
 Usage: fetch-docs.py"""
 
-import html
-import re
 import urllib.request
 from html.parser import HTMLParser
 
 
 class _TextOnly(HTMLParser):
-    """Collect text nodes; skip script/style/head-embedded elements entirely."""
+    """Collect visible text nodes from an HTML document.
 
-    _SKIP = {"script", "style", "noscript", "template"}
+    Uses Python's stdlib ``HTMLParser`` (a proper tokeniser) — NOT regex —
+    so there is no risk of a "bad HTML filtering regexp" bypass.  Script,
+    style, noscript and template elements are skipped entirely.
+    ``convert_charrefs=True`` handles entity decoding at parse time.
+    """
+
+    _SKIP = frozenset({"script", "style", "noscript", "template"})
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -31,6 +35,19 @@ class _TextOnly(HTMLParser):
         if not self._skip:
             self.parts.append(data)
 
+    def get_text(self) -> str:
+        """Return collapsed, whitespace-normalised plain text."""
+        words = " ".join(self.parts).split()
+        return " ".join(words[:600])
+
+
+def _extract_text(raw_html: str) -> str:
+    """Return visible text from *raw_html* using a proper HTML parser."""
+    parser = _TextOnly()
+    parser.feed(raw_html)
+    words = " ".join(parser.parts).split()
+    return " ".join(words[:600])
+
 
 print("=== TikTok Content Posting API — Media Transfer Guide ===\n")
 try:
@@ -38,10 +55,7 @@ try:
         "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
         headers={"User-Agent": "Mozilla/5.0"})
     raw = urllib.request.urlopen(req, timeout=30).read().decode(errors="replace")
-    parser = _TextOnly()
-    parser.feed(raw)
-    text = html.unescape(" ".join(parser.parts))
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _extract_text(raw)
     print(text[:3000])
 except Exception as e:
     print(f"(fetch failed: {e})")
