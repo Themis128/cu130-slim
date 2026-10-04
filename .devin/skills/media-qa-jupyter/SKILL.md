@@ -70,3 +70,24 @@ docker exec social-jupyter papermill work/media_validation.ipynb \
   regenerate with a corrected prompt before publishing.
 - Records are kept next to the notebook (`media_validation_report.json`) —
   attach them to the digest triage when re-publishing.
+
+## GPU serialization — HARD RULE (owner directive 2026-10-04)
+
+Only ONE model may be resident in VRAM at a time. Media creation is
+serialized: acquire the GPU lock → unload resident DMR models → run ONE job
+(generation OR QA) → release. Never run bare GPU jobs in parallel — the
+2026-10-04 contention (ComfyUI + two DMR llama-servers resident, 329MB free
+of 8GB) is what caused the generation timeouts behind the distorted images.
+
+```bash
+python3 scripts/gpu_serial.py status                 # what's resident
+python3 scripts/gpu_serial.py unload                 # docker model stop all
+python3 scripts/gpu_serial.py run -- <generation or QA command>
+```
+
+Established architectures implementing the same pattern (survey 2026-10-04):
+[llama-swap](https://github.com/mostlygeek/llama-swap) — transparent hot-swap
+proxy for llama-server on a single GPU (the productionized evolution of
+`gpu_serial.py`); NVIDIA Triton `--model-control-mode=explicit` with the
+`v2/repository/models/{model}/load|unload` API; DMR's own one-at-a-time
+scheduler with idle timers; diffusers `enable_model_cpu_offload()`.
