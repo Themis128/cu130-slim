@@ -59,6 +59,16 @@ services:
       - TZ=Europe/Athens
     tmpfs:
       - /var/cache/fontconfig
+      # Mask system trees inside /omv-storage so Nextcloud never lists or
+      # writes them: containerd/k3s runtime data (symlink spam → DAV 500s),
+      # compose env files (secrets), and the workspace dir that contains
+      # Nextcloud's own html/data (self-reference).
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+      - /omv-storage/lost+found
     # gid 100 = host "users" group — grants www-data read/write of the
     # OMV SSD tree bound at /omv-storage (replaces the flaky self-SFTP
     # external-storage mount). NOTE: Apache workers drop supplementary
@@ -89,6 +99,12 @@ services:
       - nextcloud
     tmpfs:
       - /var/cache/fontconfig
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+      - /omv-storage/lost+found
     group_add:
       - "100"
     volumes:
@@ -169,6 +185,12 @@ services:
       - nextcloud
     tmpfs:
       - /var/cache/fontconfig
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+      - /omv-storage/lost+found
     group_add:
       - "100"
     volumes:
