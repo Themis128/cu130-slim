@@ -30,6 +30,10 @@ SocialAuto/            media mirror root (NEXTCLOUD_EXPORT_ROOT)
   media/               auto-exported assets, mirrors storage_path date dirs
   _inbox/              DROP FOLDER → n8n drafts a post per file
     processed/         handled files land here (timestamped)
+    failed/            error-branch quarantine — files that failed any pipeline
+                       step (download/upload/copy/draft) MOVE here so the
+                       15-min schedule doesn't retry them forever. The scan
+                       skips `/processed/` and `/failed/` paths.
 Marketing/checklist/   monthly automation-checklist.pdf versions
 Client-Portals/        per-client share folders (see client-portal flow)
 ```
@@ -100,6 +104,11 @@ python3 .devin/skills/nextcloud-integration/scripts/nextcloud-dav.py \
   PROPFIND `SocialAuto/_inbox` → per file: download → `/api/v1/media/upload`
   → `/api/v1/ai/generate-content` → `POST /api/v1/content/posts` (**draft,
   never publish**) → MOVE to `_inbox/processed/<ts>-<name>`.
+- Any pipeline failure (download/upload/copy/draft) routes via
+  `continueErrorOutput` → MOVE to `_inbox/failed/<ts>-<name>`; the run returns
+  `{status:"failed", file, error}` instead of leaving the file for infinite
+  15-min retries. `Generate Copy` is pinned to `provider:"cloudflare"` while
+  DMR is being reworked — revert to auto-routing once DMR is stable.
 - Webhook body overrides: `{"platform": "...", "account_id": "...", "tone": "...", "prompt": "..."}`
   (defaults: linkedin, Cloudless company page).
 - Deployed workflow id: `nextcloud-drop-to-draft`; n8n credential:
