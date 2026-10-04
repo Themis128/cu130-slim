@@ -269,7 +269,7 @@ async def test_publish_twitter_thread(account, post):
 
 @pytest.mark.asyncio
 async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
-    """402 credits-depleted falls back to browser; soft-skips if browser also fails."""
+    """402 credits-depleted falls back to browser; DEFERS if browser also fails."""
     fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
     # Transient browser failures come back as skipped quota results.
     fallback = AsyncMock(
@@ -283,7 +283,9 @@ async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
         result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
 
     assert result.success is False
-    assert result.skipped is True
+    assert result.skipped is False  # never complete the queue row on capacity errors
+    assert result.permanent is False
+    assert result.retry_after is not None
     assert "quota" in (result.error or "").lower() or "credits" in (result.error or "").lower()
     assert "Reconnect will not fix" in (result.error or "")
     fallback.assert_awaited_once()

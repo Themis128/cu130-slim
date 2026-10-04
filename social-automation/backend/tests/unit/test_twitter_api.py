@@ -235,15 +235,15 @@ async def test_get_tweet_raises_on_4xx(client):
 
 @pytest.mark.asyncio
 async def test_upload_media_success(client):
-    fake = _FakeAsyncClient(_FakeResponse(200, {"media_id_string": "m-123"}))
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {"id": "123"}}))
 
     with patch("app.services.twitter_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         media_id = await client.upload_media(b"image-bytes", media_category="tweet_image")
 
-    assert media_id == "m-123"
-    assert fake.calls[0]["url"] == api.TWITTER_MEDIA_UPLOAD_URL
-    assert fake.calls[0]["files"]["media"] == b"image-bytes"
+    assert media_id == "123"
+    assert fake.calls[0]["url"] == api.X_MEDIA_UPLOAD_URL == "https://api.x.com/2/media/upload"
+    assert fake.calls[0]["files"]["media"][1] == b"image-bytes"
     assert fake.calls[0]["data"]["media_category"] == "tweet_image"
 
 
@@ -256,7 +256,7 @@ async def test_upload_media_raises_when_no_id_returned(client):
         with pytest.raises(api.TwitterAPIError) as exc_info:
             await client.upload_media(b"image-bytes")
 
-    assert "Media upload returned no media_id" in exc_info.value.response_text
+    assert "Media upload returned no media id" in exc_info.value.response_text
 
 
 @pytest.mark.asyncio

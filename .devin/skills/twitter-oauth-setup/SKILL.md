@@ -25,15 +25,25 @@ SocialAuto requests these scopes:
 | `tweet.read` | Read tweets |
 | `tweet.write` | Post tweets and retweets |
 | `users.read` | Read user profile |
-| `offline.access` | Get refresh token for long-lived access |
+| `media.write` | Upload media via X API v2 `/2/media/upload` (simple + chunked) and alt text `/2/media/metadata` |
+| `offline.access` | Get refresh token for long-lived access (access tokens live 2h) |
+| `dm.read` / `dm.write` | Unified inbox DMs (needs app permission "Read and write and Direct message") |
+
+Canonical list: `TWITTER_SCOPES` in `social-automation/backend/app/api/auth.py`
+(used by every authorize path). Accounts connected before `media.write` was
+added must be reconnected; until then media upload is signed with the optional
+OAuth 1.0a keys (`TWITTER_API_KEY/SECRET` + `TWITTER_ACCESS_TOKEN/SECRET`).
 
 Optional scopes (add if needed):
 - `like.read` / `like.write` — Like/unlike tweets
 - `follows.read` / `follows.write` — Follow/unfollow
 - `bookmark.read` / `bookmark.write` — Bookmarks
-- `dm.read` / `dm.write` — Direct messages
 - `list.read` / `list.write` — Lists
-- `media.write` — Upload media
+
+Billing: X API is pay-per-use (credits in console.x.com). Post create $0.015,
+post with a URL $0.20, media metadata $0.005, user/DM reads billed per
+resource. A $0 balance returns HTTP 402 on every billed call (incl.
+`/2/users/me` during the OAuth callback) — reconnecting does not help.
 
 ## Setup steps
 
@@ -54,7 +64,7 @@ Optional scopes (add if needed):
 
 1. In the Developer Console, go to your app > Settings > User authentication settings > Set up
 2. Enable **OAuth 2.0**
-3. Set **App permissions** to **Read and Write** (NOT Read-only — `tweet.write` scope will be rejected with "Something went wrong")
+3. Set **App permissions** to **Read and write and Direct message** (NOT Read-only — `tweet.write` is rejected with "Something went wrong"; plain "Read and write" rejects the `dm.*` scopes)
 4. Select **Type of App** = **Web App, Automated App or Bot** (confidential client) to get a Client Secret
 5. Set the redirect URI:
    ```
@@ -129,11 +139,11 @@ The `code_verifier` is encoded in the OAuth state parameter (base64 JSON) so the
 | Setting | Value |
 |---------|-------|
 | App type | Web App, Automated App or Bot (confidential client) |
-| App permissions | Read and Write (NOT Read-only) |
+| App permissions | Read and write and Direct message |
 | OAuth 2.0 | Enabled |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback` |
 | Website URL | `https://cloudless.gr` |
-| Scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` |
+| Scopes | `tweet.read`, `tweet.write`, `users.read`, `media.write`, `offline.access`, `dm.read`, `dm.write` |
 
 ## Troubleshooting
 

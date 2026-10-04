@@ -1,7 +1,7 @@
 """Social media publishing pipeline.
 
 Platform capabilities actually used per connected account:
-  Twitter  (@TBaltzakis)           — text + images (up to 4), GIF, video (x_web), threads
+  Twitter  (@TBaltzakis)           — text + images (up to 4) w/ alt text, GIF, video (v2 chunked), threads
   Facebook (personal user token)   — pages managed by user: text + photos + multi-photo
   Instagram (Business/Creator)     — single image + carousel (requires public image URLs)
   LinkedIn  (person + org page)    — text / single image / multi-image / PDF carousel
@@ -99,6 +99,9 @@ _TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
 _X_QUOTA_MARKERS = (
     "credits-depleted",
     "usagecapexceeded",
+    "usage-capped",
+    "rate-limit-exceeded",
+    "too many requests",
     "monthly write",
     "tweet cap",
     "free tier",
@@ -111,9 +114,67 @@ def _err_has(text: str | None, markers: tuple[str, ...]) -> bool:
 
 
 def _is_x_quota_error(exc: TwitterAPIError) -> bool:
-    """402 credits-depleted / UsageCapExceeded / quota-type 429 from the X API."""
+    """402 credits-depleted / usage-capped / 429 rate-limit from the X API.
+
+    X documents 429 for both ``.../rate-limit-exceeded`` (short window) and
+    ``.../usage-capped`` (billing cap); 402 is returned for depleted
+    pay-per-use credits. All are capacity problems, never content problems.
+    """
     blob = f"{exc} {getattr(exc, 'response_text', '')}"
-    return exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS)
+    return exc.status_code in (402, 429) or _err_has(blob, _X_QUOTA_MARKERS)
+
+
+def _x_capacity_backoff() -> datetime:
+    minutes = max(1, int(getattr(_settings, "X_CAPACITY_BACKOFF_MINUTES", 60) or 60))
+    return datetime.now(UTC) + timedelta(minutes=minutes)
+
+
+def _x_retry_at(exc: TwitterAPIError | None) -> datetime | None:
+    """When X API write capacity should return, from the documented headers.
+
+    - ``x-rate-limit-reset`` (unix seconds): the endpoint's 15-min window —
+      only meaningful for ``rate-limit-exceeded``, not for usage caps.
+    - ``x-user-limit-24hour-reset`` / ``x-app-limit-24hour-reset``: the 24h
+      POST /2/tweets caps, used when their ``-remaining`` is 0.
+    - ``retry-after`` (seconds).
+    Credits-depleted (402) / usage-capped carry no reset time → ``None``;
+    callers then use the X_CAPACITY_BACKOFF_MINUTES backoff (or the fallback's
+    own slot time) so a top-up / newly enabled fallback is picked up without
+    hammering the API.
+    """
+    now = datetime.now(UTC)
+    if exc is None:
+        return None
+    hdrs: dict[str, str] = getattr(exc, "headers", None) or {}
+    blob = f"{exc} {getattr(exc, 'response_text', '')}".lower()
+    candidates: list[float] = []
+    for scope in ("user", "app"):
+        reset = hdrs.get(f"x-{scope}-limit-24hour-reset")
+        remaining = hdrs.get(f"x-{scope}-limit-24hour-remaining")
+        if reset and (remaining is None or remaining.strip() == "0"):
+            try:
+                candidates.append(float(reset))
+            except ValueError:
+                pass
+    capped = exc.status_code == 402 or _err_has(blob, ("usage-capped", "usagecapexceeded", "credits-depleted"))
+    if not capped:
+        reset = hdrs.get("x-rate-limit-reset")
+        if reset:
+            try:
+                candidates.append(float(reset))
+            except ValueError:
+                pass
+        ra = hdrs.get("retry-after")
+        if ra:
+            try:
+                candidates.append(now.timestamp() + float(ra))
+            except ValueError:
+                pass
+    if not candidates:
+        return None
+    when = datetime.fromtimestamp(max(candidates), UTC) + timedelta(seconds=30)
+    # Guard against clock skew / bogus headers: at least 1 min, at most 7 days.
+    return min(max(when, now + timedelta(minutes=1)), now + timedelta(days=7))
 
 
 def _facebook_group_skip_result(detail: str | None = None) -> PublishResult:
@@ -160,16 +221,39 @@ def _tiktok_clarify_error(exc: Exception | str) -> str:
 
 
 def _x_quota_skip_result(detail: str | None = None) -> PublishResult:
-    """X free/paid write credits exhausted — reconnect does not reset monthly caps."""
+    """Browser-bridge "unavailable" marker (``skipped=True``).
+
+    Only consumed inside ``_publish_twitter_fallbacks``, which turns it into a
+    capacity *deferral* — it never reaches the worker as a terminal skip.
+    """
     extra = f" Detail: {detail[:240]}" if detail else ""
     return PublishResult(
         success=False,
         skipped=True,
         error=(
-            "X free tier monthly write quota / API credits exhausted. Reconnect "
-            "will not fix this — wait for the billing-cycle reset, add credits at "
-            "console.x.com, or ensure the browser-bridge X session is logged in "
-            f"for the free web fallback.{extra}"
+            "X free tier monthly write quota / API credits exhausted and the "
+            f"browser-bridge fallback is unavailable.{extra}"
+        ),
+    )
+
+
+def _x_capacity_defer_result(detail: str | None = None, retry_at: datetime | None = None) -> PublishResult:
+    """X write capacity exhausted (API credits/cap, no fallback slot) — DEFER.
+
+    The target stays pending and the queue row is re-scheduled for
+    ``retry_after`` (the worker bounds total deferral age/count). Before
+    2026-10-04 this was a soft *skip*, which completed the queue row and
+    left posts stuck forever once a fallback became available.
+    """
+    extra = f" Detail: {detail[:240]}" if detail else ""
+    return PublishResult(
+        success=False,
+        retry_after=retry_at or _x_capacity_backoff(),
+        error=(
+            "X write capacity unavailable (API credits / quota exhausted and no "
+            "free fallback slot) — deferred, will retry automatically. Reconnect "
+            "will not fix this — add credits at console.x.com or ensure the X web "
+            f"fallback / browser-bridge X session is logged in.{extra}"
         ),
     )
 
@@ -498,8 +582,8 @@ async def publish_to_platform(
         return PublishResult(success=False, skipped=skip, error=clarified)
     except TwitterAPIError as exc:
         blob = f"{exc} {getattr(exc, 'response_text', '')}"
-        if exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS):
-            return _x_quota_skip_result(blob)
+        if _is_x_quota_error(exc):
+            return _x_capacity_defer_result(blob, _x_retry_at(exc))
         return PublishResult(success=False, error=str(exc)[:500])
     except Exception as exc:
         blob = str(exc)
@@ -745,11 +829,13 @@ def _media_public_url(storage_path: str, *, force_jpeg: bool = False) -> str | N
 
 
 # ── Twitter ───────────────────────────────────────────────────────────────────
-# Posts via Twitter API v2 (OAuth 2.0 user context).
-# Media upload via v1.1 requires OAuth 1.0a; we sign using the app-level
-# v1 credentials stored in settings (TWITTER_API_KEY / API_SECRET +
-# ACCESS_TOKEN / ACCESS_TOKEN_SECRET).  These credentials belong to the
-# same Twitter account (@TBaltzakis) that connected via OAuth 2.0 PKCE.
+# Posts via X API v2 (OAuth 2.0 user context, POST /2/tweets).
+# Media upload via X API v2 (POST /2/media/upload, chunked
+# /2/media/upload/initialize|{id}/append|{id}/finalize) with the account's
+# OAuth 2.0 token — requires the ``media.write`` scope. Accounts connected
+# before media.write was requested fall back to an OAuth 1.0a user-context
+# signature (TWITTER_API_KEY / API_SECRET + ACCESS_TOKEN / ACCESS_TOKEN_SECRET,
+# which must belong to the same X account) on the same v2 endpoints.
 
 def _oauth1_auth_header(
     method: str,
@@ -792,49 +878,110 @@ def _oauth1_auth_header(
     return f"OAuth {header_parts}"
 
 
-async def _twitter_upload_media(path: str) -> str:
-    """Upload one image/GIF using Twitter v1.1 (OAuth 1.0a).  Returns media_id_string.
+_X_MEDIA_SCOPE_MISSING = "missing media.write scope"
+_X_MEDIA_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+    ".gif": "image/gif", ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+    ".webm": "video/webm",
+}
 
-    Raises ``TwitterAPIError`` on any failure — callers must never fall
-    back to posting the tweet without its media.
-    """
-    api_key = _settings.TWITTER_API_KEY
-    api_secret = _settings.TWITTER_API_SECRET
-    token = _settings.TWITTER_ACCESS_TOKEN
-    token_secret = _settings.TWITTER_ACCESS_TOKEN_SECRET
-    upload_url = "https://upload.twitter.com/1.1/media/upload.json"
 
-    if not all([api_key, api_secret, token, token_secret]):
-        raise TwitterAPIError(
-            0,
-            "v1 credentials not configured",
-            upload_url,
-            message="X media upload needs TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET (OAuth 1.0a)",
-        )
-
-    with open(path, "rb") as fh:
-        img_bytes = fh.read()
-    mime = "image/gif" if path.lower().endswith(".gif") else "image/jpeg"
-
-    # OAuth 1.0a for multipart does NOT include file data in signature
-    auth_header = _oauth1_auth_header(
-        "POST", upload_url,
-        api_key=api_key, api_secret=api_secret,
-        token=token, token_secret=token_secret,
+def _x_oauth1_media_signer():
+    """OAuth 1.0a signer for the v2 media endpoints, or None if unconfigured."""
+    creds = (
+        _settings.TWITTER_API_KEY, _settings.TWITTER_API_SECRET,
+        _settings.TWITTER_ACCESS_TOKEN, _settings.TWITTER_ACCESS_TOKEN_SECRET,
     )
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        resp = await client.post(
-            upload_url,
-            headers={"Authorization": auth_header},
-            files={"media": (os.path.basename(path), img_bytes, mime)},
+    if not all(creds):
+        return None
+    api_key, api_secret, token, token_secret = creds
+
+    def _sign(method: str, url: str, params: dict[str, str] | None = None) -> str:
+        return _oauth1_auth_header(
+            method, url, api_key=api_key, api_secret=api_secret,
+            token=token, token_secret=token_secret, extra_params=params,
         )
-        if resp.status_code == 200:
-            mid = resp.json().get("media_id_string")
-            if mid:
-                logger.info(f"[twitter] uploaded media {mid}")
-                return str(mid)
-        logger.warning(f"[twitter] media upload failed {resp.status_code}: {resp.text[:200]}")
-        raise TwitterAPIError(resp.status_code, resp.text[:400], upload_url)
+
+    return _sign
+
+
+def _x_media_client(access_token: str, account: SocialAccount | None) -> TwitterAPIClient:
+    """Client for media upload: OAuth 2.0 when the grant has ``media.write``.
+
+    Grants made before media.write was requested 403 on /2/media/upload;
+    use the OAuth 1.0a user-context credentials for those until the account
+    is reconnected (v2 media endpoints accept either auth).
+    """
+    scopes = set(getattr(account, "scopes", None) or [])
+    if "media.write" not in scopes:
+        signer = _x_oauth1_media_signer()
+        if signer is not None:
+            return TwitterAPIClient(access_token=access_token, media_signer=signer)
+    return TwitterAPIClient(access_token=access_token)
+
+
+async def _twitter_upload_media(
+    path: str,
+    *,
+    access_token: str,
+    account: SocialAccount | None = None,
+    alt_text: str | None = None,
+) -> str:
+    """Upload one image / GIF / video via X API v2. Returns the media id.
+
+    Images use the simple upload; GIF and video use the chunked
+    initialize → append → finalize (→ status) flow X requires for them.
+    Raises ``TwitterAPIError`` on any failure — callers must never fall
+    back to posting the tweet without its media. Alt text is best-effort.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    media_type = _X_MEDIA_TYPES.get(ext)
+    if media_type is None:
+        raise TwitterAPIError(0, f"unsupported media type {ext!r}", path, message=f"X media type not supported: {ext}")
+    scopes = set(getattr(account, "scopes", None) or [])
+    if account is not None and "media.write" not in scopes and _x_oauth1_media_signer() is None:
+        raise TwitterAPIError(
+            403,
+            _X_MEDIA_SCOPE_MISSING,
+            "https://api.x.com/2/media/upload",
+            message=(
+                "X media upload needs the media.write OAuth 2.0 scope — reconnect the X "
+                "account (or configure TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET)"
+            ),
+        )
+    with open(path, "rb") as fh:
+        data = fh.read()
+
+    client = _x_media_client(access_token, account)
+    if media_type.startswith("video/"):
+        media_id = await client.upload_media_chunked(data, media_type, "tweet_video")
+    elif media_type == "image/gif":
+        media_id = await client.upload_media_chunked(data, media_type, "tweet_gif")
+    else:
+        media_id = await client.upload_media(
+            data, media_category="tweet_image", mime_type=media_type, filename=os.path.basename(path),
+        )
+    logger.info("[twitter] uploaded media %s (%s)", media_id, media_type)
+    if alt_text and not media_type.startswith("video/"):
+        try:
+            await client.set_media_alt_text(media_id, alt_text)
+        except (TwitterAPIError, ValueError) as exc:
+            logger.warning("[twitter] alt text not set for media %s: %s", media_id, str(exc)[:200])
+    return media_id
+
+
+async def _x_media_alt_texts(post: Post, db: AsyncSession | None) -> list[str | None]:
+    """Alt texts for the post's media assets, in ``post.media_ids`` order."""
+    ids = list(dict.fromkeys(str(m) for m in (getattr(post, "media_ids", None) or [])))
+    if db is None or not ids:
+        return []
+    try:
+        result = await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))
+        by_id = {str(a.id): (a.alt_text or None) for a in result.scalars().all()}
+    except Exception as exc:  # noqa: BLE001 — alt text is optional
+        logger.debug("[twitter] alt text lookup failed: %s", exc)
+        return []
+    return [by_id.get(i) for i in ids]
 
 
 def _x_weighted_len(text: str) -> int:
@@ -919,6 +1066,9 @@ async def _refresh_oauth2_token(account: SocialAccount, db: AsyncSession | None)
         expires_in = token.get("expires_in")
         if expires_in:
             account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+        granted = token.get("scope")
+        if isinstance(granted, str) and granted.strip():
+            account.scopes = sorted(set(granted.split()))
         account.status = "active"
         await db.commit()
         logger.info("[twitter] refreshed OAuth2 token at publish time")
@@ -939,10 +1089,12 @@ async def _publish_twitter(
 ) -> PublishResult:
     """Publish to X/Twitter: official API → X web (tweety) → browser bridge.
 
-    Text + thread splitting via v2.  Image upload via v1.1 (OAuth 1.0a).
-    Media is validated up front (≤4 images, or 1 GIF, or 1 video) and a
-    post is never published without its media: an upload failure fails
-    the post. Video is only supported by the X web fallback.
+    Text + thread splitting via v2 POST /2/tweets. Media upload via v2
+    /2/media/upload (images simple; GIF/video chunked) with the OAuth 2.0
+    token (media.write) or OAuth 1.0a fallback, plus alt text from the
+    media asset. Media is validated up front (≤4 images, or 1 GIF, or 1
+    video) and a post is never published without its media: an upload
+    failure fails the post (or hands it to the free fallbacks).
     On 401 the OAuth2 token is refreshed once and the request retried —
     X access tokens live only 2h, so self-heal instead of failing the post.
     On 402 credits-depleted / usage-cap the X web fallback takes over when
@@ -969,31 +1121,52 @@ async def _publish_twitter(
 
     tweets = _split_thread(text)
 
-    if plan.kind == "video":
-        # v1.1 simple upload cannot carry video; only the web fallback can.
-        return await _publish_twitter_fallbacks(
-            account, text, tweets, post, plan,
-            reason="official X API path does not support video upload",
-        )
-
     client = TwitterAPIClient(access_token=access_token)
     media_ids: list[str] = []
+    refreshed = False
     if plan.has_media:
         import tempfile as _tempfile
 
+        alt_texts = await _x_media_alt_texts(post, db)
+        if len(alt_texts) != len(plan.paths):
+            alt_texts = [None] * len(plan.paths)
         workdir = _tempfile.mkdtemp(prefix="x_media_")
         try:
             try:
                 upload_paths = x_web.prepare_media(plan, workdir)  # JPEG-normalized
             except x_web.XWebMediaError as exc:
                 return PublishResult(success=False, permanent=True, error=f"X post media invalid — not publishing: {exc}")
-            for path in upload_paths:
+            for idx, path in enumerate(upload_paths):
                 try:
-                    media_ids.append(await _twitter_upload_media(path))
+                    try:
+                        media_ids.append(await _twitter_upload_media(
+                            path, access_token=access_token, account=account, alt_text=alt_texts[idx],
+                        ))
+                    except TwitterAPIError as auth_exc:
+                        # Expired 2h access token: refresh once, then retry.
+                        if auth_exc.status_code != 401 or refreshed:
+                            raise
+                        refreshed = True
+                        new_token = await _refresh_oauth2_token(account, db)
+                        if not new_token:
+                            raise
+                        access_token = new_token
+                        client = TwitterAPIClient(access_token=access_token)
+                        media_ids.append(await _twitter_upload_media(
+                            path, access_token=access_token, account=account, alt_text=alt_texts[idx],
+                        ))
                 except TwitterAPIError as exc:
                     if _is_x_quota_error(exc):
                         return await _publish_twitter_fallbacks(
                             account, text, tweets, post, plan, reason=f"{exc} {exc.response_text}",
+                            retry_at=_x_retry_at(exc),
+                        )
+                    if exc.response_text == _X_MEDIA_SCOPE_MISSING:
+                        # No media-capable official auth at all (grant predates
+                        # media.write, no OAuth 1.0a creds) — same as the API
+                        # being unavailable for this post: free fallbacks/defer.
+                        return await _publish_twitter_fallbacks(
+                            account, text, tweets, post, plan, reason=str(exc),
                         )
                     if x_web.is_configured():
                         return await _publish_twitter_fallbacks(
@@ -1012,7 +1185,6 @@ async def _publish_twitter(
 
     first_id: str | None = None
     last_id: str | None = None
-    refreshed = False
 
     for i, chunk in enumerate(tweets):
         try:
@@ -1032,6 +1204,7 @@ async def _publish_twitter(
                 # X API write credits / monthly cap — free fallbacks.
                 return await _publish_twitter_fallbacks(
                     account, text, tweets, post, plan, reason=f"{exc} {getattr(exc, 'response_text', '')}",
+                    retry_at=_x_retry_at(exc),
                 )
             if exc.status_code in (401, 403) and not refreshed:
                 refreshed = True
@@ -1069,12 +1242,18 @@ async def _publish_twitter_fallbacks(
     plan: Any,
     *,
     reason: str,
+    retry_at: datetime | None = None,
 ) -> PublishResult:
     """Free X fallbacks after the official API refused: x_web → browser bridge.
 
     ``plan`` is the validated ``x_web.MediaPlan``. The browser bridge can
     only attach images/GIFs, so video posts never reach it (they fail or
-    soft-skip instead of going out without the video).
+    defer instead of going out without the video).
+
+    Capacity outcomes (x_web daily cap / pacing gap / breaker already open /
+    rate-limit trip, no fallback available) return ``retry_after`` so the
+    worker defers the target instead of failing or skipping it.
+    ``retry_at`` is when the official API is expected back (reset headers).
     """
     from app.services import x_web
 
@@ -1096,9 +1275,14 @@ async def _publish_twitter_fallbacks(
                 platform_url=f"https://x.com/{handle}/status/{out.first_id}" if handle else None,
                 platform_meta={"x_web": meta},
             )
-        if out.status == "deferred":
-            return PublishResult(success=False, error=out.error, retry_after=out.retry_after)
-        if out.status in ("breaker", "tripped", "media_error", "identity", "too_long", "ambiguous"):
+        if out.status in ("deferred", "breaker"):
+            # Cap slot / pacing gap / breaker reopen time from the guard.
+            when = out.retry_after or retry_at or _x_capacity_backoff()
+            if retry_at is not None:
+                # Whichever path frees up first: official API reset or slot.
+                when = min(when, retry_at)
+            return PublishResult(success=False, error=out.error, retry_after=when)
+        if out.status in ("tripped", "media_error", "identity", "too_long", "ambiguous"):
             return PublishResult(success=False, permanent=True, error=out.error)
         web_error = out.error  # transient — try the browser bridge next
 
@@ -1107,20 +1291,26 @@ async def _publish_twitter_fallbacks(
             "X video posts need the X web fallback (the browser bridge cannot attach video)"
             + (f"; X web: {web_error}" if web_error else "; set X_WEB_FALLBACK_ENABLED + X_WEB_AUTH_TOKEN/X_WEB_CT0")
         )
-        if web_error:
-            return PublishResult(success=False, error=f"{detail} (official: {reason[:200]})")
-        return _x_quota_skip_result(f"{detail}. Official: {reason}")
+        # x_web transient error or unavailable: the video cannot go out any
+        # other way right now — defer (bounded by the worker) instead of
+        # burning attempts.
+        return _x_capacity_defer_result(f"{detail}. Official: {reason[:200]}", retry_at)
 
     browser_result = await _publish_twitter_via_browser(account, text, post, plan.paths)
     if browser_result.success:
         return browser_result
-    if web_error:
-        return PublishResult(success=False, error=f"{web_error}; browser bridge: {browser_result.error}")
     if not browser_result.skipped:
         # Hard failure (e.g. wrong-account session) — surface it
-        # through retries/alerts instead of a silent quota skip.
+        # through retries/alerts instead of a silent deferral.
+        if web_error:
+            return dataclasses.replace(
+                browser_result, error=f"{web_error}; browser bridge: {browser_result.error}",
+            )
         return browser_result
-    return _x_quota_skip_result(browser_result.error or reason)
+    # Browser bridge soft-unavailable (+ x_web transient error, if any):
+    # capacity is missing, nothing is wrong with the post — defer.
+    detail = f"{web_error}; browser bridge: {browser_result.error}" if web_error else (browser_result.error or reason)
+    return _x_capacity_defer_result(detail, retry_at)
 
 
 async def _publish_twitter_via_browser(

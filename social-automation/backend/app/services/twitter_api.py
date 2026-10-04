@@ -14,13 +14,28 @@ account types.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 
-TWITTER_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+# X API v2 media upload (docs.x.com/x-api/media/introduction). The legacy
+# v1.1 ``upload.twitter.com/1.1/media/upload.json`` endpoint is superseded;
+# v2 accepts an OAuth 2.0 user token with the ``media.write`` scope (or an
+# OAuth 1.0a user-context signature).
+X_API_BASE = "https://api.x.com/2"
+X_MEDIA_UPLOAD_URL = f"{X_API_BASE}/media/upload"
+X_MEDIA_METADATA_URL = f"{X_API_BASE}/media/metadata"
+# Backwards-compatible alias (older imports/tests).
+TWITTER_MEDIA_UPLOAD_URL = X_MEDIA_UPLOAD_URL
+# Chunked upload: keep each APPEND segment <= 5 MB (server max 8 MB).
+X_MEDIA_CHUNK_BYTES = 4 * 1024 * 1024
+# Upper bound on waiting for async (video/GIF) processing after FINALIZE.
+X_MEDIA_PROCESSING_TIMEOUT_S = 600.0
+X_ALT_TEXT_MAX = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +74,12 @@ def _validate_user_id(user_id: str) -> str:
     return user_id
 
 
+def _is_credits_depleted(text: str) -> bool:
+    """402 body markers for an empty pay-per-use credit balance."""
+    low = (text or "").lower()
+    return any(m in low for m in ("credits-depleted", "creditsdepleted", "credits depleted", "/problems/credits"))
+
+
 class TwitterAPIError(Exception):
     """Raised when a Twitter/X API call fails with a non-success status.
 
@@ -73,10 +94,14 @@ class TwitterAPIError(Exception):
         response_text: str,
         url: str,
         message: str | None = None,
+        headers: dict[str, str] | None = None,
     ):
         self.status_code = status_code
         self.response_text = response_text
         self.url = url
+        # Lower-cased response headers (x-rate-limit-reset,
+        # x-user-limit-24hour-reset, ...) so callers can reschedule.
+        self.headers = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
         if message is None:
             message = f"Twitter API error {status_code} for {url}: {response_text[:400]}"
         super().__init__(message)
@@ -89,17 +114,36 @@ class TwitterAPIClient:
     instance. Callers are responsible for encrypting tokens at rest.
     """
 
-    def __init__(self, access_token: str, api_base: str = "https://api.x.com/2"):
+    def __init__(
+        self,
+        access_token: str,
+        api_base: str = X_API_BASE,
+        *,
+        media_signer: Callable[[str, str, dict[str, str] | None], str] | None = None,
+    ):
+        """``media_signer(method, url, query_params)`` returns an OAuth 1.0a
+        ``Authorization`` header used for the media endpoints instead of the
+        Bearer token — for accounts whose OAuth 2.0 grant predates the
+        ``media.write`` scope."""
         if not access_token:
             raise ValueError("Twitter access token is required")
         self.access_token = access_token
         self.api_base = api_base.rstrip("/")
+        self.media_signer = media_signer
 
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
         }
+
+    def _media_auth(self, method: str, url: str, params: dict[str, str] | None = None) -> dict[str, str]:
+        if self.media_signer is not None:
+            return {"Authorization": self.media_signer(method, url, params)}
+        return {"Authorization": f"Bearer {self.access_token}"}
+
+    def _media_url(self, path: str = "") -> str:
+        return f"{self.api_base}/media/upload{path}"
 
     def _map_status_code(self, status_code: int) -> int:
         """Normalize upstream 5xx status codes to 502/503 for the FastAPI layer."""
@@ -115,19 +159,26 @@ class TwitterAPIClient:
         text = _sanitize_log_text(resp.text)
         safe_url = _sanitize_log_text(url)
         logger.error("Twitter API error %s for %s: %s", status_code, safe_url, text)
-        if resp.status_code == 402 and "credits-depleted" in text:
+        try:
+            hdrs = {k: v for k, v in resp.headers.items() if k.lower().startswith("x-") or k.lower() == "retry-after"}
+        except Exception:  # noqa: BLE001 — test doubles may lack headers
+            hdrs = {}
+        if resp.status_code == 402 and _is_credits_depleted(text):
             raise TwitterAPIError(
                 status_code,
                 text,
                 url,
                 message=(
-                    "X API credits depleted — the developer account balance is $0. "
-                    "Add credits or enable auto-recharge at console.x.com "
-                    "(Billing → Credits). Tweet posting still works; only "
-                    "metered endpoints like DM events are blocked."
+                    "X API credits depleted (HTTP 402) — the developer account "
+                    "balance is $0. X API is pay-per-use: every billed call, "
+                    "including POST /2/tweets ($0.015, $0.20 with a URL), "
+                    "/2/users/me and DM reads, is refused until credits are "
+                    "added or auto-recharge is enabled at console.x.com. "
+                    "Reconnecting the account does not help."
                 ),
+                headers=hdrs,
             )
-        raise TwitterAPIError(status_code, text, url)
+        raise TwitterAPIError(status_code, text, url, headers=hdrs)
 
     def _log_api_error(self, url: str, resp: httpx.Response) -> None:
         """Log the response body for a failed Twitter API call."""
@@ -210,41 +261,129 @@ class TwitterAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    @staticmethod
+    def _media_id_from(body: dict[str, Any] | None) -> str:
+        body = body or {}
+        data = body.get("data") or {}
+        return str(data.get("id") or body.get("media_id_string") or body.get("media_id") or "")
+
     async def upload_media(
         self,
         media_bytes: bytes,
         media_category: str = "tweet_image",
+        mime_type: str = "image/jpeg",
+        filename: str = "media",
     ) -> str:
-        """Upload media to Twitter and return the media ID string.
+        """Simple (one-shot) image upload; returns the media ID string.
 
-        Uses the v1.1 ``media/upload`` endpoint with multipart form data.
-        The returned ``media_id_string`` is suitable for passing to
-        ``create_tweet`` via the ``media_ids`` parameter.
+        ``POST /2/media/upload`` (multipart: ``media`` + ``media_category``).
+        X documents the simple upload for images and small files only — use
+        :meth:`upload_media_chunked` for GIFs and video.
         """
         if not media_bytes:
             raise ValueError("media_bytes is empty")
 
-        headers = {"Authorization": f"Bearer {self.access_token}"}
-        files = {"media": media_bytes}
+        url = self._media_url()
+        files = {"media": (filename, media_bytes, mime_type)}
         data = {"media_category": media_category}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                TWITTER_MEDIA_UPLOAD_URL,
-                headers=headers,
-                files=files,
-                data=data,
-            )
-            self._raise_for_status(resp, TWITTER_MEDIA_UPLOAD_URL)
-            body = resp.json() or {}
-            media_id = body.get("media_id_string") or str(body.get("media_id") or "")
+            resp = await client.post(url, headers=self._media_auth("POST", url), files=files, data=data)
+            self._raise_for_status(resp, url)
+            media_id = self._media_id_from(resp.json())
             if not media_id:
-                raise TwitterAPIError(
-                    resp.status_code,
-                    "Media upload returned no media_id",
-                    TWITTER_MEDIA_UPLOAD_URL,
-                )
+                raise TwitterAPIError(resp.status_code, "Media upload returned no media id", url)
             return media_id
+
+    async def upload_media_chunked(
+        self,
+        media_bytes: bytes,
+        media_type: str,
+        media_category: str,
+        chunk_size: int = X_MEDIA_CHUNK_BYTES,
+        processing_timeout: float = X_MEDIA_PROCESSING_TIMEOUT_S,
+    ) -> str:
+        """Chunked upload (video / GIF / large media); returns the media ID.
+
+        v2 flow per docs.x.com (dedicated paths — not ``command=INIT`` etc.):
+        ``POST /2/media/upload/initialize`` (JSON) →
+        ``POST /2/media/upload/{id}/append`` (multipart, ``segment_index``) →
+        ``POST /2/media/upload/{id}/finalize`` → poll
+        ``GET /2/media/upload?command=STATUS&media_id=…`` while
+        ``processing_info`` is pending / in_progress.
+        """
+        if not media_bytes:
+            raise ValueError("media_bytes is empty")
+        if not 0 < chunk_size <= 8 * 1024 * 1024:
+            raise ValueError("chunk_size must be between 1 byte and 8 MB")
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            init_url = self._media_url("/initialize")
+            resp = await client.post(
+                init_url,
+                headers={**self._media_auth("POST", init_url), "Content-Type": "application/json"},
+                json={"media_type": media_type, "total_bytes": len(media_bytes), "media_category": media_category},
+            )
+            self._raise_for_status(resp, init_url)
+            media_id = self._media_id_from(resp.json())
+            if not media_id or not _TWEET_ID_RE.match(media_id):
+                raise TwitterAPIError(resp.status_code, "Media initialize returned no media id", init_url)
+
+            append_url = self._media_url(f"/{media_id}/append")
+            for segment_index, offset in enumerate(range(0, len(media_bytes), chunk_size)):
+                chunk = media_bytes[offset : offset + chunk_size]
+                resp = await client.post(
+                    append_url,
+                    headers=self._media_auth("POST", append_url),
+                    files={"media": ("chunk", chunk, "application/octet-stream")},
+                    data={"segment_index": str(segment_index)},
+                )
+                self._raise_for_status(resp, append_url)
+
+            finalize_url = self._media_url(f"/{media_id}/finalize")
+            resp = await client.post(finalize_url, headers=self._media_auth("POST", finalize_url))
+            self._raise_for_status(resp, finalize_url)
+            info = ((resp.json() or {}).get("data") or {}).get("processing_info")
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + processing_timeout
+            status_url = self._media_url()
+            while info and info.get("state") in ("pending", "in_progress"):
+                if loop.time() >= deadline:
+                    raise TwitterAPIError(
+                        0, f"media {media_id} still processing after {int(processing_timeout)}s", status_url,
+                    )
+                wait = min(max(float(info.get("check_after_secs") or 1), 1.0), 30.0)
+                await asyncio.sleep(wait)
+                params = {"command": "STATUS", "media_id": media_id}
+                resp = await client.get(status_url, headers=self._media_auth("GET", status_url, params), params=params)
+                self._raise_for_status(resp, status_url)
+                info = ((resp.json() or {}).get("data") or {}).get("processing_info")
+
+            if info and info.get("state") == "failed":
+                err = info.get("error") or {}
+                detail = err.get("message") or err.get("name") or "processing failed"
+                raise TwitterAPIError(400, f"media {media_id} processing failed: {detail}", status_url)
+            return media_id
+
+    async def set_media_alt_text(self, media_id: str, alt_text: str) -> None:
+        """Attach alt text to uploaded media (``POST /2/media/metadata``).
+
+        X caps alt text at 1000 characters; longer text is truncated.
+        Billed as "Media Metadata" under pay-per-use.
+        """
+        media_id = _validate_tweet_id(media_id)
+        text = (alt_text or "").strip()[:X_ALT_TEXT_MAX]
+        if not text:
+            return
+        url = X_MEDIA_METADATA_URL if self.api_base == X_API_BASE else f"{self.api_base}/media/metadata"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers={**self._media_auth("POST", url), "Content-Type": "application/json"},
+                json={"id": media_id, "metadata": {"alt_text": {"text": text}}},
+            )
+            self._raise_for_status(resp, url)
 
     async def get_user_tweets(
         self,
@@ -271,9 +410,10 @@ class TwitterAPIClient:
             return resp.json()
 
     # ── Direct Messages (DM API v2) ──────────────────────────────────────
-    # Requires OAuth 2.0 user-context with dm.read + dm.write scopes.
-    # Free tier: read-only (1 req/24h due to known bug). Basic ($200/mo):
-    # 1 send/24h. Pro ($5000/mo): 15 sends/15min. Platform cap: 500/day.
+    # Requires OAuth 2.0 user-context with dm.read + dm.write scopes (and the
+    # app permission "Read and write and Direct message"). Pay-per-use
+    # billing: DM Event read $0.010/resource, DM create $0.015/request.
+    # Rate limits: 15 sends/15min, 1,440/24h per user (docs.x.com rate limits).
 
     async def send_dm(self, participant_id: str, text: str) -> dict[str, Any]:
         """Send a one-to-one direct message to a user.
