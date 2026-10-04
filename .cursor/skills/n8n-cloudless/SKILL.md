@@ -22,7 +22,7 @@ triggers:
 
 ## When to use
 
-- Import / publish / restart workflows (single or all 15)
+- Import / publish / restart workflows (single or all 16)
 - Trigger a manual run via webhook (`publish:false` = safe dry-run)
 - Fix `401 unauthorized` on `X-N8N-API-KEY` or `403 Forbidden` on executions
 - Debug failed/silent executions (TOTP login, empty AI content)
