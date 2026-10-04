@@ -209,6 +209,20 @@ async def publish_to_platform(
     except Exception:
         pass  # spellcheck is advisory — never block publishing
 
+    # Empty-copy guard (owner rule: every post must carry copy that went
+    # through the quality pipeline). A post with no text, no override, no
+    # hashtags and no link publishes a dead caption — fail loudly so it
+    # surfaces in the digest instead of shipping an empty Instagram caption.
+    if not text.strip():
+        return PublishResult(
+            success=False,
+            error=(
+                "Post has no text content (empty content_text, no platform "
+                "override, no hashtags, no link) — refusing to publish an "
+                "empty caption. Add copy or generate content first."
+            ),
+        )
+
     # No-duplicates guard (owner rule 2026-10-02): refuse to publish a post
     # whose text or media matches something this account already published
     # in the last 30 days — catches retry/draft accidents and same-story
