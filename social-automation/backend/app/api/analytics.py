@@ -1170,8 +1170,10 @@ async def get_follower_counts(team_id: TeamId,
     """Return follower-growth time series per platform from persisted snapshots.
 
     Each platform gets: current count, net change over the period, and a
-    daily-resolution series of ``{date, followers}`` points.  When no
-    historical snapshots exist yet, the series contains only the live count.
+    daily-resolution series of ``{date, followers}`` points.  Snapshots are
+    a change log, so the latest row before the window is used as the
+    baseline (first point).  When no snapshots exist at all, the series
+    contains only the live count.
     """
     team = await _team_for_user(db, team_id)
     if not team:
@@ -1204,9 +1206,44 @@ async def get_follower_counts(team_id: TeamId,
     for account_id, captured_at, followers in snap_rows.all():
         snaps_by_account.setdefault(account_id, []).append((captured_at, followers))
 
-    # Live platform calls only for accounts that have never been synced —
-    # in parallel, like get_overview.
-    unsynced = [a for a in accounts if not snaps_by_account.get(a.id)]
+    # Baseline: the latest snapshot *before* the window, per account.
+    # Since #307 follower_snapshots is a change log (a row per delta plus
+    # a weekly heartbeat), so the window alone often lacks the starting
+    # value — without this, ``change`` reads 0 and the chart has no
+    # start point.
+    pre_window = (
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.followers,
+            func.row_number()
+            .over(
+                partition_by=FollowerSnapshot.social_account_id,
+                order_by=FollowerSnapshot.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            FollowerSnapshot.social_account_id.in_([a.id for a in accounts]),
+            FollowerSnapshot.captured_at < since,
+        )
+        .subquery()
+    )
+    baseline_rows = await db.execute(
+        select(pre_window.c.social_account_id, pre_window.c.followers).where(
+            pre_window.c.rn == 1
+        )
+    )
+    baselines: dict[uuid.UUID, int] = {
+        account_id: followers for account_id, followers in baseline_rows.all()
+    }
+
+    # Live platform calls only for accounts that have never been synced
+    # (no snapshot at all, in or before the window) — in parallel, like
+    # get_overview.
+    unsynced = [
+        a for a in accounts
+        if not snaps_by_account.get(a.id) and a.id not in baselines
+    ]
     live_counts: dict[uuid.UUID, int] = {}
     if unsynced:
         results = await asyncio.gather(
@@ -1215,28 +1252,24 @@ async def get_follower_counts(team_id: TeamId,
         for a, r in zip(unsynced, results, strict=False):
             live_counts[a.id] = r if isinstance(r, int) else -1
 
+    now = datetime.now(UTC)
     result: list[FollowerSeries] = []
     for account in accounts:
-        snaps = snaps_by_account.get(account.id, [])
-        if snaps:
-            # Current = latest synced snapshot (sync runs ~30min; a live
-            # call per account made this endpoint unusably slow).
-            current = snaps[-1][1]
-            series = [
-                FollowerSeriesPoint(
-                    date=ts.astimezone(UTC).strftime("%Y-%m-%d"),
-                    followers=count,
-                )
-                for ts, count in snaps
-            ]
-            change = current - snaps[0][1]
+        built = _build_follower_series(
+            snaps_by_account.get(account.id, []),
+            baselines.get(account.id),
+            since,
+            now,
+        )
+        if built is not None:
+            current, change, series = built
         else:
             live = live_counts.get(account.id, 0)
             if live < 0:
                 live = 0
             current = live
             series = [FollowerSeriesPoint(
-                date=datetime.now(UTC).strftime("%Y-%m-%d"),
+                date=now.strftime("%Y-%m-%d"),
                 followers=live,
             )]
             change = 0
@@ -1249,6 +1282,44 @@ async def get_follower_counts(team_id: TeamId,
             series=series,
         ))
     return result
+
+
+def _build_follower_series(
+    snaps: list[tuple[datetime, int]],
+    baseline: int | None,
+    since: datetime,
+    now: datetime,
+) -> tuple[int, int, list[FollowerSeriesPoint]] | None:
+    """Build ``(current, change, series)`` from change-log snapshots.
+
+    ``snaps`` are the in-window rows (ascending); ``baseline`` is the
+    latest count recorded before ``since``.  The baseline becomes the
+    first point (dated at ``since``) and the series is carried forward
+    to ``now`` because a change log implies the last value still holds.
+    Returns ``None`` when the account has no snapshots at all.
+    """
+    points: list[tuple[datetime, int]] = []
+    if baseline is not None:
+        points.append((since, baseline))
+    points.extend(snaps)
+    if not points:
+        return None
+
+    current = points[-1][1]
+    change = current - points[0][1]
+
+    def _day(ts: datetime) -> str:
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        return ts.astimezone(UTC).strftime("%Y-%m-%d")
+
+    series = [
+        FollowerSeriesPoint(date=_day(ts), followers=count) for ts, count in points
+    ]
+    today = _day(now)
+    if series[-1].date != today:
+        series.append(FollowerSeriesPoint(date=today, followers=current))
+    return current, change, series
 
 
 @router.get("/platforms", response_model=list[PlatformMetrics])
