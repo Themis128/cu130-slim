@@ -94,6 +94,13 @@
         "/home/tbaltzakis/cu130-slim/.devin/skills/cloudflare-token-ops/scripts/cf-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim"
+    },
+    "cloudflare-api": {
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "CF_TOKEN=$(python3 -c 'import json; d=json.load(open(\"/home/tbaltzakis/cu130-slim/.devin/mcp_config.local.json\")); print(d[\"mcpServers\"][\"cloudflare-api\"][\"args\"][3])'); exec /home/tbaltzakis/.local/bin/node /home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js https://mcp.cloudflare.com/mcp --header \"$CF_TOKEN\""
+      ]
     }
   }
 }
