@@ -31,6 +31,7 @@ import urllib.request
 import urllib.error
 import json
 import datetime
+from collections import defaultdict
 
 from prometheus_client import start_http_server, Gauge
 
@@ -69,6 +70,20 @@ m_r2_bytes    = _g("cloudflare_r2_payload_bytes",      "R2 payload bytes", ["buc
 m_scrape_ok   = _g("cloudflare_exporter_up",           "1 when last GraphQL poll succeeded", [])
 
 
+def _publish(gauge, values):
+    """Replace a gauge's whole label set with ``values`` ({label-tuple: v}).
+
+    The GraphQL groups are finer-grained than our labels (e.g. edge rows are
+    host x status x cache x country), so several rows collapse onto one label
+    set and must be summed — calling .set() per row kept only the last row.
+    Clearing first also drops series that vanished from this window instead
+    of exporting stale counts forever. Only called after a successful query.
+    """
+    gauge.clear()
+    for labels, v in values.items():
+        gauge.labels(*labels).set(v)
+
+
 # ---- GraphQL ---------------------------------------------------------------
 
 def gql(query, variables):
@@ -98,6 +113,12 @@ query ($zone: String!, $mintime: Time!, $maxtime: Time!, $today: Date!, $limit: 
         requestSource_in: ["eyeball"] }) {
       count
       dimensions { clientRequestHTTPHost edgeResponseStatus cacheStatus clientCountryName }
+    }
+    # No dimensions -> one row with zone-wide quantiles (per-group quantiles
+    # cannot be combined into a zone quantile).
+    originq: httpRequestsAdaptiveGroups(limit: 1, filter: {
+        datetime_geq: $mintime, datetime_lt: $maxtime,
+        requestSource_in: ["eyeball"] }) {
       quantiles { originResponseDurationMsP50 originResponseDurationMsP95 originResponseDurationMsP99 }
     }
     misses: httpRequestsAdaptiveGroups(limit: $limit, filter: {
@@ -131,7 +152,11 @@ query ($acct: String!, $mintime: Time!, $maxtime: Time!, $storagetime: Time!, $l
         datetime_geq: $mintime, datetime_lt: $maxtime }) {
       sum { requests errors duration }
       dimensions { scriptName status }
-      quantiles { cpuTimeP50 cpuTimeP99 durationP50 durationP99 }
+    }
+    workersq: workersInvocationsAdaptive(limit: $limit, filter: {
+        datetime_geq: $mintime, datetime_lt: $maxtime }) {
+      dimensions { scriptName }
+      quantiles { cpuTimeP50 cpuTimeP99 }
     }
     r2OperationsAdaptiveGroups(limit: $limit, filter: {
         datetime_geq: $mintime, datetime_lt: $maxtime }) {
@@ -154,35 +179,48 @@ def _collect_zone(mintime, maxtime):
         data = gql(Q_ZONE, {"zone": ZONE, "mintime": mintime, "maxtime": maxtime,
                             "today": today, "limit": 10000})
         z = (data.get("zones") or [{}])[0]
+        zn = "cloudless.gr"
+        reqs, cache, country = defaultdict(int), defaultdict(int), defaultdict(int)
         for g in z.get("edge") or []:
             d = g["dimensions"]
-            lbl = {"zone": "cloudless.gr", "host": d.get("clientRequestHTTPHost") or "-"}
-            m_reqs.labels(zone=lbl["zone"], host=lbl["host"], status=str(d.get("edgeResponseStatus") or "?")).set(g["count"])
-            m_cache.labels(zone=lbl["zone"], cache_status=d.get("cacheStatus") or "-").set(g["count"])
-            m_country.labels(zone=lbl["zone"], country=d.get("clientCountryName") or "-").set(g["count"])
-            q = g.get("quantiles") or {}
+            host = d.get("clientRequestHTTPHost") or "-"
+            reqs[(zn, host, str(d.get("edgeResponseStatus") or "?"))] += g["count"]
+            cache[(zn, d.get("cacheStatus") or "-")] += g["count"]
+            country[(zn, d.get("clientCountryName") or "-")] += g["count"]
+        _publish(m_reqs, reqs)
+        _publish(m_cache, cache)
+        _publish(m_country, country)
+        q = ((z.get("originq") or [{}])[0].get("quantiles")) or {}
+        _publish(m_origin_ms, {
+            (zn, out): q[k]
             for k, out in [("originResponseDurationMsP50", "0.5"),
                            ("originResponseDurationMsP95", "0.95"),
-                           ("originResponseDurationMsP99", "0.99")]:
-                if q.get(k) is not None:
-                    m_origin_ms.labels(zone=lbl["zone"], quantile=out).set(q[k])
+                           ("originResponseDurationMsP99", "0.99")]
+            if q.get(k) is not None
+        })
+        origin = defaultdict(int)
         for g in z.get("misses") or []:
             d = g["dimensions"]
-            m_origin.labels(zone="cloudless.gr", host=d.get("clientRequestHTTPHost") or "-",
-                            origin_status=str(d.get("originResponseStatus") or "?")).set(g["count"])
+            origin[(zn, d.get("clientRequestHTTPHost") or "-",
+                    str(d.get("originResponseStatus") or "?"))] += g["count"]
+        _publish(m_origin, origin)
+        day = {m: {} for m in (m_day_reqs, m_day_bytes, m_day_threats, m_day_pv)}
         for g in z.get("daily") or []:
             s, d = g["sum"], g["dimensions"]["date"]
-            m_day_reqs.labels(zone="cloudless.gr", date=d).set(s["requests"])
-            m_day_bytes.labels(zone="cloudless.gr", date=d).set(s["bytes"])
-            m_day_threats.labels(zone="cloudless.gr", date=d).set(s["threats"])
-            m_day_pv.labels(zone="cloudless.gr", date=d).set(s["pageViews"])
+            day[m_day_reqs][(zn, d)] = s["requests"]
+            day[m_day_bytes][(zn, d)] = s["bytes"]
+            day[m_day_threats][(zn, d)] = s["threats"]
+            day[m_day_pv][(zn, d)] = s["pageViews"]
+        for gauge, vals in day.items():
+            _publish(gauge, vals)
         try:
             fw = gql(Q_FIREWALL, {"zone": ZONE, "mintime": mintime,
                                   "maxtime": maxtime, "limit": 10000})
+            fwv = defaultdict(int)
             for g in ((fw.get("zones") or [{}])[0].get("fw") or []):
                 d = g["dimensions"]
-                m_fw.labels(zone="cloudless.gr", action=d.get("action") or "-",
-                            source=d.get("source") or "-").set(g["count"])
+                fwv[(zn, d.get("action") or "-", d.get("source") or "-")] += g["count"]
+            _publish(m_fw, fwv)
         except Exception as e:
             log.debug("firewall dataset unavailable (free plan): %s", e)
         return True
@@ -198,26 +236,35 @@ def _collect_account(mintime, maxtime):
         data = gql(Q_ACCOUNT, {"acct": ACCOUNT, "mintime": mintime, "maxtime": maxtime,
                                "storagetime": storagetime, "limit": 10000})
         a = (data.get("accounts") or [{}])[0]
+        wreq, werr, wdur = defaultdict(int), defaultdict(int), defaultdict(float)
         for g in a.get("workersInvocationsAdaptive") or []:
             d = g["dimensions"]
-            m_wk_reqs.labels(script=d["scriptName"], status=d["status"]).set(g["sum"]["requests"])
-            m_wk_errs.labels(script=d["scriptName"], status=d["status"]).set(g["sum"]["errors"])
-            m_wk_dur.labels(script=d["scriptName"], status=d["status"]).set(g["sum"]["duration"])
+            key = (d["scriptName"], d["status"])
+            wreq[key] += g["sum"]["requests"]
+            werr[key] += g["sum"]["errors"]
+            wdur[key] += g["sum"]["duration"]
+        _publish(m_wk_reqs, wreq)
+        _publish(m_wk_errs, werr)
+        _publish(m_wk_dur, wdur)
+        wcpu = {}
+        for g in a.get("workersq") or []:
             q = g.get("quantiles") or {}
             for k, out in [("cpuTimeP50", "0.5"), ("cpuTimeP99", "0.99")]:
                 if q.get(k) is not None:
-                    m_wk_cpu.labels(script=d["scriptName"], quantile=out).set(q[k])
+                    wcpu[(g["dimensions"]["scriptName"], out)] = q[k]
+        _publish(m_wk_cpu, wcpu)
+        r2ops = defaultdict(int)
         for g in a.get("r2OperationsAdaptiveGroups") or []:
             d = g["dimensions"]
-            m_r2_ops.labels(bucket=d.get("bucketName") or "-", action=d["actionType"]).set(g["sum"]["requests"])
+            r2ops[(d.get("bucketName") or "-", d["actionType"])] += g["sum"]["requests"]
+        _publish(m_r2_ops, r2ops)
         objs, sizes = {}, {}
         for g in a.get("r2StorageAdaptiveGroups") or []:
             b = g["dimensions"]["bucketName"]
             objs[b] = max(objs.get(b, 0), g["max"]["objectCount"])
             sizes[b] = max(sizes.get(b, 0), g["max"]["payloadSize"])
-        for b in objs:
-            m_r2_objs.labels(bucket=b).set(objs[b])
-            m_r2_bytes.labels(bucket=b).set(sizes[b])
+        _publish(m_r2_objs, {(b,): v for b, v in objs.items()})
+        _publish(m_r2_bytes, {(b,): v for b, v in sizes.items()})
         return True
     except Exception as e:
         log.error("account poll failed: %s", e)

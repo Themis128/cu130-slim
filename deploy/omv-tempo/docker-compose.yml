@@ -18,8 +18,10 @@ services:
       - ./tempo.yml:/etc/tempo.yml:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/tempo-data:/var/tempo
     ports:
-      - "3200:3200"   # query (Grafana datasource, LAN only)
-      - "4318:4318"   # OTLP/HTTP ingest (LAN-trusted apps)
+      # Bind to the LAN IP only: a bare "3200:3200" publishes on 0.0.0.0 (incl.
+      # tailnet/docker bridges) and Docker port rules bypass the host firewall.
+      - "192.168.1.200:3200:3200"   # query (Grafana datasource, LAN only)
+      - "192.168.1.200:4318:4318"   # OTLP/HTTP ingest (LAN-trusted apps, no auth)
     dns: [1.1.1.1, 8.8.8.8]
 
   tempo-proxy:
