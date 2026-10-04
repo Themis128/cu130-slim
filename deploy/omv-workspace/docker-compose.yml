@@ -59,9 +59,12 @@ services:
       - TZ=Europe/Athens
     tmpfs:
       - /var/cache/fontconfig
-    # gid 100 = host "users" group — grants the container's www-data
-    # read access to the OMV SSD tree bound at /omv-storage (replaces the
-    # flaky self-SFTP external-storage mount).
+    # gid 100 = host "users" group — grants www-data read/write of the
+    # OMV SSD tree bound at /omv-storage (replaces the flaky self-SFTP
+    # external-storage mount). NOTE: Apache workers drop supplementary
+    # groups via initgroups() — read/write in DAV actually comes from the
+    # g:www-data:rwX ACLs on the data dirs (see README); group_add only
+    # covers occ/exec paths.
     group_add:
       - "100"
     volumes:
