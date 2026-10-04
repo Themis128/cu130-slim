@@ -46,7 +46,7 @@ const SESSION_FILE = "/data/tiktok-session.json";
 /** Persist the session so container restarts don't drop the login. */
 async function saveSession() {
   try {
-    // codeql[js/file-system-store] — intentional: session cookies are persisted
+    // codeql[js/http-to-file-access] — intentional: session cookies are persisted
     // so container restarts don't drop the TikTok login (0600, volume file).
     await fs.writeFile(
       SESSION_FILE,

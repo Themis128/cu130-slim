@@ -175,7 +175,10 @@ async def _check_daily_quota(
             if total >= budget * 0.8:
                 logger.warning(
                     "⚠️ Daily Cloudflare neuron usage for team %s: %d / %d (%.0f%%) — budget alert",
-                    team_id, total, budget, (total / budget) * 100,
+                    _sanitize_log_text(str(team_id)),
+                    int(total),
+                    int(budget),
+                    (total / budget) * 100,
                 )
     except Exception as exc:
         logger.warning("Quota check failed: %s", _sanitize_log_text(str(exc)))
