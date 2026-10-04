@@ -641,7 +641,25 @@ def is_warmup_done() -> bool:
     return _state.warmup_done
 
 
-async def warmup_models() -> None:
+async def _try_acquire_warmup_lock() -> bool:
+    """Distributed lock so only one uvicorn worker runs warmup.
+
+    The API runs --workers 4 and every worker calls on_startup — without
+    this lock each queues its own model-load storm on the shared GPU.
+    """
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        try:
+            return bool(await r.set("dmr:warmup_lock", "1", nx=True, ex=180))
+        finally:
+            await r.aclose()
+    except Exception:
+        return True  # Redis unreachable — degrade to per-process warmup
+
+
+async def warmup_models(*, force: bool = False) -> None:
     """Pre-load frequently-used models into VRAM on startup.
 
     Sends a trivial prompt to each model so they're loaded and ready
@@ -650,6 +668,7 @@ async def warmup_models() -> None:
     VRAM-aware: on 8GB GPUs, only warm the text model (largest, most used).
     The tiny model (smollm3, ~2GB) loads quickly on first request.
     Vision model is only warmed if there's enough VRAM headroom.
+    ``force`` bypasses the distributed lock (admin-triggered re-warm).
     """
     if _state.warmup_done:
         return
@@ -660,6 +679,10 @@ async def warmup_models() -> None:
 
         if not await _check_dmr_health():
             logger.info("DMR warmup skipped — API offline")
+            return
+
+        if not force and not await _try_acquire_warmup_lock():
+            logger.info("DMR warmup skipped — another worker holds the lock")
             return
 
         # Apply best-practice runtime configurations before warming.

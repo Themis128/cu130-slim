@@ -1093,8 +1093,12 @@ async def test_publish_instagram_graph_config_gaps_are_soft_skipped(account, pos
     retrying cannot help when media or public-URL resolution comes up empty
     (missing MEDIA_PUBLIC_BASE_URL, text-only post).
     """
-    account.meta_data = {"account_type": "business", "ig_business_id": "ig-1"}
+    account.meta_data = {"account_type": "business", "ig_business_id": "17841405309211844"}
     post.platform_specific = {}
+    # Simulate the config gap this test targets — public-URL resolution must
+    # come up empty (env MEDIA_PUBLIC_BASE_URL or /run/tunnel/url may resolve
+    # URLs in the container, skipping past the guard under test).
+    monkeypatch.setattr(pub, "_media_public_url", lambda *a, **kw: None)
     media_present = await pub._publish_instagram_via_graph(
         "token", "caption", account, post, ["/tmp/a.jpg"], ["/uploads/a.jpg"], None,
     )
