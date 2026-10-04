@@ -125,35 +125,53 @@ def _parse_playbook_item(action: str) -> PlaybookItem:
     always carried through, so no detail is lost for the agent.
     """
     low = action.lower()
-    # The destination platform usually follows a preposition ("post on
-    # Threads", "share to LinkedIn"); a platform mentioned earlier may be the
-    # source ("repurpose a top LinkedIn post …"). Prefer preposition-led
-    # mentions, else the last mention.
-    prep_hits = [
-        m.group(1)
-        for m in re.finditer(
-            r"\b(?:on|to|for|via|over)\s+(?:the\s+)?("
-            + "|".join(_KNOWN_PLATFORMS)
-            + r")\b",
-            low,
-        )
-    ]
-    if prep_hits:
-        platform = prep_hits[0]
+    # A leading "Platform [-,] HH:MM [-,] format" prefix names the TARGET —
+    # later platform/format mentions are usually the repurpose source
+    # ("TikTok - 12:00 - Video - Repurpose the Instagram carousel ...").
+    lead = re.match(
+        r"^\s*(?:\d+[.)]\s*)?(" + "|".join(_KNOWN_PLATFORMS) + r")\b\s*[-–—,:]",
+        low,
+    )
+    if lead:
+        platform = lead.group(1)
     else:
-        mentions = [
-            m.group(0)
+        # The destination platform usually follows a preposition ("post on
+        # Threads", "share to LinkedIn"); a platform mentioned earlier may be
+        # the source ("repurpose a top LinkedIn post …"). Prefer
+        # preposition-led mentions, else the last mention.
+        prep_hits = [
+            m.group(1)
             for m in re.finditer(
-                r"\b(" + "|".join(_KNOWN_PLATFORMS) + r")\b", low
+                r"\b(?:on|to|for|via|over)\s+(?:the\s+)?("
+                + "|".join(_KNOWN_PLATFORMS)
+                + r")\b",
+                low,
             )
         ]
-        platform = mentions[-1] if mentions else ""
+        if prep_hits:
+            platform = prep_hits[0]
+        else:
+            mentions = [
+                m.group(0)
+                for m in re.finditer(
+                    r"\b(" + "|".join(_KNOWN_PLATFORMS) + r")\b", low
+                )
+            ]
+            platform = mentions[-1] if mentions else ""
     if platform == "x":
         platform = "twitter"
     m = _TIME_RE.search(action)
     time_athens = f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
     fmt = ""
-    if "carousel" in low:
+    if lead:
+        # "platform - hh:mm - format - body": the format token sits in one
+        # of the first dash/comma-separated segments after the platform.
+        for seg in re.split(r"[-–—,]", low)[1:3]:
+            tok = seg.strip().split(" ")[0]
+            if tok in {"carousel", "video", "reel", "image", "photo", "text"}:
+                fmt = {"reel": "video", "photo": "image"}.get(tok, tok)
+                break
+    if not fmt and "carousel" in low:
         fmt = "carousel"
     elif "video" in low or "reel" in low:
         fmt = "video"
@@ -1267,9 +1285,31 @@ async def run_strategy_report_for_all_teams(
     insight_days: int = 30,
     send: bool = True,
 ) -> list[dict[str, Any]]:
+    from app.models.social_account import SocialAccount
+
     teams = (await db.execute(select(Team))).scalars().all()
     results: list[dict[str, Any]] = []
     for team in teams:
+        # Cheap gate first — teams with no active accounts can't produce a
+        # usable brief, so skip the digest/insights/LLM work entirely (test
+        # and E2E teams otherwise burn a model call each every morning).
+        connected = await db.scalar(
+            select(func.count(SocialAccount.id)).where(
+                SocialAccount.team_id == team.id,
+                SocialAccount.status == "active",
+            )
+        )
+        if not connected:
+            results.append(
+                {
+                    "team_name": team.name or "SocialAuto",
+                    "actions": [],
+                    "llm_used": False,
+                    "emailed": False,
+                    "email_error": "skipped empty team",
+                }
+            )
+            continue
         report = await build_strategy_report(db, team=team, insight_days=insight_days)
         # Same skip rule as the ops digest: no accounts + no impressions = test team.
         active = (
