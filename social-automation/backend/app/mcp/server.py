@@ -481,11 +481,15 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 # Resolve each requested platform to its active account(s).
                 accounts = await _api_request("GET", "/api/v1/accounts")
                 wanted = {p.lower() for p in platforms}
-                account_ids = [
-                    a["id"]
-                    for a in accounts
-                    if a.get("platform", "").lower() in wanted and a.get("status") == "active"
-                ]
+                for p in sorted(wanted):
+                    matches = [a for a in accounts if a.get("platform", "").lower() == p and a.get("status") == "active"]
+                    if p == "facebook":
+                        # Prefer business Pages (Graph API) over the personal
+                        # profile (browser-sidecar fallback) when one exists.
+                        pages = [a for a in matches if a.get("account_type") == "page" or a.get("is_business")]
+                        if pages:
+                            matches = pages
+                    account_ids.extend(a["id"] for a in matches)
             if account_ids:
                 body["target_account_ids"] = account_ids
             result = await _api_request("POST", "/api/v1/content/posts", json_body=body)

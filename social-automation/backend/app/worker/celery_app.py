@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
         "app.worker.tasks.media_enhance",
+        "app.worker.tasks.nextcloud",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
@@ -104,6 +105,11 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 300,
         },
+        # WebDAV PUT to the omv Nextcloud — I/O bound, same budget as auto-tag.
+        "app.worker.tasks.nextcloud.export_media_to_nextcloud": {
+            "soft_time_limit": 120,
+            "time_limit": 300,
+        },
         # ComfyUI T2V: cold model load + sampling — ~30s-15min worst case.
         "app.worker.tasks.media.generate_video_asset_task": {
             "soft_time_limit": 1800,
@@ -157,6 +163,7 @@ celery_app.conf.update(
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
+        "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
@@ -169,6 +176,7 @@ celery_app.conf.update(
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
+        "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
@@ -282,6 +290,12 @@ celery_app.conf.update(
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric
         # meaningful. Error details persist on posts/post_targets.
+        # Safety net for X targets stuck failed/skipped by a capacity error
+        # (credits/quota/fallback cap) — re-queues each at most once.
+        "requeue-capacity-stuck-x": {
+            "task": "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets",
+            "schedule": crontab(minute="*/30"),
+        },
         "cleanup-publish-queue": {
             "task": "app.worker.tasks.publishing.cleanup_publish_queue",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 03:00

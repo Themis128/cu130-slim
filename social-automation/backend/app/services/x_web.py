@@ -38,7 +38,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from app.core.config import get_settings
@@ -282,6 +282,41 @@ def classify_x_web_error(exc: BaseException) -> str | None:
         if marker in low:
             return f"{name}: {msg}"
     return None
+
+
+# Breaker reasons that are pure capacity limits (429 / codes 88 rate limit,
+# 185 over status limit, 344 daily limit) — transient, unlike auth/lock/
+# challenge/suspension reasons which need a human.
+_CAPACITY_REASON_MARKERS = (
+    "http 429",
+    "x error 88:",
+    "x error 185:",
+    "x error 344:",
+    "x error 429:",
+    "ratelimitreached",
+    "rate limit",
+    "too many requests",
+)
+_NON_CAPACITY_REASON_MARKERS = (
+    "locked",
+    "suspended",
+    "challenge",
+    "captcha",
+    "arkose",
+    "automated",
+    "unusual activity",
+    "authenticat",
+    "unauthorized",
+    "denied",
+)
+
+
+def is_capacity_reason(reason: str | None) -> bool:
+    """True when a breaker reason is a rate/daily limit, not account trouble."""
+    low = (reason or "").lower()
+    if any(m in low for m in _NON_CAPACITY_REASON_MARKERS):
+        return False
+    return any(m in low for m in _CAPACITY_REASON_MARKERS)
 
 
 # ── Persistent guard state (breaker + rate limits) ────────────────────────────
@@ -641,8 +676,8 @@ class XWebOutcome:
     status:
       ok          — posted (tweet_ids[0] is the head of the thread)
       unavailable — flag off / cookies missing (caller continues the chain)
-      deferred    — daily cap or min-gap; retry at ``retry_after``
-      breaker     — breaker already open; fail without touching X
+      deferred    — daily cap, min-gap or rate-limit trip; retry at ``retry_after``
+      breaker     — breaker already open; caller defers to ``retry_after``
       tripped     — this attempt tripped the breaker; fail + alert
       media_error — media invalid or upload failed; fail, never post without it
       identity    — cookies belong to a different account; fail
@@ -797,7 +832,17 @@ async def publish_via_x_web(
             return XWebOutcome(status="ok", tweet_ids=posted, error=detail, partial=True)
         if reason:
             # An explicit X rejection (auth/lock/limit) — nothing was posted.
-            return XWebOutcome(status="tripped", error=f"{detail} — circuit breaker tripped for {get_settings().X_WEB_BREAKER_HOURS:g}h")
+            hours = float(get_settings().X_WEB_BREAKER_HOURS)
+            if is_capacity_reason(reason):
+                # Pure rate/daily-limit rejection: the breaker still pauses
+                # the session (and alerts), but the post itself is deferred
+                # to the breaker reopen time instead of failing permanently.
+                return XWebOutcome(
+                    status="deferred",
+                    error=f"{detail} — X web rate limited; circuit breaker paused for {hours:g}h",
+                    retry_after=datetime.now(UTC) + timedelta(hours=hours),
+                )
+            return XWebOutcome(status="tripped", error=f"{detail} — circuit breaker tripped for {hours:g}h")
         if stage == "post":
             # The request crossed the publish boundary: X may have accepted
             # the tweet even though we saw an error / no id. Reconcile before

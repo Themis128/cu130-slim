@@ -449,11 +449,16 @@ export default function NewPostPage() {
       (a) => a.platform === 'linkedin' && isOrgAccount(a)
     ) ?? connectedAccounts.find((a) => a.platform === 'linkedin')
     if (cloudless) { toSelect.push(cloudless); seen.add('linkedin') }
-    // All other platforms: first connected account per platform
-    for (const a of connectedAccounts) {
-      // Guard: backend may return platforms that this page doesn't support yet (e.g. messenger).
-      if (!_PLATFORM_META_BY_ID.has(a.platform)) continue
-      if (!seen.has(a.platform)) { toSelect.push(a); seen.add(a.platform) }
+    // All other platforms: preferred account per platform (e.g. Facebook Page
+    // over personal profile — pages publish via Graph API, profiles via sidecar)
+    const otherPlatforms = [...new Set(
+      connectedAccounts
+        .filter((a) => _PLATFORM_META_BY_ID.has(a.platform))
+        .map((a) => a.platform)
+    )].filter((p) => !seen.has(p))
+    for (const p of otherPlatforms) {
+      const preferred = preferredAccount(connectedAccounts, p)
+      if (preferred) { toSelect.push(preferred); seen.add(p) }
     }
     if (toSelect.length > 0) {
       setSelectedPlatforms(pruneIdsToKnown(toSelect.map((a) => a.platform), _SUPPORTED_PLATFORM_IDS))

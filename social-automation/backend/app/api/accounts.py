@@ -255,7 +255,7 @@ async def connect_account_body(
     scopes = {
         # w_organization_social required to post as a LinkedIn Company Page (e.g. cloudless.gr)
         "linkedin": LINKEDIN_SCOPES,
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
+        "twitter": PLATFORM_SCOPES["twitter"],
         # facebook/messenger share the canonical list — a sparse duplicate
         # previously dropped read_insights on reconnect, killing Page Insights.
         "facebook": PLATFORM_SCOPES["facebook"],
@@ -330,7 +330,7 @@ async def connect_account(
 
     scopes = {
         "linkedin": LINKEDIN_SCOPES,
-        "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
+        "twitter": PLATFORM_SCOPES["twitter"],
         "facebook": PLATFORM_SCOPES["facebook"],
         "messenger": PLATFORM_SCOPES["facebook"],
         "whatsapp": [

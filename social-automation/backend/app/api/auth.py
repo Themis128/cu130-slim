@@ -245,13 +245,48 @@ def _linkedin_scopes() -> list[str]:
     return scopes + [s for s in extra if s not in scopes]
 
 
+# X (Twitter) OAuth 2.0 scopes (docs.x.com OAuth 2.0 Authorization Code with
+# PKCE). Shared by every authorize path so they can never drift:
+#   - tweet.read / users.read : GET /2/users/me + reads (POST /2/tweets needs
+#     tweet.read + tweet.write + users.read)
+#   - tweet.write            : POST /2/tweets (posts, replies/threads)
+#   - media.write            : POST /2/media/upload (+ chunked + metadata/alt
+#     text) — without it v2 media upload 403s
+#   - offline.access         : issue a refresh token (access tokens live 2h)
+#   - dm.read / dm.write     : unified inbox (requires app permission
+#     "Read and write and Direct message" in the developer console)
+TWITTER_SCOPES: list[str] = [
+    "tweet.read",
+    "tweet.write",
+    "users.read",
+    "media.write",
+    "offline.access",
+    "dm.read",
+    "dm.write",
+]
+
+
+def _granted_scopes(token: dict, requested: list[str]) -> list[str]:
+    """Scopes actually granted, from the token response ``scope`` field.
+
+    X returns the granted set as a space-separated string; fall back to the
+    requested list when the provider omits it.
+    """
+    raw = token.get("scope") if isinstance(token, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        return sorted(set(raw.replace(",", " ").split()))
+    if isinstance(raw, list) and raw:
+        return sorted({str(x) for x in raw})
+    return list(requested)
+
+
 # Canonical per-platform OAuth scope lists — shared between the authorize
 # endpoint and accounts.py connect/connect-link flows so the two can never
 # drift. A sparse duplicate here previously downgraded reconnects (e.g. a
 # facebook reconnect dropped read_insights, silently killing Page Insights).
 PLATFORM_SCOPES: dict[str, list[str]] = {
     "linkedin": _linkedin_scopes(),
-    "twitter": ["tweet.read", "tweet.write", "users.read", "offline.access", "dm.read", "dm.write"],
+    "twitter": TWITTER_SCOPES,
     "facebook": [
         "public_profile",
         "pages_show_list", "pages_read_engagement", "pages_manage_posts",
@@ -397,7 +432,7 @@ twitter_client: BaseOAuth2 = BaseOAuth2(
     authorize_endpoint="https://x.com/i/oauth2/authorize",
     access_token_endpoint="https://api.x.com/2/oauth2/token",
     refresh_token_endpoint="https://api.x.com/2/oauth2/token",
-    base_scopes=["tweet.read", "tweet.write", "users.read", "offline.access"],
+    base_scopes=TWITTER_SCOPES,
     name="twitter",
     token_endpoint_auth_method="client_secret_basic",
 )
@@ -1351,17 +1386,34 @@ async def oauth_callback(
                     "continuing with personal account"
                 )
         elif platform == "twitter":
-            resp = await http.get("https://api.x.com/2/users/me", headers=headers)
-            user_info = resp.json()
-            account_id = user_info["data"]["id"]
-            username = user_info["data"]["username"]
-            display_name = user_info["data"]["name"]
-            avatar_url = None
-            # Mirror the granted set requested in PLATFORM_SCOPES so stored
-            # scopes reflect reality (offline.access is what makes the stored
-            # refresh token meaningful; dm.* is for unified inbox).
-            scopes = ["tweet.read", "tweet.write", "users.read",
-                      "offline.access", "dm.read", "dm.write"]
+            resp = await http.get(
+                "https://api.x.com/2/users/me",
+                headers=headers,
+                params={"user.fields": "profile_image_url"},
+            )
+            if resp.status_code != 200:
+                body = resp.text[:300]
+                if resp.status_code == 402:
+                    detail = (
+                        "X sign-in succeeded but the X API refused GET /2/users/me with "
+                        "HTTP 402 (pay-per-use credits depleted). The developer app needs "
+                        "credits at console.x.com before the account can be connected; "
+                        f"reconnecting again will not help. Upstream: {body}"
+                    )
+                else:
+                    detail = f"X profile fetch failed (HTTP {resp.status_code}): {body}"
+                raise HTTPException(status_code=400, detail=detail)
+            user_data = (resp.json() or {}).get("data") or {}
+            if not user_data.get("id"):
+                raise HTTPException(status_code=400, detail="X profile fetch returned no user id")
+            account_id = user_data["id"]
+            username = user_data.get("username")
+            display_name = user_data.get("name") or username
+            avatar_url = user_data.get("profile_image_url")
+            # Store the scopes X actually granted (token ``scope`` field) so
+            # e.g. a missing media.write is visible and publishing can pick the
+            # right media-upload auth.
+            scopes = _granted_scopes(token, TWITTER_SCOPES)
         elif platform == "facebook":
             resp = await http.get(
                 facebook_graph_url("me"),

@@ -38,6 +38,21 @@ def _enqueue_auto_tag(asset: MediaAsset) -> None:
         pass
 
 
+def _enqueue_nextcloud_export(asset: MediaAsset) -> None:
+    """Mirror the asset to the omv Nextcloud workspace when configured."""
+    if not (
+        settings.NEXTCLOUD_EXPORT_ENABLED
+        and settings.NEXTCLOUD_DAV_URL.strip()
+        and settings.NEXTCLOUD_USERNAME.strip()
+        and settings.NEXTCLOUD_APP_PASSWORD.strip()
+    ):
+        return
+    try:
+        celery_app.send_task("app.worker.tasks.nextcloud.export_media_to_nextcloud", args=[str(asset.id)])
+    except Exception:
+        pass
+
+
 # Cap longest edge for library storage (saves disk; zoom in viewer for detail).
 # Set MEDIA_MAX_EDGE=0 to disable. Carousel slides pass max_edge=None to keep 1080.
 MEDIA_MAX_EDGE = int(os.environ.get("MEDIA_MAX_EDGE", "768"))
@@ -206,6 +221,7 @@ async def save_uploaded_media(
     await db.commit()
     await db.refresh(asset)
     _enqueue_auto_tag(asset)
+    _enqueue_nextcloud_export(asset)
     return asset
 
 
@@ -350,4 +366,5 @@ async def persist_generated_image(
     await db.commit()
     await db.refresh(asset)
     _enqueue_auto_tag(asset)
+    _enqueue_nextcloud_export(asset)
     return asset

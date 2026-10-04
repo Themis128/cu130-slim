@@ -49,6 +49,11 @@ x-worker-env: &worker-env
   - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
   - MINIO_BUCKET=social-media
   - MINIO_SECURE=false
+  - NEXTCLOUD_EXPORT_ENABLED=${NEXTCLOUD_EXPORT_ENABLED:-false}
+  - NEXTCLOUD_DAV_URL=${NEXTCLOUD_DAV_URL:-}
+  - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
+  - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+  - NEXTCLOUD_EXPORT_ROOT=${NEXTCLOUD_EXPORT_ROOT:-SocialAuto}
   - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
   - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
   - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0C1F1K3DDF}
@@ -793,6 +798,11 @@ services:
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - MINIO_BUCKET=social-media
       - MINIO_SECURE=false
+      - NEXTCLOUD_EXPORT_ENABLED=${NEXTCLOUD_EXPORT_ENABLED:-false}
+      - NEXTCLOUD_DAV_URL=${NEXTCLOUD_DAV_URL:-}
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
+      - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+      - NEXTCLOUD_EXPORT_ROOT=${NEXTCLOUD_EXPORT_ROOT:-SocialAuto}
       - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
@@ -1586,6 +1596,12 @@ services:
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
+      # Media QA notebook (work/media_validation.ipynb): fetches assets via the
+      # API and runs the semantic check against the DMR vision model (qwen3-vl).
+      - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
+      - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
+      - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
     <<: *public-dns
     healthcheck:

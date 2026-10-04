@@ -1,5 +1,8 @@
 """Unit tests for the platform publishing pipeline."""
 
+import ast as _ast
+import json as _json
+import pathlib as _pathlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -269,7 +272,7 @@ async def test_publish_twitter_thread(account, post):
 
 @pytest.mark.asyncio
 async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
-    """402 credits-depleted falls back to browser; soft-skips if browser also fails."""
+    """402 credits-depleted falls back to browser; DEFERS if browser also fails."""
     fake = _FakeAsyncClient(_FakeResponse(402, {"status": 402, "detail": "credits-depleted"}))
     # Transient browser failures come back as skipped quota results.
     fallback = AsyncMock(
@@ -283,7 +286,9 @@ async def test_publish_twitter_quota_exceeded(account, post, monkeypatch):
         result = await pub._publish_twitter("tok-123", "Hello!", account, post, [])
 
     assert result.success is False
-    assert result.skipped is True
+    assert result.skipped is False  # never complete the queue row on capacity errors
+    assert result.permanent is False
+    assert result.retry_after is not None
     assert "quota" in (result.error or "").lower() or "credits" in (result.error or "").lower()
     assert "Reconnect will not fix" in (result.error or "")
     fallback.assert_awaited_once()
@@ -1077,3 +1082,353 @@ async def test_find_duplicate_post_ignores_distinct_content(monkeypatch):
         "New Grafana dashboard tracks container memory pressure across the cluster.",
     )
     assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_config_gaps_are_soft_skipped(account, post, monkeypatch):
+    """IG graph-path config/content gaps must be skips, not retried failures.
+
+    The 2026-10-04 digest showed IG targets burning retry attempts on
+    "Instagram requires at least one image. Set an image on the post." —
+    retrying cannot help when media or public-URL resolution comes up empty
+    (missing MEDIA_PUBLIC_BASE_URL, text-only post).
+    """
+    account.meta_data = {"account_type": "business", "ig_business_id": "ig-1"}
+    post.platform_specific = {}
+    media_present = await pub._publish_instagram_via_graph(
+        "token", "caption", account, post, ["/tmp/a.jpg"], ["/uploads/a.jpg"], None,
+    )
+    assert media_present.skipped is True
+    assert "MEDIA_PUBLIC_BASE_URL" in (media_present.error or "")
+
+    media_absent = await pub._publish_instagram_via_graph(
+        "token", "caption", account, post, [], [], None,
+    )
+    assert media_absent.skipped is True
+    assert "Set an image" in (media_absent.error or "")
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_subpath_media_gaps_are_soft_skipped(account, post):
+    """Web/sidecar/instagrapi sub-paths must skip (not fail) on missing media."""
+    account.meta_data = {}
+    web = await pub._publish_instagram_via_web(account, "caption", post, [])
+    sidecar = await pub._publish_instagram_via_sidecar(account, "caption", post, [])
+    insta = await pub._publish_instagram_via_instagrapi("caption", post, [])
+    for result in (web, sidecar, insta):
+        assert result.skipped is True, result.error
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_rejects_multi_video_post(account, post):
+    """More than one video must skip with the actual rule, not a photo-branch error."""
+    result = await pub._publish_tiktok(
+        "token", "caption", account, post,
+        ["/tmp/a.mp4", "/tmp/b.mp4"], ["/uploads/a.mp4", "/uploads/b.mp4"],
+    )
+    assert result.skipped is True
+    assert "single video" in (result.error or "")
+
+
+# ── media pre-flight safety net ──────────────────────────────────────────────
+
+
+def _write_image(tmp_path, name="ok.jpg", size=(1080, 1080)):
+    from PIL import Image
+
+    p = tmp_path / name
+    Image.new("RGB", size, (20, 24, 30)).save(p, "JPEG")
+    return str(p)
+
+
+def test_preflight_allows_valid_image(tmp_path):
+    p = _write_image(tmp_path)
+    assert pub.validate_media_for_platform("instagram", [p]) is None
+
+
+def test_preflight_requires_media_on_instagram():
+    result = pub.validate_media_for_platform("instagram", [])
+    assert result is not None
+    assert result.skipped is True
+
+
+def test_preflight_allows_text_only_on_linkedin():
+    assert pub.validate_media_for_platform("linkedin", []) is None
+
+
+def test_preflight_rejects_corrupt_image(tmp_path):
+    p = tmp_path / "broken.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0 not really a jpeg" + b"\x00" * 20480)
+    result = pub.validate_media_for_platform("instagram", [str(p)])
+    assert result is not None
+    assert result.skipped is True
+    assert "decodable" in (result.error or "")
+
+
+def test_preflight_rejects_undersized_image(tmp_path):
+    p = _write_image(tmp_path, "tiny.jpg", size=(64, 64))
+    result = pub.validate_media_for_platform("instagram", [p])
+    assert result is not None
+    assert result.skipped is True
+
+
+def test_preflight_rejects_missing_file(tmp_path):
+    result = pub.validate_media_for_platform("facebook", [str(tmp_path / "gone.jpg")])
+    assert result is not None
+    assert result.skipped is True
+    assert "missing" in (result.error or "")
+
+
+def test_preflight_pdf_allowed_on_linkedin_only(tmp_path):
+    p = tmp_path / "deck.pdf"
+    p.write_bytes(b"%PDF-1.4 minimal\n")
+    assert pub.validate_media_for_platform("linkedin", [str(p)]) is None
+    result = pub.validate_media_for_platform("instagram", [str(p)])
+    assert result is not None
+    assert result.skipped is True
+    assert "PDF" in (result.error or "")
+
+
+# ── pre-flight follow-ups (#302 review) ──────────────────────────────────────
+
+
+def _write_sparse(tmp_path, name, size_bytes, header=b""):
+    """Create a file of ``size_bytes`` without writing it all (sparse)."""
+    p = tmp_path / name
+    with open(p, "wb") as fh:
+        fh.write(header)
+        fh.truncate(size_bytes)
+    return str(p)
+
+
+@pytest.mark.parametrize(
+    "platform,size_mb",
+    [("instagram", 50), ("facebook", 50), ("twitter", 50), ("threads", 50)],
+)
+def test_preflight_image_byte_cap_does_not_apply_to_video(tmp_path, platform, size_mb):
+    """Bug 1: the image max_bytes cap (IG 8MB / FB 10MB / X 5MB) ran before the
+    video skip, so a 50MB Reel/video was soft-skipped."""
+    p = _write_sparse(tmp_path, "reel.mp4", size_mb * 1024 * 1024)
+    assert pub.validate_media_for_platform(platform, [p]) is None
+
+
+def test_preflight_video_over_platform_video_cap_is_skipped(tmp_path):
+    # IG Reels: 300MB max (Graph API IG User Media docs)
+    p = _write_sparse(tmp_path, "huge.mp4", 301 * 1024 * 1024)
+    result = pub.validate_media_for_platform("instagram", [p])
+    assert result is not None and result.skipped is True
+    assert "video limit" in (result.error or "")
+
+
+def test_preflight_image_over_cap_still_skipped(tmp_path):
+    p = _write_sparse(tmp_path, "big.jpg", 6 * 1024 * 1024)
+    result = pub.validate_media_for_platform("twitter", [p])
+    assert result is not None and result.skipped is True
+    assert "image limit" in (result.error or "")
+
+
+def test_preflight_rejects_video_format_instagram_does_not_accept(tmp_path):
+    p = _write_sparse(tmp_path, "clip.webm", 2 * 1024 * 1024)
+    result = pub.validate_media_for_platform("instagram", [p])
+    assert result is not None and result.skipped is True
+    assert "format" in (result.error or "")
+
+
+@pytest.mark.parametrize("platform", ["facebook", "linkedin", "threads", "twitter"])
+def test_preflight_skips_when_referenced_media_did_not_resolve(platform):
+    """Bug 2: assets that failed to resolve were dropped → [] → text-only post."""
+    result = pub.validate_media_for_platform(platform, [], expected=1)
+    assert result is not None and result.skipped is True
+    assert "0/1" in (result.error or "")
+
+
+def test_preflight_skips_partial_media_set(tmp_path):
+    p = _write_image(tmp_path)
+    result = pub.validate_media_for_platform("facebook", [p], expected=2)
+    assert result is not None and result.skipped is True
+    assert "1/2" in (result.error or "")
+
+
+def test_preflight_text_only_still_allowed_when_no_media_referenced():
+    assert pub.validate_media_for_platform("facebook", [], expected=0) is None
+
+
+@pytest.mark.asyncio
+async def test_publish_to_platform_never_publishes_text_only_when_media_missing(monkeypatch):
+    """End-to-end: FB post referencing an asset that can't be resolved must be
+    skipped before dispatch, never published text-only."""
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "_find_duplicate_post", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "_resolve_media_paths", AsyncMock(return_value=[]))
+    monkeypatch.setattr(pub, "_resolve_media_storage_paths", AsyncMock(return_value=["2026/10/04/a.jpg"]))
+    fb = AsyncMock()
+    monkeypatch.setattr(pub, "_publish_facebook", fb)
+    account = SimpleNamespace(platform="facebook", access_token_enc=b"enc")
+    post = SimpleNamespace(
+        content_text="hello", platform_specific={}, hashtags=[], link_url=None,
+        media_ids=["m1"],
+    )
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert result.skipped is True
+    assert "missing media" in (result.error or "")
+    fb.assert_not_called()
+
+
+@pytest.mark.parametrize("platform", ["instagram", "threads"])
+def test_preflight_accepts_4x5_portrait_at_max_width(tmp_path, platform):
+    """Bug 3: Meta caps the WIDTH at 1440px; height varies with the aspect
+    ratio, so a 1440x1800 (4:5) portrait is valid."""
+    p = _write_image(tmp_path, "portrait.jpg", size=(1440, 1800))
+    assert pub.validate_media_for_platform(platform, [p]) is None
+
+
+@pytest.mark.parametrize("platform", ["instagram", "threads"])
+def test_preflight_rejects_width_over_1440(tmp_path, platform):
+    p = _write_image(tmp_path, "wide.jpg", size=(1600, 1600))
+    result = pub.validate_media_for_platform(platform, [p])
+    assert result is not None and result.skipped is True
+    assert "max width" in (result.error or "")
+
+
+def test_preflight_instagram_landscape_191_with_short_height_ok(tmp_path):
+    # ~1.9:1 at 640px wide → 336px tall; height is not min-capped by Meta
+    import os as _os
+
+    from PIL import Image
+
+    p = str(tmp_path / "land.jpg")
+    # noise so the JPEG is above MIN_IMAGE_BYTES (a flat colour compresses to ~4KB)
+    Image.frombytes("RGB", (640, 336), _os.urandom(640 * 336 * 3)).save(p, "JPEG")
+    assert pub.validate_media_for_platform("instagram", [p]) is None
+
+
+def test_preflight_instagram_ratio_still_enforced(tmp_path):
+    p = _write_image(tmp_path, "tall.jpg", size=(1080, 1920))  # 9:16 feed image
+    result = pub.validate_media_for_platform("instagram", [p])
+    assert result is not None and result.skipped is True
+    assert "aspect ratio" in (result.error or "")
+
+
+def test_preflight_linkedin_missing_pdf_is_skipped(tmp_path):
+    """Bug 7: .pdf hit `continue` before the existence check."""
+    result = pub.validate_media_for_platform("linkedin", [str(tmp_path / "gone.pdf")])
+    assert result is not None and result.skipped is True
+    assert "missing" in (result.error or "")
+
+
+def test_preflight_linkedin_empty_pdf_is_skipped(tmp_path):
+    p = tmp_path / "empty.pdf"
+    p.write_bytes(b"")
+    result = pub.validate_media_for_platform("linkedin", [str(p)])
+    assert result is not None and result.skipped is True
+    assert "empty" in (result.error or "")
+
+
+def test_preflight_linkedin_oversized_pdf_is_skipped(tmp_path):
+    # LinkedIn Documents API: ≤100MB
+    p = _write_sparse(tmp_path, "deck.pdf", 101 * 1024 * 1024, header=b"%PDF-1.7\n")
+    result = pub.validate_media_for_platform("linkedin", [p])
+    assert result is not None and result.skipped is True
+    assert "document limit" in (result.error or "")
+
+
+def test_preflight_linkedin_non_pdf_bytes_is_skipped(tmp_path):
+    p = tmp_path / "fake.pdf"
+    p.write_bytes(b"<html>not a pdf</html>")
+    result = pub.validate_media_for_platform("linkedin", [str(p)])
+    assert result is not None and result.skipped is True
+    assert "not a valid PDF" in (result.error or "")
+
+
+# ── notebook + gpu_serial script hygiene (#302 review) ───────────────────────
+
+def _find_repo_root() -> "_pathlib.Path | None":
+    """Walk up from this file to the monorepo root (the dir holding both
+    ``notebooks/`` and ``scripts/``). Returns None when the tests run outside
+    the repo layout — e.g. inside the social-api image, where this file is
+    /app/tests/unit/test_publishing.py and a fixed ``parents[4]`` would raise
+    IndexError at import and break collection of the whole module."""
+    for parent in _pathlib.Path(__file__).resolve().parents:
+        if (parent / "notebooks").is_dir() and (parent / "scripts").is_dir():
+            return parent
+    return None
+
+
+_REPO_ROOT = _find_repo_root()
+
+
+def _repo_file(*parts: str) -> _pathlib.Path:
+    if _REPO_ROOT is None:
+        pytest.skip("repo root (notebooks/ + scripts/) not found — not running from a checkout")
+    path = _REPO_ROOT.joinpath(*parts)
+    if not path.exists():
+        pytest.skip(f"{'/'.join(parts)} not present in this checkout")
+    return path
+
+
+def _imported_names(tree):
+    names = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            names.update(a.asname or a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, _ast.ImportFrom):
+            names.update(a.asname or a.name for a in node.names)
+    return names
+
+
+def test_media_validation_notebook_imports_base64():
+    """Bug 4: dmr_caption uses base64 but the notebook never imported it."""
+    nb_path = _repo_file("notebooks", "media_validation.ipynb")
+    nb = _json.loads(nb_path.read_text())
+    src = "\n".join(
+        "".join(c["source"]) if isinstance(c["source"], list) else c["source"]
+        for c in nb["cells"] if c["cell_type"] == "code"
+    )
+    tree = _ast.parse(src)
+    used = {n.value.id for n in _ast.walk(tree)
+            if isinstance(n, _ast.Attribute) and isinstance(n.value, _ast.Name)}
+    imported = _imported_names(tree)
+    for mod in ("base64", "httpx", "json", "io"):
+        if mod in used:
+            assert mod in imported, f"notebook uses {mod} without importing it"
+    # Width-capped rule mirror for Meta platforms
+    assert '"dim_axis": "width"' in src
+
+
+def test_gpu_serial_script_imports_and_keeps_lock(tmp_path, monkeypatch):
+    """Bugs 5+6: gpu_serial.py lacked `import argparse`, and the flock fd was
+    closed on execvp (FD_CLOEXEC) so the lock never held across the child."""
+    import importlib.util
+    import subprocess as _sp
+    import sys as _sys
+
+    script = _repo_file("scripts", "gpu_serial.py")
+    tree = _ast.parse(script.read_text())
+    assert "argparse" in _imported_names(tree)
+
+    lock = tmp_path / "gpu.lock"
+    spec = importlib.util.spec_from_file_location("gpu_serial_t", script)
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("GPU_SERIAL_LOCK", str(lock))
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "unload_dmr", lambda: [])
+    # The child probes the lock with a non-blocking flock on a fresh fd: it
+    # must be BUSY while the child runs (i.e. held by gpu_serial).
+    probe = (
+        "import fcntl,sys\n"
+        f"f=open({str(lock)!r},'w')\n"
+        "try:\n"
+        "    fcntl.flock(f, fcntl.LOCK_EX|fcntl.LOCK_NB)\n"
+        "    sys.exit(0)\n"
+        "except BlockingIOError:\n"
+        "    sys.exit(7)\n"
+    )
+    rc = mod.hold_and_run([_sys.executable, "-c", probe])
+    assert rc == 7, "GPU lock was not held while the child ran"
+    # Released afterwards
+    assert _sp.call([_sys.executable, "-c", probe]) == 0
+    # --help works (argparse importable)
+    out = _sp.run([_sys.executable, str(script), "--help"], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr

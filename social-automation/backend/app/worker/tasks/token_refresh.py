@@ -209,6 +209,11 @@ async def _refresh_expiring_tokens_async() -> dict:
             if new_refresh:
                 account.refresh_token_enc = encrypt_token(new_refresh)
             account.status = "active"
+            # X returns the granted scopes on refresh — keep the stored set
+            # accurate (publishing checks it for media.write).
+            granted = token.get("scope")
+            if platform == "twitter" and isinstance(granted, str) and granted.strip():
+                account.scopes = sorted(set(granted.split()))
 
             # Update expiry
             expires_in = token.get("expires_in")
