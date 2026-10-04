@@ -20,11 +20,11 @@ challenge = base64.urlsafe_b64encode(
     hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
 client_id = env("TWITTER_CLIENT_ID", "MISSING")
 
-url = ("https://twitter.com/i/oauth2/authorize"
+url = ("https://x.com/i/oauth2/authorize"
        f"?client_id={client_id}"
        f"&redirect_uri={redirect}"
        "&response_type=code"
-       "&scope=tweet.read tweet.write users.read offline.access"
+       "&scope=tweet.read%20tweet.write%20users.read%20media.write%20offline.access%20dm.read%20dm.write"
        f"&code_challenge={challenge}"
        "&code_challenge_method=S256&state=test")
 

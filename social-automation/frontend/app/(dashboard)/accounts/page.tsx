@@ -99,33 +99,30 @@ const platforms: PlatformSetup[] = [
     color: 'bg-sky-500',
     textColor: 'text-sky-500',
     description: 'Real-time conversations and threads',
-    devPortalUrl: 'https://developer.twitter.com/en/portal/dashboard',
-    scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
-    envVars: ['TWITTER_CLIENT_ID', 'TWITTER_CLIENT_SECRET', 'TWITTER_BEARER_TOKEN'],
+    devPortalUrl: 'https://console.x.com',
+    scopes: ['tweet.read', 'tweet.write', 'users.read', 'media.write', 'offline.access', 'dm.read', 'dm.write'],
+    envVars: ['TWITTER_CLIENT_ID', 'TWITTER_CLIENT_SECRET', 'TWITTER_REDIRECT_URI'],
     steps: [
       {
-        text: 'Go to the Twitter Developer Portal. You need a developer account — apply if this is your first time.',
-        code: 'https://developer.twitter.com/en/portal/dashboard',
+        text: 'Open the X Developer Console. The X API is pay-per-use — add credits (or enable auto-recharge) under Billing, otherwise every API call returns HTTP 402.',
+        code: 'https://console.x.com',
       },
       {
-        text: 'Create a Project (e.g. "SocialAuto"), then create an App inside that project.',
+        text: 'Create an App (e.g. "SocialAuto"), then open App settings → "User authentication settings" → Set up.',
       },
       {
-        text: 'Under "User authentication settings" → enable OAuth 2.0. Set App permissions to "Read and Write". Set Type of App to "Web App".',
-      },
-{
-	        text: 'Add this Callback URI and Website URL:',
-	        code: 'http://localhost:8083/api/v1/auth/oauth/twitter/callback',
-	      },
-      {
-        text: 'Go to "Keys and Tokens". Copy OAuth 2.0 Client ID → TWITTER_CLIENT_ID, and Client Secret → TWITTER_CLIENT_SECRET.',
+        text: 'App permissions: "Read and write and Direct message". Type of App: "Web App, Automated App or Bot" (confidential client — gives a Client Secret).',
       },
       {
-        text: 'Also copy the Bearer Token → TWITTER_BEARER_TOKEN (used for read-only API access in n8n workflows).',
-        note: 'Generate a new one if it\'s never been revealed.',
+        text: 'Callback URI must exactly match TWITTER_REDIRECT_URI (production shown; add http://localhost:8083/api/v1/auth/oauth/twitter/callback too for local dev). Website URL: your public site.',
+        code: 'https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback',
       },
       {
-        text: 'Save all three vars in the Env Manager, then restart the API.',
+        text: 'Keys and Tokens → OAuth 2.0 Client ID → TWITTER_CLIENT_ID, Client Secret → TWITTER_CLIENT_SECRET.',
+      },
+      {
+        text: 'Save the vars in the Env Manager, recreate social-api, then Connect (or reconnect) X here so the grant includes media.write.',
+        note: 'Accounts connected before media.write was requested upload media with the optional OAuth 1.0a keys (TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET) until reconnected.',
       },
     ],
   },
