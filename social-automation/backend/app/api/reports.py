@@ -61,14 +61,21 @@ def _output_file(filename: str):
     """Resolve ``filename`` inside OUTPUT_DIR — no traversal, no subdirs."""
     if not _SAFE_NAME.match(filename):
         raise HTTPException(status_code=400, detail="invalid filename")
-    safe = os.path.basename(filename)  # belt-and-braces: strip dir components
-    base = str(OUTPUT_DIR.resolve()) + os.sep
-    path = os.path.normpath(os.path.join(base, safe))
-    if not path.startswith(base):
-        raise HTTPException(status_code=400, detail="invalid filename")
-    if not os.path.isfile(path):
+    # Build the candidate path from the validated, safe-name-only basename.
+    # _SAFE_NAME already rejects slashes, "..", and any non-alnum/dot/dash/
+    # underscore character, so os.path.basename is redundant — but kept for
+    # defense-in-depth.
+    candidate = OUTPUT_DIR.resolve() / os.path.basename(filename)
+    # Ensure the resolved path is strictly inside OUTPUT_DIR (no symlink escapes).
+    try:
+        candidate = candidate.resolve(strict=True)
+    except OSError:
         raise HTTPException(status_code=404, detail="report file not found")
-    return Path(path)
+    if not candidate.is_relative_to(OUTPUT_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="report file not found")
+    return candidate
 
 
 @router.get("/notebooks")

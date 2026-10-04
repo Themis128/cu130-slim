@@ -2707,13 +2707,9 @@ async function verifyPosted(message, attemptAt) {
     const lib = await verifyViaContentLibrary(probe, attemptAt);
     if (!lib) return null;
     const insightsUrl = `https://www.facebook.com/content/insights/?content_id=${encodeURIComponent(lib.contentId)}`;
-    let postUrl;
-    if (meUrl.pathname === "/profile.php" && meUrl.searchParams.get("id")) {
-      postUrl = `https://www.facebook.com/story.php?story_fbid=${lib.postId}&id=${meUrl.searchParams.get("id")}`;
-    } else {
-      const slug = meUrl.pathname.replace(/\/?$/, "/");
-      postUrl = `https://www.facebook.com${slug}posts/${lib.postId}`;
-    }
+    const postUrl = (meUrl.pathname === "/profile.php" && meUrl.searchParams.get("id"))
+      ? `https://www.facebook.com/story.php?story_fbid=${lib.postId}&id=${meUrl.searchParams.get("id")}`
+      : `https://www.facebook.com${meUrl.pathname.replace(/\/?$/, "/")}posts/${lib.postId}`;
     await page
       .goto(postUrl, { waitUntil: "domcontentloaded", timeout: 60000 })
       .catch(() => {});
