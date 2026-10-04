@@ -229,6 +229,25 @@ async def test_publish_to_platform_telegram_is_soft_skipped():
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platform_rejects_empty_copy(monkeypatch):
+    """A post with no text, override, hashtags or link must fail loudly —
+    two Instagram posts previously shipped with completely empty captions."""
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(return_value=None))
+    account = SimpleNamespace(platform="instagram", access_token_enc=b"enc")
+    post = SimpleNamespace(
+        content_text="",
+        platform_specific={},
+        hashtags=[],
+        link_url=None,
+        media_ids=["m1"],
+    )
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert "no text" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_publish_twitter_thread(account, post):
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"data": {"id": "1111111111"}}),
