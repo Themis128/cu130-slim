@@ -266,59 +266,77 @@ def _x_capacity_defer_result(detail: str | None = None, retry_at: datetime | Non
 # (skipped=True) so the queue records a clear reason instead of shipping
 # broken media or burning attempts.
 #
-# The rules mirror the platform APIs' published media constraints (checked
-# 2026-10-04 against Meta Content Publishing docs, TikTok Content Posting
-# API, X media/upload limits, LinkedIn document posts, Threads API):
-#   instagram: JPG/PNG, ratio 4:5–1.91:1, min 320px, ≤1440px wide, ≤8MB,
-#              carousel ≤10 items, ≤100 API posts/24h
-#   tiktok:    single video (MP4/MOV ≤10min) OR photo carousel (≤35 images)
-#   linkedin:  images ≤6024px; PDF document carousels (≤300 pages, ≤100MB)
-#   facebook:  Page photos JPG/PNG, min 200px
-#   twitter:   images ≤5MB each, ≤4 per tweet, JPG/PNG/WEBP
-#   threads:   carousels ≤20 children, images ≤1920px wide, JPG/PNG/GIF
-# Keep this table and notebooks/media_validation.ipynb in sync.
+# Owner rule: NEVER publish with missing or mismatched media. A post that
+# references media assets which could not all be resolved is skipped — it
+# must not silently degrade to a text-only post on platforms that allow text.
+#
+# Limits below come from the platforms' official docs (re-checked 2026-10-04):
+#   instagram  (Graph API IG User Media): images JPEG, ≤8MB, aspect 4:5–1.91:1,
+#              width 320–1440px (height varies with width/aspect — width is the
+#              capped axis); Reels MP4/MOV ≤300MB; carousel ≤10 items
+#   threads    (Threads API overview): images JPEG/PNG, ≤8MB, aspect ≤10:1,
+#              width 320–1440px (height varies); video ≤1GB; carousel ≤20
+#   facebook   (Graph API Page Photos / Video API): photos ≤10MB; video ≤2GB
+#   twitter    (X media best-practices): images ≤5MB; post video ≤8GB
+#              (default accounts); ≤4 media per post
+#   linkedin   (Documents API / Videos API): documents (PDF) ≤100MB and ≤300
+#              pages; video 75KB–500MB; images ≤6024px
+#   tiktok     (Content Posting API): single video ≤4GB OR photo carousel ≤35
+# Image byte caps (``max_bytes``) apply to stills only; videos are checked
+# against ``max_video_bytes``. Keep this table and
+# notebooks/media_validation.ipynb in sync.
 
 MIN_IMAGE_BYTES = 10 * 1024   # below this it's a placeholder or truncated file
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 VIDEO_EXTS_ALL = (".mp4", ".mov", ".webm", ".avi")
+_MB = 1024 * 1024
+_GB = 1024 * _MB
 
 _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
     # required: platform has no text-only feed posts → empty media = skip
+    # dim_axis: "width" → min/max_dim bound the width only (Meta docs cap the
+    #           width; height is bounded by the aspect ratio); "both" → each side.
     "instagram": {
         "required": True, "allow_pdf": False,
-        "formats": (".jpg", ".jpeg", ".png"),
-        "min_dim": 320, "max_dim": 1440, "max_bytes": 8 * 1024 * 1024,
+        "formats": (".jpg", ".jpeg", ".png") + (".mp4", ".mov"),
+        "min_dim": 320, "max_dim": 1440, "dim_axis": "width",
+        "max_bytes": 8 * _MB, "max_video_bytes": 300 * _MB,
         "ratio_min": 4 / 5, "ratio_max": 1.91, "max_count": 10,
     },
     "tiktok": {
         "required": True, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
-        "min_dim": 360, "max_dim": 4096, "max_bytes": 1024 * 1024 * 1024,
+        "min_dim": 360, "max_dim": 4096, "dim_axis": "both",
+        "max_bytes": 1 * _GB, "max_video_bytes": 4 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 35,
     },
     "linkedin": {
-        "required": False, "allow_pdf": True,
+        "required": False, "allow_pdf": True, "max_pdf_bytes": 100 * _MB,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 6024, "max_bytes": 100 * 1024 * 1024,
+        "min_dim": 200, "max_dim": 6024, "dim_axis": "both",
+        "max_bytes": 100 * _MB, "max_video_bytes": 500 * _MB,
         "ratio_min": None, "ratio_max": None, "max_count": 20,
     },
     "facebook": {
         "required": False, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 4096, "max_bytes": 10 * 1024 * 1024,
+        "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
+        "max_bytes": 10 * _MB, "max_video_bytes": 2 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 10,
     },
     "twitter": {
         "required": False, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 8192, "max_bytes": 5 * 1024 * 1024,
+        "min_dim": 200, "max_dim": 8192, "dim_axis": "both",
+        "max_bytes": 5 * _MB, "max_video_bytes": 8 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 4,
     },
     "threads": {
         "required": False, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 1920, "max_bytes": 100 * 1024 * 1024,
-        "ratio_min": None, "ratio_max": None, "max_count": 20,
+        "min_dim": 320, "max_dim": 1440, "dim_axis": "width",
+        "max_bytes": 8 * _MB, "max_video_bytes": 1 * _GB,
+        "ratio_min": 1 / 10, "ratio_max": 10.0, "max_count": 20,
     },
 }
 
@@ -327,93 +345,132 @@ def _skipped_media_result(reason: str) -> PublishResult:
     return PublishResult(success=False, skipped=True, error=reason)
 
 
+def _fmt_bytes(n: int) -> str:
+    return f"{n // _GB}GB" if n >= _GB and n % _GB == 0 else f"{n // _MB}MB"
+
+
 def validate_media_for_platform(
-    platform: str, media_paths: list[str]
+    platform: str, media_paths: list[str], expected: int = 0
 ) -> PublishResult | None:
     """Pre-flight every media file against the target platform's constraints.
 
+    ``expected`` is the number of distinct media assets the post references
+    (``post.media_ids``). When fewer local paths resolved than expected, the
+    post is skipped — it must never publish text-only or with a partial
+    media set (owner rule: no missing/mismatched media).
+
     Returns a ``skipped`` PublishResult when the media cannot publish
-    correctly on ``platform`` (missing required media, corrupt/unparseable
-    file, dimensions or type out of bounds), or ``None`` when publishing may
-    proceed. Deterministic problems only — this never blocks on content
-    quality; use the media-notebooks QA flow (DMR VLM caption match) for
-    semantic checks.
+    correctly on ``platform`` (missing/unresolvable media, corrupt or
+    unparseable file, dimensions, size or type out of bounds), or ``None``
+    when publishing may proceed. Deterministic problems only — this never
+    blocks on content quality; use the media-notebooks QA flow (DMR VLM
+    caption match) for semantic checks.
     """
     rules = _PLATFORM_MEDIA_RULES.get(platform)
     if rules is None:
         return None  # unknown platform — let the dispatcher handle it
 
+    plat = platform.capitalize()
+
+    if expected and len(media_paths) < expected:
+        return _skipped_media_result(
+            f"Post media incomplete: only {len(media_paths)}/{expected} media "
+            "assets could be resolved from storage — refusing to publish with "
+            "missing media. Re-upload the asset(s) or fix the post's media."
+        )
+
     if not media_paths:
         if rules["required"]:
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"{platform.capitalize()} has no text-only feed posts — attach "
-                    "at least one image/video or remove the target."
-                ),
+            return _skipped_media_result(
+                f"{plat} has no text-only feed posts — attach "
+                "at least one image/video or remove the target."
             )
-        return None  # text-only is fine on this platform
+        return None  # genuinely text-only post (no media referenced)
 
     if len(media_paths) > rules["max_count"]:
         return _skipped_media_result(
-            f"{platform.capitalize()} accepts at most {rules['max_count']} media "
+            f"{plat} accepts at most {rules['max_count']} media "
             f"items per post — got {len(media_paths)}. Reduce the media count."
         )
 
     for path in media_paths:
         lower = path.lower()
         name = os.path.basename(path)
+        is_pdf = lower.endswith(".pdf")
 
-        if lower.endswith(".pdf"):
-            if not rules["allow_pdf"]:
-                return PublishResult(
-                    success=False,
-                    skipped=True,
-                    error=(
-                        f"{platform.capitalize()} does not accept PDF media "
-                        f"({os.path.basename(path)}). Attach an image/video or "
-                        "remove the target."
-                    ),
-                )
-            continue  # PDF carousels are a LinkedIn feature; content checked there
+        if is_pdf and not rules["allow_pdf"]:
+            return _skipped_media_result(
+                f"{plat} does not accept PDF media ({name}). Attach an "
+                "image/video or remove the target."
+            )
 
+        # Existence + size checks apply to EVERY media type (images, videos,
+        # PDFs) — a missing or empty file must never soft-pass.
         if not os.path.exists(path):
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"Media file missing from storage: {os.path.basename(path)} — "
-                    "re-upload the asset or remove the target."
-                ),
+            return _skipped_media_result(
+                f"Media file missing from storage: {name} — "
+                "re-upload the asset or remove the target."
             )
         try:
             size = os.path.getsize(path)
         except OSError as exc:
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=f"Media file unreadable ({exc}) — re-upload the asset.",
+            return _skipped_media_result(
+                f"Media file unreadable ({exc}) — re-upload the asset."
             )
+
+        if is_pdf:
+            # LinkedIn document posts: ≤100MB, ≤300 pages (Documents API).
+            if size == 0:
+                return _skipped_media_result(
+                    f"PDF {name} is empty (0 bytes) — re-upload the document."
+                )
+            max_pdf = rules.get("max_pdf_bytes") or rules["max_bytes"]
+            if size > max_pdf:
+                return _skipped_media_result(
+                    f"PDF {name} is {size // 1024}KB — above {plat}'s document "
+                    f"limit ({_fmt_bytes(max_pdf)}). Compress or split it."
+                )
+            try:
+                with open(path, "rb") as fh:
+                    head = fh.read(5)
+            except OSError as exc:
+                return _skipped_media_result(
+                    f"PDF {name} unreadable ({exc}) — re-upload the document."
+                )
+            if head != b"%PDF-":
+                return _skipped_media_result(
+                    f"{name} is not a valid PDF (bad header) — re-export the document."
+                )
+            continue
+
         if size < MIN_IMAGE_BYTES:
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"Media file {os.path.basename(path)} is only {size} bytes — "
-                    "likely a truncated or placeholder upload. Re-upload the asset."
-                ),
+            return _skipped_media_result(
+                f"Media file {name} is only {size} bytes — "
+                "likely a truncated or placeholder upload. Re-upload the asset."
             )
+
+        if lower.endswith(VIDEO_EXTS_ALL):
+            # Videos have their own (much larger) byte caps; the image
+            # ``max_bytes`` must NOT apply here or Reels/videos get skipped.
+            if not lower.endswith(rules["formats"]):
+                return _skipped_media_result(
+                    f"Media {name} has a format {plat} does not accept "
+                    f"(allowed: {', '.join(rules['formats'])}). Re-export the asset."
+                )
+            if size > rules["max_video_bytes"]:
+                return _skipped_media_result(
+                    f"Video {name} is {size // _MB}MB — above {plat}'s video "
+                    f"limit ({_fmt_bytes(rules['max_video_bytes'])}). Compress or trim."
+                )
+            # fps/duration/codec are validated by the dedicated paths
+            # (validate_tiktok_video_constraints, browser sidecars).
+            continue
+
         if size > rules["max_bytes"]:
             return _skipped_media_result(
-                f"Media {name} is {size // 1024}KB — above {platform.capitalize()}'s "
-                f"limit ({rules['max_bytes'] // (1024 * 1024)}MB). Compress or resize."
+                f"Media {name} is {size // 1024}KB — above {plat}'s image "
+                f"limit ({_fmt_bytes(rules['max_bytes'])}). Compress or resize."
             )
-        if lower.endswith(VIDEO_EXTS_ALL):
-            # Video constraints (fps/duration/codec) are platform-specific and
-            # validated by the dedicated paths (validate_tiktok_video_constraints,
-            # browser sidecars) — pixel checks below apply to stills only.
-            continue
 
         try:
             from PIL import Image
@@ -423,50 +480,46 @@ def validate_media_for_platform(
             with Image.open(path) as im:
                 width, height = im.size
         except Exception as exc:  # noqa: BLE001 — any parse failure is a bad asset
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"Media file {os.path.basename(path)} is not a decodable image "
-                    f"({type(exc).__name__}) — re-upload the asset."
-                ),
+            return _skipped_media_result(
+                f"Media file {name} is not a decodable image "
+                f"({type(exc).__name__}) — re-upload the asset."
             )
-        if width < rules["min_dim"] or height < rules["min_dim"]:
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"Media {os.path.basename(path)} is {width}x{height}px — below "
-                    f"{platform.capitalize()}'s minimum {rules['min_dim']}px. "
-                    "Upload a larger rendition."
-                ),
+
+        width_only = rules.get("dim_axis") == "width"
+        too_small = (
+            width < rules["min_dim"]
+            if width_only
+            else (width < rules["min_dim"] or height < rules["min_dim"])
+        )
+        if too_small:
+            what = "width" if width_only else "minimum"
+            return _skipped_media_result(
+                f"Media {name} is {width}x{height}px — below "
+                f"{plat}'s {what} {rules['min_dim']}px. Upload a larger rendition."
             )
-        if width > rules["max_dim"] or height > rules["max_dim"]:
-            return PublishResult(
-                success=False,
-                skipped=True,
-                error=(
-                    f"Media {os.path.basename(path)} is {width}x{height}px — above "
-                    f"{platform.capitalize()}'s limit {rules['max_dim']}px. "
-                    "Downscale the rendition."
-                ),
+        too_big = (
+            width > rules["max_dim"]
+            if width_only
+            else (width > rules["max_dim"] or height > rules["max_dim"])
+        )
+        if too_big:
+            what = "max width" if width_only else "limit"
+            return _skipped_media_result(
+                f"Media {name} is {width}x{height}px — above "
+                f"{plat}'s {what} {rules['max_dim']}px. Downscale the rendition."
             )
         ratio = width / height
-        if rules["ratio_min"] and ratio < rules["ratio_min"]:
+        if (rules["ratio_min"] and ratio < rules["ratio_min"]) or (
+            rules["ratio_max"] and ratio > rules["ratio_max"]
+        ):
             return _skipped_media_result(
-                f"Media {name} is {width}x{height}px — {platform.capitalize()} "
-                f"requires aspect ratio between {rules['ratio_min']:.2f} and "
-                f"{rules['ratio_max']:.2f} (width/height). Crop or pad the image."
-            )
-        if rules["ratio_max"] and ratio > rules["ratio_max"]:
-            return _skipped_media_result(
-                f"Media {name} is {width}x{height}px — {platform.capitalize()} "
+                f"Media {name} is {width}x{height}px — {plat} "
                 f"requires aspect ratio between {rules['ratio_min']:.2f} and "
                 f"{rules['ratio_max']:.2f} (width/height). Crop or pad the image."
             )
         if not lower.endswith(rules["formats"]):
             return _skipped_media_result(
-                f"Media {name} has a format {platform.capitalize()} does not accept "
+                f"Media {name} has a format {plat} does not accept "
                 f"(allowed: {', '.join(rules['formats'])}). Re-export the asset."
             )
     return None
@@ -543,7 +596,13 @@ async def publish_to_platform(
     # Media pre-flight (safety net): never dispatch to a platform with media
     # that cannot publish correctly. Failures here are deterministic content/
     # config gaps — skipped, not retried.
-    media_check = validate_media_for_platform(account.platform, media_paths)
+    # ``expected`` = distinct assets referenced by the post: _resolve_media_paths
+    # silently drops assets it cannot find locally or fetch from R2/MinIO, so
+    # without it a post whose media failed to resolve would publish text-only.
+    expected_media = len(dict.fromkeys(str(m) for m in (getattr(post, "media_ids", None) or [])))
+    media_check = validate_media_for_platform(
+        account.platform, media_paths, expected=expected_media
+    )
     if media_check is not None:
         return media_check
 

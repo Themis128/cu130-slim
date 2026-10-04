@@ -21,6 +21,7 @@ Usage:
   GPU_SERIAL_LOCK=/tmp/gpu.lock python3 scripts/gpu_serial.py run -- ...
 """
 
+import argparse
 import fcntl
 import json
 import os
@@ -69,23 +70,28 @@ def unload_dmr() -> list[str]:
 
 
 def hold_and_run(cmd: list[str]) -> int:
-    lock = open(LOCK_PATH, "w")
-    try:
+    """Hold the GPU flock for the whole lifetime of ``cmd``.
+
+    The child runs as a subprocess while THIS process keeps the lock fd open.
+    (The previous ``os.execvp`` version lost the lock: Python opens files with
+    FD_CLOEXEC, so the locked fd was closed on exec and nothing was
+    serialized.) The lock is released in ``finally`` once the child exits.
+    """
+    with open(LOCK_PATH, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        unloaded = unload_dmr()
-        if unloaded:
+        try:
+            unloaded = unload_dmr()
             print(json.dumps({"gpu_lock": "acquired", "unloaded": unloaded}),
                   file=sys.stderr)
-        else:
-            print(json.dumps({"gpu_lock": "acquired", "unloaded": []}),
-                  file=sys.stderr)
-        os.execvp(cmd[0], cmd)  # lock is released when the process exits
-        return 1  # unreachable
-    finally:
-        try:
+            try:
+                return subprocess.call(cmd)
+            except KeyboardInterrupt:
+                return 130
+            except FileNotFoundError as exc:
+                print(f"gpu_serial: command not found: {exc}", file=sys.stderr)
+                return 127
+        finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
-        except OSError:
-            pass
 
 
 def main() -> int:
