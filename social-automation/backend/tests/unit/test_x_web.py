@@ -519,7 +519,11 @@ async def test_x_web_tripped_is_permanent_failure(account, settings, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_video_skips_official_and_uses_x_web(account, settings, monkeypatch, tmp_path):
+async def test_video_official_402_falls_back_to_x_web_with_video(account, settings, monkeypatch, tmp_path):
+    async def depleted(path, **kw):
+        raise pub.TwitterAPIError(402, "credits-depleted", "upload")
+
+    monkeypatch.setattr(pub, "_twitter_upload_media", depleted)
     web = AsyncMock(return_value=x_web.XWebOutcome(status="ok", tweet_ids=["888"]))
     monkeypatch.setattr(x_web, "publish_via_x_web", web)
     official = _Client([])
@@ -531,12 +535,20 @@ async def test_video_skips_official_and_uses_x_web(account, settings, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_video_without_x_web_never_posts_without_video(account, monkeypatch, tmp_path):
+async def test_video_upload_failure_without_x_web_never_posts_without_video(account, monkeypatch, tmp_path):
     monkeypatch.setattr(x_web, "get_settings", lambda: _settings(X_WEB_FALLBACK_ENABLED=False))
+
+    async def bad(path, **kw):
+        raise pub.TwitterAPIError(400, "InvalidMedia", "upload")
+
+    monkeypatch.setattr(pub, "_twitter_upload_media", bad)
     browser = AsyncMock()
     monkeypatch.setattr(pub, "_publish_twitter_via_browser", browser)
-    res = await pub._publish_twitter("tok", "clip", account, SimpleNamespace(), [_write(tmp_path, "v.mp4", MP4)])
-    assert not res.success and "video" in res.error.lower()
+    official = _Client([])
+    with patch("app.services.twitter_api.httpx.AsyncClient", new=lambda timeout=30.0: official):
+        res = await pub._publish_twitter("tok", "clip", account, SimpleNamespace(), [_write(tmp_path, "v.mp4", MP4)])
+    assert not res.success and "not posting without media" in res.error
+    assert official.calls == []
     browser.assert_not_awaited()
 
 
@@ -558,7 +570,7 @@ async def test_invalid_media_fails_permanently(account, settings, tmp_path):
 async def test_official_media_upload_failure_does_not_post_text_only(account, monkeypatch, tmp_path):
     monkeypatch.setattr(x_web, "get_settings", lambda: _settings(X_WEB_FALLBACK_ENABLED=False))
 
-    async def boom(path):
+    async def boom(path, **kw):
         raise pub.TwitterAPIError(400, "bad media", "upload")
 
     monkeypatch.setattr(pub, "_twitter_upload_media", boom)
@@ -571,7 +583,7 @@ async def test_official_media_upload_failure_does_not_post_text_only(account, mo
 
 @pytest.mark.asyncio
 async def test_official_media_upload_402_falls_back_with_media(account, settings, monkeypatch, tmp_path):
-    async def depleted(path):
+    async def depleted(path, **kw):
         raise pub.TwitterAPIError(402, "credits-depleted", "upload")
 
     monkeypatch.setattr(pub, "_twitter_upload_media", depleted)
