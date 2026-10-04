@@ -1635,6 +1635,52 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 12435 | DMR (host) | Local AI (not 12434) |
 | 5433 | social-postgres | App DB |
 
+## Cloudflare platform updates (October 2026)
+
+Cloudflare's "Enterprise for all" pledge made formerly Enterprise-only features
+available to free/pay-as-you-go accounts, and raised limits on services this
+stack already uses. Relevant changes:
+
+**Available now, $0:**
+
+| Feature | Impact here |
+|---------|-------------|
+| Billable Usage API + budget alerts (on by default) | Programmatic spend check — backstops the zero-cost rule; wire a usage line into the daily digest |
+| Security Insights — weekly scans (Free) + on-demand | Free zone scanning on `cloudless.gr`/`social.cloudless.gr` |
+| Resource-level RBAC (now incl. Workers) | Scope deploy/API tokens to individual resources instead of account-wide |
+| Resource Tagging (API) | Tag tunnels/Workers/D1/R2 by project for dashboard navigation |
+| Custom Dashboards (GA for all) | Personalized CF metric views without Grafana |
+| MCP Server Portals (GA) | Optional: expose SocialAuto tools to remote agents without local sidecars |
+
+**Limit increases already in effect:**
+
+| Service | New limit | Was |
+|---------|-----------|-----|
+| Workers bundle | 64 MiB uncompressed | 10 MB |
+| Workers startup | 1 s | 400 ms |
+| Workers subrequests | 1,000,000/request | 1,000 |
+| Browser Rendering | 200 concurrent browsers, 10 REST req/s, multi-client sessions | 30 browsers, 3 req/s |
+| Vectorize | 20M vectors/index, `topK` ≤ 50 | 5M, `topK` ≤ 20 |
+| Pages static assets | 100,000 | 20,000 |
+| Durable Objects | 15 min alive on outbound connection | evicted after 70–140 s |
+| HTTP headers | 128 KB | 32 KB |
+
+Browser Rendering headroom could offload link-preview scraping/page tests from
+the local Playwright sidecars (social-platform logged-in automation stays on
+sidecars regardless).
+
+**Watch items:**
+
+- **Logpush** is now self-serve on free plans but **pay-as-you-go priced** —
+  check the per-GB rate before enabling (violates the zero-cost rule if
+  unattended). If cheap, R2 delivery feeds the `etl-n8n-to-r2` pipeline.
+- **Organizations** (multi-account grouping) — Enterprise beta, free accounts
+  early 2027.
+- **New Account button** — free; use it to segment client/experimental work
+  from the production account.
+
+Source: <https://blog.cloudflare.com/enterprise-for-all-update/>
+
 ## Container Resource Limits
 
 Hard `mem_limit`/`memswap_limit` caps in `docker-compose.yml` protect the VM from
