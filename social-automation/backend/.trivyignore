@@ -3,3 +3,13 @@
 # packages to patched versions, so no permanent suppressions are required.
 # Re-add entries only with a CVE ID, why the finding is not exploitable, and
 # a target date to re-evaluate.
+
+# oauthlib 3.3.1 (transitive via tweepy/requests-oauthlib).
+# Fix exists only in 4.0.0, but tweepy pins oauthlib<4 — cannot upgrade.
+# Not exploitable here: both vulns live in the OAuth *server* paths —
+# RevocationEndpoint JSONP (enable_jsonp=True only) and the authorization-
+# server PKCE code_verifier comparison. SocialAuto is a pure OAuth client
+# and never instantiates these endpoints.
+# Re-evaluate when tweepy supports oauthlib 4.x.
+CVE-2026-49264
+CVE-2026-49265
