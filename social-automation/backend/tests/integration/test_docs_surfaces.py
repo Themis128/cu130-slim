@@ -233,7 +233,7 @@ def _seed_ids(token: str | None) -> dict[str, str]:
     ids: dict[str, str] = {}
     if not token:
         return ids
-    headers = {"Authorization": f"Bearer {admin_token}"}
+    headers = {"Authorization": f"Bearer {token}"}
     sources = {
         "account_id": "/api/v1/accounts",
         "team_id": "/api/v1/teams",
