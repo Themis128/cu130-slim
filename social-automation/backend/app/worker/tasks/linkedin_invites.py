@@ -7,18 +7,45 @@ when credits hit 0 the service short-circuits until the next refill.
 
 Runs at 10:30 Europe/Athens (beat entry in celery_app.py) — business
 hours deliver better acceptance than overnight sends.
+
+After each send the result is recorded as a ``linkedin_page_invite``
+initiative event so the Growth-initiatives card stays current without
+manual logging (the "Log LinkedIn invites" button remains for manual
+off-platform batches).
 """
+
 import asyncio
 import logging
 import threading
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import case, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.core.config import get_settings
+from app.models.analytics import AnalyticsEvent
+from app.models.social_account import SocialAccount
+from app.models.user import Team
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
 celery_app.set_current()
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _worker_db():
+    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
 
 
 def _run_async(coro):
@@ -48,6 +75,71 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+async def _log_invite_event(res: dict[str, Any]) -> None:
+    """Persist a linkedin_page_invite initiative event from a batch result.
+
+    Only writes on a confirmed send (units > 0) or a confirmed credit
+    exhaustion read — refreshes ``credits_left`` without inflating sent
+    counts. Skips silently when the batch produced no signal.
+    """
+    from app.services.growth_initiatives import record_initiative_event
+
+    sent = int(res.get("sent") or 0)
+    no_credits = res.get("reason") == "no_credits"
+    if res.get("status") != "sent" and not no_credits:
+        return
+    units = sent if res.get("status") == "sent" else 0
+    credits_left = 0 if no_credits else max(0, int(res.get("credits_available") or 0) - sent)
+
+    async with _worker_db() as db:
+        teams = (await db.execute(select(Team))).scalars().all()
+        for team in teams:
+            acct = (
+                await db.execute(
+                    select(SocialAccount.id)
+                    .where(
+                        SocialAccount.team_id == team.id,
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.status == "active",
+                    )
+                    .order_by(
+                        case(
+                            (SocialAccount.account_type == "organization", 0),
+                            else_=1,
+                        )
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if not acct:
+                continue
+            # Idempotency: the same batch must not double-record if the task
+            # is retried or re-run manually within the same window.
+            dup = (
+                await db.execute(
+                    select(AnalyticsEvent.id).where(
+                        AnalyticsEvent.team_id == team.id,
+                        AnalyticsEvent.event_type == "linkedin_page_invite",
+                        AnalyticsEvent.occurred_at >= datetime.now(UTC) - timedelta(hours=12),
+                        AnalyticsEvent.meta_data["units"].astext == str(units),
+                        AnalyticsEvent.meta_data["note"].astext == "auto daily batch",
+                    )
+                )
+            ).first()
+            if dup:
+                continue
+            await record_initiative_event(
+                db,
+                team.id,
+                "linkedin_page_invite",
+                platform="linkedin",
+                account_id=acct,
+                units=units,
+                note="auto daily batch",
+                credits_left=credits_left,
+            )
+
+
 @celery_app.task(name="app.worker.tasks.linkedin_invites.send_linkedin_invites")
 def send_linkedin_invites(batch_size: int = 40) -> dict:
     """Send a daily batch of LinkedIn Page follow invitations."""
@@ -55,4 +147,8 @@ def send_linkedin_invites(batch_size: int = 40) -> dict:
 
     res = _run_async(send_invite_batch(batch_size))
     logger.info("linkedin_invites: %s", res)
+    try:
+        _run_async(_log_invite_event(res))
+    except Exception:  # noqa: BLE001 — event logging must never break the send task
+        logger.exception("linkedin_invites: failed to record initiative event")
     return res
