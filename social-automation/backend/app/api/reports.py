@@ -61,21 +61,24 @@ def _output_file(filename: str):
     """Resolve ``filename`` inside OUTPUT_DIR — no traversal, no subdirs."""
     if not _SAFE_NAME.match(filename):
         raise HTTPException(status_code=400, detail="invalid filename")
-    # Build the candidate path from the validated, safe-name-only basename.
-    # _SAFE_NAME already rejects slashes, "..", and any non-alnum/dot/dash/
-    # underscore character, so os.path.basename is redundant — but kept for
-    # defense-in-depth.
-    candidate = OUTPUT_DIR.resolve() / os.path.basename(filename)
-    # Ensure the resolved path is strictly inside OUTPUT_DIR (no symlink escapes).
+    # Match the entry against the real directory listing instead of building
+    # a path from the user string: the returned Path is produced by the
+    # filesystem walk, so no user-controlled bytes flow into a path
+    # expression (CodeQL path-injection clean). _SAFE_NAME already rejects
+    # slashes and "..", so basename is belt-and-braces for the comparison.
+    base = OUTPUT_DIR.resolve()
+    wanted = os.path.basename(filename)
     try:
-        candidate = candidate.resolve(strict=True)
+        matches = [p for p in base.iterdir() if p.name == wanted and p.is_file()]
     except OSError:
         raise HTTPException(status_code=404, detail="report file not found")
-    if not candidate.is_relative_to(OUTPUT_DIR.resolve()):
-        raise HTTPException(status_code=400, detail="invalid filename")
-    if not candidate.is_file():
+    if not matches:
         raise HTTPException(status_code=404, detail="report file not found")
-    return candidate
+    resolved = matches[0].resolve()
+    # A symlink inside OUTPUT_DIR pointing outside is refused here.
+    if not resolved.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    return resolved
 
 
 @router.get("/notebooks")

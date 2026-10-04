@@ -44,11 +44,17 @@ if rate_limited:
           f"({seconds_until // 60}m {seconds_until % 60}s)")
 
 if len(sys.argv) > 2 and sys.argv[2] == "--json":
-    # Only emit non-sensitive fields from the state file.
+    # Field allowlist: only operational fields leave the box. The state file
+    # also holds identifiers (phone numbers) and whatever a future writer
+    # adds — a denylist (popping two keys) silently leaks anything new.
     if state_file.exists():
         safe_state = json.loads(state_file.read_text())
-        safe_state.pop("display_phone_number", None)
-        safe_state.pop("phone_number", None)
-        print(json.dumps(safe_state))
+        allow = (
+            "code_verification_status",
+            "quality_rating",
+            "cooldown_expires_at",
+            "checked_at",
+        )
+        print(json.dumps({k: safe_state[k] for k in allow if k in safe_state}))
     else:
         print("{}")

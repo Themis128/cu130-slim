@@ -4,24 +4,37 @@ Update the **12-Automation Checklist** lead-magnet PDF on `cloudless.gr/links`
 and announce it across all social channels. Run on the **1st of each month**
 (or when the user asks to refresh the checklist).
 
+## Preflight
+
+- The generator script and PDF live in the **separate `cloudless.gr` repo**,
+  checked out at `~/cloudless.gr` (`Themis128/cloudless.gr`, branch `main`).
+  Verify it exists and is clean first:
+  ```bash
+  git -C ~/cloudless.gr status --short --branch
+  git -C ~/cloudless.gr fetch origin main
+  ```
+  If the checkout is missing: `git clone https://github.com/Themis128/cloudless.gr ~/cloudless.gr`.
+- All `cloudless.gr/...` paths below resolve from `~/` (i.e. `~/cloudless.gr`),
+  **not** from this repo. `social-api` must be running.
+
 ## What it does
 
 1. **Review current services** — fetch `cloudless.gr/en/services` to confirm
    the service lineup and pricing haven't changed.
 2. **Update the generator script** — edit
-   `cloudless.gr/scripts/generate_automation_checklist.py`:
+   `~/cloudless.gr/scripts/generate_automation_checklist.py`:
    - Refresh `CHECKLIST` items to reflect current production workflows.
    - Refresh `TOOLS` list if the stack changed.
    - Update the edition month/year string.
    - Update the CTA to match current services and pricing.
 3. **Regenerate the PDF** — run inside `social-api` (has `reportlab`):
    ```bash
-   docker cp cloudless.gr/scripts/generate_automation_checklist.py \
+   docker cp ~/cloudless.gr/scripts/generate_automation_checklist.py \
      social-api:/app/scripts/generate_automation_checklist.py
    docker exec social-api python /app/scripts/generate_automation_checklist.py \
      /tmp/automation-checklist.pdf
    docker cp social-api:/tmp/automation-checklist.pdf \
-     cloudless.gr/public/automation-checklist.pdf
+     ~/cloudless.gr/public/automation-checklist.pdf
    ```
 4. **Deploy via PR** — branch, commit both files (script + PDF), push, open PR
    on `Themis128/cloudless.gr`, wait for CI, merge.
@@ -33,9 +46,9 @@ and announce it across all social channels. Run on the **1st of each month**
    |------------------|------------------------------------------|-------|
    | LinkedIn Company | `9c4451bb-e820-489f-8676-76ddbc788ffe`   | Corporate value, `link_url` to `/links` |
    | LinkedIn Personal| `18d5cd59-f0c2-4fc4-986e-03601734c7a5`  | Founder voice, `link_url` to `/links` |
-   | Threads          | `1071dcd5-1bc9-4770-923c-d897eb124485`   | Casual, direct |
-   | Twitter/X        | `a89d6852-eff8-479a-835f-50d806cf59dd`   | Under 280 chars, `link_url` to `/links` |
-   | Instagram        | `38ddbd44-8811-4d0b-be62-a23fd2f50490`   | **Requires image** — generate via `/api/v1/ai/generate-image` first |
+   | Threads          | `1071dcd5-1bc9-4770-923c-d897eb124485`   | Casual, direct — put `cloudless.gr/links` in the text |
+   | Twitter/X        | `a89d6852-eff8-479a-835f-50d806cf59dd`   | Under 280 chars — **URL must be in the text body** (see Gotchas) |
+   | Instagram        | `38ddbd44-8811-4d0b-be62-a23fd2f50490`   | **Requires image** — generate via `/api/v1/ai/generate-image` first; caption points to "link in bio" |
    | Facebook Personal| `9355ed63-7787-43e5-a22d-ae0a33d5176b`  | Build-log voice, `link_url` to `/links` |
 
 6. **Verify** — confirm all 6 targets reach `status=published` with URLs.
@@ -45,6 +58,15 @@ and announce it across all social channels. Run on the **1st of each month**
 
 - **Instagram requires media** — text-only posts are `skipped`. Always attach
   an AI-generated image asset.
+- **Twitter drops `link_url`** — `render_post_text` appends `link_url` only
+  for LinkedIn and Facebook; the X publisher sends text only. The generated
+  tweet **must contain `https://cloudless.gr/links` literally** — verify the
+  rendered text includes it (and stays under 280 chars) before publishing.
+- **Destination is `/links`, intentionally** — this campaign promotes the
+  lead-magnet PDF, so all platforms point to `cloudless.gr/links` (which
+  hosts the checklist download). This overrides the standard funnel CTAs
+  (`/contact` for LinkedIn, `social.cloudless.gr/pricing` for X) for this
+  campaign only.
 - **Twitter char limit** — keep body under ~250 chars; hashtags and link add
   more. The 500 error from SocialAuto is a post-creation FK violation if the
   account ID is wrong — the correct Twitter ID is
@@ -56,9 +78,9 @@ and announce it across all social channels. Run on the **1st of each month**
 
 ## Files
 
-- `cloudless.gr/scripts/generate_automation_checklist.py` — the generator
-- `cloudless.gr/public/automation-checklist.pdf` — the output (committed)
-- `cloudless.gr/src/app/links/page.tsx` — the links page referencing the PDF
+- `~/cloudless.gr/scripts/generate_automation_checklist.py` — the generator
+- `~/cloudless.gr/public/automation-checklist.pdf` — the output (committed)
+- `~/cloudless.gr/src/app/links/page.tsx` — the links page referencing the PDF
 
 ## Trigger
 
