@@ -9,26 +9,42 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 _MAX_BYTES = 512 * 1024  # enough for the <head> of any sane page
 _TIMEOUT = 8.0
+_MAX_REDIRECTS = 5
 _UA = "SocialAuto-LinkPreview/1.0 (+https://cloudless.gr)"
 
 
 def _resolve_public_host(host: str) -> None:
-    """Reject hosts that resolve to non-public IPs (SSRF guard)."""
+    """Reject hosts that resolve to non-public IPs (SSRF guard).
+
+    ``is_global`` (not just ``is_private``) so CGNAT/tailnet 100.64.0.0/10,
+    benchmarking and other special ranges are refused too; IPv4-mapped IPv6
+    (``::ffff:127.0.0.1``) is unwrapped before checking.
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
         raise ValueError("Cannot resolve host") from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if not ip.is_global or ip.is_multicast:
             raise ValueError("URL host is not publicly routable")
+
+
+def _validate_url(url: str):
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("URL must be http(s) with a host")
+    _resolve_public_host(parsed.hostname)
+    return parsed
 
 
 def _meta(soup: BeautifulSoup, *names: str) -> str | None:
@@ -46,20 +62,40 @@ async def fetch_link_preview(url: str) -> dict:
     Raises ``ValueError`` for invalid/non-public URLs and ``httpx.HTTPError``
     for fetch failures.
     """
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError("URL must be http(s) with a host")
-    _resolve_public_host(parsed.hostname)
+    current = url.strip()
+    parsed = _validate_url(current)
 
+    # Redirects are followed manually so every hop's host is re-validated —
+    # with follow_redirects=True httpx would happily follow a public URL's
+    # 302 to http://169.254.169.254/ or a LAN/tailnet service.
     async with httpx.AsyncClient(
         timeout=_TIMEOUT,
-        follow_redirects=True,
-        max_redirects=5,
+        follow_redirects=False,
         headers={"User-Agent": _UA, "Accept": "text/html,*/*;q=0.8"},
     ) as client:
-        resp = await client.get(url.strip())
-        resp.raise_for_status()
-        body = resp.content[:_MAX_BYTES]
+        for _hop in range(_MAX_REDIRECTS + 1):
+            async with client.stream("GET", current) as resp:
+                if resp.is_redirect:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ValueError("Redirect without Location header")
+                    current = urljoin(str(resp.url), location)
+                    parsed = _validate_url(current)
+                    continue
+                resp.raise_for_status()
+                # Stream with a hard cap instead of buffering the whole body.
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in resp.aiter_bytes():
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size >= _MAX_BYTES:
+                        break
+                body = b"".join(chunks)[:_MAX_BYTES]
+                final_url = str(resp.url)
+                break
+        else:
+            raise ValueError("Too many redirects")
 
     soup = BeautifulSoup(body, "lxml")
     title = _meta(soup, "og:title", "twitter:title")
@@ -76,7 +112,7 @@ async def fetch_link_preview(url: str) -> dict:
         image = f"{parsed.scheme}://{parsed.hostname}{image}"
 
     return {
-        "url": str(resp.url),
+        "url": final_url,
         "title": title or "",
         "description": description or "",
         "image": image or "",
