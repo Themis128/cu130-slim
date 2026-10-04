@@ -621,6 +621,127 @@ def _is_workers_ai_image_model(model: str) -> bool:
     normalized = (model or "").lower()
     return any(kw in normalized for kw in _WORKERS_AI_IMAGE_KEYWORDS)
 
+# ── Local Diffusers parameter guard ──────────────────────────────────────────
+# Callers across the app share FLUX-schnell style defaults (1024x1024, 4 steps,
+# cfg 3.5) because Cloudflare FLUX is the fallback provider.  Stable Diffusion
+# 1.5 — the model the local-diffusers container serves — breaks badly on those
+# settings: 4 denoising steps leave the latent mostly noise, and 1024px is 4x
+# the 512px training resolution, so the UNet tiles the subject into repetitive
+# texture / duplicated objects.  The guard below renders at the model's native
+# resolution with sane sampler settings and upscales to the requested size, so
+# every caller (ai/generate-image, media/generate-image, the CF pipeline, the
+# carousel, emoji) gets coherent images regardless of what it passes.
+
+_SD15_BASE_NEGATIVE = (
+    "blurry, lowres, low quality, noise, grainy, repetitive pattern, tiled, "
+    "duplicate, cloned, deformed, distorted, disfigured, bad anatomy, "
+    "jpeg artifacts, watermark, signature"
+)
+_SD_MIN_STEPS = 20
+_SD_DEFAULT_STEPS = 25
+_SD_MAX_STEPS = 50
+_SD_MIN_CFG = 5.0
+_SD_DEFAULT_CFG = 7.5
+_SD_MAX_CFG = 12.0
+
+
+def _local_diffusers_family(model: str | None) -> str:
+    """Classify a local Diffusers model id: ``sd15``, ``sdxl`` or ``other``."""
+    m = (model or "").lower()
+    if "xl" in m and ("stable-diffusion" in m or "sdxl" in m or "sd_xl" in m):
+        return "sdxl"
+    if any(k in m for k in ("stable-diffusion-v1", "sd-1.5", "sd15", "sd1.5", "v1-5")):
+        return "sd15"
+    return "other"
+
+
+def _native_generation_size(width: int, height: int, family: str) -> tuple[int, int]:
+    """Pick a generation size the model was trained for, preserving aspect ratio.
+
+    SD 1.5: ~512x512 pixel area, long edge <= 768.  SDXL: ~1024x1024 area.
+    Dimensions are rounded to multiples of 64 (UNet/VAE friendly).
+    Unknown families are passed through unchanged.
+    """
+    if family == "other" or width <= 0 or height <= 0:
+        return width, height
+    native = 512 if family == "sd15" else 1024
+    max_edge = 768 if family == "sd15" else 1536
+    min_edge = 256 if family == "sd15" else 512
+    aspect = width / height
+    gw = (native * native * aspect) ** 0.5
+    gh = gw / aspect
+    scale = min(1.0, max_edge / max(gw, gh))
+    gw, gh = gw * scale, gh * scale
+
+    def _r64(v: float) -> int:
+        return int(max(min_edge, min(max_edge, round(v / 64) * 64)))
+
+    gw_i, gh_i = _r64(gw), _r64(gh)
+    # Never render *larger* than requested (e.g. a 256px emoji).
+    if width <= gw_i and height <= gh_i:
+        return (max(64, (width // 8) * 8), max(64, (height // 8) * 8))
+    return gw_i, gh_i
+
+
+def _normalize_local_diffusers_params(
+    *,
+    model: str | None,
+    width: int,
+    height: int,
+    steps: int,
+    cfg_scale: float,
+    negative_prompt: str,
+) -> dict:
+    """Return the effective generation parameters for the local Diffusers model."""
+    family = _local_diffusers_family(model)
+    gen_w, gen_h = _native_generation_size(width, height, family)
+    eff_steps = max(1, min(int(steps or 0), 80))
+    eff_cfg = float(cfg_scale or 0)
+    eff_neg = (negative_prompt or "").strip()
+    if family in ("sd15", "sdxl"):
+        if eff_steps < _SD_MIN_STEPS:
+            eff_steps = _SD_DEFAULT_STEPS
+        eff_steps = min(eff_steps, _SD_MAX_STEPS)
+        if eff_cfg < _SD_MIN_CFG:
+            eff_cfg = _SD_DEFAULT_CFG
+        eff_cfg = min(eff_cfg, _SD_MAX_CFG)
+        existing = {t.strip().lower() for t in eff_neg.split(",") if t.strip()}
+        extra = [t for t in _SD15_BASE_NEGATIVE.split(", ") if t.lower() not in existing]
+        eff_neg = ", ".join(p for p in (eff_neg, ", ".join(extra)) if p)
+    return {
+        "family": family,
+        "gen_width": gen_w,
+        "gen_height": gen_h,
+        "steps": eff_steps,
+        "cfg_scale": eff_cfg,
+        "negative_prompt": eff_neg,
+    }
+
+
+def _resize_b64_png(b64: str, width: int, height: int) -> str:
+    """Resize a base64 image to ``width``x``height`` (LANCZOS); return PNG base64.
+
+    Falls back to the original payload if it cannot be decoded.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(b64)))
+        img.load()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[local-diffusers] could not decode image for resize: %s", type(exc).__name__)
+        return b64
+    if img.size == (width, height):
+        return b64
+    img = img.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
 async def _call_local_diffusers_txt2img(
     prompt: str,
     model: str | None = None,
@@ -635,19 +756,40 @@ async def _call_local_diffusers_txt2img(
 
     OpenAI-compatible /v1/images/generations endpoint.
     Returns {"image_base64": ..., "model": ...} matching _call_workers_ai_image shape.
+
+    Parameters are normalised for the served model (see
+    ``_normalize_local_diffusers_params``): the image is rendered at the
+    model's native resolution with >=20 steps, cfg >=5 and a baseline negative
+    prompt, then resized to the requested ``width``x``height``.
     """
+    model_id = model or settings.LOCAL_DIFFUSERS_MODEL
+    eff = _normalize_local_diffusers_params(
+        model=model_id,
+        width=width,
+        height=height,
+        steps=steps,
+        cfg_scale=cfg_scale,
+        negative_prompt=negative_prompt,
+    )
     url = f"{settings.LOCAL_DIFFUSERS_URL}/v1/images/generations"
     payload: dict = {
-        "model": model or settings.LOCAL_DIFFUSERS_MODEL,
+        "model": model_id,
         "prompt": prompt,
-        "size": f"{width}x{height}",
-        "steps": max(1, min(steps, 80)),
-        "negative_prompt": negative_prompt,
-        "guidance_scale": cfg_scale,
+        "size": f"{eff['gen_width']}x{eff['gen_height']}",
+        "steps": eff["steps"],
+        "negative_prompt": eff["negative_prompt"],
+        "guidance_scale": eff["cfg_scale"],
         "response_format": "b64_json",
     }
     if seed:
         payload["seed"] = seed
+    if (eff["gen_width"], eff["gen_height"], eff["steps"], eff["cfg_scale"]) != (width, height, steps, cfg_scale):
+        logger.info(
+            "[local-diffusers] normalised params for %s: requested %dx%d steps=%s cfg=%s -> "
+            "render %dx%d steps=%d cfg=%.1f",
+            eff["family"], width, height, steps, cfg_scale,
+            eff["gen_width"], eff["gen_height"], eff["steps"], eff["cfg_scale"],
+        )
 
     try:
         # 120s timeout: SD 1.5 cold-start model load can take ~55s on first request;
@@ -668,7 +810,18 @@ async def _call_local_diffusers_txt2img(
         ) from exc
     data = resp.json()
     b64 = data["data"][0]["b64_json"]
-    return {"image_base64": b64, "model": payload["model"]}
+    if (eff["gen_width"], eff["gen_height"]) != (width, height) and width > 0 and height > 0:
+        b64 = _resize_b64_png(b64, width, height)
+    return {
+        "image_base64": b64,
+        "model": payload["model"],
+        "params": {
+            "size": payload["size"],
+            "output_size": f"{width}x{height}",
+            "steps": eff["steps"],
+            "cfg_scale": eff["cfg_scale"],
+        },
+    }
 
 async def _call_workers_ai_image(
     prompt: str,
