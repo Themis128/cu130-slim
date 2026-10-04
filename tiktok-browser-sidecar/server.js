@@ -87,6 +87,8 @@ async function saveSession() {
     };
   }
   try {
+    // codeql[js/http-to-file-access] Intentional session persistence: fixed
+    // path (not user-controlled), primitive-validated payload, size cap, 0600.
     await fs.writeFile(SESSION_FILE, json, { mode: 0o600 });
   } catch (err) {
     // /data may be unavailable in some deployments — report, don't crash

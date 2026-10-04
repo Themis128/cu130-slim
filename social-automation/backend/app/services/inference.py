@@ -645,6 +645,11 @@ _SD_DEFAULT_CFG = 7.5
 _SD_MAX_CFG = 12.0
 
 
+def _logsafe(value: object) -> str:
+    """Strip control chars so a request-derived value can't forge log entries."""
+    return re.sub(r"[\x00-\x1f\x7f]+", "_", str(value))
+
+
 def _local_diffusers_family(model: str | None) -> str:
     """Classify a local Diffusers model id: ``sd15``, ``sdxl`` or ``other``."""
     m = (model or "").lower()
@@ -787,8 +792,8 @@ async def _call_local_diffusers_txt2img(
         logger.info(
             "[local-diffusers] normalised params for %s: requested %dx%d steps=%s cfg=%s -> "
             "render %dx%d steps=%d cfg=%.1f",
-            eff["family"], width, height, steps, cfg_scale,
-            eff["gen_width"], eff["gen_height"], eff["steps"], eff["cfg_scale"],
+            _logsafe(eff["family"]), int(width), int(height), int(steps), float(cfg_scale),
+            int(eff["gen_width"]), int(eff["gen_height"]), int(eff["steps"]), float(eff["cfg_scale"]),
         )
 
     try:
