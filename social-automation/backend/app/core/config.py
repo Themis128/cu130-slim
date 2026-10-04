@@ -356,6 +356,16 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "social-media"
     MINIO_SECURE: bool = False
 
+    # Nextcloud WebDAV export — mirrors media assets to the omv workspace
+    # (cloud.cloudless.gr). NEXTCLOUD_DAV_URL is the per-user files root,
+    # e.g. https://cloud.cloudless.gr/remote.php/dav/files/you@example.com
+    # Auth: Nextcloud app password (never the account login password).
+    NEXTCLOUD_EXPORT_ENABLED: bool = False
+    NEXTCLOUD_DAV_URL: str = ""
+    NEXTCLOUD_USERNAME: str = ""
+    NEXTCLOUD_APP_PASSWORD: str = ""
+    NEXTCLOUD_EXPORT_ROOT: str = "SocialAuto"
+
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
     SOCIAL_ADMIN_PASSWORD: str = ""
