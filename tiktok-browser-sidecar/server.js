@@ -31,6 +31,15 @@ let sessionId = null;
 let userId = null;
 let extraCookies = {};
 let qrLoginInFlight = null;
+// QR flow bookkeeping: when the flow started (to re-mint an expired QR), the
+// session that was live before it (restored if the flow fails or is
+// abandoned, so an unscanned QR doesn't silently log the sidecar out while
+// /data/tiktok-session.json still holds the old login), and a timer that
+// detects abandonment when nobody polls /login/qr/status.
+let qrLoginStartedAt = 0;
+let qrPrevSession = null;
+let qrAbandonTimer = null;
+const QR_TTL_MS = Number(process.env.TIKTOK_QR_TTL_MS) || 150000;
 
 const SESSION_FILE = "/data/tiktok-session.json";
 
@@ -299,6 +308,28 @@ async function handleCheckSession(req, res) {
 
 // ── API: QR login ──────────────────────────────────────────────────────────
 
+function clearQrFlow() {
+  qrLoginInFlight = null;
+  qrLoginStartedAt = 0;
+  if (qrAbandonTimer) clearTimeout(qrAbandonTimer);
+  qrAbandonTimer = null;
+}
+
+/** QR flow failed or expired unscanned: put the pre-QR session back. */
+async function abandonQrFlow() {
+  const prev = qrPrevSession;
+  qrPrevSession = null;
+  clearQrFlow();
+  if (prev) {
+    sessionId = prev.sessionId;
+    userId = prev.userId;
+    extraCookies = prev.extraCookies;
+  }
+  // The browser is sitting on a logged-out /login page — drop it so the next
+  // ensureBrowser() re-injects the restored cookies.
+  await closeBrowser();
+}
+
 /**
  * Start a QR-code login: navigate to tiktok.com/login, show the QR tab,
  * and return the QR image as base64. The user scans it with the TikTok
@@ -307,7 +338,39 @@ async function handleCheckSession(req, res) {
  */
 async function handleQrLoginStart(req, res) {
   try {
+    // A settled flow older than the QR lifetime (or ?force=1) must re-mint —
+    // otherwise every retry returns the same expired QR forever.
+    const force = req.query?.force === "1" || req.body?.force === true;
+    if (
+      qrLoginInFlight &&
+      (force || Date.now() - qrLoginStartedAt > QR_TTL_MS)
+    ) {
+      clearQrFlow();
+    }
     if (!qrLoginInFlight) {
+      // Snapshot only the real pre-QR session (not a half-finished QR state).
+      if (!qrPrevSession) {
+        qrPrevSession = { sessionId, userId, extraCookies };
+      }
+      qrLoginStartedAt = Date.now();
+      const startedAt = qrLoginStartedAt;
+      qrAbandonTimer = setTimeout(() => {
+        if (qrLoginStartedAt !== startedAt) return;
+        // Scanned but nobody polled /login/qr/status? Keep that login.
+        (async () => {
+          const cookies = context
+            ? await context.cookies("https://www.tiktok.com").catch(() => [])
+            : [];
+          if (cookies.some((c) => c.name === "sessionid" && c.value)) {
+            await captureSessionCookies();
+            qrPrevSession = null;
+            clearQrFlow();
+          } else {
+            await abandonQrFlow();
+          }
+        })().catch(() => {});
+      }, QR_TTL_MS + 30000);
+      qrAbandonTimer.unref?.();
       qrLoginInFlight = (async () => {
         await closeBrowser();
         sessionId = null;
@@ -330,7 +393,7 @@ async function handleQrLoginStart(req, res) {
     }
     await qrLoginInFlight;
   } catch (err) {
-    qrLoginInFlight = null;
+    await abandonQrFlow();
     return res.status(500).json({ error: err.message });
   }
 
@@ -350,7 +413,7 @@ async function handleQrLoginStart(req, res) {
     }
     res.json({ status: "ok", qr_png_b64: png, url: page.url() });
   } catch {
-    qrLoginInFlight = null;
+    await abandonQrFlow();
     res
       .status(502)
       .json({ error: "QR code element not found on login page" });
@@ -375,7 +438,14 @@ async function handleQrLoginStatus(req, res) {
       hasAuth && !url.includes("/login") && (await checkLoggedIn());
     if (isLoggedIn) {
       await captureSessionCookies();
-      qrLoginInFlight = null;
+      qrPrevSession = null;
+      clearQrFlow();
+    } else if (
+      qrLoginStartedAt &&
+      Date.now() - qrLoginStartedAt > QR_TTL_MS + 30000
+    ) {
+      await abandonQrFlow();
+      return res.json({ status: "ok", logged_in: false, reason: "qr_expired" });
     }
     res.json({ status: "ok", logged_in: isLoggedIn, url });
   } catch (err) {
