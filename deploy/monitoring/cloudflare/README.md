@@ -59,8 +59,7 @@ cd deploy/monitoring/cloudflare && sudo ./apply.sh
 
 ## Dashboard
 
-`dashboard-cloudflare-overview.json` — pushed via Grafana API
-(`tbaltzakis@cloudless.gr` / service-convention password), live at
+`dashboard-cloudflare-overview.json` — pushed via the Grafana API, live at
 `grafana.tail4ecae1.ts.net/d/cloudflare-overview`. Every panel carries a
 description explaining what it measures and how to interpret it.
 
