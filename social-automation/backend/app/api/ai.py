@@ -3184,9 +3184,10 @@ async def dmr_warmup(
     """Trigger DMR model warm-up (pre-load models into VRAM)."""
     from app.services.dmr import is_warmup_done, reset_warmup, warmup_models
 
-    # Reset the warmup flag so it runs again
+    # Reset the warmup flag so it runs again — force bypasses the
+    # distributed lock since this is an explicit admin re-warm.
     reset_warmup()
-    await warmup_models()
+    await warmup_models(force=True)
     return {"status": "warmup complete", "warmup_done": is_warmup_done()}
 
 
