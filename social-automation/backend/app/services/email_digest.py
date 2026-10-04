@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from app.core.config import get_settings
+from app.core.log_sanitize import sanitize_log_text
 
 if TYPE_CHECKING:
     from app.services.slack_digest import DigestReport
@@ -230,7 +231,7 @@ def _filter_suppressed(addrs: list[str], settings) -> list[str]:
     keep = [a for a in addrs if not any(fnmatch.fnmatch(a.lower(), p) for p in patterns)]
     dropped = [a for a in addrs if a not in keep]
     if dropped:
-        safe_list = [a.replace("\n", "").replace("\r", "")[:200] for a in dropped]
+        safe_list = [sanitize_log_text(a, max_len=200) for a in dropped]
         logger.info(
             "suppressing email recipients per EMAIL_SUPPRESS_ADDR_PATTERNS: %s",
             safe_list,

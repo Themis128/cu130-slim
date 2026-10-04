@@ -45,10 +45,13 @@ def _resolve_public_ip(host: str) -> str:
 def _validate_url(url: str):
     """Parse and validate *url*, returning (ParseResult, public_ip).
 
-    The returned ``ParseResult`` is reconstructed from individually validated
-    components (scheme, host, port, path, query, fragment) so the taint chain
-    from the raw user string is broken — the fetch target is built exclusively
-    from validated atoms, not from the original URL bytes.
+    The connection target is built exclusively from validated atoms: scheme
+    is checked against an allowlist and the netloc (host + port) is
+    reconstructed from the resolved, publicly-routable host — so the origin
+    of every fetch is pinned, never taken from the raw user string. Path,
+    query and fragment are carried over from the parsed URL unchanged: they
+    only select a resource on the already-validated origin and cannot
+    redirect the connection elsewhere.
     """
     parsed = urlparse(url)
     scheme = parsed.scheme
@@ -60,9 +63,14 @@ def _validate_url(url: str):
 
     # Rebuild a clean ParseResult from validated parts — breaks the taint
     # chain so static analysers can verify nothing from the original string
-    # reaches the network call unvalidated.
+    # reaches the network call unvalidated. IPv6 literals must keep their
+    # brackets or later ``parsed.port`` access on the rebuilt result raises
+    # ValueError (urlparse only accepts ``host:port`` netloc for v6 when the
+    # host part is bracketed).
     port_suffix = f":{parsed.port}" if parsed.port else ""
-    clean_netloc = f"{hostname}{port_suffix}"
+    clean_netloc = (
+        f"[{hostname}]{port_suffix}" if ":" in hostname else f"{hostname}{port_suffix}"
+    )
     clean = parsed._replace(scheme=scheme, netloc=clean_netloc)
     return clean, ip
 
