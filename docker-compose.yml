@@ -1586,6 +1586,12 @@ services:
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
+      # Media QA notebook (work/media_validation.ipynb): fetches assets via the
+      # API and runs the semantic check against the DMR vision model (qwen3-vl).
+      - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
+      - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
+      - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
     <<: *public-dns
     healthcheck:

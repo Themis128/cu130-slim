@@ -1125,3 +1125,62 @@ async def test_publish_tiktok_rejects_multi_video_post(account, post):
     )
     assert result.skipped is True
     assert "single video" in (result.error or "")
+
+
+# ── media pre-flight safety net ──────────────────────────────────────────────
+
+
+def _write_image(tmp_path, name="ok.jpg", size=(1080, 1080)):
+    from PIL import Image
+
+    p = tmp_path / name
+    Image.new("RGB", size, (20, 24, 30)).save(p, "JPEG")
+    return str(p)
+
+
+def test_preflight_allows_valid_image(tmp_path):
+    p = _write_image(tmp_path)
+    assert pub.validate_media_for_platform("instagram", [p]) is None
+
+
+def test_preflight_requires_media_on_instagram():
+    result = pub.validate_media_for_platform("instagram", [])
+    assert result is not None
+    assert result.skipped is True
+
+
+def test_preflight_allows_text_only_on_linkedin():
+    assert pub.validate_media_for_platform("linkedin", []) is None
+
+
+def test_preflight_rejects_corrupt_image(tmp_path):
+    p = tmp_path / "broken.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0 not really a jpeg" + b"\x00" * 20480)
+    result = pub.validate_media_for_platform("instagram", [str(p)])
+    assert result is not None
+    assert result.skipped is True
+    assert "decodable" in (result.error or "")
+
+
+def test_preflight_rejects_undersized_image(tmp_path):
+    p = _write_image(tmp_path, "tiny.jpg", size=(64, 64))
+    result = pub.validate_media_for_platform("instagram", [p])
+    assert result is not None
+    assert result.skipped is True
+
+
+def test_preflight_rejects_missing_file(tmp_path):
+    result = pub.validate_media_for_platform("facebook", [str(tmp_path / "gone.jpg")])
+    assert result is not None
+    assert result.skipped is True
+    assert "missing" in (result.error or "")
+
+
+def test_preflight_pdf_allowed_on_linkedin_only(tmp_path):
+    p = tmp_path / "deck.pdf"
+    p.write_bytes(b"%PDF-1.4 minimal\n")
+    assert pub.validate_media_for_platform("linkedin", [str(p)]) is None
+    result = pub.validate_media_for_platform("instagram", [str(p)])
+    assert result is not None
+    assert result.skipped is True
+    assert "PDF" in (result.error or "")
