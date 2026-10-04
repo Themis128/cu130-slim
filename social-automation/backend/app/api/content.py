@@ -568,9 +568,17 @@ async def cross_post_to_platform(
                 SocialAccount.team_id == team_id,
                 SocialAccount.platform == request.target_platform,
                 SocialAccount.status == "active",
-            ).limit(1)
+            )
         )
-        target_account = acct_result.scalar_one_or_none()
+        candidates = acct_result.scalars().all()
+        target_account = candidates[0] if candidates else None
+        if request.target_platform == "facebook":
+            # Prefer the business Page (Graph API) over the personal profile
+            # (browser-sidecar fallback) when auto-selecting.
+            target_account = next(
+                (a for a in candidates if a.account_type == "page" or a.is_business),
+                target_account,
+            )
 
     if not target_account:
         raise HTTPException(

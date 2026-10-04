@@ -29,7 +29,7 @@ Full runbook: `.devin/skills/monthly-checklist-update/SKILL.md`.
 | Threads           | `1071dcd5-1bc9-4770-923c-d897eb124485`   | URL in text |
 | Twitter/X         | `a89d6852-eff8-479a-835f-50d806cf59dd`   | URL in text — `link_url` is dropped on X |
 | Instagram         | `38ddbd44-8811-4d0b-be62-a23fd2f50490`   | Requires a generated image; "link in bio" |
-| Facebook Personal | `9355ed63-7787-43e5-a22d-ae0a33d5176b`  | Browser-sidecar publish; `link_url` → `/links` |
+| Facebook Page     | `ad83c946-0f6b-4fbf-bc63-543d2c2237f5`  | Graph API publish; `link_url` → `/links` |
 
 ## Gotchas
 
@@ -43,8 +43,8 @@ Full runbook: `.devin/skills/monthly-checklist-update/SKILL.md`.
   (`/contact`, `social.cloudless.gr/pricing`) for this campaign only.
 - **CI formatting** — cloudless.gr CI runs `ruff format --check`; format the
   Python generator before committing.
-- **Facebook personal** publishes through the browser sidecar, not Graph API —
-  allow ~60s before verifying `status=published`.
+- **Facebook Page** publishes via Graph API — usually fast; still verify
+  `status=published` after ~30s.
 
 ## Verify
 

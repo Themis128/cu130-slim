@@ -49,7 +49,7 @@ and announce it across all social channels. Run on the **1st of each month**
    | Threads          | `1071dcd5-1bc9-4770-923c-d897eb124485`   | Casual, direct — put `cloudless.gr/links` in the text |
    | Twitter/X        | `a89d6852-eff8-479a-835f-50d806cf59dd`   | Under 280 chars — **URL must be in the text body** (see Gotchas) |
    | Instagram        | `38ddbd44-8811-4d0b-be62-a23fd2f50490`   | **Requires image** — generate via `/api/v1/ai/generate-image` first; caption points to "link in bio" |
-   | Facebook Personal| `9355ed63-7787-43e5-a22d-ae0a33d5176b`  | Build-log voice, `link_url` to `/links` |
+   | Facebook Page    | `ad83c946-0f6b-4fbf-bc63-543d2c2237f5`  | Business voice, `link_url` to `/links` |
 
 6. **Verify** — confirm all 6 targets reach `status=published` with URLs.
    Instagram permalink needs Graph API resolution (stored URL uses numeric ID).
@@ -73,8 +73,9 @@ and announce it across all social channels. Run on the **1st of each month**
   `a89d6852-eff8-479a-835f-50d806cf59dd`.
 - **ruff format** — CI runs `ruff format --check`; always format the Python
   script before committing.
-- **Facebook personal** posts go through the browser sidecar, not Graph API.
-  Publishing may take longer; re-check after 60s.
+- **Facebook Page** posts go through Graph API (`pages_manage_posts` on the
+  canonical `cloudless.gr` Page `ad83c946`). Personal-profile posts use the
+  browser sidecar instead — don't target `9355ed63` here.
 
 ## Files
 
