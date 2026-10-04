@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ElementType } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   TrendingUp, TrendingDown, Download, BarChart3, Plus, ArrowLeftRight,
@@ -1296,10 +1296,14 @@ export default function AnalyticsPage() {
               {topPosts.map((post: TopPost, index: number) => {
                 const content = sanitizePostContent(post.content_text)
                 const platformColor = PLATFORM_COLOR[post.platform] ?? '#6366f1'
+                const RowLink: ElementType = post.external_url ? 'a' : Link
+                const linkProps = post.external_url
+                  ? { href: post.external_url, target: '_blank', rel: 'noopener noreferrer' }
+                  : { href: `/content/${post.post_id}/edit` }
                 return (
-                  <Link
+                  <RowLink
                     key={`${post.post_id}-${index}`}
-                    href={`/content/${post.post_id}/edit`}
+                    {...linkProps}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -1327,7 +1331,7 @@ export default function AnalyticsPage() {
                         {(post.engagement ?? 0).toLocaleString()}
                       </Badge>
                     </div>
-                  </Link>
+                  </RowLink>
                 )
               })}
             </div>

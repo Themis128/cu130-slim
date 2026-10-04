@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, type ElementType } from 'react'
 import {
   TrendingUp, Users, FileText, Clock, ExternalLink, Plus,
   Sparkles, AlertCircle, PenLine, Image, BarChart2, Calendar,
@@ -265,10 +265,14 @@ export default function DashboardPage() {
               <div className="space-y-1">
                 {topPosts.map((post: TopPost, idx: number) => {
                   const platformColor = PLATFORM_COLOR[post.platform?.toLowerCase() ?? ''] ?? '#6b7280'
+                  const RowLink: ElementType = post.external_url ? 'a' : Link
+                  const linkProps = post.external_url
+                    ? { href: post.external_url, target: '_blank', rel: 'noopener noreferrer' }
+                    : { href: `/content/${post.post_id}/edit` }
                   return (
-                    <Link
+                    <RowLink
                       key={`${post.post_id}-${post.platform ?? ''}-${idx}`}
-                      href={`/content/${post.post_id}/edit`}
+                      {...linkProps}
                       className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -293,7 +297,7 @@ export default function DashboardPage() {
                         <TrendingUp className="h-3.5 w-3.5" />
                         {(post.engagement ?? 0).toLocaleString()}
                       </div>
-                    </Link>
+                    </RowLink>
                   )
                 })}
               </div>
