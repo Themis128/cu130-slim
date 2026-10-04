@@ -1507,6 +1507,13 @@ async def _publish_instagram_via_web(
         - Carousel (multi-photo) posts up to 10 images
     Videos are not yet supported via this path.
     """
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram requires at least one image or video. Set media on the post.",
+        )
+
     meta = account.meta_data or {}
     session_id = decrypt_field(meta.get("private_api_session_id"))
     csrf_token = meta.get("private_api_csrf_token")
@@ -1515,13 +1522,6 @@ async def _publish_instagram_via_web(
         return PublishResult(
             success=False,
             error="Instagram web API session incomplete (need sessionid, csrftoken, ds_user_id).",
-        )
-
-    if not media_paths:
-        return PublishResult(
-            success=False,
-            skipped=True,
-            error="Instagram requires at least one image or video. Set media on the post.",
         )
 
     # Filter to image files only (videos not yet supported via web API)
@@ -1723,6 +1723,15 @@ async def _publish_instagram_via_sidecar(
     Requires ``private_api_session_id`` in the account's meta_data.
     Uses local file paths (uploads volume mounted in the sidecar at /uploads).
     """
+    # No media → text-only is not supported by Instagram (check before auth
+    # so the soft-skip fires even when the sidecar session is missing).
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram requires at least one image or video. Set media on the post.",
+        )
+
     meta = account.meta_data or {}
     session_id = decrypt_field(meta.get("private_api_session_id"))
     if not session_id:
@@ -1738,14 +1747,6 @@ async def _publish_instagram_via_sidecar(
 
     client = InstagramPrivateAPIClient(_settings.INSTAGRAM_PRIVATE_API_URL)
     caption = text[:2200]
-
-    # No media → text-only is not supported by Instagram
-    if not media_paths:
-        return PublishResult(
-            success=False,
-            skipped=True,
-            error="Instagram requires at least one image or video. Set media on the post.",
-        )
 
     # Re-establish the session in the sidecar with the configured proxy so
     # aiograpi routes Instagram traffic through WARP (fixes DNS failures after
@@ -1988,19 +1989,19 @@ async def _publish_instagram_via_instagrapi(
     cached session expires.  This path works for any account type (personal,
     creator, business) without Meta App Review.
     """
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram requires at least one image or video.",
+        )
+
     username = (_settings.INSTAGRAM_USERNAME or "").strip()
     password = (_settings.INSTAGRAM_PASSWORD or "").strip()
     if not username or not password:
         return PublishResult(
             success=False,
             error="INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are not set.",
-        )
-
-    if not media_paths:
-        return PublishResult(
-            success=False,
-            skipped=True,
-            error="Instagram requires at least one image or video.",
         )
 
     proxy = (_settings.INSTAGRAM_PROXY or "").strip() or None

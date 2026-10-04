@@ -1089,6 +1089,7 @@ async def test_publish_instagram_graph_config_gaps_are_soft_skipped(account, pos
     (missing MEDIA_PUBLIC_BASE_URL, text-only post).
     """
     account.meta_data = {"account_type": "business", "ig_business_id": "ig-1"}
+    post.platform_specific = {}
     media_present = await pub._publish_instagram_via_graph(
         "token", "caption", account, post, ["/tmp/a.jpg"], ["/uploads/a.jpg"], None,
     )
