@@ -967,8 +967,9 @@ async def link_preview(url: str = Query(..., min_length=8, max_length=2048), cur
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except Exception as exc:
         # Don't echo the exception: httpx errors can leak internal hostnames/IPs
-        # and connection details from the fetch (useful SSRF oracle).
-        logger.warning("link preview fetch failed for %s: %s", url, exc)
+        # and connection details from the fetch (useful SSRF oracle). Only the
+        # exception type is logged so user-controlled input never reaches logs.
+        logger.warning("link preview fetch failed: %s", type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not fetch link preview") from exc
 
 
