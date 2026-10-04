@@ -169,6 +169,7 @@ celery_app.conf.update(
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
+        "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
@@ -282,6 +283,12 @@ celery_app.conf.update(
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric
         # meaningful. Error details persist on posts/post_targets.
+        # Safety net for X targets stuck failed/skipped by a capacity error
+        # (credits/quota/fallback cap) — re-queues each at most once.
+        "requeue-capacity-stuck-x": {
+            "task": "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets",
+            "schedule": crontab(minute="*/30"),
+        },
         "cleanup-publish-queue": {
             "task": "app.worker.tasks.publishing.cleanup_publish_queue",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 03:00

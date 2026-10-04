@@ -99,6 +99,9 @@ _TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
 _X_QUOTA_MARKERS = (
     "credits-depleted",
     "usagecapexceeded",
+    "usage-capped",
+    "rate-limit-exceeded",
+    "too many requests",
     "monthly write",
     "tweet cap",
     "free tier",
@@ -111,9 +114,67 @@ def _err_has(text: str | None, markers: tuple[str, ...]) -> bool:
 
 
 def _is_x_quota_error(exc: TwitterAPIError) -> bool:
-    """402 credits-depleted / UsageCapExceeded / quota-type 429 from the X API."""
+    """402 credits-depleted / usage-capped / 429 rate-limit from the X API.
+
+    X documents 429 for both ``.../rate-limit-exceeded`` (short window) and
+    ``.../usage-capped`` (billing cap); 402 is returned for depleted
+    pay-per-use credits. All are capacity problems, never content problems.
+    """
     blob = f"{exc} {getattr(exc, 'response_text', '')}"
-    return exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS)
+    return exc.status_code in (402, 429) or _err_has(blob, _X_QUOTA_MARKERS)
+
+
+def _x_capacity_backoff() -> datetime:
+    minutes = max(1, int(getattr(_settings, "X_CAPACITY_BACKOFF_MINUTES", 60) or 60))
+    return datetime.now(UTC) + timedelta(minutes=minutes)
+
+
+def _x_retry_at(exc: TwitterAPIError | None) -> datetime | None:
+    """When X API write capacity should return, from the documented headers.
+
+    - ``x-rate-limit-reset`` (unix seconds): the endpoint's 15-min window —
+      only meaningful for ``rate-limit-exceeded``, not for usage caps.
+    - ``x-user-limit-24hour-reset`` / ``x-app-limit-24hour-reset``: the 24h
+      POST /2/tweets caps, used when their ``-remaining`` is 0.
+    - ``retry-after`` (seconds).
+    Credits-depleted (402) / usage-capped carry no reset time → ``None``;
+    callers then use the X_CAPACITY_BACKOFF_MINUTES backoff (or the fallback's
+    own slot time) so a top-up / newly enabled fallback is picked up without
+    hammering the API.
+    """
+    now = datetime.now(UTC)
+    if exc is None:
+        return None
+    hdrs: dict[str, str] = getattr(exc, "headers", None) or {}
+    blob = f"{exc} {getattr(exc, 'response_text', '')}".lower()
+    candidates: list[float] = []
+    for scope in ("user", "app"):
+        reset = hdrs.get(f"x-{scope}-limit-24hour-reset")
+        remaining = hdrs.get(f"x-{scope}-limit-24hour-remaining")
+        if reset and (remaining is None or remaining.strip() == "0"):
+            try:
+                candidates.append(float(reset))
+            except ValueError:
+                pass
+    capped = exc.status_code == 402 or _err_has(blob, ("usage-capped", "usagecapexceeded", "credits-depleted"))
+    if not capped:
+        reset = hdrs.get("x-rate-limit-reset")
+        if reset:
+            try:
+                candidates.append(float(reset))
+            except ValueError:
+                pass
+        ra = hdrs.get("retry-after")
+        if ra:
+            try:
+                candidates.append(now.timestamp() + float(ra))
+            except ValueError:
+                pass
+    if not candidates:
+        return None
+    when = datetime.fromtimestamp(max(candidates), UTC) + timedelta(seconds=30)
+    # Guard against clock skew / bogus headers: at least 1 min, at most 7 days.
+    return min(max(when, now + timedelta(minutes=1)), now + timedelta(days=7))
 
 
 def _facebook_group_skip_result(detail: str | None = None) -> PublishResult:
@@ -160,16 +221,39 @@ def _tiktok_clarify_error(exc: Exception | str) -> str:
 
 
 def _x_quota_skip_result(detail: str | None = None) -> PublishResult:
-    """X free/paid write credits exhausted — reconnect does not reset monthly caps."""
+    """Browser-bridge "unavailable" marker (``skipped=True``).
+
+    Only consumed inside ``_publish_twitter_fallbacks``, which turns it into a
+    capacity *deferral* — it never reaches the worker as a terminal skip.
+    """
     extra = f" Detail: {detail[:240]}" if detail else ""
     return PublishResult(
         success=False,
         skipped=True,
         error=(
-            "X free tier monthly write quota / API credits exhausted. Reconnect "
-            "will not fix this — wait for the billing-cycle reset, add credits at "
-            "console.x.com, or ensure the browser-bridge X session is logged in "
-            f"for the free web fallback.{extra}"
+            "X free tier monthly write quota / API credits exhausted and the "
+            f"browser-bridge fallback is unavailable.{extra}"
+        ),
+    )
+
+
+def _x_capacity_defer_result(detail: str | None = None, retry_at: datetime | None = None) -> PublishResult:
+    """X write capacity exhausted (API credits/cap, no fallback slot) — DEFER.
+
+    The target stays pending and the queue row is re-scheduled for
+    ``retry_after`` (the worker bounds total deferral age/count). Before
+    2026-10-04 this was a soft *skip*, which completed the queue row and
+    left posts stuck forever once a fallback became available.
+    """
+    extra = f" Detail: {detail[:240]}" if detail else ""
+    return PublishResult(
+        success=False,
+        retry_after=retry_at or _x_capacity_backoff(),
+        error=(
+            "X write capacity unavailable (API credits / quota exhausted and no "
+            "free fallback slot) — deferred, will retry automatically. Reconnect "
+            "will not fix this — add credits at console.x.com or ensure the X web "
+            f"fallback / browser-bridge X session is logged in.{extra}"
         ),
     )
 
@@ -276,8 +360,8 @@ async def publish_to_platform(
         return PublishResult(success=False, skipped=skip, error=clarified)
     except TwitterAPIError as exc:
         blob = f"{exc} {getattr(exc, 'response_text', '')}"
-        if exc.status_code == 402 or _err_has(blob, _X_QUOTA_MARKERS):
-            return _x_quota_skip_result(blob)
+        if _is_x_quota_error(exc):
+            return _x_capacity_defer_result(blob, _x_retry_at(exc))
         return PublishResult(success=False, error=str(exc)[:500])
     except Exception as exc:
         blob = str(exc)
@@ -772,6 +856,7 @@ async def _publish_twitter(
                     if _is_x_quota_error(exc):
                         return await _publish_twitter_fallbacks(
                             account, text, tweets, post, plan, reason=f"{exc} {exc.response_text}",
+                            retry_at=_x_retry_at(exc),
                         )
                     if x_web.is_configured():
                         return await _publish_twitter_fallbacks(
@@ -810,6 +895,7 @@ async def _publish_twitter(
                 # X API write credits / monthly cap — free fallbacks.
                 return await _publish_twitter_fallbacks(
                     account, text, tweets, post, plan, reason=f"{exc} {getattr(exc, 'response_text', '')}",
+                    retry_at=_x_retry_at(exc),
                 )
             if exc.status_code in (401, 403) and not refreshed:
                 refreshed = True
@@ -847,12 +933,18 @@ async def _publish_twitter_fallbacks(
     plan: Any,
     *,
     reason: str,
+    retry_at: datetime | None = None,
 ) -> PublishResult:
     """Free X fallbacks after the official API refused: x_web → browser bridge.
 
     ``plan`` is the validated ``x_web.MediaPlan``. The browser bridge can
     only attach images/GIFs, so video posts never reach it (they fail or
-    soft-skip instead of going out without the video).
+    defer instead of going out without the video).
+
+    Capacity outcomes (x_web daily cap / pacing gap / breaker already open /
+    rate-limit trip, no fallback available) return ``retry_after`` so the
+    worker defers the target instead of failing or skipping it.
+    ``retry_at`` is when the official API is expected back (reset headers).
     """
     from app.services import x_web
 
@@ -874,9 +966,14 @@ async def _publish_twitter_fallbacks(
                 platform_url=f"https://x.com/{handle}/status/{out.first_id}" if handle else None,
                 platform_meta={"x_web": meta},
             )
-        if out.status == "deferred":
-            return PublishResult(success=False, error=out.error, retry_after=out.retry_after)
-        if out.status in ("breaker", "tripped", "media_error", "identity", "too_long", "ambiguous"):
+        if out.status in ("deferred", "breaker"):
+            # Cap slot / pacing gap / breaker reopen time from the guard.
+            when = out.retry_after or retry_at or _x_capacity_backoff()
+            if retry_at is not None:
+                # Whichever path frees up first: official API reset or slot.
+                when = min(when, retry_at)
+            return PublishResult(success=False, error=out.error, retry_after=when)
+        if out.status in ("tripped", "media_error", "identity", "too_long", "ambiguous"):
             return PublishResult(success=False, permanent=True, error=out.error)
         web_error = out.error  # transient — try the browser bridge next
 
@@ -887,7 +984,7 @@ async def _publish_twitter_fallbacks(
         )
         if web_error:
             return PublishResult(success=False, error=f"{detail} (official: {reason[:200]})")
-        return _x_quota_skip_result(f"{detail}. Official: {reason}")
+        return _x_capacity_defer_result(f"{detail}. Official: {reason}", retry_at)
 
     browser_result = await _publish_twitter_via_browser(account, text, post, plan.paths)
     if browser_result.success:
@@ -898,7 +995,7 @@ async def _publish_twitter_fallbacks(
         # Hard failure (e.g. wrong-account session) — surface it
         # through retries/alerts instead of a silent quota skip.
         return browser_result
-    return _x_quota_skip_result(browser_result.error or reason)
+    return _x_capacity_defer_result(browser_result.error or reason, retry_at)
 
 
 async def _publish_twitter_via_browser(
