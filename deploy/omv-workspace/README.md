@@ -111,7 +111,17 @@ log 365 days — keeps SSD growth bounded.
   groups via `initgroups()` and run with `Groups: 33` only; `group_add:
   100` is kept for `occ`/exec paths. System subtrees (`k3s-data`,
   `Backups`, `workspace`, `compose-files`, `tempo-data`) are root-owned
-  and intentionally not group-writable.
+  and intentionally not group-writable. Six of them (`omv-ai-cluster`,
+  `k3s-data`, `workspace`, `compose-files`, `tempo-data`, `lost+found`)
+  are additionally masked by empty tmpfs overlays inside all three
+  Nextcloud containers, so DAV never lists or writes them — this also
+  silences the `Following symlinks is not allowed` level-3 spam from
+  containerd's symlink-heavy snapshot tree. Caveat: `files:scan` hit the
+  Postgres 65535-parameter ceiling trying to bulk-purge the ~364k stale
+  `oc_filecache` rows those trees had accumulated; the rows were deleted
+  with a chunked SQL `DELETE` instead (the documented fallback when the
+  scanner's own purge rolls back). A GUI compose regeneration drops the
+  tmpfs masks — re-apply from this file if symlink errors return.
 - **Branding** → theming app: name `Cloudless`, slogan "Clear skies. Zero
   friction.", color `#0a7785`, Cloudless wordmark/icon/favicon from
   `cloudless.gr/BRANDING/cloudless-brand/`.
