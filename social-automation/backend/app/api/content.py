@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import UTC, datetime
@@ -16,6 +17,8 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.content_renderer import normalize_hashtags, render_post_text, strip_embedded_metadata
 from app.services.spellcheck import auto_correct
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -963,7 +966,11 @@ async def link_preview(url: str = Query(..., min_length=8, max_length=2048), cur
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not fetch link preview: {exc}") from exc
+        # Don't echo the exception: httpx errors can leak internal hostnames/IPs
+        # and connection details from the fetch (useful SSRF oracle). Only the
+        # exception type is logged so user-controlled input never reaches logs.
+        logger.warning("link preview fetch failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not fetch link preview") from exc
 
 
 class BriefOut(BaseModel):
