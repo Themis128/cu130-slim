@@ -332,14 +332,24 @@ def rank_best_time_windows(
 
     mean_er = sum(rate for _, rate in samples) / len(samples)
 
+    # Small-sample shrinkage (empirical-Bayes style, standard analytics
+    # practice): a slot's score is pulled toward the account mean in
+    # proportion to its sample size, so 1-2 lucky posts can't claim a
+    # window. k pseudo-samples of prior belief per slot.
+    shrink_k = 4
+
+    def _score(rates: list[float]) -> float:
+        n = len(rates)
+        return (sum(rates) + shrink_k * mean_er) / (n + shrink_k)
+
     windows = []
     for (day_idx, hour), rates in sorted(
         engagement_by_slot.items(),
-        key=lambda kv: -(sum(kv[1]) / len(kv[1])),
+        key=lambda kv: -_score(kv[1]),
     ):
         if len(rates) < _MIN_SAMPLES_PER_SLOT or hour in _DEAD_NIGHT_HOURS:
             continue
-        avg = sum(rates) / len(rates)
+        avg = _score(rates)
         if avg < mean_er:
             continue
         windows.append({

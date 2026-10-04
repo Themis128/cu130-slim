@@ -134,6 +134,7 @@ async def test_cf_overview_gathers_all_sections():
         "total_vectors_inserted": 0,
         "by_index": [],
     }
+    empty_ai_gw = {"total_requests": 7, "by_gateway": [], "by_provider": []}
 
     with (
         patch.object(
@@ -160,6 +161,11 @@ async def test_cf_overview_gathers_all_sections():
             "get_vectorize_usage",
             new=AsyncMock(return_value=empty_vz),
         ),
+        patch.object(
+            cf_analytics,
+            "get_ai_gateway_usage",
+            new=AsyncMock(return_value=empty_ai_gw),
+        ),
     ):
         overview = await cf_analytics.get_cf_overview(days=7)
 
@@ -177,4 +183,5 @@ async def test_cf_overview_gathers_all_sections():
         "d1",
         "kv",
         "vectorize",
+        "ai_gateway",
     }

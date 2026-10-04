@@ -883,6 +883,8 @@ class XWebTweetMetrics:
     quotes: int = 0
     bookmarks: int = 0
     text: str = ""
+    author: str | None = None
+    is_repost: bool = False
 
 
 @dataclasses.dataclass
@@ -906,11 +908,23 @@ def _int(val: Any) -> int:
             return 0
 
 
-def _from_tweety_tweet(t: Any) -> XWebTweetMetrics | None:
+def _is_foreign_author(author: str | None, username: str | None) -> bool:
+    if not author or not username:
+        return False
+    return author.lower() != username.lower()
+
+
+def _from_tweety_tweet(t: Any, username: str | None = None) -> XWebTweetMetrics | None:
     tid = _tweet_id(t)
     if not tid:
         return None
     created = getattr(t, "created_on", None) or getattr(t, "date", None)
+    author = str(getattr(getattr(t, "author", None), "username", "") or "") or None
+    is_repost = bool(
+        getattr(t, "retweeted_tweet", None)
+        or getattr(t, "is_retweet", False)
+        or _is_foreign_author(author, username)
+    )
     return XWebTweetMetrics(
         id=tid,
         created_at=created if isinstance(created, datetime) else None,
@@ -921,14 +935,21 @@ def _from_tweety_tweet(t: Any) -> XWebTweetMetrics | None:
         quotes=_int(getattr(t, "quote_counts", 0)),
         bookmarks=_int(getattr(t, "bookmark_count", 0)),
         text=str(getattr(t, "text", "") or "")[:280],
+        author=author,
+        is_repost=is_repost,
     )
 
 
-def _from_twscrape_tweet(t: Any) -> XWebTweetMetrics | None:
+def _from_twscrape_tweet(t: Any, username: str | None = None) -> XWebTweetMetrics | None:
     tid = _tweet_id(t) or (str(getattr(t, "id_str", "")) or None)
     if not tid:
         return None
     created = getattr(t, "date", None)
+    author = str(getattr(getattr(t, "user", None), "username", "") or "") or None
+    is_repost = bool(
+        getattr(t, "retweetedTweet", None)
+        or _is_foreign_author(author, username)
+    )
     return XWebTweetMetrics(
         id=tid,
         created_at=created if isinstance(created, datetime) else None,
@@ -939,6 +960,8 @@ def _from_twscrape_tweet(t: Any) -> XWebTweetMetrics | None:
         quotes=_int(getattr(t, "quoteCount", 0)),
         bookmarks=_int(getattr(t, "bookmarkedCount", 0)),
         text=str(getattr(t, "rawContent", "") or "")[:280],
+        author=author,
+        is_repost=is_repost,
     )
 
 
@@ -952,12 +975,12 @@ async def _read_with_tweety(client: Any, username: str, user_id: str | None, wan
     timeline = await client.get_tweets(user_id or username, pages=1)
     for item in getattr(timeline, "tweets", None) or list(timeline or []):
         for t in getattr(item, "tweets", None) or [item]:  # SelfThread → tweets
-            m = _from_tweety_tweet(t)
+            m = _from_tweety_tweet(t, username)
             if m:
                 out.tweets[m.id] = m
     for tid in [w for w in wanted if w not in out.tweets][:max_lookups]:
         t = await client.tweet_detail(tid)
-        m = _from_tweety_tweet(t)
+        m = _from_tweety_tweet(t, username)
         if m:
             out.tweets[m.id] = m
     return out
@@ -988,12 +1011,12 @@ async def _read_with_twscrape(api: Any, username: str, user_id: str | None, want
     uid = int(user_id) if user_id and str(user_id).isdigit() else int(getattr(user, "id", 0) or 0)
     if uid:
         async for t in api.user_tweets(uid, limit=40):
-            m = _from_twscrape_tweet(t)
+            m = _from_twscrape_tweet(t, username)
             if m:
                 out.tweets[m.id] = m
     for tid in [w for w in wanted if w not in out.tweets][:max_lookups]:
         t = await api.tweet_details(int(tid))
-        m = _from_twscrape_tweet(t) if t is not None else None
+        m = _from_twscrape_tweet(t, username) if t is not None else None
         if m:
             out.tweets[m.id] = m
     return out

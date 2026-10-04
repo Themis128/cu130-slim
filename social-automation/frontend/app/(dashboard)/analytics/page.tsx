@@ -63,10 +63,11 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
   const [platformFilter, setPlatformFilter] = useState('')
   const [compareMode, setCompareMode] = useState(false)
+  const [followerView, setFollowerView] = useState<'absolute' | 'delta'>('absolute')
   const [syncing, setSyncing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [bestTime, setBestTime] = useState<{
-    best_times?: Array<{ day: string; time: string; timezone?: string; confidence?: string; avg_engagement_rate?: number }>
+    best_times?: Array<{ day: string; time: string; timezone?: string; confidence?: string; avg_engagement_rate?: number; sample_size?: number }>
     source?: string
     posts_analyzed?: number
   } | null>(null)
@@ -150,6 +151,38 @@ export default function AnalyticsPage() {
     [pipeline]
   )
 
+  // Follower chart: hide dead series (0 followers, no change — e.g. accounts the
+  // platform can't report) and label by @account so duplicate platforms
+  // (two linkedin / facebook accounts) get distinct names. Delta view
+  // normalizes each series to its starting point so small accounts' movement
+  // stays visible next to a large-account line.
+  const followerSeries = useMemo(() => {
+    const all = (followerData || []) as Array<{
+      platform: string
+      account?: string
+      current: number
+      change: number
+      series: Array<{ date: string; followers: number }>
+    }>
+    const live = all.filter((fp) => fp.current > 0 || fp.change !== 0)
+    const seenPlatforms = new Set<string>()
+    return live.map((fp, i) => {
+      const label = fp.account ? `@${fp.account}` : fp.platform
+      const base = fp.series.length > 0 ? fp.series[0].followers : 0
+      const points = fp.series.map((s) => ({
+        date: s.date,
+        followers: followerView === 'delta' ? s.followers - base : s.followers,
+      }))
+      // First series for a platform gets the platform brand color; later
+      // series for the same platform fall back to the generic palette so
+      // two LinkedIn/Facebook accounts render as distinct lines.
+      const brandColor = PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]
+      const color = seenPlatforms.has(fp.platform) ? COLORS[i % COLORS.length] : brandColor
+      seenPlatforms.add(fp.platform)
+      return { ...fp, label, points, color }
+    })
+  }, [followerData, followerView])
+
   if (overviewLoading) {
     return (
       <div className="space-y-6">
@@ -207,6 +240,15 @@ export default function AnalyticsPage() {
     ...p,
     color: PLATFORM_COLOR[p.platform] ?? COLORS[i % COLORS.length],
   })) || []) as (PlatformMetrics & { color: string })[]
+
+  // Chart views drop platforms with no measurable activity (zero impressions,
+  // engagement and published posts) — the table below still lists everything.
+  const activePlatformsByEngagement = [...platformMetrics]
+    .filter((p) => (p.total_impressions ?? 0) > 0 || (p.total_engagement ?? 0) > 0 || (p.published_count ?? 0) > 0)
+    .sort((a, b) => (b.total_engagement ?? 0) - (a.total_engagement ?? 0))
+  const activePlatformsByImpressions = [...platformMetrics]
+    .filter((p) => (p.total_impressions ?? 0) > 0)
+    .sort((a, b) => (b.total_impressions ?? 0) - (a.total_impressions ?? 0))
 
   const metrics = [
     {
@@ -970,7 +1012,8 @@ export default function AnalyticsPage() {
                       tickFormatter={(v) => { try { return format(new Date(v as string), 'MMM d') } catch { return v as string } }}
                       className="text-xs"
                     />
-                    <YAxis className="text-xs" allowDecimals={false} />
+                    <YAxis yAxisId="imp" className="text-xs" allowDecimals={false} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`} />
+                    <YAxis yAxisId="eng" orientation="right" className="text-xs" allowDecimals={false} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`} />
                     <Tooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
                       formatter={(value: number, name: string) => [
@@ -979,10 +1022,10 @@ export default function AnalyticsPage() {
                       ]}
                       labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
                     />
-                    <Area type="monotone" dataKey="impressions" stroke="#8b5cf6" strokeWidth={1.5} fillOpacity={1} fill="url(#impGrad)" name="impressions" />
-                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="value" />
+                    <Area yAxisId="imp" type="monotone" dataKey="impressions" stroke="#8b5cf6" strokeWidth={1.5} fillOpacity={1} fill="url(#impGrad)" name="impressions" />
+                    <Area yAxisId="eng" type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#engGrad)" name="value" />
                     {compareMode && (
-                      <Line type="monotone" dataKey="prev" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="prev" />
+                      <Line yAxisId="eng" type="monotone" dataKey="prev" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="prev" />
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
@@ -998,7 +1041,7 @@ export default function AnalyticsPage() {
             <CardDescription>Impressions and engagement per platform</CardDescription>
           </CardHeader>
           <CardContent>
-            {platformMetrics.length === 0 ? (
+            {activePlatformsByEngagement.length === 0 ? (
               <div style={{ height: '18rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem' }}>
                 <BarChart3 className="h-10 w-10 text-muted-foreground/30" />
                 <p className="text-sm font-medium text-muted-foreground">No platform data</p>
@@ -1007,7 +1050,7 @@ export default function AnalyticsPage() {
             ) : (
               <div style={{ height: '18rem' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={platformMetrics} layout="vertical">
+                  <BarChart data={activePlatformsByEngagement} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                     <XAxis type="number" className="text-xs" allowDecimals={false} />
                     <YAxis dataKey="platform" type="category" width={80} className="text-xs capitalize" />
@@ -1020,7 +1063,7 @@ export default function AnalyticsPage() {
                     />
                     <Bar dataKey="total_impressions" radius={[0, 4, 4, 0]} fill="#8b5cf6" fillOpacity={0.4} name="total_impressions" />
                     <Bar dataKey="total_engagement" radius={[0, 4, 4, 0]} name="total_engagement">
-                      {platformMetrics.map((p, i) => (
+                      {activePlatformsByEngagement.map((p, i) => (
                         <Cell key={`eng-${p.platform}-${i}`} fill={p.color} />
                       ))}
                     </Bar>
@@ -1034,14 +1077,35 @@ export default function AnalyticsPage() {
         {/* Follower Growth — full width time series */}
         <Card style={{ gridColumn: '1 / -1' }}>
           <CardHeader>
-            <CardTitle>Follower Growth</CardTitle>
-            <CardDescription>
-              Follower count over time per platform
-              {followerData && followerData.length > 0 && ` — ${followerData.length} platform${followerData.length > 1 ? 's' : ''}`}
-            </CardDescription>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardTitle>Follower Growth</CardTitle>
+                <CardDescription>
+                  Follower count over time per account
+                  {followerSeries.length > 0 && ` — ${followerSeries.length} account${followerSeries.length > 1 ? 's' : ''}`}
+                  {followerData && followerData.length > followerSeries.length && ` (${followerData.length - followerSeries.length} with no data hidden)`}
+                </CardDescription>
+              </div>
+              {followerSeries.length > 0 && (
+                <div className="flex items-center gap-1 rounded-lg border p-0.5">
+                  {(['absolute', 'delta'] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setFollowerView(v)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        followerView === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {v === 'absolute' ? 'Total' : 'Change'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {!followerData || followerData.length === 0 ? (
+            {followerSeries.length === 0 ? (
               <div style={{ height: '18rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem' }}>
                 <UserCheck className="h-10 w-10 text-muted-foreground/30" />
                 <p className="text-sm font-medium text-muted-foreground">No follower data yet</p>
@@ -1052,10 +1116,10 @@ export default function AnalyticsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart>
                     <defs>
-                      {followerData.map((fp, i) => (
-                        <linearGradient key={`grad-${fp.platform}-${i}`} id={`folGrad-${fp.platform}-${i}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0.25} />
-                          <stop offset="95%" stopColor={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]} stopOpacity={0} />
+                      {followerSeries.map((fp, i) => (
+                        <linearGradient key={`grad-${i}`} id={`folGrad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={fp.color} stopOpacity={0.25} />
+                          <stop offset="95%" stopColor={fp.color} stopOpacity={0} />
                         </linearGradient>
                       ))}
                     </defs>
@@ -1066,36 +1130,40 @@ export default function AnalyticsPage() {
                       className="text-xs"
                       allowDuplicatedCategory={false}
                     />
-                    <YAxis className="text-xs" allowDecimals={false} />
+                    <YAxis className="text-xs" allowDecimals={false} tickFormatter={(v: number) => followerView === 'delta' && v > 0 ? `+${v}` : `${v}`} />
                     <Tooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
-                      formatter={(value: number, name: string) => [value.toLocaleString(), name]}
+                      formatter={(value: number, name: string) => [
+                        followerView === 'delta' && value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString(),
+                        name,
+                      ]}
                       labelFormatter={(label: string) => { try { return format(new Date(label), 'MMM d, yyyy') } catch { return label } }}
                     />
-                    {followerData.map((fp, i) => (
+                    {followerSeries.map((fp, i) => (
                       <Area
-                        key={`area-${fp.platform}-${i}`}
+                        key={`area-${i}`}
                         type="monotone"
                         dataKey="followers"
-                        data={fp.series.map((s) => ({ date: s.date, followers: s.followers, platform: fp.platform }))}
-                        name={fp.platform}
-                        stroke={PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length]}
+                        data={fp.points}
+                        name={fp.label}
+                        stroke={fp.color}
                         strokeWidth={2}
                         fillOpacity={1}
-                        fill={`url(#folGrad-${fp.platform}-${i})`}
+                        fill={`url(#folGrad-${i})`}
                       />
                     ))}
                   </AreaChart>
                 </ResponsiveContainer>
                 {/* Follower summary chips */}
                 <div className="flex flex-wrap gap-3 mt-3">
-                  {followerData.map((fp, i) => (
-                    <div key={`chip-${fp.platform}-${i}`} className="flex items-center gap-2 text-xs">
+                  {followerSeries.map((fp, i) => (
+                    <div key={`chip-${i}`} className="flex items-center gap-2 text-xs">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: PLATFORM_COLOR[fp.platform] ?? COLORS[i % COLORS.length] }}
+                        style={{ backgroundColor: fp.color }}
                       />
-                      <span className="font-medium capitalize">{fp.platform}</span>
+                      <span className="font-medium">{fp.label}</span>
+                      <span className="text-muted-foreground/60 capitalize">{fp.platform}</span>
                       <span className="tabular-nums text-muted-foreground">{fp.current.toLocaleString()}</span>
                       {fp.change !== 0 && (
                         <span className={cn('tabular-nums', fp.change > 0 ? 'text-green-500' : 'text-red-500')}>
@@ -1117,7 +1185,7 @@ export default function AnalyticsPage() {
             <CardDescription>Total impressions for the selected period</CardDescription>
           </CardHeader>
           <CardContent>
-            {platformMetrics.length === 0 || platformMetrics.every(p => !p.total_impressions) ? (
+            {activePlatformsByImpressions.length === 0 ? (
               <div style={{ height: '18rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem' }}>
                 <BarChart3 className="h-10 w-10 text-muted-foreground/30" />
                 <p className="text-sm font-medium text-muted-foreground">No impressions data</p>
@@ -1126,7 +1194,7 @@ export default function AnalyticsPage() {
             ) : (
               <div style={{ height: '18rem' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={platformMetrics}>
+                  <BarChart data={activePlatformsByImpressions}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                     <XAxis dataKey="platform" className="text-xs capitalize" />
                     <YAxis className="text-xs" allowDecimals={false} />
@@ -1135,7 +1203,7 @@ export default function AnalyticsPage() {
                       formatter={(value: number) => [value.toLocaleString(), 'Impressions']}
                     />
                     <Bar dataKey="total_impressions" radius={[4, 4, 0, 0]}>
-                      {platformMetrics.map((p, i) => (
+                      {activePlatformsByImpressions.map((p, i) => (
                         <Cell key={`imp-${p.platform}-${i}`} fill={p.color} />
                       ))}
                     </Bar>
@@ -1254,6 +1322,11 @@ export default function AnalyticsPage() {
                     {w.avg_engagement_rate != null && (
                       <p className="text-xs text-muted-foreground mt-1">
                         {(w.avg_engagement_rate * 100).toFixed(1)}% avg engagement
+                      </p>
+                    )}
+                    {w.sample_size != null && (
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                        n={w.sample_size} post{w.sample_size === 1 ? '' : 's'}
                       </p>
                     )}
                     {w.timezone && (
@@ -1472,7 +1545,7 @@ export default function AnalyticsPage() {
             <div>
               <CardTitle>Cloudflare Infrastructure Analytics</CardTitle>
               <CardDescription>
-                Workers AI, Workers, R2, D1, KV, and Vectorize usage (free GraphQL API)
+                Workers AI, Workers, R2, D1, KV, Vectorize, and AI Gateway usage (free GraphQL API)
               </CardDescription>
             </div>
           </div>
@@ -1619,6 +1692,33 @@ export default function AnalyticsPage() {
                       <div key={d.database} className="flex items-center justify-between rounded-lg border p-3">
                         <span className="font-mono text-xs truncate max-w-[60%]">{d.database}</span>
                         <span className="tabular-nums text-sm">{d.queries.toLocaleString()} queries</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Gateway Breakdown */}
+              {cfOverview.ai_gateway && cfOverview.ai_gateway.by_gateway.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">
+                    AI Gateway — {cfOverview.ai_gateway.total_requests.toLocaleString()} requests
+                  </p>
+                  <div className="space-y-2">
+                    {cfOverview.ai_gateway.by_gateway.map((g) => (
+                      <div key={g.gateway} className="flex items-center justify-between rounded-lg border p-3">
+                        <span className="font-mono text-xs truncate max-w-[50%]">{g.gateway}</span>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="tabular-nums">{g.requests.toLocaleString()} req</span>
+                          {g.cached_tokens > 0 && (
+                            <span className="tabular-nums text-green-600" title="Cached tokens — free, no inference cost">
+                              {g.cached_tokens.toLocaleString()} cached
+                            </span>
+                          )}
+                          <span className="tabular-nums text-muted-foreground">
+                            {g.uncached_tokens.toLocaleString()} tokens
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
