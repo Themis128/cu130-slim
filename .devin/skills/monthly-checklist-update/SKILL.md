@@ -51,7 +51,24 @@ and announce it across all social channels. Run on the **1st of each month**
    | Instagram        | `38ddbd44-8811-4d0b-be62-a23fd2f50490`   | **Requires image** — generate via `/api/v1/ai/generate-image` first; caption points to "link in bio" |
    | Facebook Page    | `ad83c946-0f6b-4fbf-bc63-543d2c2237f5`  | Business voice, `link_url` to `/links` |
 
-6. **Verify** — confirm all 6 targets reach `status=published` with URLs.
+6. **Archive to Nextcloud** — version the PDF on the OMV workspace
+   (`/Marketing/checklist/`) via the `nextcloud-integration` skill's
+   `nextcloud-dav.py` tool:
+   ```bash
+   DAV=.devin/skills/nextcloud-integration/scripts/nextcloud-dav.py
+   # dated archive copy (append-only, never overwritten)
+   python3 $DAV upload ~/cloudless.gr/public/automation-checklist.pdf \
+     "Marketing/checklist/automation-checklist-$(date +%Y-%m).pdf"
+   # rolling 'latest' copy — overwriting preserves Nextcloud version history
+   python3 $DAV upload ~/cloudless.gr/public/automation-checklist.pdf \
+     Marketing/checklist/automation-checklist-latest.pdf
+   ```
+   `cloudless.gr/automation-checklist.pdf` stays the canonical public asset —
+   the Nextcloud copy is the internal versioned archive for the team. Create a
+   public share link (`nextcloud-dav.py share …`) only if a downloadable
+   tracked mirror is explicitly wanted.
+
+7. **Verify** — confirm all 6 targets reach `status=published` with URLs.
    Instagram permalink needs Graph API resolution (stored URL uses numeric ID).
 
 ## Gotchas

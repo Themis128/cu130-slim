@@ -1,0 +1,583 @@
+{
+  "id": "nextcloud-drop-to-draft",
+  "name": "Nextcloud Drop \u2192 SocialAuto Draft",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "sched-trigger",
+      "name": "Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nextcloud-drop-to-draft",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "manual-webhook",
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "nextcloud-drop-to-draft",
+      "position": [
+        -800,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Config defaults; webhook body overrides. Runs for both triggers.\nconst body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    dav_base: 'https://cloud.cloudless.gr/remote.php/dav/files/tbaltzakis@cloudless.gr',\n    inbox: '/SocialAuto/_inbox',\n    platform: body.platform || 'linkedin',\n    account_id: body.account_id || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n    tone: body.tone || 'professional, helpful, engineering-credible',\n    extra_prompt: body.prompt || ''\n  }\n}];"
+      },
+      "id": "resolve-config",
+      "name": "Resolve Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -580,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PROPFIND",
+        "url": "={{ $json.dav_base + $json.inbox + '/' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Depth",
+              "value": "1"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "list-inbox",
+      "name": "List Inbox (PROPFIND)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "BhySa4WVAQsuez9v",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "position": [
+        -360,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse PROPFIND multistatus \u2192 keep files only (skip dirs, processed/,\n// the folder itself). Emit one item per file with nc_path + nc_name.\nconst xml = typeof $json === 'string' ? $json : String($json.data ?? $json.body ?? JSON.stringify($json));\nconst prefix = '/remote.php/dav/files/tbaltzakis@cloudless.gr';\nconst hrefs = [...xml.matchAll(/d:href>([^<]+)</g)].map(m => decodeURIComponent(m[1]));\nconst out = [];\nfor (const h of hrefs) {\n  if (h.endsWith('/')) continue;                 // collections\n  if (h.includes('/processed/')) continue;       // already handled\n  const rel = h.startsWith(prefix) ? h.slice(prefix.length) : h;\n  const name = rel.split('/').pop();\n  if (!name) continue;\n  out.push({ json: { nc_path: rel, nc_name: name } });\n}\nreturn out;"
+      },
+      "id": "files-only",
+      "name": "Files Only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge file context with run config and precompute request bodies.\nconst cfg = $('Resolve Config').first().json;\nreturn $input.all().map(item => ({\n  json: {\n    ...cfg,\n    nc_path: item.json.nc_path,\n    nc_name: item.json.nc_name,\n    gen_prompt: 'Write a social post to accompany this visual asset. Filename/context: '\n      + item.json.nc_name + (cfg.extra_prompt ? ' ' + cfg.extra_prompt : '')\n  }\n}));"
+      },
+      "id": "file-context",
+      "name": "File Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "generate-totp",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "login-social",
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "login-ok",
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('File Context').item.json.dav_base + $('File Context').item.json.nc_path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-file",
+      "name": "Download File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "BhySa4WVAQsuez9v",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "position": [
+        620,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/media/upload' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "tags",
+              "value": "nextcloud-drop"
+            },
+            {
+              "name": "alt_text",
+              "value": "={{ $('File Context').item.json.nc_name }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "upload-media",
+      "name": "Upload to SocialAuto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('File Context').item.json.gen_prompt) }},\n  \"platform\": {{ JSON.stringify($('File Context').item.json.platform) }},\n  \"tone\": {{ JSON.stringify($('File Context').item.json.tone) }},\n  \"provider\": \"cloudflare\",\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "generate-copy",
+      "name": "Generate Copy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags || []) }},\n  \"media_ids\": {{ JSON.stringify([$('Upload to SocialAuto').item.json.id]) }},\n  \"target_account_ids\": {{ JSON.stringify([$('File Context').item.json.account_id]) }}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "create-draft",
+      "name": "Create Draft Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "MOVE",
+        "url": "={{ $('File Context').item.json.dav_base + $('File Context').item.json.nc_path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Destination",
+              "value": "={{ $('File Context').item.json.dav_base + '/SocialAuto/_inbox/processed/' + Date.now() + '-' + encodeURIComponent($('File Context').item.json.nc_name) }}"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "move-processed",
+      "name": "Move to Processed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "BhySa4WVAQsuez9v",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "position": [
+        1420,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const created = $('Create Draft Post').item.json;\nreturn [{ json: { status: 'draft_created', post_id: created.id || null, file: $('File Context').item.json.nc_name } }];"
+      },
+      "id": "normalize-result",
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "platform",
+              "name": "platform",
+              "value": "nextcloud-drop",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "login-failed",
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        620,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Every 15 min": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Config": {
+      "main": [
+        [
+          {
+            "node": "List Inbox (PROPFIND)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Inbox (PROPFIND)": {
+      "main": [
+        [
+          {
+            "node": "Files Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Files Only": {
+      "main": [
+        [
+          {
+            "node": "File Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Context": {
+      "main": [
+        [
+          {
+            "node": "Generate TOTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Upload to SocialAuto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to SocialAuto": {
+      "main": [
+        [
+          {
+            "node": "Generate Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Copy": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft Post": {
+      "main": [
+        [
+          {
+            "node": "Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Processed": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": [],
+  "active": false
+}
