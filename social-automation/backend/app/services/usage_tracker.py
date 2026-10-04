@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.log_sanitize import sanitize_log_text
 from app.models.ai_usage import AIUsageLog
 
 # Dedicated unpooled engine: Celery tasks run each job on a fresh event loop,
@@ -173,7 +174,7 @@ async def _check_daily_quota(
             )
             total = int(total_row.scalar() or 0)
             if total >= budget * 0.8:
-                safe_team = str(team_id).replace("\n", "").replace("\r", "")
+                safe_team = sanitize_log_text(str(team_id), max_len=80)
                 logger.warning(
                     "Daily Cloudflare neuron usage for team %s: %d / %d (%.0f%%) — budget alert",
                     safe_team,
@@ -182,4 +183,4 @@ async def _check_daily_quota(
                     (total / budget) * 100,
                 )
     except Exception as exc:
-        logger.warning("Quota check failed: %s", str(exc).replace("\n", "\\n").replace("\r", "\\r")[:400])
+        logger.warning("Quota check failed: %s", sanitize_log_text(str(exc)))

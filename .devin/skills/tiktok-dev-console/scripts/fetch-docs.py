@@ -36,17 +36,15 @@ class _TextOnly(HTMLParser):
             self.parts.append(data)
 
     def get_text(self) -> str:
-        """Return collapsed, whitespace-normalised plain text."""
-        words = " ".join(self.parts).split()
-        return " ".join(words[:600])
+        """Return collapsed, whitespace-normalised plain text (untruncated)."""
+        return " ".join(" ".join(self.parts).split())
 
 
 def _extract_text(raw_html: str) -> str:
     """Return visible text from *raw_html* using a proper HTML parser."""
     parser = _TextOnly()
     parser.feed(raw_html)
-    words = " ".join(parser.parts).split()
-    return " ".join(words[:600])
+    return parser.get_text()
 
 
 print("=== TikTok Content Posting API — Media Transfer Guide ===\n")

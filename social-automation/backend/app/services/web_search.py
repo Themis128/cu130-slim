@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.log_sanitize import sanitize_log_text
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,8 @@ async def web_search(
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:  # noqa: BLE001 — fail-soft, never block generation
-        safe_q = query[:80].replace("\n", "\\n").replace("\r", "\\r")
-        safe_e = str(exc).replace("\n", "\\n").replace("\r", "\\r")
+        safe_q = sanitize_log_text(query, max_len=80)
+        safe_e = sanitize_log_text(str(exc))
         logger.warning("SearXNG search failed for %r: %s", safe_q, safe_e)
         return []
 
