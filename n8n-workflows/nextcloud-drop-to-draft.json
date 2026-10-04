@@ -89,7 +89,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse PROPFIND multistatus \u2192 keep files only (skip dirs, processed/,\n// the folder itself). Emit one item per file with nc_path + nc_name.\nconst xml = typeof $json === 'string' ? $json : String($json.data ?? $json.body ?? JSON.stringify($json));\nconst prefix = '/remote.php/dav/files/tbaltzakis@cloudless.gr';\nconst hrefs = [...xml.matchAll(/d:href>([^<]+)</g)].map(m => decodeURIComponent(m[1]));\nconst out = [];\nfor (const h of hrefs) {\n  if (h.endsWith('/')) continue;                 // collections\n  if (h.includes('/processed/')) continue;       // already handled\n  const rel = h.startsWith(prefix) ? h.slice(prefix.length) : h;\n  const name = rel.split('/').pop();\n  if (!name) continue;\n  out.push({ json: { nc_path: rel, nc_name: name } });\n}\nreturn out;"
+        "jsCode": "// Parse PROPFIND multistatus \u2192 keep files only (skip dirs, processed/,\n// the folder itself). Emit one item per file with nc_path + nc_name.\nconst xml = typeof $json === 'string' ? $json : String($json.data ?? $json.body ?? JSON.stringify($json));\nconst prefix = '/remote.php/dav/files/tbaltzakis@cloudless.gr';\nconst hrefs = [...xml.matchAll(/d:href>([^<]+)</g)].map(m => decodeURIComponent(m[1]));\nconst out = [];\nfor (const h of hrefs) {\n  if (h.endsWith('/')) continue;                 // collections\n  if (h.includes('/processed/')) continue;       // already handled\n  if (h.includes('/failed/')) continue;          // previously failed\n  const rel = h.startsWith(prefix) ? h.slice(prefix.length) : h;\n  const name = rel.split('/').pop();\n  if (!name) continue;\n  out.push({ json: { nc_path: rel, nc_name: name } });\n}\nreturn out;"
       },
       "id": "files-only",
       "name": "Files Only",
@@ -221,7 +221,8 @@
       "position": [
         620,
         240
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -266,7 +267,8 @@
       "position": [
         820,
         240
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -295,7 +297,8 @@
       "position": [
         1020,
         240
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -324,7 +327,8 @@
       "position": [
         1220,
         240
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -407,6 +411,67 @@
       "position": [
         620,
         400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize per-item failure context from any upstream error output.\nconst fc = $('File Context').item.json;\nreturn $input.all().map(it => {\n  const j = it.json || {};\n  const src = j.nc_path ? j : fc;\n  return { json: {\n    nc_name: src.nc_name || 'unknown',\n    nc_path: src.nc_path || null,\n    dav_base: src.dav_base || fc.dav_base,\n    error_message: (j.error && (j.error.message || j.error.description)) || j.error || 'unknown error'\n  } };\n});\n"
+      },
+      "id": "route-failure",
+      "name": "Route Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "MOVE",
+        "url": "={{ $json.dav_base + ($json.nc_path || '') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Destination",
+              "value": "={{ $json.dav_base + '/SocialAuto/_inbox/failed/' + Date.now() + '-' + encodeURIComponent($json.nc_name) }}"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "move-failed",
+      "name": "Move to Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "p1dWdf8CJvHiQtmz",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "position": [
+        1420,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rf = $('Route Failure').item.json;\nreturn [{ json: { status: 'failed', file: rf.nc_name, error: rf.error_message } }];\n"
+      },
+      "id": "failure-result",
+      "name": "Failure Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        520
       ]
     }
   ],
@@ -525,6 +590,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Route Failure",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -533,6 +605,13 @@
         [
           {
             "node": "Generate Copy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route Failure",
             "type": "main",
             "index": 0
           }
@@ -547,6 +626,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Route Failure",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -555,6 +641,13 @@
         [
           {
             "node": "Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route Failure",
             "type": "main",
             "index": 0
           }
@@ -570,6 +663,33 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Route Failure": {
+      "main": [
+        [
+          {
+            "node": "Move to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Failed": {
+      "main": [
+        [
+          {
+            "node": "Failure Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure Result": {
+      "main": [
+        []
       ]
     }
   },
