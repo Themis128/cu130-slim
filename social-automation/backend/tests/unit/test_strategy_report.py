@@ -187,6 +187,35 @@ def test_agent_block_parses_destination_platform():
     assert item.media_required
 
 
+def test_agent_block_parses_leading_platform_prefix():
+    # "TikTok - 12:00 - Video - Repurpose the Instagram carousel ..." — the
+    # leading platform/format is the TARGET; "Instagram carousel" is only
+    # the source material and must not win platform or format.
+    item = _parse_playbook_item(
+        "TikTok - 12:00 - Video - Repurpose the Instagram carousel into a "
+        "30-second video, showcasing the speed boost."
+    )
+    assert item.platform == "tiktok"
+    assert item.time_athens == "12:00"
+    assert item.format == "video"
+    assert item.media_required
+
+    item = _parse_playbook_item(
+        "LinkedIn, 09:00, text — Share a short post about fast websites."
+    )
+    assert item.platform == "linkedin"
+    assert item.time_athens == "09:00"
+    assert item.format == "text"
+    assert not item.media_required
+
+    # A platform name at position 0 without a separator is just prose —
+    # must NOT be treated as a prefix (target is instagram via "to").
+    item = _parse_playbook_item(
+        "LinkedIn content repurposed to Instagram at 14:00 as an image"
+    )
+    assert item.platform == "instagram"
+
+
 def test_empty_report_still_renders():
     r = StrategyReport(generated_at=NOW, timezone="Europe/Athens", team_name="T")
     assert "publish consistently" in r.to_text()
