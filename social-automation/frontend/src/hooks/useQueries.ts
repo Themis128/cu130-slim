@@ -684,6 +684,7 @@ export function useFollowerGrowth(days?: number) {
     select: (response) => {
       const items = (response.data || []) as Array<{
         platform: string
+        account: string
         current: number
         change: number
         series: Array<{ date: string; followers: number }>

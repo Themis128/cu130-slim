@@ -760,14 +760,18 @@ async def _upsert_counter_events(
         "share": metrics.shares,
     }
     for event_type, count in mapping.items():
-        if count <= 0:
-            continue
         key = f"sync:{platform}:{platform_post_id}:{event_type}"[:200]
         existing = (
             await db.execute(
                 select(AnalyticsEvent).where(AnalyticsEvent.platform_event_id == key)
             )
         ).scalar_one_or_none()
+        if count <= 0:
+            # Metrics zeroed (e.g. repost gate) — a stale foreign count
+            # must not keep scoring.
+            if existing:
+                await db.delete(existing)
+            continue
         meta = {
             "count": int(count),
             "source": "platform_sync",
@@ -832,6 +836,45 @@ async def _persist_snapshot(
         if latest_note == metrics.notes:
             result.skipped += 1
             return
+    # ── Pre-processing gate ───────────────────────────────────────────
+    # 1) Repost/reshare cards scraped from feeds carry the ORIGINAL
+    #    author's counters (documented: LinkedIn reshare 'engagement' and
+    #    'reaction_counts' are the original's totals; X retweets embed the
+    #    source tweet). Upstream parsers flag raw['is_repost'] — zero the
+    #    foreign numbers here so nothing downstream can count them.
+    if metrics.raw.get("is_repost"):
+        metrics = MetricBundle(
+            impressions=0, clicks=0, likes=0, comments=0, shares=0, reach=0,
+            raw=metrics.raw, notes=metrics.notes,
+        )
+    # 2) No-change dedup: an identical-metric snapshot within 24h carries
+    #    zero information (the x_web scrape wrote one tweet 11x in a row).
+    latest_metrics = (
+        await db.execute(
+            select(
+                PostAnalyticsSnapshot.impressions,
+                PostAnalyticsSnapshot.clicks,
+                PostAnalyticsSnapshot.likes,
+                PostAnalyticsSnapshot.comments,
+                PostAnalyticsSnapshot.shares,
+            )
+            .where(
+                PostAnalyticsSnapshot.social_account_id == account.id,
+                PostAnalyticsSnapshot.platform_post_id == platform_post_id,
+                PostAnalyticsSnapshot.source == source,
+                PostAnalyticsSnapshot.captured_at
+                >= captured_at - timedelta(hours=24),
+            )
+            .order_by(PostAnalyticsSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if latest_metrics and tuple(latest_metrics) == (
+        metrics.impressions, metrics.clicks, metrics.likes,
+        metrics.comments, metrics.shares,
+    ):
+        result.skipped += 1
+        return
     snap = PostAnalyticsSnapshot(
         team_id=account.team_id,
         post_id=post_id,
@@ -882,6 +925,68 @@ def _plausible_follower_count(prev: int | None, new: int) -> bool:
     if prev >= 100 and new < prev * 0.5:
         return False
     return True
+
+
+_FOLLOWER_HEARTBEAT = timedelta(days=7)
+
+
+async def _record_follower_snapshot(
+    db: AsyncSession,
+    account: SocialAccount,
+    platform: str,
+    followers: int,
+) -> bool:
+    """Append a FollowerSnapshot only when the count changed (or heartbeat).
+
+    Every sync + several per-platform paths used to write a row each run —
+    ~8 rows/hour/account of identical values, bloating the series. Now the
+    table is a change log: one row per real delta, plus one heartbeat row
+    every 7 days so charts keep a recent anchor. Returns True if written.
+    """
+    if followers <= 0:
+        return False
+    prev_row = (
+        await db.execute(
+            select(FollowerSnapshot.followers, FollowerSnapshot.captured_at)
+            .where(
+                FollowerSnapshot.social_account_id == account.id,
+                FollowerSnapshot.followers > 0,
+            )
+            .order_by(FollowerSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).first()
+    prev = prev_row[0] if prev_row else None
+    prev_at = prev_row[1] if prev_row else None
+    if not _plausible_follower_count(prev, followers):
+        return False
+    if (
+        prev == followers
+        and prev_at is not None
+        and datetime.now(UTC) - prev_at < _FOLLOWER_HEARTBEAT
+    ):
+        return False
+    db.add(FollowerSnapshot(
+        team_id=account.team_id,
+        social_account_id=account.id,
+        platform=platform,
+        followers=followers,
+    ))
+    return True
+
+
+_REPOST_MARKERS = ("reposted this", " reposted\n", "reposted by ")
+
+
+def _is_repost_scrape_text(text: str | None) -> bool:
+    """Activity-feed scrapes render repost cards as 'X reposted this' — those
+    cards carry the ORIGINAL author's engagement (LinkedIn/SocialCrawl doc:
+    reshare 'engagement'/'reaction_counts' are the original's totals), so
+    persisting them as our metrics lies about our performance."""
+    if not text:
+        return False
+    head = text[:300].lower()
+    return any(m in head for m in _REPOST_MARKERS)
 
 
 async def sync_linkedin_account(
@@ -974,27 +1079,14 @@ async def sync_linkedin_account(
                         raw={
                             "scrape": item,
                             "profile_url": activity.get("profile_url"),
+                            "is_repost": _is_repost_scrape_text(item.get("text")),
                         },
                     )
                 followers = activity.get("followers")
                 # A logged-out scrape yields 0, not None — persisting it would
                 # poison the series (first real count then reads as a huge gain).
                 if followers:
-                    prev = await db.scalar(
-                        select(FollowerSnapshot.followers)
-                        .where(
-                            FollowerSnapshot.social_account_id == account.id,
-                            FollowerSnapshot.followers > 0,
-                        )
-                        .order_by(FollowerSnapshot.captured_at.desc())
-                        .limit(1)
-                    )
-                    if _plausible_follower_count(prev, int(followers)):
-                        db.add(FollowerSnapshot(
-                            team_id=account.team_id,
-                            social_account_id=account.id,
-                            platform="linkedin", followers=int(followers),
-                        ))
+                    await _record_follower_snapshot(db, account, "linkedin", int(followers))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
                 stats_map.update({
                     urn: MetricBundle(notes="member_stats_not_implemented")
@@ -1092,20 +1184,7 @@ async def sync_linkedin_account(
             # Follower demographics + growth (r_organization_social).
             total_followers = int(follower_stats.get("total_followers") or 0)
             if total_followers:
-                prev = await db.scalar(
-                    select(FollowerSnapshot.followers)
-                    .where(
-                        FollowerSnapshot.social_account_id == account.id,
-                        FollowerSnapshot.followers > 0,
-                    )
-                    .order_by(FollowerSnapshot.captured_at.desc())
-                    .limit(1)
-                )
-                if _plausible_follower_count(prev, total_followers):
-                    db.add(FollowerSnapshot(
-                        team_id=account.team_id, social_account_id=account.id,
-                        platform="linkedin", followers=total_followers,
-                    ))
+                await _record_follower_snapshot(db, account, "linkedin", total_followers)
             await _persist_snapshot(
                 db, account=account, post_id=None,
                 platform_post_id=org,
@@ -1274,6 +1353,8 @@ async def _persist_x_web_analytics(
                 "bookmarks": m.bookmarks,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
                 "text": m.text,
+                "author": m.author,
+                "is_repost": m.is_repost,
             },
         )
         await _persist_snapshot(
@@ -1292,10 +1373,7 @@ async def _persist_x_web_analytics(
                 "source": web.source,
             },
         )
-        db.add(FollowerSnapshot(
-            team_id=account.team_id, social_account_id=account.id,
-            platform="twitter", followers=int(web.followers),
-        ))
+        await _record_follower_snapshot(db, account, "twitter", int(web.followers))
     for err in web.errors[:3]:
         result.errors.append(f"twitter x_web: {err}"[:300])
 
@@ -1463,10 +1541,7 @@ async def sync_twitter_account(
                 followers = scraped.get("followers")
                 # Same guard as the LinkedIn scrape — 0 means the scrape failed.
                 if followers:
-                    db.add(FollowerSnapshot(
-                        team_id=account.team_id, social_account_id=account.id,
-                        platform="twitter", followers=int(followers),
-                    ))
+                    await _record_follower_snapshot(db, account, "twitter", int(followers))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
                 result.errors.append(f"twitter timeline scrape: {exc}")
 
@@ -1661,20 +1736,7 @@ async def sync_facebook_account(
             )
             followers = stats.get("followers")
             if followers:
-                prev = await db.scalar(
-                    select(FollowerSnapshot.followers)
-                    .where(
-                        FollowerSnapshot.social_account_id == account.id,
-                        FollowerSnapshot.followers > 0,
-                    )
-                    .order_by(FollowerSnapshot.captured_at.desc())
-                    .limit(1)
-                )
-                if _plausible_follower_count(prev, int(followers)):
-                    db.add(FollowerSnapshot(
-                        team_id=account.team_id, social_account_id=account.id,
-                        platform="facebook", followers=int(followers),
-                    ))
+                await _record_follower_snapshot(db, account, "facebook", int(followers))
             trend = {k: v for k, v in stats.items() if isinstance(v, int)}
             if trend:
                 _persist_account_event(
@@ -2822,25 +2884,6 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
         from app.api.analytics import _follower_count
 
         followers = await _follower_count(account)
-        if followers <= 0:
-            return
-        prev = await db.scalar(
-            select(FollowerSnapshot.followers)
-            .where(
-                FollowerSnapshot.social_account_id == account.id,
-                FollowerSnapshot.followers > 0,
-            )
-            .order_by(FollowerSnapshot.captured_at.desc())
-            .limit(1)
-        )
-        if not _plausible_follower_count(prev, followers):
-            return
-        snap = FollowerSnapshot(
-            team_id=account.team_id,
-            social_account_id=account.id,
-            platform=account.platform,
-            followers=followers,
-        )
-        db.add(snap)
+        await _record_follower_snapshot(db, account, account.platform, followers)
     except Exception:
         pass  # follower tracking is best-effort

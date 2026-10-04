@@ -526,21 +526,101 @@ async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
     }
 
 
+async def get_ai_gateway_usage(days: int = 7) -> dict[str, Any]:
+    """Fetch AI Gateway request metrics.
+
+    Dataset: aiGatewayRequestsAdaptiveGroups — request counts + token sums
+    per gateway/provider/model. Free tier; returns empty when no gateway
+    traffic exists yet.
+    """
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    query = """
+    query GetAIGatewayUsage($accountTag: string!,
+                            $datetimeStart: string!,
+                            $datetimeEnd: string!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          aiGatewayRequestsAdaptiveGroups(
+            limit: 10000
+            filter: {datetime_geq: $datetimeStart,
+                     datetime_leq: $datetimeEnd}
+          ) {
+            count
+            sum {
+              cachedTokensIn cachedTokensOut
+              uncachedTokensIn uncachedTokensOut
+            }
+            dimensions { gateway provider model }
+          }
+        }
+      }
+    }
+    """
+    data = await _graphql_query(query, {
+        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    })
+    empty = {"total_requests": 0, "by_gateway": [], "by_provider": []}
+    if not data:
+        return empty
+    accounts = data.get("viewer", {}).get("accounts", [])
+    if not accounts:
+        return empty
+
+    rows = accounts[0].get("aiGatewayRequestsAdaptiveGroups", [])
+    by_gateway: dict[str, dict] = {}
+    by_provider: dict[str, int] = {}
+    total = 0
+    for row in rows:
+        cnt = int(row.get("count") or 0)
+        dims = row.get("dimensions", {})
+        gw = dims.get("gateway") or "unknown"
+        prov = dims.get("provider") or "unknown"
+        model = dims.get("model") or "unknown"
+        total += cnt
+        g = by_gateway.setdefault(gw, {
+            "gateway": gw, "requests": 0, "models": {},
+            "cached_tokens": 0, "uncached_tokens": 0,
+        })
+        g["requests"] += cnt
+        g["models"][model] = g["models"].get(model, 0) + cnt
+        s = row.get("sum", {})
+        g["cached_tokens"] += int(s.get("cachedTokensIn") or 0) + int(s.get("cachedTokensOut") or 0)
+        g["uncached_tokens"] += int(s.get("uncachedTokensIn") or 0) + int(s.get("uncachedTokensOut") or 0)
+        by_provider[prov] = by_provider.get(prov, 0) + cnt
+    for g in by_gateway.values():
+        g["models"] = [
+            {"model": m, "requests": c}
+            for m, c in sorted(g["models"].items(), key=lambda x: -x[1])
+        ]
+    return {
+        "total_requests": total,
+        "by_gateway": sorted(by_gateway.values(), key=lambda x: -x["requests"]),
+        "by_provider": [
+            {"provider": p, "requests": c}
+            for p, c in sorted(by_provider.items(), key=lambda x: -x[1])
+        ],
+    }
+
+
 async def get_cf_overview(days: int = 7) -> dict[str, Any]:
     """Fetch a combined Cloudflare analytics overview.
 
     Aggregates Workers AI, Workers invocations, R2, D1, KV,
-    and Vectorize metrics into a single response for dashboards.
-    Queries run concurrently; individual dataset failures return empty
-    sections rather than failing the whole overview.
+    Vectorize, and AI Gateway metrics into a single response for
+    dashboards. Queries run concurrently; individual dataset failures
+    return empty sections rather than failing the whole overview.
     """
-    ai, workers, r2, d1, kv, vectorize = await asyncio.gather(
+    ai, workers, r2, d1, kv, vectorize, ai_gw = await asyncio.gather(
         get_workers_ai_usage(days),
         get_workers_invocations(days),
         get_r2_usage(days),
         get_d1_usage(days),
         get_kv_usage(days),
         get_vectorize_usage(days),
+        get_ai_gateway_usage(days),
     )
 
     free_ai_limit = 10000 * days
@@ -579,5 +659,10 @@ async def get_cf_overview(days: int = 7) -> dict[str, Any]:
             "total_vectors_queried": vectorize["total_vectors_queried"],
             "total_vectors_inserted": vectorize["total_vectors_inserted"],
             "by_index": vectorize["by_index"],
+        },
+        "ai_gateway": {
+            "total_requests": ai_gw["total_requests"],
+            "by_gateway": ai_gw["by_gateway"],
+            "by_provider": ai_gw["by_provider"],
         },
     }

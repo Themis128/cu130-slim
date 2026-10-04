@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Integer, case, cast, func, select
+from sqlalchemy import Integer, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -58,8 +58,12 @@ def _athens_day_expr(column=None):
 def _engagement_sum(event_counts: dict[str, int]) -> int:
     return sum(event_counts.get(e, 0) for e in ENGAGEMENT_TYPES)
 
-def _engagement_rate(engagement: int, impressions: int) -> float:
-    return engagement / impressions if impressions > 0 else 0.0
+def _engagement_rate(engagement: int, impressions: int, reach: int = 0) -> float:
+    """ERR convention: prefer impressions; fall back to reach when the
+    platform doesn't report impressions (X free tier, some scrapes).
+    Zero denominator → 0.0, never a fabricated percentage."""
+    denominator = impressions if impressions > 0 else reach
+    return engagement / denominator if denominator > 0 else 0.0
 
 _SCRAPE_POSTED_RE = re.compile(r"^\d+\s*(?:mo|[smhdwy])\b.*•", re.IGNORECASE)
 _SCRAPE_CHROME_RE = re.compile(
@@ -396,6 +400,20 @@ def _latest_snapshot_ids_subq(
         # Exclude org-lifetime aggregates from post rankings
         filters.append(PostAnalyticsSnapshot.source != "linkedin_org_lifetime")
         filters.append(PostAnalyticsSnapshot.platform_post_id.isnot(None))
+        # Repost/reshare cards carry the ORIGINAL author's counters —
+        # flagged raw.is_repost by the sync pre-processing gate.
+        filters.append(
+            PostAnalyticsSnapshot.raw["is_repost"].astext.is_distinct_from("true")
+        )
+        # X scrapes persisted before author detection carry foreign
+        # timeline stats with no attribution — only post-fix rows (which
+        # always store raw.author) are trustworthy.
+        filters.append(
+            or_(
+                PostAnalyticsSnapshot.source.notlike("x_web_%"),
+                PostAnalyticsSnapshot.raw.has_key("author"),  # noqa: W601
+            )
+        )
     ranked = (
         select(
             PostAnalyticsSnapshot.id,
@@ -487,6 +505,7 @@ class FollowerSeriesPoint(BaseModel):
 
 class FollowerSeries(BaseModel):
     platform: str
+    account: str = ""
     current: int
     change: int
     series: list[FollowerSeriesPoint]
@@ -499,7 +518,7 @@ class PlatformMetrics(BaseModel):
     scheduled_count: int
     total_engagement: int
     total_impressions: int
-    engagement_rate: float
+    engagement_rate: float | None
 
 
 class PipelineQueueStats(BaseModel):
@@ -996,7 +1015,9 @@ async def get_top_posts(team_id: TeamId,
                 platform=snap.platform,
                 impressions=snap.impressions,
                 engagement=snap.engagement,
-                engagement_rate=snap.engagement_rate,
+                engagement_rate=_engagement_rate(
+                    snap.engagement, snap.impressions, snap.reach or 0
+                ),
                 published_at=None,
                 external_url=None
                 if snap.post_id
@@ -1222,6 +1243,7 @@ async def get_follower_counts(team_id: TeamId,
 
         result.append(FollowerSeries(
             platform=account.platform,
+            account=account.username or "",
             current=current,
             change=change,
             series=series,
@@ -1241,7 +1263,10 @@ async def get_platform_metrics(team_id: TeamId,
     since = datetime.now(UTC) - timedelta(days=days)
 
     accounts_result = await db.execute(
-        select(SocialAccount).where(SocialAccount.team_id == team.id)
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status != "revoked",
+        )
     )
     accounts = accounts_result.scalars().all()
     platforms_seen = {a.platform for a in accounts}
@@ -1291,6 +1316,7 @@ async def get_platform_metrics(team_id: TeamId,
         select(
             PostAnalyticsSnapshot.platform,
             func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
+            func.sum(PostAnalyticsSnapshot.reach).label("reach"),
             func.sum(PostAnalyticsSnapshot.engagement).label("eng"),
         ).where(
             PostAnalyticsSnapshot.id.in_(
@@ -1299,8 +1325,12 @@ async def get_platform_metrics(team_id: TeamId,
         ).group_by(PostAnalyticsSnapshot.platform)
     )
     snap_by_platform: dict[str, dict[str, int]] = {}
-    for plat, imp, eng in snap_rows.all():
-        snap_by_platform[plat] = {"impressions": int(imp or 0), "engagement": int(eng or 0)}
+    for plat, imp, reach, eng in snap_rows.all():
+        snap_by_platform[plat] = {
+            "impressions": int(imp or 0),
+            "reach": int(reach or 0),
+            "engagement": int(eng or 0),
+        }
 
     metrics: list[PlatformMetrics] = []
     for platform in platforms_seen:
@@ -1318,7 +1348,13 @@ async def get_platform_metrics(team_id: TeamId,
                 scheduled_count=counts["scheduled"],
                 total_engagement=engagement,
                 total_impressions=impressions,
-                engagement_rate=_engagement_rate(engagement, impressions),
+                # Null when no platform denominator exists — the UI shows
+                # "—" rather than a fabricated 0%.
+                engagement_rate=(
+                    _engagement_rate(engagement, impressions, snaps.get("reach", 0))
+                    if impressions > 0 or snaps.get("reach", 0) > 0
+                    else None
+                ),
             )
         )
     return metrics
@@ -1461,7 +1497,10 @@ async def get_publish_pipeline(team_id: TeamId,
             SocialAccount.username,
             SocialAccount.status,
             SocialAccount.token_expires_at,
-        ).where(SocialAccount.team_id == team.id)
+        ).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status != "revoked",
+        )
         .order_by(SocialAccount.platform)
     )
     accounts = [

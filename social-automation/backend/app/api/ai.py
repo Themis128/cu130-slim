@@ -2015,6 +2015,9 @@ async def best_time_to_post(
             PostAnalyticsSnapshot.social_account_id == account.id,
             PostAnalyticsSnapshot.team_id == team_id,
             Post.published_at.is_not(None),
+            # Repost cards carry the original author's counters — exclude
+            # them so they don't skew the window ranking.
+            PostAnalyticsSnapshot.raw["is_repost"].astext.is_distinct_from("true"),
         )
         .group_by(Post.id, Post.published_at)
     )

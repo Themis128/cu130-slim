@@ -188,8 +188,8 @@ export interface PlatformMetrics {
   scheduled_count: number
   total_impressions: number
   total_engagement: number
-  /** Ratio 0–1 from API */
-  engagement_rate: number
+  /** Ratio 0–1 from API — null when the platform reports no impressions/reach denominator */
+  engagement_rate: number | null
 }
 
 /** Live publishing pipeline from GET /analytics/pipeline */
@@ -319,6 +319,17 @@ export interface CloudflareOverview {
   vectorize: {
     total_queries: number
     by_index: Array<{ index: string; queries: number }>
+  }
+  ai_gateway: {
+    total_requests: number
+    by_gateway: Array<{
+      gateway: string
+      requests: number
+      models: Array<{ model: string; requests: number }>
+      cached_tokens: number
+      uncached_tokens: number
+    }>
+    by_provider: Array<{ provider: string; requests: number }>
   }
 }
 
