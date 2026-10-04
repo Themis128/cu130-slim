@@ -173,6 +173,221 @@ def _x_quota_skip_result(detail: str | None = None) -> PublishResult:
         ),
     )
 
+
+# ── media pre-flight (safety net) ────────────────────────────────────────────
+# Background: the 2026-10-04 digest showed distorted AI-generated assets
+# reaching production feeds (FLUX-generation settings sent to the local
+# SD 1.5 model — fixed in #301) and IG targets burning retries on text-only
+# posts. This pre-flight runs BEFORE any platform dispatch and fails soft
+# (skipped=True) so the queue records a clear reason instead of shipping
+# broken media or burning attempts.
+#
+# The rules mirror the platform APIs' published media constraints (checked
+# 2026-10-04 against Meta Content Publishing docs, TikTok Content Posting
+# API, X media/upload limits, LinkedIn document posts, Threads API):
+#   instagram: JPG/PNG, ratio 4:5–1.91:1, min 320px, ≤1440px wide, ≤8MB,
+#              carousel ≤10 items, ≤100 API posts/24h
+#   tiktok:    single video (MP4/MOV ≤10min) OR photo carousel (≤35 images)
+#   linkedin:  images ≤6024px; PDF document carousels (≤300 pages, ≤100MB)
+#   facebook:  Page photos JPG/PNG, min 200px
+#   twitter:   images ≤5MB each, ≤4 per tweet, JPG/PNG/WEBP
+#   threads:   carousels ≤20 children, images ≤1920px wide, JPG/PNG/GIF
+# Keep this table and notebooks/media_validation.ipynb in sync.
+
+MIN_IMAGE_BYTES = 10 * 1024   # below this it's a placeholder or truncated file
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+VIDEO_EXTS_ALL = (".mp4", ".mov", ".webm", ".avi")
+
+_PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
+    # required: platform has no text-only feed posts → empty media = skip
+    "instagram": {
+        "required": True, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png"),
+        "min_dim": 320, "max_dim": 1440, "max_bytes": 8 * 1024 * 1024,
+        "ratio_min": 4 / 5, "ratio_max": 1.91, "max_count": 10,
+    },
+    "tiktok": {
+        "required": True, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
+        "min_dim": 360, "max_dim": 4096, "max_bytes": 1024 * 1024 * 1024,
+        "ratio_min": None, "ratio_max": None, "max_count": 35,
+    },
+    "linkedin": {
+        "required": False, "allow_pdf": True,
+        "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
+        "min_dim": 200, "max_dim": 6024, "max_bytes": 100 * 1024 * 1024,
+        "ratio_min": None, "ratio_max": None, "max_count": 20,
+    },
+    "facebook": {
+        "required": False, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
+        "min_dim": 200, "max_dim": 4096, "max_bytes": 10 * 1024 * 1024,
+        "ratio_min": None, "ratio_max": None, "max_count": 10,
+    },
+    "twitter": {
+        "required": False, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
+        "min_dim": 200, "max_dim": 8192, "max_bytes": 5 * 1024 * 1024,
+        "ratio_min": None, "ratio_max": None, "max_count": 4,
+    },
+    "threads": {
+        "required": False, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
+        "min_dim": 200, "max_dim": 1920, "max_bytes": 100 * 1024 * 1024,
+        "ratio_min": None, "ratio_max": None, "max_count": 20,
+    },
+}
+
+
+def _skipped_media_result(reason: str) -> PublishResult:
+    return PublishResult(success=False, skipped=True, error=reason)
+
+
+def validate_media_for_platform(
+    platform: str, media_paths: list[str]
+) -> PublishResult | None:
+    """Pre-flight every media file against the target platform's constraints.
+
+    Returns a ``skipped`` PublishResult when the media cannot publish
+    correctly on ``platform`` (missing required media, corrupt/unparseable
+    file, dimensions or type out of bounds), or ``None`` when publishing may
+    proceed. Deterministic problems only — this never blocks on content
+    quality; use the media-notebooks QA flow (DMR VLM caption match) for
+    semantic checks.
+    """
+    rules = _PLATFORM_MEDIA_RULES.get(platform)
+    if rules is None:
+        return None  # unknown platform — let the dispatcher handle it
+
+    if not media_paths:
+        if rules["required"]:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"{platform.capitalize()} has no text-only feed posts — attach "
+                    "at least one image/video or remove the target."
+                ),
+            )
+        return None  # text-only is fine on this platform
+
+    if len(media_paths) > rules["max_count"]:
+        return _skipped_media_result(
+            f"{platform.capitalize()} accepts at most {rules['max_count']} media "
+            f"items per post — got {len(media_paths)}. Reduce the media count."
+        )
+
+    for path in media_paths:
+        lower = path.lower()
+        name = os.path.basename(path)
+
+        if lower.endswith(".pdf"):
+            if not rules["allow_pdf"]:
+                return PublishResult(
+                    success=False,
+                    skipped=True,
+                    error=(
+                        f"{platform.capitalize()} does not accept PDF media "
+                        f"({os.path.basename(path)}). Attach an image/video or "
+                        "remove the target."
+                    ),
+                )
+            continue  # PDF carousels are a LinkedIn feature; content checked there
+
+        if not os.path.exists(path):
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"Media file missing from storage: {os.path.basename(path)} — "
+                    "re-upload the asset or remove the target."
+                ),
+            )
+        try:
+            size = os.path.getsize(path)
+        except OSError as exc:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=f"Media file unreadable ({exc}) — re-upload the asset.",
+            )
+        if size < MIN_IMAGE_BYTES:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"Media file {os.path.basename(path)} is only {size} bytes — "
+                    "likely a truncated or placeholder upload. Re-upload the asset."
+                ),
+            )
+        if size > rules["max_bytes"]:
+            return _skipped_media_result(
+                f"Media {name} is {size // 1024}KB — above {platform.capitalize()}'s "
+                f"limit ({rules['max_bytes'] // (1024 * 1024)}MB). Compress or resize."
+            )
+        if lower.endswith(VIDEO_EXTS_ALL):
+            # Video constraints (fps/duration/codec) are platform-specific and
+            # validated by the dedicated paths (validate_tiktok_video_constraints,
+            # browser sidecars) — pixel checks below apply to stills only.
+            continue
+
+        try:
+            from PIL import Image
+
+            with Image.open(path) as im:
+                im.verify()  # catches truncation/corruption without a full decode
+            with Image.open(path) as im:
+                width, height = im.size
+        except Exception as exc:  # noqa: BLE001 — any parse failure is a bad asset
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"Media file {os.path.basename(path)} is not a decodable image "
+                    f"({type(exc).__name__}) — re-upload the asset."
+                ),
+            )
+        if width < rules["min_dim"] or height < rules["min_dim"]:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"Media {os.path.basename(path)} is {width}x{height}px — below "
+                    f"{platform.capitalize()}'s minimum {rules['min_dim']}px. "
+                    "Upload a larger rendition."
+                ),
+            )
+        if width > rules["max_dim"] or height > rules["max_dim"]:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    f"Media {os.path.basename(path)} is {width}x{height}px — above "
+                    f"{platform.capitalize()}'s limit {rules['max_dim']}px. "
+                    "Downscale the rendition."
+                ),
+            )
+        ratio = width / height
+        if rules["ratio_min"] and ratio < rules["ratio_min"]:
+            return _skipped_media_result(
+                f"Media {name} is {width}x{height}px — {platform.capitalize()} "
+                f"requires aspect ratio between {rules['ratio_min']:.2f} and "
+                f"{rules['ratio_max']:.2f} (width/height). Crop or pad the image."
+            )
+        if rules["ratio_max"] and ratio > rules["ratio_max"]:
+            return _skipped_media_result(
+                f"Media {name} is {width}x{height}px — {platform.capitalize()} "
+                f"requires aspect ratio between {rules['ratio_min']:.2f} and "
+                f"{rules['ratio_max']:.2f} (width/height). Crop or pad the image."
+            )
+        if not lower.endswith(rules["formats"]):
+            return _skipped_media_result(
+                f"Media {name} has a format {platform.capitalize()} does not accept "
+                f"(allowed: {', '.join(rules['formats'])}). Re-export the asset."
+            )
+    return None
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 async def publish_to_platform(
@@ -240,6 +455,13 @@ async def publish_to_platform(
 
     media_paths = await _resolve_media_paths(post, db)
     storage_paths = await _resolve_media_storage_paths(post, db)
+
+    # Media pre-flight (safety net): never dispatch to a platform with media
+    # that cannot publish correctly. Failures here are deterministic content/
+    # config gaps — skipped, not retried.
+    media_check = validate_media_for_platform(account.platform, media_paths)
+    if media_check is not None:
+        return media_check
 
     # If the post has a music asset and a single video, mix the audio in
     music_path = await _resolve_music_path(post, db)
