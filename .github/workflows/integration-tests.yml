@@ -15,6 +15,7 @@ name: Full Stack Integration Tests
       - 'docs/CODEMAP.md'
       - 'docs/application-architecture.md'
       - 'AGENTS.md'
+      - 'README.md'
   pull_request:
     branches: [master]
     paths:
@@ -28,6 +29,7 @@ name: Full Stack Integration Tests
       - 'docs/CODEMAP.md'
       - 'docs/application-architecture.md'
       - 'AGENTS.md'
+      - 'README.md'
   workflow_dispatch:
 
 permissions:
