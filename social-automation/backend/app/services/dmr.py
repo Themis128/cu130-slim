@@ -674,23 +674,35 @@ async def warmup_models() -> None:
         # VRAM guarantees the 8B load aborts and wastes the keep-alive slot.
         models_to_warm = [m for m in [getattr(settings, "DMR_MID_MODEL", "")] if m]
 
+        # Rough resident-size estimates (MiB, weights + KV at configured ctx)
+        _WARM_ESTIMATE = {"8b": 5500, "4b": 2700, "vl": 5000, "embedding": 1200, "smollm3": 2000, "3.2": 2200}
+
+        def _est(model: str) -> int:
+            low = model.lower()
+            return next((v for k, v in _WARM_ESTIMATE.items() if k in low), 3000)
+
+        vram = await _get_vram_info()
+        free_mb = vram.get("free", 0) if vram else 1 << 20  # unknown → let heal path arbitrate
+        budget_mb = free_mb - _est(getattr(settings, "DMR_MID_MODEL", "") or "")
+
+        # 8B text model only when the shared GPU has room after the mid model —
+        # DMR doesn't auto-unload (docker/model-runner#1014), so warming both
+        # while ComfyUI holds VRAM just queues doomed loads.
         text_model = settings.DMR_TEXT_MODEL
         if text_model not in models_to_warm:
-            vram = await _get_vram_info()
-            # ~5.5GB for the 8B at ctx 6144 + ~1GB headroom for ComfyUI churn
-            if vram is None or vram.get("free", 0) >= 6500:
+            if budget_mb >= _est(text_model) + 1000:  # +1GB headroom
                 models_to_warm.append(text_model)
+                budget_mb -= _est(text_model)
             else:
                 logger.info(
-                    "DMR warmup: skipping %s — only %dMB free (needs ~6.5GB)",
-                    text_model, vram.get("free", 0),
+                    "DMR warmup: skipping %s — only %dMB free after mid model",
+                    text_model, budget_mb,
                 )
 
-        # Vision model is large — only warm if VRAM allows AND we have headroom
-        if await _has_vram_for_model(settings.DMR_VISION_MODEL):
-            free_mb = _state.vram.get("free", 0)
-            if free_mb > 6000:  # Need ~5GB for vision model + headroom
-                models_to_warm.append(settings.DMR_VISION_MODEL)
+        # Vision model is large — only warm on the leftover budget
+        vision = settings.DMR_VISION_MODEL
+        if budget_mb >= _est(vision) + 1000:
+            models_to_warm.append(vision)
 
         for model in models_to_warm:
             try:
