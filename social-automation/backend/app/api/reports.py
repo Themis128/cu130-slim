@@ -10,6 +10,7 @@ and trigger a run without waiting for the scheduled brief.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,10 +61,14 @@ def _output_file(filename: str):
     """Resolve ``filename`` inside OUTPUT_DIR — no traversal, no subdirs."""
     if not _SAFE_NAME.match(filename):
         raise HTTPException(status_code=400, detail="invalid filename")
-    path = (OUTPUT_DIR / filename).resolve()
-    if path.parent != OUTPUT_DIR.resolve() or not path.is_file():
+    safe = os.path.basename(filename)  # belt-and-braces: strip dir components
+    base = str(OUTPUT_DIR.resolve()) + os.sep
+    path = os.path.normpath(os.path.join(base, safe))
+    if not path.startswith(base):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="report file not found")
-    return path
+    return Path(path)
 
 
 @router.get("/notebooks")

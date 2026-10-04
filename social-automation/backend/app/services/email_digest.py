@@ -32,6 +32,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_log_text(text: str, max_len: int = 400) -> str:
+    """Strip newlines/control chars from user-derived text before logging."""
+    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
+    cleaned = "".join(c for c in cleaned if c == "\t" or ord(c) >= 0x20)
+    return cleaned[:max_len]
+
 CF_EMAIL_SEND_URL = (
     "https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send"
 )
@@ -223,7 +230,10 @@ def _filter_suppressed(addrs: list[str], settings) -> list[str]:
     keep = [a for a in addrs if not any(fnmatch.fnmatch(a.lower(), p) for p in patterns)]
     dropped = [a for a in addrs if a not in keep]
     if dropped:
-        logger.info("suppressing email recipients per EMAIL_SUPPRESS_ADDR_PATTERNS: %s", dropped)
+        logger.info(
+            "suppressing email recipients per EMAIL_SUPPRESS_ADDR_PATTERNS: %s",
+            [_sanitize_log_text(a) for a in dropped],
+        )
     return keep
 
 

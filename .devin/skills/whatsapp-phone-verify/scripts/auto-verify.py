@@ -34,7 +34,7 @@ print(f"  code_verification_status: {v}")
 if v == "VERIFIED":
     print("  Phone is already VERIFIED — no action needed.")
     sys.exit(0)
-print(f'  display_phone_number: {d.get("display_phone_number", "?")}')
+print("  display_phone_number: ***")  # PII — never echoed
 print(f'  quality_rating: {d.get("quality_rating", "?")}')
 
 print("\n[2/6] Requesting verification code (polling if rate-limited)...")

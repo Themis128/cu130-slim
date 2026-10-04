@@ -25,6 +25,13 @@ DEFAULT_LIMIT = 5
 MAX_LIMIT = 10
 
 
+def _sanitize_log_text(text: str, max_len: int = 200) -> str:
+    """Strip newlines/control chars from user-derived text before logging."""
+    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
+    cleaned = "".join(c for c in cleaned if c == "\t" or ord(c) >= 0x20)
+    return cleaned[:max_len]
+
+
 async def web_search(
     query: str,
     limit: int = DEFAULT_LIMIT,
@@ -54,7 +61,7 @@ async def web_search(
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:  # noqa: BLE001 — fail-soft, never block generation
-        logger.warning("SearXNG search failed for %r: %s", query[:80], exc)
+        logger.warning("SearXNG search failed for %r: %s", _sanitize_log_text(query[:80]), _sanitize_log_text(str(exc)))
         return []
 
     results: list[dict[str, Any]] = []

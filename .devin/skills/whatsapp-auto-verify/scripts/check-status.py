@@ -32,7 +32,7 @@ if state_file.exists():
         except ValueError:
             pass
 
-print(f'Phone: {d.get("display_phone_number", "?")}')
+print("Phone: ***")  # display_phone_number is PII — never echoed
 print(f'Status: {d.get("code_verification_status", "?")}')
 print(f'Quality: {d.get("quality_rating", "?")}')
 print(f"Rate limited: {rate_limited}")
