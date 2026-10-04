@@ -429,3 +429,72 @@ def test_deferral_state_is_per_account_and_cleared_on_success():
 )
 def test_sweep_capacity_error_classification(text, expected):
     assert wp._is_x_capacity_error(text) is expected
+
+
+# ── x_web configured but transiently failing ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_configured_x_web_transient_and_browser_soft_skip_defers(account, monkeypatch):
+    monkeypatch.setattr(x_web, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        x_web,
+        "publish_via_x_web",
+        AsyncMock(return_value=x_web.XWebOutcome(status="error", error="X web login failed: timeout")),
+    )
+    monkeypatch.setattr(
+        pub,
+        "_publish_twitter_via_browser",
+        AsyncMock(return_value=pub.PublishResult(success=False, skipped=True, error="bridge down")),
+    )
+    with _patch_api(_Resp(402, {"detail": "credits-depleted"})):
+        res = await pub._publish_twitter("tok", "Hello!", account, SimpleNamespace(), [])
+    assert not res.success and not res.skipped and not res.permanent
+    assert res.retry_after is not None
+    assert "X web login failed" in res.error and "bridge down" in res.error
+
+
+@pytest.mark.asyncio
+async def test_configured_x_web_transient_browser_hard_failure_surfaces(account, monkeypatch):
+    monkeypatch.setattr(x_web, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        x_web,
+        "publish_via_x_web",
+        AsyncMock(return_value=x_web.XWebOutcome(status="error", error="X web timeout")),
+    )
+    monkeypatch.setattr(
+        pub,
+        "_publish_twitter_via_browser",
+        AsyncMock(return_value=pub.PublishResult(success=False, error="logged in as @other, expected @them")),
+    )
+    with _patch_api(_Resp(402, {"detail": "credits-depleted"})):
+        res = await pub._publish_twitter("tok", "Hello!", account, SimpleNamespace(), [])
+    assert not res.success and res.retry_after is None
+    assert "X web timeout" in res.error and "@other" in res.error
+
+
+@pytest.mark.asyncio
+async def test_configured_x_web_transient_video_defers(account, monkeypatch, tmp_path):
+    monkeypatch.setattr(x_web, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        x_web,
+        "publish_via_x_web",
+        AsyncMock(return_value=x_web.XWebOutcome(status="error", error="X web upload timeout")),
+    )
+    browser = AsyncMock()
+    monkeypatch.setattr(pub, "_publish_twitter_via_browser", browser)
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+    res = await pub._publish_twitter("tok", "clip", account, SimpleNamespace(), [str(video)])
+    assert not res.success and not res.permanent and res.retry_after is not None
+    assert "X web upload timeout" in res.error
+    browser.assert_not_awaited()  # bridge cannot attach video
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_video_defers(account, monkeypatch, tmp_path):
+    monkeypatch.setattr(x_web, "is_configured", lambda: False)
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+    res = await pub._publish_twitter("tok", "clip", account, SimpleNamespace(), [str(video)])
+    assert not res.success and not res.permanent and res.retry_after is not None

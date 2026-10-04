@@ -982,20 +982,26 @@ async def _publish_twitter_fallbacks(
             "X video posts need the X web fallback (the browser bridge cannot attach video)"
             + (f"; X web: {web_error}" if web_error else "; set X_WEB_FALLBACK_ENABLED + X_WEB_AUTH_TOKEN/X_WEB_CT0")
         )
-        if web_error:
-            return PublishResult(success=False, error=f"{detail} (official: {reason[:200]})")
-        return _x_capacity_defer_result(f"{detail}. Official: {reason}", retry_at)
+        # x_web transient error or unavailable: the video cannot go out any
+        # other way right now — defer (bounded by the worker) instead of
+        # burning attempts.
+        return _x_capacity_defer_result(f"{detail}. Official: {reason[:200]}", retry_at)
 
     browser_result = await _publish_twitter_via_browser(account, text, post, plan.paths)
     if browser_result.success:
         return browser_result
-    if web_error:
-        return PublishResult(success=False, error=f"{web_error}; browser bridge: {browser_result.error}")
     if not browser_result.skipped:
         # Hard failure (e.g. wrong-account session) — surface it
-        # through retries/alerts instead of a silent quota skip.
+        # through retries/alerts instead of a silent deferral.
+        if web_error:
+            return dataclasses.replace(
+                browser_result, error=f"{web_error}; browser bridge: {browser_result.error}",
+            )
         return browser_result
-    return _x_capacity_defer_result(browser_result.error or reason, retry_at)
+    # Browser bridge soft-unavailable (+ x_web transient error, if any):
+    # capacity is missing, nothing is wrong with the post — defer.
+    detail = f"{web_error}; browser bridge: {browser_result.error}" if web_error else (browser_result.error or reason)
+    return _x_capacity_defer_result(detail, retry_at)
 
 
 async def _publish_twitter_via_browser(
