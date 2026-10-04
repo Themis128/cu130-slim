@@ -6,17 +6,41 @@ Usage: fetch-docs.py"""
 import html
 import re
 import urllib.request
+from html.parser import HTMLParser
+
+
+class _TextOnly(HTMLParser):
+    """Collect text nodes; skip script/style/head-embedded elements entirely."""
+
+    _SKIP = {"script", "style", "noscript", "template"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._skip = 0
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.parts.append(data)
+
 
 print("=== TikTok Content Posting API — Media Transfer Guide ===\n")
 try:
     req = urllib.request.Request(
         "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
         headers={"User-Agent": "Mozilla/5.0"})
-    text = urllib.request.urlopen(req, timeout=30).read().decode(errors="replace")
-    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(text)
+    raw = urllib.request.urlopen(req, timeout=30).read().decode(errors="replace")
+    parser = _TextOnly()
+    parser.feed(raw)
+    text = html.unescape(" ".join(parser.parts))
     text = re.sub(r"\s+", " ", text).strip()
     print(text[:3000])
 except Exception as e:

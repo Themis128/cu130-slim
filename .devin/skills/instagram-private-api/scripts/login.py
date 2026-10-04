@@ -21,7 +21,7 @@ if not user or not password:
         "  Save them with: social-profile-secrets/scripts/set-instagram.py <user> <pass>")
 
 proxy = sys.argv[1] if len(sys.argv) > 1 else ""
-print(f"Logging in to Instagram as {user} (locale=el_GR, tz=10800)...")
+print(f"Logging in to Instagram as {user[:2]}*** (locale=el_GR, tz=10800)...")
 data = {"username": user, "password": password, "locale": "el_GR", "timezone": "10800"}
 if proxy:
     data["proxy"] = proxy

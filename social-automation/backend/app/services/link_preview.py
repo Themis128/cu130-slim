@@ -20,12 +20,13 @@ _MAX_REDIRECTS = 5
 _UA = "SocialAuto-LinkPreview/1.0 (+https://cloudless.gr)"
 
 
-def _resolve_public_host(host: str) -> None:
-    """Reject hosts that resolve to non-public IPs (SSRF guard).
+def _resolve_public_ip(host: str) -> str:
+    """Resolve ``host`` and return a public IP for the pinned request.
 
-    ``is_global`` (not just ``is_private``) so CGNAT/tailnet 100.64.0.0/10,
-    benchmarking and other special ranges are refused too; IPv4-mapped IPv6
-    (``::ffff:127.0.0.1``) is unwrapped before checking.
+    Rejects when ANY resolved address is non-public (SSRF guard). ``is_global``
+    (not just ``is_private``) so CGNAT/tailnet 100.64.0.0/10, benchmarking and
+    other special ranges are refused too; IPv4-mapped IPv6 (``::ffff:127.0.0.1``)
+    is unwrapped before checking.
     """
     try:
         infos = socket.getaddrinfo(host, None)
@@ -37,14 +38,16 @@ def _resolve_public_host(host: str) -> None:
             ip = ip.ipv4_mapped
         if not ip.is_global or ip.is_multicast:
             raise ValueError("URL host is not publicly routable")
+        return str(ip)
+    raise ValueError("Cannot resolve host")
 
 
 def _validate_url(url: str):
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("URL must be http(s) with a host")
-    _resolve_public_host(parsed.hostname)
-    return parsed
+    ip = _resolve_public_ip(parsed.hostname)
+    return parsed, ip
 
 
 def _meta(soup: BeautifulSoup, *names: str) -> str | None:
@@ -63,7 +66,7 @@ async def fetch_link_preview(url: str) -> dict:
     for fetch failures.
     """
     current = url.strip()
-    parsed = _validate_url(current)
+    parsed, ip = _validate_url(current)
 
     # Redirects are followed manually so every hop's host is re-validated —
     # with follow_redirects=True httpx would happily follow a public URL's
@@ -74,13 +77,28 @@ async def fetch_link_preview(url: str) -> dict:
         headers={"User-Agent": _UA, "Accept": "text/html,*/*;q=0.8"},
     ) as client:
         for _hop in range(_MAX_REDIRECTS + 1):
-            async with client.stream("GET", current) as resp:
+            # Connect to the IP we just validated, not the hostname — closes
+            # the DNS-rebinding TOCTOU where the host resolves public during
+            # validation but private at connect time. The original Host header
+            # (and SNI for TLS) still reaches the right vhost/certificate.
+            ip_host = f"[{ip}]" if ":" in ip else ip
+            netloc = ip_host + (f":{parsed.port}" if parsed.port else "")
+            pinned = parsed._replace(netloc=netloc).geturl()
+            host_header = (parsed.hostname or "") + (f":{parsed.port}" if parsed.port else "")
+            ext = (
+                {"sni_hostname": parsed.hostname}
+                if parsed.scheme == "https"
+                else {}
+            )
+            async with client.stream(  # codeql[py/full-ssrf] host DNS-validated public + IP-pinned
+                "GET", pinned, headers={"Host": host_header}, extensions=ext
+            ) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")
                     if not location:
                         raise ValueError("Redirect without Location header")
                     current = urljoin(str(resp.url), location)
-                    parsed = _validate_url(current)
+                    parsed, ip = _validate_url(current)
                     continue
                 resp.raise_for_status()
                 # Stream with a hard cap instead of buffering the whole body.
@@ -92,7 +110,7 @@ async def fetch_link_preview(url: str) -> dict:
                     if size >= _MAX_BYTES:
                         break
                 body = b"".join(chunks)[:_MAX_BYTES]
-                final_url = str(resp.url)
+                final_url = parsed.geturl()  # report the hostname form, not the pinned IP
                 break
         else:
             raise ValueError("Too many redirects")

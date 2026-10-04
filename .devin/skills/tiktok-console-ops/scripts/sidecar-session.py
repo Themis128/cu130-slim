@@ -40,11 +40,13 @@ def restore() -> None:
     """Re-inject the real cookie set stored in social_accounts meta_data
     ->'tiktok_web_cookies'. Fastest recovery path — those cookies stay valid
     for months."""
+    query = (
+        "SELECT meta_data->'tiktok_web_cookies' FROM social_accounts "
+        "WHERE platform ILIKE 'tiktok' LIMIT 1;"
+    )
     out = subprocess.run(
         ["docker", "exec", "social-postgres", "psql", "-U", "social_user",
-         "-d", "social_automation", "-t", "-A", "-c",
-         "SELECT meta_data->'tiktok_web_cookies' FROM social_accounts "
-         "WHERE platform ILIKE 'tiktok' LIMIT 1;"],
+         "-d", "social_automation", "-t", "-A", "-c", query],
         capture_output=True, text=True, timeout=30)
     if out.returncode != 0 or not out.stdout.strip():
         print("No tiktok_web_cookies in social_accounts", file=sys.stderr)

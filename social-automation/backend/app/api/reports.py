@@ -60,7 +60,8 @@ def _output_file(filename: str):
     """Resolve ``filename`` inside OUTPUT_DIR — no traversal, no subdirs."""
     if not _SAFE_NAME.match(filename):
         raise HTTPException(status_code=400, detail="invalid filename")
-    path = (OUTPUT_DIR / filename).resolve()
+    safe = Path(filename).name  # belt-and-braces: strip any dir components
+    path = (OUTPUT_DIR / safe).resolve()
     if path.parent != OUTPUT_DIR.resolve() or not path.is_file():
         raise HTTPException(status_code=404, detail="report file not found")
     return path

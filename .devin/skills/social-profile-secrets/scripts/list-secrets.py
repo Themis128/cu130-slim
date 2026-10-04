@@ -14,5 +14,4 @@ resp = request("GET", f"{api}/api/v1/secrets", token=token)
 items = resp if isinstance(resp, list) else resp.get("secrets", resp.get("items", []))
 for s in items:
     key = s.get("key", s) if isinstance(s, dict) else s
-    desc = s.get("description", "") if isinstance(s, dict) else ""
-    print(f"  {key:40s} {desc}")
+    print(f"  {key:40s}")  # keys only — values/descriptions may carry secrets

@@ -17,7 +17,9 @@ _HOSTS = {
 
 
 def fake_gai(host, *args, **kwargs):
-    return [(socket.AF_INET, 0, 0, "", (_HOSTS[host], 0))]
+    # Literal IPs (e.g. the pinned request URL after a relative redirect)
+    # resolve to themselves, like real getaddrinfo.
+    return [(socket.AF_INET, 0, 0, "", (_HOSTS.get(host, host), 0))]
 
 
 def run(handler, url):
@@ -49,7 +51,10 @@ def test_ok():
 
 def test_redirect_public_ok():
     def handler(req):
-        if req.url.host == "public.example":
+        # Requests connect to the validated IP (DNS-rebinding TOCTOU fix) —
+        # the Host header still carries the original hostname.
+        if req.url.host == "93.184.216.34":
+            assert req.headers["host"] == "public.example"
             return httpx.Response(302, headers={"location": "https://evil.example/y"})
         return httpx.Response(200, html="<title>T</title>")
 

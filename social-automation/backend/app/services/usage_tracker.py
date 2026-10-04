@@ -27,6 +27,13 @@ _usage_session = async_sessionmaker(_usage_engine, class_=AsyncSession, expire_o
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_text(text: str, max_len: int = 400) -> str:
+    """Strip newlines/control chars from user-derived text before logging."""
+    cleaned = text.replace("\n", "\\n").replace("\r", "\\r")
+    cleaned = "".join(c for c in cleaned if c == "\t" or ord(c) >= 0x20)
+    return cleaned[:max_len]
+
+
 def _estimate_tokens(text: str) -> int:
     """Very rough token estimate (≈ 0.75 words/token)."""
     words = len(text.split())
@@ -171,4 +178,4 @@ async def _check_daily_quota(
                     team_id, total, budget, (total / budget) * 100,
                 )
     except Exception as exc:
-        logger.warning(f"Quota check failed: {exc}")
+        logger.warning("Quota check failed: %s", _sanitize_log_text(str(exc)))
