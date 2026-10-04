@@ -234,6 +234,8 @@ export interface TopPost {
   engagement: number
   engagement_rate: number
   published_at: string | null
+  /** Public platform URL when the snapshot has no editable Post row */
+  external_url?: string | null
 }
 
 /** Daily engagement from GET /analytics/engagement */
