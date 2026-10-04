@@ -1520,6 +1520,7 @@ async def _publish_instagram_via_web(
     if not media_paths:
         return PublishResult(
             success=False,
+            skipped=True,
             error="Instagram requires at least one image or video. Set media on the post.",
         )
 
@@ -1742,6 +1743,7 @@ async def _publish_instagram_via_sidecar(
     if not media_paths:
         return PublishResult(
             success=False,
+            skipped=True,
             error="Instagram requires at least one image or video. Set media on the post.",
         )
 
@@ -1860,6 +1862,9 @@ async def _publish_instagram_via_graph(
             if data.get("account_type") not in ("BUSINESS", "CREATOR", None):
                 return PublishResult(
                     success=False,
+                    # Account-type requirement — retrying cannot help; the
+                    # account must be switched to Professional in the IG app.
+                    skipped=True,
                     error=(
                         "Instagram posting requires a Business or Creator account linked to a Facebook Page. "
                         "In Instagram app: Settings → Account → Switch to Professional Account."
@@ -1873,6 +1878,9 @@ async def _publish_instagram_via_graph(
         if media_paths:
             return PublishResult(
                 success=False,
+                # Public-URL resolution is a deployment-config gap
+                # (MEDIA_PUBLIC_BASE_URL) — retrying cannot help.
+                skipped=True,
                 error=(
                     "Instagram requires publicly accessible image URLs. "
                     "Set MEDIA_PUBLIC_BASE_URL in .env to a public-facing URL "
@@ -1881,6 +1889,8 @@ async def _publish_instagram_via_graph(
             )
         return PublishResult(
             success=False,
+            # Text-only post on a feed platform — content gap, not transient.
+            skipped=True,
             error="Instagram requires at least one image. Set an image on the post.",
         )
 
@@ -1989,6 +1999,7 @@ async def _publish_instagram_via_instagrapi(
     if not media_paths:
         return PublishResult(
             success=False,
+            skipped=True,
             error="Instagram requires at least one image or video.",
         )
 
@@ -2254,6 +2265,18 @@ async def _publish_tiktok(
     # Prefer FILE_UPLOAD when a local file is available (avoids TikTok
     # domain-verification requirement for PULL_FROM_URL).
     _VIDEO_EXTS = (".mp4", ".mov", ".webm")
+    video_count = sum(1 for p in media_paths if p.lower().endswith(_VIDEO_EXTS))
+    if video_count > 1:
+        # Multi-video would fall into the photo branch and die there with an
+        # opaque upstream error — reject it here with the actual rule.
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                f"TikTok supports a single video or up to 35 photos per post — "
+                f"got {video_count} videos. Split the post or drop the extra media."
+            ),
+        )
     local_video_path: str | None = None
     if len(media_paths) == 1 and media_paths[0].lower().endswith(_VIDEO_EXTS):
         if os.path.exists(media_paths[0]):
