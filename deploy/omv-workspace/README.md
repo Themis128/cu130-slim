@@ -104,12 +104,14 @@ log 365 days — keeps SSD growth bounded.
   1 TB SSD inside Files via the `/omv-storage` bind mount (replaced the
   self-SFTP mount — phpseclib logins intermittently failed under PROPFIND
   fan-out, producing 10s timeouts and 5xx on ~9% of cloud.cloudless.gr
-  traffic). Permission model: containers `group_add` host gid 100
-  (`users`); the SSD data dirs are `tbaltzakis:users` with group `rwx`
-  + setgid + default ACL `g:users:rwX`, so www-data can read/write the
-  tree and future files stay group-writable. System subtrees
-  (`k3s-data`, `Backups`, `workspace`, `compose-files`, `tempo-data`)
-  are root-owned and intentionally not group-writable.
+  traffic). Permission model: the SSD data dirs are `tbaltzakis:users` with group
+  `rwx` + setgid, plus POSIX ACLs `g:www-data:rwX` (access) and
+  `d:g:www-data:rwX` + `d:g:users:rwX` (defaults). The `g:33` ACL is the
+  operative entry for Apache — its workers drop `group_add` supplementary
+  groups via `initgroups()` and run with `Groups: 33` only; `group_add:
+  100` is kept for `occ`/exec paths. System subtrees (`k3s-data`,
+  `Backups`, `workspace`, `compose-files`, `tempo-data`) are root-owned
+  and intentionally not group-writable.
 - **Branding** → theming app: name `Cloudless`, slogan "Clear skies. Zero
   friction.", color `#0a7785`, Cloudless wordmark/icon/favicon from
   `cloudless.gr/BRANDING/cloudless-brand/`.
