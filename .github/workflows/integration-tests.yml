@@ -10,6 +10,11 @@ name: Full Stack Integration Tests
       - 'docker-compose*.yml'
       - '.github/workflows/integration-tests.yml'
       - '.github/test.env'
+      # test_docs_surfaces.py reads these; a docs-only fix (e.g. #274) must re-run the suite
+      - 'docs/api-surface-inventory.md'
+      - 'docs/CODEMAP.md'
+      - 'docs/application-architecture.md'
+      - 'AGENTS.md'
   pull_request:
     branches: [master]
     paths:
@@ -18,6 +23,11 @@ name: Full Stack Integration Tests
       - 'docker-compose*.yml'
       - '.github/workflows/integration-tests.yml'
       - '.github/test.env'
+      # test_docs_surfaces.py reads these; a docs-only fix (e.g. #274) must re-run the suite
+      - 'docs/api-surface-inventory.md'
+      - 'docs/CODEMAP.md'
+      - 'docs/application-architecture.md'
+      - 'AGENTS.md'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +61,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U test"
+          --health-cmd="pg_isready -U test -d social_test"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
