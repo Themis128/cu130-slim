@@ -1344,7 +1344,28 @@ def test_preflight_linkedin_non_pdf_bytes_is_skipped(tmp_path):
 
 # ── notebook + gpu_serial script hygiene (#302 review) ───────────────────────
 
-_REPO_ROOT = _pathlib.Path(__file__).resolve().parents[4]
+def _find_repo_root() -> "_pathlib.Path | None":
+    """Walk up from this file to the monorepo root (the dir holding both
+    ``notebooks/`` and ``scripts/``). Returns None when the tests run outside
+    the repo layout — e.g. inside the social-api image, where this file is
+    /app/tests/unit/test_publishing.py and a fixed ``parents[4]`` would raise
+    IndexError at import and break collection of the whole module."""
+    for parent in _pathlib.Path(__file__).resolve().parents:
+        if (parent / "notebooks").is_dir() and (parent / "scripts").is_dir():
+            return parent
+    return None
+
+
+_REPO_ROOT = _find_repo_root()
+
+
+def _repo_file(*parts: str) -> _pathlib.Path:
+    if _REPO_ROOT is None:
+        pytest.skip("repo root (notebooks/ + scripts/) not found — not running from a checkout")
+    path = _REPO_ROOT.joinpath(*parts)
+    if not path.exists():
+        pytest.skip(f"{'/'.join(parts)} not present in this checkout")
+    return path
 
 
 def _imported_names(tree):
@@ -1359,9 +1380,7 @@ def _imported_names(tree):
 
 def test_media_validation_notebook_imports_base64():
     """Bug 4: dmr_caption uses base64 but the notebook never imported it."""
-    nb_path = _REPO_ROOT / "notebooks" / "media_validation.ipynb"
-    if not nb_path.exists():
-        pytest.skip("notebook not present in this checkout")
+    nb_path = _repo_file("notebooks", "media_validation.ipynb")
     nb = _json.loads(nb_path.read_text())
     src = "\n".join(
         "".join(c["source"]) if isinstance(c["source"], list) else c["source"]
@@ -1385,9 +1404,7 @@ def test_gpu_serial_script_imports_and_keeps_lock(tmp_path, monkeypatch):
     import subprocess as _sp
     import sys as _sys
 
-    script = _REPO_ROOT / "scripts" / "gpu_serial.py"
-    if not script.exists():
-        pytest.skip("gpu_serial.py not present in this checkout")
+    script = _repo_file("scripts", "gpu_serial.py")
     tree = _ast.parse(script.read_text())
     assert "argparse" in _imported_names(tree)
 
