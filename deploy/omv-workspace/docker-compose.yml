@@ -68,7 +68,6 @@ services:
       - /omv-storage/workspace
       - /omv-storage/compose-files
       - /omv-storage/tempo-data
-      - /omv-storage/lost+found
     # gid 100 = host "users" group — grants www-data read/write of the
     # OMV SSD tree bound at /omv-storage (replaces the flaky self-SFTP
     # external-storage mount). NOTE: Apache workers drop supplementary
@@ -81,6 +80,13 @@ services:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+      # lost+found mask needs an explicit mode — plain `tmpfs:` entries
+      # inherit the underlying dir's 2770 root:root, which scans log as
+      # Permission denied. mode 0755 = readable-but-empty.
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
     ports:
       - "11000:80"
     healthcheck:
@@ -104,13 +110,16 @@ services:
       - /omv-storage/workspace
       - /omv-storage/compose-files
       - /omv-storage/tempo-data
-      - /omv-storage/lost+found
     group_add:
       - "100"
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
     entrypoint: /cron.sh
     dns: [1.1.1.1, 8.8.8.8]
 
@@ -190,13 +199,16 @@ services:
       - /omv-storage/workspace
       - /omv-storage/compose-files
       - /omv-storage/tempo-data
-      - /omv-storage/lost+found
     group_add:
       - "100"
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage:ro
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
     entrypoint: /var/www/html/custom_apps/notify_push/bin/aarch64/notify_push --bind 0.0.0.0 --port 7867 /var/www/html/config/config.php
     environment:
       - NEXTCLOUD_URL=http://nextcloud

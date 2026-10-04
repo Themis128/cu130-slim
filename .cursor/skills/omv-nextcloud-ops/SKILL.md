@@ -109,4 +109,22 @@ STUN binding requests) and prints an honest pass/fail summary.
   reappears after a `workspace.yml` regeneration, re-apply.
 - `.well-known/caldav` 301s to `http://` (Apache `.htaccess` static redirect
   ignores `overwriteprotocol`) — cosmetic, Cloudflare upgrades to HTTPS.
+- **System-dir tmpfs masks** (PR #271/#273, live on omv): six dirs under
+  `/omv-storage` (`omv-ai-cluster`, `k3s-data`, `workspace`,
+  `compose-files`, `tempo-data`, `lost+found`) are masked by empty tmpfs
+  overlays so DAV never lists/writes them and containerd symlink trees
+  stop logging `Following symlinks is not allowed`. `lost+found` uses a
+  long-syntax `type: tmpfs` volume with `mode: 0o755` — plain `tmpfs:`
+  entries inherit the underlying dir's `2770 root:root` and resurface a
+  scan `Permission denied`. Regeneration drops them; re-apply.
+- **Stale filecache purge**: when masking/hiding dirs that were already
+  indexed, `occ files:scan` can fail to remove stale rows — the scanner's
+  bulk delete hits PostgreSQL's 65535-parameter cap and rolls back
+  (`Removed: 0`, log shows `number of parameters must not exceed 65535`).
+  Fallback that worked: chunked SQL
+  `DELETE FROM oc_filecache WHERE fileid IN (SELECT fileid FROM
+  oc_filecache WHERE storage=<ext-storage id> AND path LIKE '<dir>/%'
+  LIMIT 30000)` looped to zero (deleted ~364k rows). Find the storage id
+  via `oc_storages` (`local::/omv-storage/` = 5); filecache paths are
+  storage-relative, no `files/` prefix.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
