@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import hashlib
 import logging
 import os
@@ -14,13 +15,14 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
-from app.models.content import Post, PostStatus, PostTarget
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.duplicate_detector import is_duplicate
 from app.services.instagram_api import InstagramAPIClient
 from app.services.publishing import (
+    PublishResult,
     _instagram_find_live,
     _resolve_ig_user_token,
     publish_to_platform,
@@ -30,6 +32,99 @@ from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+_DEFER_STATE_KEY = "publish_defer"
+_SWEEP_STATE_KEY = "publish_defer_sweep"
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _set_platform_specific(post: Post, ps: dict) -> None:
+    post.platform_specific = ps
+    try:
+        flag_modified(post, "platform_specific")
+    except Exception:  # noqa: BLE001 — plain objects in unit tests
+        pass
+
+
+def _apply_capacity_deferral(
+    *,
+    item: PublishQueue,
+    target: PostTarget | None,
+    post: Post,
+    account_id: object,
+    retry_after: datetime,
+    error: str | None,
+    now: datetime,
+    max_hours: float,
+    max_count: int,
+) -> str | None:
+    """Defer a capacity-blocked target (X credits/429, fallback cap/gap/breaker).
+
+    Keeps the target ``pending`` and re-schedules the queue row for
+    ``retry_after`` (clamped to [now+1min, deadline]) without burning an
+    attempt. Bounded by ``max_hours`` since the queue row was created and
+    ``max_count`` deferrals of that row — past either bound returns the
+    give-up error (the caller then fails the target permanently + alerts).
+    Other targets of the post have their own queue rows and are unaffected.
+    """
+    created = _aware(getattr(item, "created_at", None)) or now
+    deadline = created + timedelta(hours=max_hours)
+    ps = dict(post.platform_specific or {})
+    states = dict(ps.get(_DEFER_STATE_KEY) or {})
+    key = str(account_id)
+    state = dict(states.get(key) or {})
+    if state.get("queue_id") != str(item.id):
+        state = {"queue_id": str(item.id), "count": 0, "first_at": now.isoformat()}
+    count = int(state.get("count") or 0)
+    detail = (error or "capacity unavailable").strip()
+    if now >= deadline or count >= max_count:
+        return (
+            f"X capacity deferral limit reached — gave up after {count} deferral(s) over "
+            f"{(now - created).total_seconds() / 3600:.1f}h (max {max_hours:g}h / {max_count}). "
+            f"Last error: {detail}"
+        )[:1000]
+    when = max(_aware(retry_after) or now, now + timedelta(minutes=1))
+    when = min(when, deadline)
+    state.update(
+        count=count + 1,
+        last_at=now.isoformat(),
+        next_at=when.isoformat(),
+        last_error=detail[:300],
+    )
+    states[key] = state
+    ps[_DEFER_STATE_KEY] = states
+    _set_platform_specific(post, ps)
+
+    item.status = QueueStatus.PENDING
+    item.scheduled_at = when
+    item.locked_at = None
+    item.locked_by = None
+    if target is not None:
+        target.status = "pending"
+        target.error_message = (
+            f"Deferred #{count + 1} until {when:%Y-%m-%d %H:%M} UTC: {detail}"
+        )[:1000]
+    return None
+
+
+def _clear_deferral_state(post: Post, account_id: object) -> None:
+    ps = post.platform_specific or {}
+    states = ps.get(_DEFER_STATE_KEY) or {}
+    if str(account_id) in states:
+        ps = dict(ps)
+        states = dict(states)
+        states.pop(str(account_id), None)
+        if states:
+            ps[_DEFER_STATE_KEY] = states
+        else:
+            ps.pop(_DEFER_STATE_KEY, None)
+        _set_platform_specific(post, ps)
+
 
 def _compute_post_rollup(
     *,
@@ -252,6 +347,10 @@ async def _maybe_send_publish_summary(db: AsyncSession, post: Post) -> None:
             .where(
                 PublishQueue.post_id == post.id,
                 PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+                # A capacity-deferred target (scheduled in the future) must
+                # not hold back the summary of the platforms that did
+                # publish; when it lands later it produces a new key.
+                PublishQueue.scheduled_at <= datetime.now(UTC),
             )
         )
         if active:
@@ -487,7 +586,40 @@ async def _process_publish_queue_async() -> None:
 
                 pub = await publish_to_platform(account, post, db)
 
-                if pub.success:
+                deferred = False
+                if not pub.success and getattr(pub, "retry_after", None) is not None:
+                    # Soft deferral (X API credits/429, x_web daily cap / min
+                    # gap / breaker): re-queue for when capacity returns
+                    # without burning an attempt — bounded by age/count.
+                    cfg = get_settings()
+                    gave_up = _apply_capacity_deferral(
+                        item=item,
+                        target=target,
+                        post=post,
+                        account_id=account.id,
+                        retry_after=pub.retry_after,
+                        error=pub.error,
+                        now=datetime.now(UTC),
+                        max_hours=float(getattr(cfg, "PUBLISH_DEFER_MAX_HOURS", 72.0)),
+                        max_count=int(getattr(cfg, "PUBLISH_DEFER_MAX_COUNT", 500)),
+                    )
+                    if gave_up is None:
+                        deferred = True
+                        logger.info(
+                            "[publishing] deferred %s target of post %s until %s: %s",
+                            account.platform, post.id, item.scheduled_at, (pub.error or "")[:200],
+                        )
+                    else:
+                        pub = dataclasses.replace(
+                            pub, error=gave_up, permanent=True, retry_after=None, skipped=False,
+                        ) if isinstance(pub, PublishResult) else PublishResult(
+                            success=False, error=gave_up, permanent=True,
+                        )
+
+                if deferred:
+                    pass
+                elif pub.success:
+                    _clear_deferral_state(post, account.id)
                     item.status = QueueStatus.COMPLETED
                     if target:
                         target.status = "published"
@@ -513,15 +645,6 @@ async def _process_publish_queue_async() -> None:
                     if target:
                         target.status = "skipped"
                         target.error_message = pub.error
-                elif getattr(pub, "retry_after", None) is not None:
-                    # Soft deferral (X web fallback daily cap / min gap):
-                    # re-queue for the next slot without burning an attempt.
-                    item.status = QueueStatus.PENDING
-                    item.scheduled_at = pub.retry_after
-                    item.locked_at = None
-                    item.locked_by = None
-                    if target:
-                        target.error_message = f"Deferred: {pub.error}"[:1000] if pub.error else None
                 else:
                     if getattr(pub, "permanent", False):
                         # Deterministic failure (invalid media, tripped
@@ -733,6 +856,133 @@ async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
         return {"success": True, "results": results}
 
 
+# Error texts written by the pre-deferral code (soft "skip" / fail) for X
+# capacity problems. Only these are re-queued by the safety-net sweep.
+_X_CAPACITY_ERROR_MARKERS = (
+    "monthly write quota",
+    "api credits exhausted",
+    "credits depleted",
+    "credits-depleted",
+    "usagecapexceeded",
+    "usage-capped",
+    "daily cap reached",
+    "circuit breaker open",
+    "minimum gap between posts",
+    "x write capacity unavailable",
+    "x video posts need the x web fallback",
+)
+# Never re-queue these even if a capacity marker also appears.
+_X_SWEEP_EXCLUDE_MARKERS = (
+    "deferral limit reached",
+    "circuit breaker tripped",
+    "duplicate",
+    "identical content",
+    "media invalid",
+    "media incomplete",
+    "media upload",
+    "logged in as @",
+    "cookies belong to",
+    "no text content",
+    "may or may not be live",
+)
+
+
+def _is_x_capacity_error(text: str | None) -> bool:
+    low = (text or "").lower()
+    if not low or any(m in low for m in _X_SWEEP_EXCLUDE_MARKERS):
+        return False
+    return any(m in low for m in _X_CAPACITY_ERROR_MARKERS)
+
+
+async def _requeue_capacity_stuck_x_async(hours: float = 72.0, limit: int = 20) -> dict:
+    """Safety net: re-queue X targets stuck by an old capacity skip/fail.
+
+    Conservative by design — a target is re-queued at most once (marker in
+    posts.platform_specific), and only when: account is X, target is
+    failed/skipped with a capacity-type error, no tweet id was recorded, the
+    post is still PUBLISHED/FAILED (not archived/draft), its last queue row
+    for that account is younger than ``hours``, no queue row is in flight,
+    and every attached media asset still exists. The normal publish path
+    re-validates media/identity/duplicates before anything is posted.
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=hours)
+    requeued: list[str] = []
+    async with _worker_db() as db:
+        rows = (
+            await db.execute(
+                select(PostTarget, Post, SocialAccount)
+                .join(Post, Post.id == PostTarget.post_id)
+                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+                .where(
+                    SocialAccount.platform == "twitter",
+                    PostTarget.status.in_(["failed", "skipped"]),
+                    PostTarget.platform_post_id.is_(None),
+                    Post.status.in_([PostStatus.PUBLISHED, PostStatus.FAILED]),
+                    Post.updated_at >= cutoff,
+                )
+                .limit(200)
+            )
+        ).all()
+        for target, post, account in rows:
+            if len(requeued) >= limit:
+                break
+            if not _is_x_capacity_error(target.error_message):
+                continue
+            key = str(account.id)
+            ps = dict(post.platform_specific or {})
+            swept = dict(ps.get(_SWEEP_STATE_KEY) or {})
+            if key in swept:
+                continue
+            pair = (
+                PublishQueue.post_id == post.id,
+                PublishQueue.social_account_id == account.id,
+            )
+            active = await db.scalar(
+                select(func.count()).select_from(PublishQueue).where(
+                    *pair,
+                    PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+                )
+            )
+            if active:
+                continue
+            last_row = await db.scalar(
+                select(func.max(PublishQueue.created_at)).where(*pair)
+            )
+            last_at = _aware(last_row)
+            if last_at is None or last_at < cutoff:
+                continue
+            media_ids = list(dict.fromkeys(post.media_ids or []))
+            if media_ids:
+                found = await db.scalar(
+                    select(func.count()).select_from(MediaAsset).where(MediaAsset.id.in_(media_ids))
+                )
+                if int(found or 0) != len(media_ids):
+                    continue
+            swept[key] = {"at": now.isoformat(), "error": (target.error_message or "")[:300]}
+            ps[_SWEEP_STATE_KEY] = swept
+            _set_platform_specific(post, ps)
+            target.status = "pending"
+            target.error_message = (
+                f"Re-queued by X capacity sweep (was: {target.error_message or ''})"
+            )[:1000]
+            db.add(
+                PublishQueue(
+                    post_id=post.id,
+                    social_account_id=account.id,
+                    scheduled_at=now,
+                    priority=3,
+                    status=QueueStatus.PENDING,
+                )
+            )
+            await db.flush()
+            await _rollup_post_status(post, db)
+            await db.commit()
+            requeued.append(str(post.id))
+            logger.warning("[publishing] X capacity sweep re-queued post %s account %s", post.id, account.id)
+    return {"requeued": requeued}
+
+
 async def _cleanup_publish_queue_async(days: int = 3) -> dict:
     async with _worker_db() as db:
         cutoff = datetime.now(UTC) - timedelta(days=days)
@@ -769,6 +1019,17 @@ def publish_post_now(post_id: str, account_ids: list[str]) -> dict:
     result = asyncio.run(_publish_post_now_async(post_id, account_ids))
     # Push worker writes (posts, post_targets, publish_queue) to D1 primary
     asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+    return result
+
+
+@shared_task
+def requeue_capacity_stuck_x_targets() -> dict:
+    if not getattr(get_settings(), "X_CAPACITY_SWEEP_ENABLED", True):
+        return {"requeued": [], "disabled": True}
+    hours = float(getattr(get_settings(), "PUBLISH_DEFER_MAX_HOURS", 72.0))
+    result = asyncio.run(_requeue_capacity_stuck_x_async(hours=hours))
+    if result["requeued"]:
+        asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
     return result
 
 

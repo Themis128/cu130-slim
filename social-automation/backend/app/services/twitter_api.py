@@ -73,10 +73,14 @@ class TwitterAPIError(Exception):
         response_text: str,
         url: str,
         message: str | None = None,
+        headers: dict[str, str] | None = None,
     ):
         self.status_code = status_code
         self.response_text = response_text
         self.url = url
+        # Lower-cased response headers (x-rate-limit-reset,
+        # x-user-limit-24hour-reset, ...) so callers can reschedule.
+        self.headers = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
         if message is None:
             message = f"Twitter API error {status_code} for {url}: {response_text[:400]}"
         super().__init__(message)
@@ -115,6 +119,10 @@ class TwitterAPIClient:
         text = _sanitize_log_text(resp.text)
         safe_url = _sanitize_log_text(url)
         logger.error("Twitter API error %s for %s: %s", status_code, safe_url, text)
+        try:
+            hdrs = {k: v for k, v in resp.headers.items() if k.lower().startswith("x-") or k.lower() == "retry-after"}
+        except Exception:  # noqa: BLE001 — test doubles may lack headers
+            hdrs = {}
         if resp.status_code == 402 and "credits-depleted" in text:
             raise TwitterAPIError(
                 status_code,
@@ -126,8 +134,9 @@ class TwitterAPIClient:
                     "(Billing → Credits). Tweet posting still works; only "
                     "metered endpoints like DM events are blocked."
                 ),
+                headers=hdrs,
             )
-        raise TwitterAPIError(status_code, text, url)
+        raise TwitterAPIError(status_code, text, url, headers=hdrs)
 
     def _log_api_error(self, url: str, resp: httpx.Response) -> None:
         """Log the response body for a failed Twitter API call."""

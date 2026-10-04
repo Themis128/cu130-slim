@@ -303,6 +303,18 @@ class Settings(BaseSettings):
     # Default lives on the uploads bind mount shared by social-api and every
     # worker, so all containers still see the same breaker.
     X_WEB_STATE_FILE: str = "/app/uploads/.x_web_state.json"
+    # Capacity deferral bounds (X API credits/429, x_web cap/gap/breaker):
+    # a deferred target stays pending and is re-queued for the time capacity
+    # returns. After this many hours (from the queue row's creation) or this
+    # many deferrals it fails with a clear error + Slack alert.
+    PUBLISH_DEFER_MAX_HOURS: float = 72.0
+    PUBLISH_DEFER_MAX_COUNT: int = 500
+    # Fallback backoff when X gives no reset time (402 credits-depleted,
+    # usage-capped, fallback unavailable/unconfigured).
+    X_CAPACITY_BACKOFF_MINUTES: int = 60
+    # Beat safety net: re-queue X targets stuck failed/skipped with a
+    # capacity-type error (legacy rows from before deferral existed).
+    X_CAPACITY_SWEEP_ENABLED: bool = True
 
     # Media serving — set to a publicly reachable base URL so Instagram
     # can fetch images. E.g. https://yourdomain.com or an ngrok URL.
