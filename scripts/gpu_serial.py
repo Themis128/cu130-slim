@@ -48,13 +48,22 @@ def resident_dmr_models() -> list[str]:
 
 
 def unload_dmr() -> list[str]:
-    """Stop every resident DMR model; returns the names unloaded."""
+    """Unload every resident DMR model; returns the names unloaded.
+
+    Prefers `docker model unload --all` (verified available on this host);
+    falls back to per-model `docker model stop` for older DMR versions.
+    """
+    r = subprocess.run(
+        ["docker", "model", "unload", "--all"], capture_output=True, text=True
+    )
+    if r.returncode == 0:
+        return resident_dmr_models()  # empty after a successful --all unload
     unloaded = []
     for name in resident_dmr_models():
-        r = subprocess.run(
+        s = subprocess.run(
             ["docker", "model", "stop", name], capture_output=True, text=True
         )
-        if "Unloaded" in (r.stdout + r.stderr):
+        if "Unloaded" in (s.stdout + s.stderr):
             unloaded.append(name)
     return unloaded
 
