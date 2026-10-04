@@ -43,45 +43,81 @@ let qrGeneration = 0; // monotonic counter to detect stale catch handlers
 const QR_TTL_MS = Number(process.env.TIKTOK_QR_TTL_MS) || 150000;
 
 const SESSION_FILE = "/data/tiktok-session.json";
+const SESSION_MAX_BYTES = 64 * 1024;
 
 /** Persist the session so container restarts don't drop the login.
  *
  * Session material (sessionId, userId, cookie jar) originates from the
  * TikTok browser context — it is intentionally written to a 0600 volume
- * file so restarts preserve the login.  The payload is validated (must
- * be serialisable JSON with only string values) before hitting disk.
+ * file so restarts preserve the login.
+ *
+ * Returns { ok: true, bytes } on success or { ok: false, reason } when the
+ * payload is malformed or cannot be persisted. Callers MUST surface a false
+ * result: an unpersisted login still works in memory but silently reverts
+ * to the previous session file on the next container restart.
  */
 async function saveSession() {
-  try {
-    const payload = { sessionId, userId, cookies: extraCookies };
-    // Validate: only allow string/null primitives — reject objects/arrays
-    // that might carry unexpected data from network responses.
-    const safe = {};
-    for (const [k, v] of Object.entries(payload)) {
-      if (v !== null && typeof v !== "string" && typeof v !== "object") continue;
-      safe[k] = v;
-    }
-    const json = JSON.stringify(safe);
-    if (json.length > 64 * 1024) return; // sanity cap
-    await fs.writeFile(SESSION_FILE, json, { mode: 0o600 });
-  } catch {
-    // /data may be unavailable in some deployments — non-fatal
+  // Validate primitives: sessionId/userId must be string-or-null and the
+  // cookie jar a flat name→string map — TikTok cookie objects occasionally
+  // carry non-string metadata that must not reach the persisted payload.
+  const safe = {
+    sessionId: typeof sessionId === "string" ? sessionId : null,
+    userId: typeof userId === "string" ? userId : null,
+  };
+  if (extraCookies === null || typeof extraCookies !== "object") {
+    return { ok: false, reason: "cookie jar is not an object" };
   }
+  const cookies = {};
+  for (const [name, value] of Object.entries(extraCookies)) {
+    if (typeof value !== "string") continue;
+    cookies[name] = value;
+  }
+  safe.cookies = cookies;
+
+  let json;
+  try {
+    json = JSON.stringify(safe);
+  } catch {
+    return { ok: false, reason: "session payload is not serialisable" };
+  }
+  if (json.length > SESSION_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: `session payload too large to persist (${json.length} > ${SESSION_MAX_BYTES} bytes)`,
+    };
+  }
+  try {
+    await fs.writeFile(SESSION_FILE, json, { mode: 0o600 });
+  } catch (err) {
+    // /data may be unavailable in some deployments — report, don't crash
+    return { ok: false, reason: `session write failed: ${err && err.message ? err.message : err}` };
+  }
+  return { ok: true, bytes: json.length };
 }
 
 /** Restore a persisted session into memory (no browser launch). */
 async function loadSession() {
   try {
     const raw = JSON.parse(await fs.readFile(SESSION_FILE, "utf8"));
-    sessionId = raw.sessionId || null;
-    userId = raw.userId || null;
-    extraCookies = raw.cookies && typeof raw.cookies === "object" ? raw.cookies : {};
+    sessionId = typeof raw.sessionId === "string" ? raw.sessionId : null;
+    userId = typeof raw.userId === "string" ? raw.userId : null;
+    // Mirror saveSession's validation: only string-valued cookies survive.
+    extraCookies =
+      raw.cookies && typeof raw.cookies === "object"
+        ? Object.fromEntries(
+            Object.entries(raw.cookies).filter(([, v]) => typeof v === "string"),
+          )
+        : {};
   } catch {
     // No prior session file — fine, stay logged out
   }
 }
 
-/** Snapshot the browser's real cookies into the session fields + disk. */
+/** Snapshot the browser's real cookies into the session fields + disk.
+ *
+ * Returns saveSession's result so callers can tell the user when a fresh
+ * login will NOT survive a restart.
+ */
 async function captureSessionCookies() {
   const all = await context.cookies("https://www.tiktok.com");
   const map = {};
@@ -89,7 +125,11 @@ async function captureSessionCookies() {
   sessionId = map.sessionid || sessionId;
   delete map.sessionid;
   extraCookies = map;
-  await saveSession();
+  const saved = await saveSession();
+  if (!saved.ok) {
+    console.error(`[session] persistence failed: ${saved.reason}`);
+  }
+  return saved;
 }
 
 async function ensureBrowser() {
@@ -277,8 +317,13 @@ async function handleSetSession(req, res) {
   clearQrFlow();
   sessionId = session_id || null;
   userId = user_id || null;
-  // Optional name→value map for the full cookie set (sid_tt, uid_tt, msToken…)
-  extraCookies = cookies && typeof cookies === "object" ? cookies : {};
+  // Optional name→value map for the full cookie set (sid_tt, uid_tt, msToken…).
+  // Validate at the boundary: only string-valued entries survive, so arbitrary
+  // nested objects from the caller can't reach the persisted session file.
+  extraCookies =
+    cookies && typeof cookies === "object"
+      ? Object.fromEntries(Object.entries(cookies).filter(([, v]) => typeof v === "string"))
+      : {};
   await closeBrowser();
   await ensureBrowser();
   try {
@@ -289,10 +334,15 @@ async function handleSetSession(req, res) {
     await page.waitForTimeout(3000);
     const title = await page.title();
     const isLoggedIn = await checkLoggedIn();
-    if (isLoggedIn) await saveSession();
+    let persisted = null;
+    if (isLoggedIn) persisted = await saveSession();
     res.json({
       status: "ok",
       logged_in: isLoggedIn,
+      // "logged in" and "will survive a restart" are different claims —
+      // surface persistence explicitly instead of silently dropping writes.
+      persisted: persisted ? persisted.ok : null,
+      ...(persisted && !persisted.ok ? { persist_warning: persisted.reason } : {}),
       profile_url: page.url(),
       title,
     });
@@ -375,13 +425,15 @@ async function handleQrLoginStart(req, res) {
           .cookies("https://www.tiktok.com")
           .catch(() => []);
         if (cookies.some((c) => c.name === "sessionid" && c.value)) {
-          await captureSessionCookies();
+          const saved = await captureSessionCookies();
           qrPrevSession = null;
           clearQrFlow();
           return res.json({
             status: "ok",
             logged_in: true,
             reason: "approved_before_remint",
+            persisted: saved.ok,
+            ...(saved.ok ? {} : { persist_warning: saved.reason }),
           });
         }
       }
@@ -483,8 +535,9 @@ async function handleQrLoginStatus(req, res) {
     const hasAuth = cookies.some((c) => c.name === "sessionid" && c.value);
     const isLoggedIn =
       hasAuth && !url.includes("/login") && (await checkLoggedIn());
+    let saved = null;
     if (isLoggedIn) {
-      await captureSessionCookies();
+      saved = await captureSessionCookies();
       qrPrevSession = null;
       clearQrFlow();
     } else if (
@@ -494,7 +547,13 @@ async function handleQrLoginStatus(req, res) {
       await abandonQrFlow();
       return res.json({ status: "ok", logged_in: false, reason: "qr_expired" });
     }
-    res.json({ status: "ok", logged_in: isLoggedIn, url });
+    res.json({
+      status: "ok",
+      logged_in: isLoggedIn,
+      ...(saved ? { persisted: saved.ok } : {}),
+      ...(saved && !saved.ok ? { persist_warning: saved.reason } : {}),
+      url,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
