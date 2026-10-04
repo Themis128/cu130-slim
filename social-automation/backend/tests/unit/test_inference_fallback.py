@@ -533,7 +533,7 @@ class TestCallDmrChat:
         # Mock the DMR service's shared client and health check
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Say hi")
@@ -553,7 +553,7 @@ class TestCallDmrChat:
         })
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Make slides", schema={"type": "object"})
@@ -572,7 +572,7 @@ class TestCallDmrChat:
         fake = _FakeClient(503, {"detail": "model loading"})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
         # Mock CLI fallback to fail so we get the error
         monkeypatch.setattr(dmr_mod, "_dmr_cli_run", lambda *a, **kw: None)
@@ -594,7 +594,7 @@ class TestCallDmrChat:
         })
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         result = await inference._call_dmr_chat("Think about it")
@@ -611,7 +611,7 @@ class TestCallDmrChat:
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         await inference._call_dmr_chat("hi", max_tokens=128)
@@ -628,7 +628,7 @@ class TestCallDmrChat:
         fake = _FakeClient(200, {"choices": [{"message": {"content": "ok"}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
-        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", lambda m: True)
+        monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "configure_keep_alive", AsyncMock())
 
         await inference._call_dmr_chat("hi", model_override="ai/qwen3:8b")

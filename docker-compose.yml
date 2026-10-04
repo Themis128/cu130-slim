@@ -1528,21 +1528,31 @@ services:
         docker-model context create gpu --host http://host.docker.internal:12435 2>/dev/null || true
         docker-model context use gpu 2>/dev/null || true
 
+        # Canonical configs mirror _BEST_PRACTICE_CONFIGS in
+        # social-automation/backend/app/services/dmr.py — keep in sync.
+        # NOTE: each `configure` call REPLACES a model's whole config, so the
+        # runtime flags must be included here or they'd be stripped.
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
-          ok=1
-          docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M || ok=0
-          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M || ok=0
-          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 || ok=0
+          ok=0
+          docker-model configure --context-size 6144 --keep-alive 5m --think=true ai/qwen3:8b-q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
+          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
+          docker-model configure --context-size 8192 --keep-alive 5m ai/llama3.2 -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
+          docker-model configure --context-size 4096 --keep-alive 5m ai/qwen3-vl -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
+          docker-model configure --mode embedding --keep-alive 5m ai/qwen3-embedding -- --n-gpu-layers 99 --threads 8 || ok=1
+          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 --n-gpu-layers 99 --threads 4 --batch-size 512 --flash-attn on || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok
         }
 
+        tick=0
         while true; do
-          # Runner restart detection: model configs are in-memory only, so they
-          # must be reapplied every time StartedAt changes.
+          tick=$$((tick+1))
+          # Configs are in-memory per loaded model — wiped on runner restart
+          # AND on model unload (keep-alive expiry). Re-apply on StartedAt
+          # change and periodically (~every 6th tick = 60s).
           started=$$(docker inspect -f '{{.State.StartedAt}}' docker-model-runner 2>/dev/null)
-          if [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; then
+          if { [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; } || [ $$((tick % 6)) -eq 0 ]; then
             if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
               if apply_configs; then
                 last_started=$$started

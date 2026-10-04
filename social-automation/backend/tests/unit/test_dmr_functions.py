@@ -19,10 +19,10 @@ async def main() -> None:
     ok = await dmr._check_dmr_health()
     assert ok, "DMR health check failed — runner unreachable?"
 
-    # 2. VRAM info is gracefully None where nvidia-smi is absent (containers)
-    vram = dmr._get_vram_info()
+    # 2. VRAM info via nvidia-smi or the ComfyUI fallback oracle
+    vram = await dmr._get_vram_info()
     assert vram is None or set(vram) == {"used", "free", "total"}, vram
-    assert dmr._has_vram_for_model("ai/smollm3") is True
+    assert await dmr._has_vram_for_model("ai/smollm3") is True
 
     # 3. F1 regression: the warmup vision branch reads the 'free' key
     dmr._state.vram = {"used": 2000, "free": 7000, "total": 8192}
