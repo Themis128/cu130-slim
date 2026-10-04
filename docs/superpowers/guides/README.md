@@ -21,6 +21,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 15. [Weekly blog article](15-weekly-blog-article.md) — DMR-generated article published to cloudless.gr/blog via the R2 datalake, plus the LinkedIn post that links to it (Mondays 09:00 Athens).
 16. [Cross-promo drip](16-cross-promo-drip.md) — grow a target profile by dripping platform-native "follow me" posts from other accounts, quality-gated at SEO ≥90.
 17. [X free web fallback](17-x-web-fallback.md) — cookie-auth tweety/twscrape fallback when the X API is out of credits: cookie export, safety limits, circuit breaker, ToS risk.
+18. [Monthly checklist update](18-monthly-checklist.md) — refresh the 12-Automation Checklist PDF on cloudless.gr/links and announce it across all social channels (1st of each month).
 
 ## Product plans
 
