@@ -519,7 +519,9 @@ app/worker/tasks/
 │                             notebooks/reports/*.ipynb in the worker env and
 │                             emails the rendered manifest (see "Notebook-
 │                             generated reports" under Jupyter below)
-├── datalake_export.py      — export_datalake: JSON snapshots → R2
+├── datalake_export.py      — export_datalake: JSON snapshots → R2 lake/*
+│                             + edge-metrics (Tempo TraceQL aggregates),
+│                             report-manifest index, ops-health snapshot
 ├── linkedin_ads_report.py  — send_linkedin_ads_report: Campaign Manager
 │                             scrape → ad_campaign_snapshots → Slack/email
 ├── linkedin_ads_control.py — linkedin_ads_control: Slack pause/resume/status
@@ -576,9 +578,14 @@ Beat Schedule:
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
 │ export-datalake          │ datalake_export.export_datalake │ 6h :10   │
 │ daily-strategy-report    │ notebook_reports.               │ daily    │
-│                          │  run_notebook_report            │ 21:00    │
+│                          │  run_notebook_report            │ 10:30    │
 │                          │  (papermill → email; falls back │ EEST     │
 │                          │   to code-path brief on failure)│          │
+│ daily-ops-health         │ notebook_reports.               │ daily    │
+│                          │  run_notebook_report            │ 10:45    │
+│                          │  (ops_health notebook — queue,  │ EEST     │
+│                          │   failures, follower anomalies, │          │
+│                          │   sync freshness; no fallback)  │          │
 │ daily-paddle-digest      │ paddle_digest.send_paddle_      │ daily    │
 │                          │  slack_digest                   │          │
 │ linkedin-ads-daily-report│ linkedin_ads_report             │ 10:00    │
@@ -725,6 +732,26 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+**Observability (self-hosted, on omv):** Cloudflare zone tracing exports
+per-stage edge spans (`edge_processing`, `origin_fetch` — firewall,
+cache, workers_routing, upstream) via a logpush destination →
+`otel.cloudless.gr` → a token-auth nginx proxy (`tempo-proxy`) →
+**Tempo** on omv (`:4318` OTLP ingest, `:3200` query API, 7-day
+retention). Zone-level config covers every `*.cloudless.gr` hostname at
+10% baseline sampling; inbound `traceparent` from untrusted clients is
+rejected. `social-api` exports FastAPI/httpx spans to the same Tempo
+when `OTEL_ENABLED=true` (`OTEL_EXPORTER_OTLP_ENDPOINT=http://
+192.168.1.200:4318`). Known CF beta gap: edge and origin halves of a
+request are stored under different trace IDs — both browsable, not
+joined. Grafana (`grafana.cloudless.gr`) auto-provisions a Tempo
+datasource. Since Tempo retention is 7 days, `export_datalake` persists
+24h per-hostname aggregates (sampled trace count, p50/p95/max latency,
+4xx/5xx counts — TraceQL `status_code` is indexed numerically and lives
+on a different span than `url.full`, hence structural `&&` spanset
+queries) to `lake/socialauto-edge-metrics/daily.json` — this is what
+surfaced the broken Nextcloud SFTP external-storage mount (9% 5xx on
+`cloud.cloudless.gr`).
+
 ### Browser Sidecars
 
 ```
@@ -817,7 +844,11 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
   as `cid:` inline images (renders in Gmail, unlike base64 data-URIs).
   On notebook failure the task falls back to the code-path report
   (`digest.send_daily_strategy_report`) so a brief is never silently
-  skipped. The daily strategy brief at 21:00 EEST is generated this way.
+  skipped. The daily strategy brief (10:30 EEST) and the ops-health
+  report (10:45 EEST — queue state, failed targets, follower-series
+  anomalies, sync freshness, content scoreboard; `fallback_to_code=False`
+  so a failure never substitutes an unrelated brief) are generated this
+  way.
 
 **Growth initiatives & ad-campaign analytics** — off-platform growth
 pushes (e.g. LinkedIn's monthly Page invitation credits) are recorded as

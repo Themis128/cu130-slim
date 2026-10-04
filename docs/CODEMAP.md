@@ -28,6 +28,8 @@ Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypa
 
 **Gotcha:** OAuth callback URLs registered in the Meta app must be reachable without Access — verify with `curl -o /dev/null -w "%{http_code}" https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback` → `422` is good (reached origin), `302` to cloudflareaccess.com is bad.
 
+**Observability:** Cloudflare zone tracing (10% sampling, inbound `traceparent` rejected) exports `edge_processing`/`origin_fetch` OTLP spans → `otel.cloudless.gr` → token-auth proxy on omv → Tempo (`:3200` query, 7d retention). `social-api` exports FastAPI/httpx spans to Tempo when `OTEL_ENABLED=true` (edge↔origin trace IDs not joined — known CF beta gap). Browse in Grafana (`grafana.cloudless.gr`, Tempo datasource); per-host aggregates land in the datalake via `export_datalake`.
+
 ## Compose services & host ports
 
 | Service | Port(s) | Role |
@@ -206,11 +208,11 @@ strategy brief (21:00 EEST) runs this way; `send_email*` accepts
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 21:00 EEST · LinkedIn ads report daily · LinkedIn invites daily
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily
 
 ## cloudless.gr datalake export (`datalake_export.export_datalake`)
 
-Every 6h, snapshot-overwrites JSON tables in R2 `datalake-bucket` (`lake/socialauto-*`: accounts, posts, post-metrics history, followers, account-insight events, per-team insights-engine output, leads [sha256 email + domain only], 90d web events [UTM only, no IP/UA]). The site's `materialize-datalake-snapshots` ETL turns them into gold sections `socialauto_ops`, `social_engagement`, `social_outliers`, `social_recommendations`, `social_leads`, `social_attribution` for `/admin/analytics/datalake`. Uses `DATALAKE_R2_BUCKET` + the same `CLOUDFLARE_API_TOKEN` (verified cross-bucket write). Real-time leads still push via `CLOUDLESS_LEADS_WEBHOOK_URL` → EspoCRM.
+Every 6h, snapshot-overwrites JSON tables in R2 `datalake-bucket` (`lake/socialauto-*`: accounts, posts, post-metrics history, followers, account-insight events, per-team insights-engine output, leads [sha256 email + domain only], 90d web events [UTM only, no IP/UA]). Plus three append/aggregate datasets: `lake/socialauto-edge-metrics/daily.json` (24h per-hostname edge aggregates from Tempo TraceQL — sampled traces, p50/p95/max, errors_4xx/5xx; counts are flagged `sampled:true` at 10% zone sampling), `lake/socialauto-reports/reports.json` (index of every notebook report manifest — subjects + file refs), `lake/socialauto-ops/health.json` (publish-queue state, 7d failed/skipped targets, stale sync accounts). The site's `materialize-datalake-snapshots` ETL turns them into gold sections `socialauto_ops`, `social_engagement`, `social_outliers`, `social_recommendations`, `social_leads`, `social_attribution` for `/admin/analytics/datalake`. Uses `DATALAKE_R2_BUCKET` + `TEMPO_API_URL` (Tempo query API on omv `:3200`) + the same `CLOUDFLARE_API_TOKEN` (verified cross-bucket write). Real-time leads still push via `CLOUDLESS_LEADS_WEBHOOK_URL` → EspoCRM.
 
 Return leg (verified 2026-09-26): the site relays browser web events
 **into** this platform — `POST /api/analytics/event` on cloudless.gr →
