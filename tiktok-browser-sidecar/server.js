@@ -39,6 +39,7 @@ let qrLoginInFlight = null;
 let qrLoginStartedAt = 0;
 let qrPrevSession = null;
 let qrAbandonTimer = null;
+let qrGeneration = 0; // monotonic counter to detect stale catch handlers
 const QR_TTL_MS = Number(process.env.TIKTOK_QR_TTL_MS) || 150000;
 
 const SESSION_FILE = "/data/tiktok-session.json";
@@ -260,6 +261,10 @@ async function handleSetSession(req, res) {
   if (!session_id && !cookies) {
     return res.status(400).json({ error: "session_id or cookies is required" });
   }
+  // External session injection supersedes any in-flight QR flow — cancel it
+  // so its abandon timer doesn't overwrite the freshly injected session.
+  qrPrevSession = null;
+  clearQrFlow();
   sessionId = session_id || null;
   userId = user_id || null;
   // Optional name→value map for the full cookie set (sid_tt, uid_tt, msToken…)
@@ -340,6 +345,10 @@ async function abandonQrFlow() {
  * resulting session cookies.
  */
 async function handleQrLoginStart(req, res) {
+  // Capture the generation at the start of this call — if a forced retry
+  // replaces us, our catch handler must NOT call abandonQrFlow on the new
+  // flow's behalf. Declared outside try so catch can see it.
+  const myGen = ++qrGeneration;
   try {
     // A settled flow older than the QR lifetime (or ?force=1) must re-mint —
     // otherwise every retry returns the same expired QR forever.
@@ -348,6 +357,24 @@ async function handleQrLoginStart(req, res) {
       qrLoginInFlight &&
       (force || Date.now() - qrLoginStartedAt > QR_TTL_MS)
     ) {
+      // Before discarding, check whether the expired QR was actually approved
+      // (user scanned it between expiry and this retry). If so, capture the
+      // approved session instead of throwing it away.
+      if (context) {
+        const cookies = await context
+          .cookies("https://www.tiktok.com")
+          .catch(() => []);
+        if (cookies.some((c) => c.name === "sessionid" && c.value)) {
+          await captureSessionCookies();
+          qrPrevSession = null;
+          clearQrFlow();
+          return res.json({
+            status: "ok",
+            logged_in: true,
+            reason: "approved_before_remint",
+          });
+        }
+      }
       clearQrFlow();
     }
     if (!qrLoginInFlight) {
@@ -396,7 +423,12 @@ async function handleQrLoginStart(req, res) {
     }
     await qrLoginInFlight;
   } catch (err) {
-    await abandonQrFlow();
+    // Only abandon if this handler still owns the current flow — a forced
+    // retry may have replaced us (bumped qrGeneration), in which case our
+    // error must not tear down the new flow's browser.
+    if (qrGeneration === myGen) {
+      await abandonQrFlow();
+    }
     return res.status(500).json({ error: err.message });
   }
 
@@ -416,7 +448,9 @@ async function handleQrLoginStart(req, res) {
     }
     res.json({ status: "ok", qr_png_b64: png, url: page.url() });
   } catch {
-    await abandonQrFlow();
+    if (qrGeneration === myGen) {
+      await abandonQrFlow();
+    }
     res
       .status(502)
       .json({ error: "QR code element not found on login page" });
