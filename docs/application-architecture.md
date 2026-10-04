@@ -702,7 +702,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ worker-     │  │             │  │ postgres    │               │
 │  │ default     │  │ Scheduler   │  │ :5433       │               │
 │  │             │  │             │  │             │               │
-│  │ Celery      │  │ 9 schedules │  │ PostgreSQL  │               │
+│  │ Celery      │  │31 schedules │  │ PostgreSQL  │               │
 │  │ default     │  │             │  │ 16-alpine   │               │
 │  └─────────────┘  └─────────────┘  └─────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘

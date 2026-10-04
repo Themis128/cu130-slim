@@ -114,7 +114,7 @@ cd social-automation/frontend && ./node_modules/.bin/tsc --noEmit --incremental 
 # copy a changed backend file into the running container
 docker compose cp social-automation/backend/app/services/foo.py social-api:/app/app/services/foo.py
 
-# check all 3 Celery worker nodes are online
+# check all 4 Celery worker nodes are online
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
 
 # check which queues each worker is consuming
@@ -167,7 +167,7 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 - **Team-scoped data**: All media assets, posts, social accounts, and AI usage logs are scoped by `team_id`. If the admin user is re-seeded (new UUID), existing data from the old team will not appear. Reassign with: `UPDATE media_assets SET team_id='<new>, user_id='<new>' WHERE team_id='<old>';` (same for `posts`, `social_accounts`, `ai_usage_logs`).
 - **Cache fallback chain**: KV (Cloudflare, primary) → Redis (local, failover).
 - **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
-- **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, ports 9000/9001) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
+- **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, host ports 9100/9101, container 9000/9001 — portainer owns host :9000) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
 - **Inference fallback chain (text)**: DMR (local Docker Model Runner) → Cloudflare Workers AI (the ONLY cloud fallback). Other cloud providers (Groq, Gemini, Mistral, Cohere, OpenRouter, NVIDIA, HuggingFace, OpenAI, SambaNova) are kept in PROVIDER_CATALOG for manual selection but are NOT in the automatic fallback chain.
 - **Inference fallback chain (images)**: Local Diffusers (SD 1.5, GPU) → Cloudflare Workers AI (the ONLY cloud fallback). Other image providers (Pixazo, Together, HuggingFace, NVIDIA FLUX) are manual-selection-only.
 - **Docker Model Runner (DMR)**: Primary local text inference. API at `http://localhost:12435` (host) or `http://host.docker.internal:12435` (containers) — an **engine-level GPU runner** (`docker-model-runner` container, image `local/model-runner:vllm-cuda-fixed`) with llama.cpp CUDA (`-ngl 999` full offload) + vLLM 0.27.1 backends. The Docker Desktop runner on 12434 (CPU-only llama.cpp) still exists but the app no longer points at it. OpenAI-compatible (`/engines/v1/chat/completions`), Anthropic-compatible (`/anthropic/v1/messages`), and Ollama-compatible (`/api/chat`) APIs. Models (platform-aware routing): `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL` — long-form LinkedIn/Facebook + schema/JSON, ctx 6144, keep-alive 5m, ~5.1GB), `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` (`DMR_MID_MODEL`+`DMR_CHATBOT_MODEL` — non-thinking instruct for short-form platforms + all chatbots, ctx 4096, keep-alive 30m pinned, ~2.7GB), `ai/smollm3` (`DMR_TINY_MODEL` — <200-char prompts, `--reasoning-budget 0`), `ai/llama3.2` (carousel-pipeline NLP check/fix + title generation — required by `run_cloudless_carousel_pipeline`, ~2GB), `ai/qwen3-vl` (vision), `ai/qwen3-embedding` (embeddings), `ai/smollm2-vllm` (vLLM safetensors, experimental). Config via `docker model configure --context-size N`; active `docker model` context is `vllm` (→ localhost:12435). Skill: `.devin/skills/docker-model-runner/`. MCP server: `dmr` in `.devin/mcp_config.json` (8 tools: status, list, chat, embed, pull, inspect, configure, generate_image).
@@ -177,7 +177,7 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
   - **Chatbot inference order**: Messenger (`messenger_chatbot.py`), WhatsApp (`whatsapp_chatbot.py`), Telegram (reuses `generate_contextual_reply`), and the messenger-sidecar all run **DMR first → Cloudflare Workers AI → static fallback**. Intent detection was already DMR-first.
   - **DMR GPU runner (port 12435)**: created via `docker model install-runner --backend vllm --gpu cuda --port 12435` then patched: torch `+cpu`→`+cu126` in `/opt/vllm-env` (the `latest-vllm-cuda` image ships a broken CPU-only torch), env `VLLM_WSL2_ENABLE_PIN_MEMORY=1` (WSL2 disables pinned memory → "UVA is not available"), env `VLLM_USE_FLASHINFER_SAMPLER=0` (image lacks `ninja` for FlashInfer JIT), `docker model configure docker.io/ai/smollm2-vllm:latest --gpu-memory-utilization 0.25` (per-model, FULL ref required — short names silently no-op; once configured, the API resolves only the full ref and `ai/smollm2-vllm` 404s). The committed image `local/model-runner:vllm-cuda-fixed` has the torch fix; container env vars carry the other two. Model config (e.g. gpu-memory-utilization) lives in the container layer — reapply after `install-runner`/`reinstall-runner` recreates it.
   - **vLLM needs safetensors**: GGUF models run on llama.cpp, safetensors (`*-vllm` tags) run on vLLM. 8GB VRAM caps vLLM at small models (~≤4GB weights).
-  - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
+  - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) cannot run there and was removed from the model store. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
 - **Video generation (TikTok)**: `POST /api/v1/media/generate-video` → Celery `generate_video_asset_task` (media queue) → `app/services/comfyui_video.py` → ComfyUI (`COMFYUI_URL=http://comfyui:8000`, `social-media-comfyui-gpu`, lowvram RTX 3070). Primary model `ltx-video-2b-v0.9-Q8_0.gguf` via `UnetLoaderGGUF` (the fp8 distilled safetensors produces noise — do not use); Wan 2.1 T2V 1.3B is the fallback. Constraints: dims multiple of 32, frames = 8n+1. Long-form: `options.duration_seconds` (≤60) or `options.scene_prompts` → sequential segments + ffmpeg concat. Stored graphs in `comfyui-workflows/`; weights in `storage-models/` (gitignored). Driven by n8n `tiktok-video-post` (webhook + every-2-days schedule; `publish:false` = draft-only dry run; scheduled runs use `MEDIA_UPLOAD`, explicit calls may `DIRECT_POST`). Details: `docs/media-creation-architecture.md` § Video model notes.
 - n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
 - Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
@@ -271,7 +271,7 @@ Frontend data flow:
 
 ### Auto token refresh
 
-A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs every hour at :15 past the hour. It refreshes any active account token expiring within the next 4 hours:
+A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs twice hourly (at :15 and :45 past the hour). It refreshes any active account token expiring within the next 4 hours:
 
 - **TikTok**: 24-hour tokens — refreshed daily (TikTok doesn't return `expires_in` on refresh, so 24h is assumed).
 - **Twitter/X**: 2-hour tokens — refreshed every hour (requires `offline.access` scope for refresh token). Uses `https://x.com/i/oauth2/authorize` and `https://api.x.com/2/oauth2/token` (not `twitter.com`/`api.twitter.com`).
@@ -357,7 +357,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
   2. **Cloudflare Workers AI (FLUX schnell)** — the ONLY cloud fallback. Used when Local Diffusers is unavailable or fails. Model: `@cf/black-forest-labs/flux-1-schnell`.
 - **Removed from automatic path**: Pixazo, Together AI, HuggingFace, NVIDIA FLUX — these are manual-selection-only via the AI Providers settings page.
 - **Provider provenance**: Each generated image records `meta_data.inference_provider` (`local-diffusers` or `cloudflare`) and `meta_data.inference_model` for tracking which path produced the asset.
-- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) is pulled into Docker Model Runner, but the Diffusers engine is **not available on Docker Desktop/WSL2** — it requires native Linux with NVIDIA CUDA. On WSL2, Local Diffusers (SD 1.5) is the working local GPU path. See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
+- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) was removed from DMR — the Diffusers engine is **not available on Docker Desktop/WSL2** anyway (requires native Linux with NVIDIA CUDA). On WSL2, Local Diffusers (SD 1.5) is the working local GPU path. See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
 
 ## Image quality gate
 
@@ -473,15 +473,7 @@ Verified connectivity from `social-api` to all dependent services:
 
 ### Known infrastructure issues
 
-- **Cloudflare API token expired**: `CLOUDFLARE_API_TOKEN` returns 401 "Invalid API Token" from `api.cloudflare.com`. D1, KV, and Vectorize are all in `postgres_only` fallback mode. The env vars (`D1_SOCIAL_AUTOMATION_ID`, `KV_CACHE_NAMESPACE`, `VECTORIZE_INDEX_NAME`) are correctly configured — only the token needs refreshing in `.env`.
-  - **Token fallback**: D1/KV/Vectorize clients now try multiple tokens in order: `CLOUDFLARE_API_TOKEN` → `CLOUDFLARE_AI_API_TOKEN` → `CLOUDFLARE_EMAIL_API_TOKEN`. The AI token works for Workers AI but lacks D1/KV/Vectorize scopes, so a new API token is still needed.
-  - **Required token scopes**: Create a new Cloudflare API token at https://dash.cloudflare.com/profile/api-tokens with these permissions:
-    - D1: Edit (`Account > D1 > Edit`)
-    - Workers KV: Edit (`Account > Workers KV Storage > Edit`)
-    - Vectorize: Edit (`Account > Vectorize AI > Edit`)
-    - Workers AI: Edit (`Account > Workers AI > Edit`) — optional if using separate AI token
-  - **After refreshing**: Update `CLOUDFLARE_API_TOKEN` in `.env`, restart `social-api` + workers, then verify with `curl http://localhost:8083/api/v1/cf-db/health` — `d1`, `kv`, `vectorize` should all return `true`, and `tokens_available` should show the count.
-  - **Health endpoint diagnostics**: `/api/v1/cf-db/health` now returns `tokens_available`, `account_id_configured`, `d1_db_id_configured`, `kv_namespace_configured`, and `vectorize_index_configured` to help diagnose config vs token issues.
+- **Cloudflare tokens**: `CLOUDFLARE_API_TOKEN` is healthy — `/api/v1/cf-db/health` reports `d1`, `kv`, `vectorize` all `true`, router in `dual` mode (D1 primary, circuit closed). D1/KV/Vectorize clients try tokens in order: `CLOUDFLARE_API_TOKEN` → `CLOUDFLARE_AI_API_TOKEN` → `CLOUDFLARE_EMAIL_API_TOKEN` (the AI token lacks D1/KV/Vectorize scopes). If a token ever goes stale, required scopes: D1 Edit, Workers KV Edit, Vectorize Edit (Workers AI Edit only if sharing the AI token). After rotating, update `.env`, restart `social-api` + workers, verify via `/api/v1/cf-db/health` (`tokens_available`, `*_configured` diagnostics included).
 - **linkedin-mcp-server healthcheck**: Fixed — was using `curl` (not available in the container image). Now uses Python `socket` TCP check on port 9227. Container reports healthy.
 - **social-worker-default CPU**: Normal — runs `sync_all_analytics` Celery beat tasks which are CPU-intensive during analytics sync. Concurrency=2, max-tasks-per-child=200.
 - **Chroma API v1 deprecated**: Chroma client uses v2 API (`/api/v2/tenants/default_tenant/databases/default_database`). The v1 endpoint returns 410 Gone — this is expected and not a problem.
@@ -510,7 +502,7 @@ Verified connectivity from `social-api` to all dependent services:
 
 The migration chain is linear. Always set `down_revision` to the current head before creating a new migration. Run `grep -h "^revision\|^down_revision" alembic/versions/*.py` to verify there is only one head.
 
-Current chain (oldest → newest):
+Current chain (oldest → newest, 39 revisions):
 1. `d90da9214372` — initial migration
 2. `d897700d7a90` — scheduled posts partial index
 3. `a1b2c3d4e5f6` — AI providers table
@@ -522,9 +514,34 @@ Current chain (oldest → newest):
 9. `21e4c2d4daf5` — MinIO storage backend enum
 10. `b2c3d4e5f6a7` — platform event index
 11. `h4c5d6e7f8a9` — brand tables
-12. `e7f8a9b1c2d3` — account type column
-13. `5d35f29495b9` — merge brand + account-type heads
-14. `i5d6e7f8a9b0` — music_asset_id on posts (current head)
+12. `c5d6e7f8a9b0` — cancelled queue_status enum
+13. `d6e7f8a9b1c2` — 2FA + notification preferences on users
+14. `e7f8a9b1c2d3` — account type column
+15. `5d35f29495b9` — merge brand + account-type heads
+16. `i5d6e7f8a9b0` — music_asset_id on posts
+17. `j5d6e7f8a9b1` — social_secrets (Cloudflare SSM w/ local failover)
+18. `k6e7f8a9b2c3` — follower_snapshots
+19. `l7f8a9b3c4d5` — provider routing policy + circuit breaker + usage cost
+20. `m8a9b4c5d6e7` — approval workflow, PostComment, Pillar, ContentBrief
+21. `n9b5c6d7e8f9` — content_prompt_templates
+22. `o7c8d9e0f1a2` — audit_logs
+23. `p8d9e0f1a2b3` — brand_mentions + competitor_snapshots
+24. `q9e1f2a3b4c5` — recurring post fields
+25. `r0a1b2c3d4e5` — onboarding_completed on users
+26. `s1b3c4d5e6f7` — plan_tier on teams
+27. `t2c4d5e6f7a8` — email_logs (transactional email audit)
+28. `l6f7a8b9c0d1` — leads (Meta lead capture)
+29. `u3e6f7a8b9c0` — digital cards
+30. `v4g5h6i7j8k9` — web analytics config + events
+31. `w6h7i8j9k0l1` — paddle billing fields + billing_events
+32. `x7i8j9k0l1m2` — polar billing columns
+33. `y8j9k0l1m2n3` — dodo billing columns
+34. `z9k0l1m2n3o4` — polar_discount_code
+35. `w1a2b3c4d5e6` — whatsapp_messages
+36. `a6b7c8d9e0f1` — ad_campaign_snapshots
+37. `b7c8d9e0f1a2` — ad_daily_metrics + ad_demographic_segments
+38. `c8d9e0f1a2b3` — publish_queue dedupe + partial unique index
+39. `f6e5d4c3b2a1` — 'website' leadsource enum (current head)
 
 ## CodeQL alert history
 
@@ -610,7 +627,7 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **`docker model configure` REPLACES the whole per-model config** — pass all flags in one call (`docker model configure --context-size 8192 --keep-alive 30m ai/qwen3:8b-q4_K_M`), verify with `configure show`. Current live config: qwen3:8b ctx=6144 keep-alive=5m; 4b-instruct ctx=4096 keep-alive=30m; smollm3 ctx=4096 keep-alive=5m `--reasoning-budget 0`. hf.co GGUFs NEED explicit `--context-size` (native ctx 262k → 36GB KV OOM).
 - **No `docker` CLI inside containers** — `apply_best_practice_configs()`/`configure_speculative_decoding()` in `dmr.py` no-op in-container; apply runtime config from the host.
 - **Speculative decoding broken on llama.cpp b9879**: attaching `hf.co/Qwen/Qwen3-0.6B-GGUF` as draft for qwen3:8b crashes the runner (`vector::_M_range_check` on draft load) and takes the model offline. Draft is pulled but not attached.
-- **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) is pulled and cached but cannot run. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
+- **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) cannot run there and was removed from the model store. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
 
 ### ComfyUI (`social-media-comfyui-gpu` container)
 
@@ -634,7 +651,7 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 | Local Diffusers (SD 1.5) | ~2.0GB | Allocated when generating; unloaded when idle |
 | **Free when DMR loaded** | **~0.5GB** | Tight — DMR auto-unloads when idle so local-diffusers can generate |
 
-- **DMR SDXL on disk**: The `ai/stable-diffusion` model (6.94 GB DDUF) is cached locally but cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
+- **DMR SDXL**: The `ai/stable-diffusion` model (6.94 GB DDUF) is not pulled — it cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
 - **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so DMR/ComfyUI can use the VRAM.
 - **DMR + local-diffusers coexistence**: DMR auto-unloads its model after idle, so the two rarely hold VRAM simultaneously. When both are active (~7GB total), it fits in 8GB but leaves little headroom.
 

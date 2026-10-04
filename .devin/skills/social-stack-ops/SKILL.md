@@ -2,7 +2,7 @@
 name: social-stack-ops
 description: >-
   Operates the cu130-slim Docker Compose stack (ComfyUI, n8n, social-api,
-  social-worker-publishing/media/default, celery-beat, Redis, Postgres, Ollama,
+  social-worker-publishing/media/default/messenger, celery-beat, Redis, Postgres,
   Chroma, Portainer). Use when checking container health, restarting workers
   after publishing fixes, DNS issues, ports, or day-to-day ops for the Cloudless
   social automation stack.
@@ -27,7 +27,6 @@ triggers:
 | n8n | 5678 |
 | env-manager | 8080 |
 | ComfyUI | 8000 |
-| ollama | 11435 |
 | social-postgres | 5433 |
 | metabase | 3000 |
 
@@ -38,7 +37,7 @@ triggers:
 - `social-worker-media` — Celery, `media` queue; **restart after media task / celery_app.py changes**
 - `social-worker-default` — Celery, `default` + `celery` queues; **restart after analytics/workflow/digest task / celery_app.py changes**
 - `celery-beat` — single scheduler instance; **restart after beat_schedule or queue routing changes**
-- `ollama` — GPU-only LLM (`llama3.1:8b-gpu`, 100% GPU, 2048 ctx)
+- `social-worker-messenger` — Celery, `messenger` queue; **restart after messenger task / celery_app.py changes**
 - `comfyui` — GPU image generation (`--gpu-only --force-fp16 --reserve-vram 1`)
 - `n8n` + `n8n-sandbox`
 - `redis`, `social-postgres`
@@ -73,11 +72,8 @@ docker compose restart social-worker-publishing social-worker-media social-worke
 docker compose logs -f social-api social-worker-publishing social-worker-media social-worker-default n8n --tail=100
 docker compose up -d n8n social-api social-worker-publishing social-worker-media social-worker-default celery-beat
 
-# check all 3 Celery worker nodes
+# check all 4 Celery worker nodes
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
-
-# check Ollama GPU offload
-docker compose exec -T ollama ollama ps
 
 # check GPU VRAM
 nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv

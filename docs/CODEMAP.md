@@ -123,7 +123,7 @@ mcp/server.py      MCP server exposing social tools
 
 ## Session layers (three independent ones)
 
-1. **OAuth tokens** — `social_accounts.access_token_enc` (encrypted), `scopes`, `meta_data`. Refreshed by `token_refresh` (hourly :15) + `instagram_token_refresh`/`linkedin_session_refresh` (weekly). X tokens live 2h (`expires_in:7200`); refresh tokens are single-use. `token_refresh._skip_for_recent_update` skips recently-touched accounts **only** when the token survives the next hourly run — a token expiring inside the window refreshes immediately (2026-09-23 fix: a 1.2s-valid token was skipped on an unrelated `updated_at` bump → ~1h of 401s).
+1. **OAuth tokens** — `social_accounts.access_token_enc` (encrypted), `scopes`, `meta_data`. Refreshed by `token_refresh` (hourly :15 & :45) + `instagram_token_refresh`/`linkedin_session_refresh` (weekly). X tokens live 2h (`expires_in:7200`); refresh tokens are single-use. `token_refresh._skip_for_recent_update` skips recently-touched accounts **only** when the token survives the next hourly run — a token expiring inside the window refreshes immediately (2026-09-23 fix: a 1.2s-valid token was skipped on an unrelated `updated_at` bump → ~1h of 401s).
 2. **Shared bridge** `browser-novnc:9223` — one Chromium for all web-session work (IG DMs fallback, personal Messenger, Threads, X). Owner-hold: requests carry `X-Platform`; owner holds browser ~180s past last touch; `POST /session/start {platform, force:true}` claims it; `POST /session/cookies` injects; `POST /session/extract` persists storage state.
 3. **Dedicated sidecars** — TikTok 9224, LinkedIn 9225, Facebook 9226, Messenger 9230. Each keeps its own Playwright profile + storage state under its data volume. `/login`, `/session/validate`, `/debug/all-cookies` (cookie export for transplants). TikTok sidecar `/session` fast-paths to `logged_in:false, reason:"no_session"` when no session cookies are injected — no 15s anonymous profile navigation on every health probe.
 
@@ -208,7 +208,7 @@ strategy brief (21:00 EEST) runs this way; `send_email*` accepts
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily
 
 ## cloudless.gr datalake export (`datalake_export.export_datalake`)
 
