@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -59,6 +60,91 @@ def _engagement_sum(event_counts: dict[str, int]) -> int:
 
 def _engagement_rate(engagement: int, impressions: int) -> float:
     return engagement / impressions if impressions > 0 else 0.0
+
+_SCRAPE_POSTED_RE = re.compile(r"^\d+\s*(?:mo|[smhdwy])\b.*•", re.IGNORECASE)
+_SCRAPE_CHROME_RE = re.compile(
+    r"^(feed post number \d+|.+\b(?:reposted|likes|celebrates|loves|supports)\b.*this\b.*|"
+    r"follow|.*•\s*(?:1st|2nd|3rd\+?)\s*$|[\d.,]+\s*[km]?\s*followers)$",
+    re.IGNORECASE,
+)
+
+
+def _strip_feed_card_chrome(text: str) -> str:
+    """Extract post body from a scraped LinkedIn feed-card blob.
+
+    Feed cards look like::
+
+        Feed post number 3
+        <viewer> reposted this
+        <author>
+           • 3rd+                (or "5,593,434 followers")
+        <headline>
+        6mo • Edited •
+        Follow
+        <post body...>
+
+    The post body begins after the posted-time line (and an optional
+    "Follow" line). Falls back to dropping known chrome lines when no
+    time line is present.
+    """
+    lines = [line.strip() for line in text.splitlines()]
+    for i, line in enumerate(lines):
+        if _SCRAPE_POSTED_RE.match(line):
+            rest = [line for line in lines[i + 1:] if line]
+            if rest and rest[0].lower() == "follow":
+                rest = rest[1:]
+            body = " ".join(rest).strip()
+            if body:
+                return body
+    kept = [line for line in lines if line and not _SCRAPE_CHROME_RE.match(line)]
+    return " ".join(kept).strip() or text.strip()
+
+
+def _snapshot_content_text(raw: dict | None) -> str:
+    """Best-effort post text from a PostAnalyticsSnapshot.raw payload.
+
+    Each sync source stores text under a different key:
+    linkedin_org → discovery.commentary / discovery.post.commentary,
+    instagram → discovery.caption, twitter/tweety → text,
+    linkedin member scrape → scrape.text (feed-card chrome included).
+    """
+    raw = raw or {}
+    discovery = raw.get("discovery") or {}
+    text = (
+        discovery.get("commentary")
+        or (discovery.get("post") or {}).get("commentary")
+        or discovery.get("caption")
+        or raw.get("text")
+        or ""
+    )
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    scrape_text = (raw.get("scrape") or {}).get("text")
+    if isinstance(scrape_text, str) and scrape_text.strip():
+        return _strip_feed_card_chrome(scrape_text)
+    return ""
+
+
+def _snapshot_external_url(platform: str | None, raw: dict | None, platform_post_id: str | None) -> str | None:
+    """Public platform URL for a snapshot that has no editable Post row."""
+    raw = raw or {}
+    discovery = raw.get("discovery") or {}
+    post = discovery.get("post") or {}
+    for url in (raw.get("share_url"), discovery.get("permalink"), post.get("permalink")):
+        if isinstance(url, str) and url.startswith("http"):
+            return url
+    for urn in (post.get("id"), (raw.get("scrape") or {}).get("urn")):
+        if isinstance(urn, str) and urn.startswith("urn:li:"):
+            return f"https://www.linkedin.com/feed/update/{urn}"
+    if platform in ("twitter", "x"):
+        tweet_id = raw.get("id") or platform_post_id
+        if tweet_id:
+            return f"https://x.com/i/status/{tweet_id}"
+    if platform == "facebook" and platform_post_id and "_" in platform_post_id:
+        page_id, fb_post_id = platform_post_id.split("_", 1)
+        return f"https://www.facebook.com/{page_id}/posts/{fb_post_id}"
+    return None
+
 
 def _org_urn(account: SocialAccount) -> str:
     """Build the LinkedIn organization URN for a Company Page account."""
@@ -374,6 +460,7 @@ class TopPost(BaseModel):
     engagement: int
     engagement_rate: float
     published_at: datetime | None
+    external_url: str | None = None
 
 
 class EngagementPoint(BaseModel):
@@ -905,14 +992,15 @@ async def get_top_posts(team_id: TeamId,
         return [
             TopPost(
                 post_id=snap.post_id or snap.id,
-                content_text=content_text
-                or ((snap.raw or {}).get("discovery") or {}).get("commentary")
-                or "",
+                content_text=content_text or _snapshot_content_text(snap.raw),
                 platform=snap.platform,
                 impressions=snap.impressions,
                 engagement=snap.engagement,
                 engagement_rate=snap.engagement_rate,
                 published_at=None,
+                external_url=None
+                if snap.post_id
+                else _snapshot_external_url(snap.platform, snap.raw, snap.platform_post_id),
             )
             for snap, content_text in snap_rows
             if snap.source != "linkedin_org_lifetime"
