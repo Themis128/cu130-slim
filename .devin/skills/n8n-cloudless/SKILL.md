@@ -150,6 +150,31 @@ From repo root:
 
 Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
 
+## Workflow JSON authoring pitfalls (verified 2026-10-04)
+
+1. **`webhookId` is required on Webhook nodes.** The n8n UI assigns it on canvas
+   creation; workflows authored as JSON/imported via API or CLI must set
+   `"webhookId": "<slug>"` explicitly or the webhook never registers
+   (`404 "webhook is not registered"` while the workflow shows active).
+2. **`import:workflow` requires an `id` field** in the JSON — no id, no import.
+   Reuse stable slug ids across redeploys (e.g. `nextcloud-drop-to-draft`).
+3. **HTTP Request `jsonBody`**: fields beginning with `=` evaluate the whole
+   value as an expression producing a JS object literal; embedded
+   `{{ expr }}` interpolations run first. Keep each interpolated value a
+   single `JSON.stringify(...)` of a precomputed field — build complex
+   strings in a preceding Code node (`gen_prompt` pattern). A malformed
+   interpolation surfaces as "The value in the JSON Body field is not
+   valid JSON" at runtime.
+4. **`.item` pairing**: `$('Node').item.json` resolves via paired items —
+   works through If/Switch nodes but fails if the referenced node produced
+   zero items (e.g. empty inbox). Guard or default early.
+5. **NextCloud node is broken for modern NC** — see `nextcloud-integration`
+   skill (issue n8n-io/n8n#8802). Use raw HTTP PROPFIND/GET/MOVE instead.
+6. **Debug loop that works**: trigger webhook → `n8n_list_executions` →
+   `n8n_get_execution` (per-node errors via Postgres fallback — the API key
+   403s on /executions). The last executed node in `lastNodeExecuted` is
+   the failing one.
+
 ## Do not
 
 - Do not print API keys or admin passwords or the TOTP secret
