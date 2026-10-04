@@ -1077,3 +1077,49 @@ async def test_find_duplicate_post_ignores_distinct_content(monkeypatch):
         "New Grafana dashboard tracks container memory pressure across the cluster.",
     )
     assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_config_gaps_are_soft_skipped(account, post, monkeypatch):
+    """IG graph-path config/content gaps must be skips, not retried failures.
+
+    The 2026-10-04 digest showed IG targets burning retry attempts on
+    "Instagram requires at least one image. Set an image on the post." —
+    retrying cannot help when media or public-URL resolution comes up empty
+    (missing MEDIA_PUBLIC_BASE_URL, text-only post).
+    """
+    account.meta_data = {"account_type": "business", "ig_business_id": "ig-1"}
+    post.platform_specific = {}
+    media_present = await pub._publish_instagram_via_graph(
+        "token", "caption", account, post, ["/tmp/a.jpg"], ["/uploads/a.jpg"], None,
+    )
+    assert media_present.skipped is True
+    assert "MEDIA_PUBLIC_BASE_URL" in (media_present.error or "")
+
+    media_absent = await pub._publish_instagram_via_graph(
+        "token", "caption", account, post, [], [], None,
+    )
+    assert media_absent.skipped is True
+    assert "Set an image" in (media_absent.error or "")
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_subpath_media_gaps_are_soft_skipped(account, post):
+    """Web/sidecar/instagrapi sub-paths must skip (not fail) on missing media."""
+    account.meta_data = {}
+    web = await pub._publish_instagram_via_web(account, "caption", post, [])
+    sidecar = await pub._publish_instagram_via_sidecar(account, "caption", post, [])
+    insta = await pub._publish_instagram_via_instagrapi("caption", post, [])
+    for result in (web, sidecar, insta):
+        assert result.skipped is True, result.error
+
+
+@pytest.mark.asyncio
+async def test_publish_tiktok_rejects_multi_video_post(account, post):
+    """More than one video must skip with the actual rule, not a photo-branch error."""
+    result = await pub._publish_tiktok(
+        "token", "caption", account, post,
+        ["/tmp/a.mp4", "/tmp/b.mp4"], ["/uploads/a.mp4", "/uploads/b.mp4"],
+    )
+    assert result.skipped is True
+    assert "single video" in (result.error or "")
