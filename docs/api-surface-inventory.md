@@ -72,6 +72,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ai/suggest-hashtags` — POST
 - `/api/v1/ai/suggest-hashtags-tiered` — POST
 - `/api/v1/ai/transcribe` — POST
+- `/api/v1/ai/web-search` — GET
 - `/api/v1/ai/workers-ai/batch` — POST
 - `/api/v1/ai/workers-ai/batch/retrieve` — POST
 - `/api/v1/ai/workflow-config/{content_type}` — GET
@@ -383,6 +384,13 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/publishing/queue/{queue_id}/cancel` — POST
 - `/api/v1/publishing/queue/{queue_id}/retry` — POST
 - `/api/v1/publishing/retry/{queue_id}` — POST
+
+## `reports`
+
+- `/api/v1/reports` — GET
+- `/api/v1/reports/files/{filename}` — GET
+- `/api/v1/reports/notebooks` — GET
+- `/api/v1/reports/run` — POST
 
 ## `secrets`
 
