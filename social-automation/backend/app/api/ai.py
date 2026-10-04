@@ -3025,7 +3025,7 @@ async def dmr_status(
     from app.services import dmr
 
     online = await dmr._check_dmr_health()
-    vram = dmr._get_vram_info()
+    vram = await dmr._get_vram_info()
     missing: list[str] = []
     if online:
         try:

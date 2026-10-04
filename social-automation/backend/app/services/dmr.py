@@ -47,6 +47,7 @@ class _Mutable:
         "vram",
         "vram_check",
         "warmup_done",
+        "configured",
         "client",
         "client_lock",
         "client_loop",
@@ -60,6 +61,7 @@ class _Mutable:
         self.vram: dict[str, Any] = {}
         self.vram_check: float = 0.0
         self.warmup_done: bool = False
+        self.configured: dict[str, float] = {}
         self.client: httpx.AsyncClient | None = None
         self.client_lock = asyncio.Lock()
         self.client_loop: asyncio.AbstractEventLoop | None = None
@@ -185,6 +187,13 @@ def _get_semaphore() -> asyncio.Semaphore:
 # ── Thinking-model output cleanup ────────────────────────────────────────────
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
+# Runner failed to start — typically CUDA OOM while another DMR model or
+# ComfyUI holds VRAM. Triggers the GPU-heal retry path in chat calls.
+_RUNNER_LOAD_RE = re.compile(
+    r"unable to load runner|not enough GPU memory|terminated unexpectedly|failed to fit params",
+    re.IGNORECASE,
+)
+
 
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> reasoning blocks (Qwen3 et al.) from output."""
@@ -275,12 +284,8 @@ def _dmr_cli_run(model: str, prompt: str, timeout: int = 120) -> str | None:
 _VRAM_CACHE_TTL = 5.0  # seconds
 
 
-def _get_vram_info() -> dict[str, int] | None:
-    """Get GPU VRAM info via nvidia-smi.  Returns {used, free, total} in MiB or None."""
-    now = time.monotonic()
-    if _state.vram and (now - _state.vram_check) < _VRAM_CACHE_TTL:
-        return _state.vram
-
+def _nvidia_smi_vram() -> dict[str, int] | None:
+    """VRAM {used, free, total} MiB via nvidia-smi, or None when unavailable."""
     try:
         result = subprocess.run(
             [
@@ -295,23 +300,64 @@ def _get_vram_info() -> dict[str, int] | None:
         if result.returncode == 0:
             parts = result.stdout.strip().split(", ")
             if len(parts) >= 3:
-                _state.vram = {
-                    "used": int(parts[0]),
-                    "free": int(parts[1]),
-                    "total": int(parts[2]),
-                }
-                _state.vram_check = now
-                return _state.vram
+                return {"used": int(parts[0]), "free": int(parts[1]), "total": int(parts[2])}
     except Exception:
         pass
+    return None
+
+
+async def _comfyui_vram() -> dict[str, int] | None:
+    """VRAM {used, free, total} MiB via ComfyUI /system_stats.
+
+    The API container has no nvidia-smi, so without this fallback the VRAM
+    gate silently allows every load. ComfyUI shares the GPU and reports real
+    device memory — good enough for conservative go/no-go decisions.
+    """
+    base = getattr(settings, "COMFYUI_URL", "")
+    if not base:
+        return None
+    try:
+        client = await _get_client()
+        resp = await client.get(
+            f"{base.rstrip('/')}/system_stats",
+            timeout=httpx.Timeout(2.0, connect=1.0),
+        )
+        if resp.status_code != 200:
+            return None
+        cuda = [d for d in resp.json().get("devices") or [] if d.get("type") == "cuda"]
+        if not cuda:
+            return None
+        mib = 1024 * 1024
+        free = min(int(d.get("vram_free", 0)) for d in cuda) // mib
+        total = min(int(d.get("vram_total", 0)) for d in cuda) // mib
+        if not total:
+            return None
+        return {"used": max(total - free, 0), "free": free, "total": total}
+    except Exception:
+        return None
+
+
+async def _get_vram_info() -> dict[str, int] | None:
+    """Get GPU VRAM info ({used, free, total} MiB) or None when unmeasurable."""
+    now = time.monotonic()
+    if _state.vram and (now - _state.vram_check) < _VRAM_CACHE_TTL:
+        return _state.vram
+
+    vram = await asyncio.to_thread(_nvidia_smi_vram)
+    if vram is None:
+        vram = await _comfyui_vram()
+    if vram:
+        _state.vram = vram
+        _state.vram_check = now
+        return vram
     _state.vram = {}
     _state.vram_check = now
     return None
 
 
-def _has_vram_for_model(model: str) -> bool:
+async def _has_vram_for_model(model: str) -> bool:
     """Check if there's enough VRAM for the given model.  Conservative estimates."""
-    vram = _get_vram_info()
+    vram = await _get_vram_info()
     if not vram:
         return True  # can't check — allow it
     free_mb = vram.get("free", 0)
@@ -376,6 +422,37 @@ async def _unload_idle_models() -> None:
             logger.info("DMR: unloaded %d model(s) via Ollama API fallback", len(loaded))
     except Exception as exc:
         logger.debug("DMR Ollama unload fallback failed (%s)", type(exc).__name__)
+
+
+async def _free_gpu_memory() -> None:
+    """Best-effort VRAM release before retrying a failed model load.
+
+    Two sources of pressure on the shared 8GB card:
+    - Other DMR runners still resident (DMR does not auto-unload;
+      docker/model-runner#1014) — evicted via _unload_idle_models.
+    - ComfyUI's cached checkpoints — released via POST /free, but only when
+      its queue is idle so we don't kill an in-flight render.
+    """
+    await _unload_idle_models()
+    base = getattr(settings, "COMFYUI_URL", "")
+    if not base:
+        return
+    try:
+        client = await _get_client()
+        q = await client.get(f"{base.rstrip('/')}/queue", timeout=3.0)
+        queue = q.json() if q.status_code == 200 else {}
+        busy = len(queue.get("queue_running") or []) > 0
+        if busy:
+            logger.info("DMR OOM heal: ComfyUI busy — skipping /free")
+            return
+        await client.post(
+            f"{base.rstrip('/')}/free",
+            json={"unload_models": True, "free_memory": True},
+            timeout=10.0,
+        )
+        logger.info("DMR OOM heal: freed ComfyUI model caches")
+    except Exception as exc:
+        logger.debug("DMR OOM heal: ComfyUI /free failed (%s)", type(exc).__name__)
 
 
 # ── Per-request model routing (improvement #6) ────────────────────────────────
@@ -488,20 +565,17 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
     try:
         client = await _get_client()
         resp = await client.post(
-            f"{url}/inference/_configure",
+            f"{url}/engines/_configure",
             json={"model": model, "keep_alive": keep_alive},
             timeout=5.0,
         )
-        if resp.status_code == 200:
+        if resp.status_code in (200, 202):
             _keep_alive_configured.add(model)
             logger.info("DMR: keep_alive configured")
         elif resp.status_code == 404 and model not in _keep_alive_endpoint_warned:
-            # The /inference/_configure endpoint is absent in the current
-            # docker/model-runner build (verified 2026-09). Runtime keep-alive
-            # is owned by dmr-watchdog's `docker model configure` calls.
             _keep_alive_endpoint_warned.add(model)
             logger.warning(
-                "DMR: /inference/_configure returns 404 on this runner build — "
+                "DMR: /engines/_configure returns 404 on this runner build — "
                 "keep_alive for %s is owned by dmr-watchdog configs, not this call",
                 sanitize_log_text(model, 120),
             )
@@ -593,17 +667,27 @@ async def warmup_models() -> None:
         # the configs are applied even after a DMR restart.
         await apply_best_practice_configs()
 
-        # Warm the two hot-path models: the mid instruct (chatbots + short-form
-        # platform copy, latency-critical) and the primary text model (long-form
-        # + schema). Both fit together on the 8GB card (~7.9GB worst case).
-        models_to_warm = [
-            getattr(settings, "DMR_MID_MODEL", ""),
-            settings.DMR_TEXT_MODEL,
-        ]
-        models_to_warm = [m for m in dict.fromkeys(models_to_warm) if m]
+        # Always warm the mid instruct (chatbots + short-form platform copy,
+        # latency-critical, ~2.7GB resident). The 8B text model only joins
+        # when the shared GPU genuinely has room — DMR doesn't auto-unload
+        # (docker/model-runner#1014), so warming both while ComfyUI holds
+        # VRAM guarantees the 8B load aborts and wastes the keep-alive slot.
+        models_to_warm = [m for m in [getattr(settings, "DMR_MID_MODEL", "")] if m]
+
+        text_model = settings.DMR_TEXT_MODEL
+        if text_model not in models_to_warm:
+            vram = await _get_vram_info()
+            # ~5.5GB for the 8B at ctx 6144 + ~1GB headroom for ComfyUI churn
+            if vram is None or vram.get("free", 0) >= 6500:
+                models_to_warm.append(text_model)
+            else:
+                logger.info(
+                    "DMR warmup: skipping %s — only %dMB free (needs ~6.5GB)",
+                    text_model, vram.get("free", 0),
+                )
 
         # Vision model is large — only warm if VRAM allows AND we have headroom
-        if _has_vram_for_model(settings.DMR_VISION_MODEL):
+        if await _has_vram_for_model(settings.DMR_VISION_MODEL):
             free_mb = _state.vram.get("free", 0)
             if free_mb > 6000:  # Need ~5GB for vision model + headroom
                 models_to_warm.append(settings.DMR_VISION_MODEL)
@@ -684,47 +768,84 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
-async def apply_best_practice_configs() -> None:
-    """Apply best-practice DMR configurations via CLI on startup.
+# DMR model configs live in the runner's memory and are wiped when the model
+# unloads (keep-alive expiry) or the runner restarts — so configs are pushed
+# on a short TTL via _ensure_model_configured, not just once at startup.
+_CONFIGURE_TTL = 60.0  # seconds
 
-    Uses `docker model configure` CLI (not the HTTP API) because the HTTP
-    API is unreachable on WSL2/Docker Desktop.  Idempotent — only runs once.
+
+def _configure_payload(model: str) -> dict[str, Any] | None:
+    """Build a POST /engines/_configure body for a model's canonical config.
+
+    Schema mirrors scheduling.ConfigureRequest: hyphenated keys
+    (context-size, runtime-flags), keep_alive as a Go duration string,
+    thinking via llamacpp.reasoning-budget (-1 = unlimited, same as
+    `docker model configure --think`).
+    """
+    cfg = _BEST_PRACTICE_CONFIGS.get(model)
+    if cfg is None:  # tolerate short refs (e.g. "qwen3:8b-q4_K_M")
+        norm = model.lower().removeprefix("docker.io/").removeprefix("huggingface.co/")
+        cfg = next(
+            (c for k, c in _BEST_PRACTICE_CONFIGS.items() if k.lower() in norm or norm in k.lower()),
+            None,
+        )
+    if not cfg:
+        return None
+    body: dict[str, Any] = {"model": model}
+    if "context_size" in cfg:
+        body["context-size"] = cfg["context_size"]
+    if "keep_alive" in cfg:
+        body["keep_alive"] = cfg["keep_alive"]
+    if cfg.get("mode"):
+        body["mode"] = cfg["mode"]
+    if cfg.get("think"):
+        body["llamacpp"] = {"reasoning-budget": -1}
+    if cfg.get("runtime_flags"):
+        body["runtime-flags"] = cfg["runtime_flags"]
+    return body
+
+
+async def _ensure_model_configured(model: str, *, force: bool = False) -> None:
+    """Push the canonical runtime config for a model via HTTP _configure.
+
+    No-op for unlisted models and when re-applied within _CONFIGURE_TTL;
+    pass force=True on the failure-recovery path since an unload or runner
+    restart may have wiped the in-memory config.
+    """
+    body = _configure_payload(model)
+    if body is None:
+        return
+    now = time.monotonic()
+    if not force and (now - _state.configured.get(model, 0.0)) < _CONFIGURE_TTL:
+        return
+    try:
+        client = await _get_client()
+        resp = await client.post(
+            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
+        )
+        if resp.status_code in (200, 202):
+            _state.configured[model] = now
+        else:
+            logger.debug("DMR _configure %s -> HTTP %s", model, resp.status_code)
+    except Exception as exc:
+        logger.debug("DMR _configure %s failed (%s)", model, type(exc).__name__)
+
+
+async def apply_best_practice_configs() -> None:
+    """Apply best-practice DMR configurations via the HTTP _configure endpoint.
+
+    Uses POST /engines/_configure (not `docker model configure`) because the
+    API container has no docker CLI — the old subprocess path silently
+    no-op'd here and configs only ever landed via dmr-watchdog. Idempotent
+    per-process; per-request _ensure_model_configured keeps them alive
+    across model unloads and runner restarts.
     """
     if getattr(apply_best_practice_configs, "_done", False):
         return
     apply_best_practice_configs._done = True  # type: ignore[attr-defined]
 
-    for model, cfg in _BEST_PRACTICE_CONFIGS.items():
-        try:
-            cmd = ["docker", "model", "configure"]
-            if "context_size" in cfg:
-                cmd += [f"--context-size={cfg['context_size']}"]
-            if "keep_alive" in cfg:
-                cmd += [f"--keep-alive={cfg['keep_alive']}"]
-            if cfg.get("think"):
-                cmd += ["--think=true"]
-            if "mode" in cfg:
-                cmd += [f"--mode={cfg['mode']}"]
-            cmd.append(model)
-            if "runtime_flags" in cfg:
-                cmd.append("--")
-                cmd += cfg["runtime_flags"]
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info("DMR: configured %s (ctx=%s, keep-alive=%s)",
-                            model, cfg.get("context_size", "default"),
-                            cfg.get("keep_alive", "default"))
-            else:
-                logger.debug("DMR config failed for %s: %s",
-                             model, stderr.decode()[:200] if stderr else "")
-        except Exception as exc:
-            logger.debug("DMR config error for %s: %s", model, exc)
+    for model in _BEST_PRACTICE_CONFIGS:
+        await _ensure_model_configured(model, force=True)
 
 
 # ── Core chat with retry + CLI fallback (improvements #1, #4, #7, #9) ──────────
@@ -802,16 +923,20 @@ async def _call_dmr_chat_internal(
         payload["tools"] = tools
 
     # Improvement #11: VRAM-aware routing
-    if not _has_vram_for_model(model):
+    if not await _has_vram_for_model(model):
         logger.warning("DMR: insufficient VRAM — unloading idle models")
         await _unload_idle_models()
-        if not _has_vram_for_model(model):
+        if not await _has_vram_for_model(model):
             # Fall back to tiny model
             tiny = settings.DMR_TINY_MODEL
-            if _has_vram_for_model(tiny):
+            if await _has_vram_for_model(tiny):
                 logger.warning("DMR: falling back to tiny model")
                 payload["model"] = tiny
                 model = tiny
+
+    # Re-push the canonical runtime config — DMR drops it on model unload
+    # (keep-alive expiry) and runner restart (docker/model-runner#726).
+    await _ensure_model_configured(model)
 
     # Improvement #7: streaming support
     if stream:
@@ -828,8 +953,16 @@ async def _call_dmr_chat_internal(
             async with sem:
                 resp = await client.post(url, json=payload, timeout=timeout)
             if resp.status_code != 200:
+                body = resp.text[:400]
                 _invalidate_health_cache()
-                raise ConnectionError(f"DMR error {resp.status_code}: {resp.text[:400]}")
+                if attempt == 0 and _RUNNER_LOAD_RE.search(body):
+                    # Runner failed to start (typically CUDA OOM while DMR
+                    # held another model resident or the in-memory config
+                    # was wiped) — free VRAM, re-push config, then retry.
+                    logger.warning("DMR runner load failed for %s — healing GPU state", model)
+                    await _free_gpu_memory()
+                    await _ensure_model_configured(model, force=True)
+                raise ConnectionError(f"DMR error {resp.status_code}: {body}")
 
             data = resp.json()
             msg = data["choices"][0]["message"]
@@ -991,6 +1124,7 @@ async def call_dmr_embedding(
     if not await _check_dmr_health():
         raise ConnectionError("DMR is offline — embeddings unavailable via CLI fallback")
 
+    await _ensure_model_configured(model)
     url = f"{settings.DMR_URL}/embeddings"
     try:
         client = await _get_client()
@@ -1057,10 +1191,11 @@ async def call_dmr_vision(
     }
 
     # VRAM check — vision models are large
-    if not _has_vram_for_model(model):
+    if not await _has_vram_for_model(model):
         logger.warning("DMR vision: insufficient VRAM")
         await _unload_idle_models()
 
+    await _ensure_model_configured(model)
     url = f"{settings.DMR_URL}/chat/completions"
     try:
         client = await _get_client()
