@@ -13,7 +13,6 @@ token = api_login(api)
 resp = request("GET", f"{api}/api/v1/secrets", token=token)
 items = resp if isinstance(resp, list) else resp.get("secrets", resp.get("items", []))
 for s in items:
-    name = s.get("key", s) if isinstance(s, dict) else s
-    # codeql[py/clear-text-logging-sensitive-data] — prints key NAMES only,
-    # never values; the names themselves are not secret.
-    print(f"  {name:40s}")
+    key = s.get("key", s) if isinstance(s, dict) else s
+    desc = s.get("description", "") if isinstance(s, dict) else ""
+    print(f"  {key:40s} {desc}")
