@@ -100,9 +100,16 @@ log 365 days — keeps SSD growth bounded.
   and `extra_hosts` pins `mail.cloudless.gr → 192.168.1.130` inside the
   nextcloud container (public DNS resolves to the WAN IP, unreachable for
   IMAP). Mailbox password aligned to the unified admin credential.
-- **External storage** → `OMV Storage` SFTP mount (id 1) exposing the whole
-  1 TB SSD (`/srv/dev-disk-by-uuid-fa6231ab-…`) inside Files — Backups,
-  Documents, Media, etc. are browsable from Nextcloud.
+- **External storage** → `OMV Storage` **Local** mount (id 2) exposing the
+  1 TB SSD inside Files via the `/omv-storage` bind mount (replaced the
+  self-SFTP mount — phpseclib logins intermittently failed under PROPFIND
+  fan-out, producing 10s timeouts and 5xx on ~9% of cloud.cloudless.gr
+  traffic). Permission model: containers `group_add` host gid 100
+  (`users`); the SSD data dirs are `tbaltzakis:users` with group `rwx`
+  + setgid + default ACL `g:users:rwX`, so www-data can read/write the
+  tree and future files stay group-writable. System subtrees
+  (`k3s-data`, `Backups`, `workspace`, `compose-files`, `tempo-data`)
+  are root-owned and intentionally not group-writable.
 - **Branding** → theming app: name `Cloudless`, slogan "Clear skies. Zero
   friction.", color `#0a7785`, Cloudless wordmark/icon/favicon from
   `cloudless.gr/BRANDING/cloudless-brand/`.
