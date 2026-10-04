@@ -29,6 +29,11 @@ export function preferredAccount(
   if (platform === 'linkedin') {
     return list.find((a) => isOrgAccount(a)) || list[0]
   }
+  if (platform === 'facebook') {
+    // Business Pages publish via Graph API; personal profiles fall back to the
+    // browser sidecar. Prefer the Page so brand posts don't route to personal.
+    return list.find((a) => a.account_type === 'page' || a.is_business) || list[0]
+  }
   return list[0]
 }
 
