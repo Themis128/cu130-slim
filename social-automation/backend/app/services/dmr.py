@@ -10,8 +10,8 @@ Consolidates all DMR interactions across the backend into a single module with:
   7. Streaming support for long generations
   8. Shared vision helper (replaces duplicates in image_enhance.py & media_ai.py)
   9. Tool calling support (OpenAI function-calling format)
- 10. Keep-alive configuration (POST /inference/_configure)
- 11. VRAM-aware routing (check nvidia-smi before loading large models)
+ 10. Runtime configuration (POST /engines/_configure, re-applied per request)
+ 11. VRAM-aware routing (nvidia-smi, ComfyUI /system_stats fallback)
  12. Speculative decoding configuration (draft model for faster generation)
  13. Benchmark caching (cache TPS results for model selection)
  14. Request logging via DMR requests API
@@ -554,24 +554,30 @@ _keep_alive_endpoint_warned: set[str] = set()
 async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
     """Set keep-alive for a model so it stays loaded between requests.
 
+    _configure REPLACES the whole BackendConfiguration, so the canonical
+    payload is sent with keep_alive overridden — a partial body would wipe
+    context-size/runtime-flags and send the next load back to the model's
+    default context (e.g. 262K tokens → CUDA OOM). The override lasts until
+    the next canonical re-push (TTL/unload); canonical config always wins.
+
     Args:
         model: Model identifier (e.g. 'ai/qwen3:8b-q4_K_M')
         keep_alive: Duration string ('5m', '1h', '0' for immediate unload, '-1' for forever)
     """
-    if model in _keep_alive_configured:
-        return  # already configured
+    key = f"{model}:{keep_alive}"
+    if key in _keep_alive_configured:
+        return  # same override already applied
+
+    body = _configure_payload(model) or {"model": model}
+    body["keep_alive"] = keep_alive
 
     url = _dmr_base_url()
     try:
         client = await _get_client()
-        resp = await client.post(
-            f"{url}/engines/_configure",
-            json={"model": model, "keep_alive": keep_alive},
-            timeout=5.0,
-        )
+        resp = await client.post(f"{url}/engines/_configure", json=body, timeout=5.0)
         if resp.status_code in (200, 202):
-            _keep_alive_configured.add(model)
-            logger.info("DMR: keep_alive configured")
+            _keep_alive_configured.add(key)
+            logger.info("DMR: keep_alive=%s configured for %s", keep_alive, sanitize_log_text(model, 120))
         elif resp.status_code == 404 and model not in _keep_alive_endpoint_warned:
             _keep_alive_endpoint_warned.add(model)
             logger.warning(
@@ -602,26 +608,29 @@ async def configure_speculative_decoding(
     model offline until the draft config is removed.  Verify on the host before
     enabling in production.
 
-    NOTE: ``docker model configure`` REPLACES the model's whole runtime config —
-    re-apply context-size/keep-alive in the same call or they are lost.
+    Sent over HTTP via /engines/_configure (the container has no docker CLI).
+    The request carries the model's full canonical config plus the
+    ``speculative`` block — _configure REPLACES the whole
+    BackendConfiguration, so a partial body would drop context-size,
+    keep_alive and runtime-flags.
     """
     key = f"{model}:{draft_model}"
     if key in _speculative_configured:
         return
 
+    body = _configure_payload(model) or {"model": model}
+    body["speculative"] = {"draft_model": draft_model}
+
     try:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            ["docker", "model", "configure", "--speculative-draft-model", draft_model, model],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        client = await _get_client()
+        resp = await client.post(
+            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
         )
-        if result.returncode == 0:
+        if resp.status_code in (200, 202):
             _speculative_configured.add(key)
             logger.info("DMR: speculative decoding configured")
         else:
-            logger.debug("DMR speculative decoding failed (rc=%s)", result.returncode)
+            logger.debug("DMR speculative decoding -> HTTP %s", resp.status_code)
     except Exception as exc:
         logger.debug("DMR speculative decoding error (%s)", type(exc).__name__)
 
@@ -729,12 +738,9 @@ async def warmup_models(*, force: bool = False) -> None:
 
         for model in models_to_warm:
             try:
-                # Keep-alive/context ownership belongs to dmr-watchdog's
-                # apply_configs: the /inference/_configure endpoint is absent in
-                # the current runner build (404), so setting it here would
-                # silently no-op — and a hardcoded 5m would fight the 4B's
-                # canonical 30m pin once the endpoint returns.
-                # Send a trivial prompt to trigger model load
+                # Send a trivial prompt to trigger model load —
+                # _call_dmr_chat_internal re-pushes the canonical config
+                # via _ensure_model_configured before the request.
                 await _call_dmr_chat_internal(
                     "Hi",
                     model_override=model,
@@ -750,8 +756,8 @@ async def warmup_models(*, force: bool = False) -> None:
 # ── Best-practice configuration (applied on startup) ────────────────────────────
 
 # Best-practice runtime configs per model.
-# These are applied via `docker model configure` CLI on startup to ensure
-# optimal performance on the RTX 3070 8GB VRAM laptop.
+# Applied via POST /engines/_configure (docker CLI is absent in the
+# container) to ensure optimal performance on the RTX 3070 8GB VRAM laptop.
 #
 # Key decisions (based on llama.cpp + Qwen3 best practices):
 # - Context size 8192: enough for bot conversations with memory + brand RAG
@@ -1265,34 +1271,26 @@ async def get_dmr_requests(
     model: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Fetch recent DMR request/response pairs for debugging.
+    """Fetch recent DMR request/response records for debugging.
 
-    Uses `docker model requests` CLI since there's no HTTP endpoint for this.
+    Uses GET /engines/requests (verified live) — returns one entry per
+    configured model (keyed by sha256 model ID) holding records[] with
+    id/model/method/url/request/status_code/timestamp/user_agent/error.
+    The docker-CLI path this replaced is unavailable inside the container.
     """
-    cmd = ["docker", "model", "requests"]
-    if model:
-        cmd.extend(["--model", model])
-
     try:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
+        client = await _get_client()
+        resp = await client.get(f"{_dmr_base_url()}/engines/requests", timeout=10.0)
+        if resp.status_code != 200:
             return []
-
-        # Parse the CLI output (line-delimited JSON or plain text)
-        lines = result.stdout.strip().split("\n")[:limit]
-        requests = []
-        for line in lines:
-            try:
-                requests.append(json.loads(line))
-            except json.JSONDecodeError:
-                requests.append({"raw": line})
-        return requests
+        records: list[dict[str, Any]] = []
+        for entry in resp.json():
+            for rec in entry.get("records") or []:
+                if model and model not in str(rec.get("model") or ""):
+                    continue
+                records.append(rec)
+        records.sort(key=lambda r: int(r.get("timestamp") or 0), reverse=True)
+        return records[:limit]
     except Exception as exc:
         logger.debug("DMR requests fetch failed (%s)", type(exc).__name__)
         return []
