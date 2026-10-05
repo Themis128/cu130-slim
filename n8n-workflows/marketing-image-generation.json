@@ -137,7 +137,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
         "options": {
-          "timeout": 120000
+          "timeout": 300000
         }
       },
       "name": "Generate Caption (DMR)",
@@ -167,7 +167,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 420000
         }
       },
       "name": "Generate Image (CF FLUX)",

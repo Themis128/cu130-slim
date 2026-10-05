@@ -118,7 +118,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"facebook\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
         "options": {
-          "timeout": 120000
+          "timeout": 300000
         }
       },
       "id": "generate-caption",
@@ -148,7 +148,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 420000
         }
       },
       "id": "generate-image",

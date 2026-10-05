@@ -280,7 +280,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.article_topic) }},\n  \"publish\": true\n}",
         "options": {
-          "timeout": 240000
+          "timeout": 300000
         }
       },
       "id": "a1b2c3d4-weekly-article-0001",
@@ -310,7 +310,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Weekly Post Config').item.json.article_topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 420000
         }
       },
       "name": "Generate Image (CF FLUX)",

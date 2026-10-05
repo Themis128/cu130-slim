@@ -118,7 +118,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"threads\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
         "options": {
-          "timeout": 120000
+          "timeout": 300000
         }
       },
       "id": "generate-content",
@@ -307,7 +307,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Config').item.json.topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 420000
         }
       },
       "name": "Generate Image (CF FLUX)",
