@@ -35,10 +35,16 @@ description: >
 
 - **Cloudflare Tunnel** is the only public ingress — WAN is CGNAT
   (`100.64.0.0/10`), so router port-forwards cannot work.
-- `cloudflared.service` on omv, tunnel config is **remotely managed** on the
-  Cloudflare side (local `/etc/cloudflared/config.yml` is documentation only).
+- Dedicated tunnel **`omv-cloudless`** (`a474360d`) — the `cloudflared-omv`
+  docker service on omv (compose + token in `~/cloudflared/`, repo mirror
+  `deploy/omv-workspace/cloudflared/`). Config is **remotely managed** on the
+  Cloudflare side. It was split off `social-cloudless` (2026-10-05): remote
+  tunnels share ONE ingress across all replicas, so an omv replica of the
+  social tunnel served social.cloudless.gr/api as 502 (`social-api` doesn't
+  resolve there). Never join a replica to either tunnel that can't resolve
+  every origin in that ingress.
 - Routes: `cloud.cloudless.gr` → Nextcloud, `office.cloudless.gr` → Collabora,
-  `signal.cloudless.gr` → Talk HPB signaling.
+  `signal.cloudless.gr` → Talk HPB signaling, `push.cloudless.gr` → notify-push.
 
 ## Storage layout (verified 2026-10)
 

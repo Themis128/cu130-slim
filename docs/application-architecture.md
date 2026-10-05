@@ -725,11 +725,19 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
 │  │ comfyui     │  │ local-      │  │ warp-proxy  │  │ cloudflared│ │
 │  │ :8000       │  │ diffusers   │  │ :1080       │  │            │ │
-│  │             │  │             │  │             │  │            │ │
-│  │ GPU image   │  │ SD 1.5 GPU  │  │ WARP SOCKS5 │  │ Tunnel to  │ │
-│  │ workflows   │  │ fallback    │  │ free proxy  │  │ cloudless  │ │
+│  │             │  │             │  │             │  │ social-    │ │
+│  │ GPU image   │  │ retired     │  │ WARP SOCKS5 │  │ cloudless  │ │
+│  │ workflows   │  │ (SD 1.5)    │  │ free proxy  │  │ tunnel     │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
+
+Two Cloudflare Tunnels, one per node (split 2026-10-05): `social-cloudless`
+(on this host) serves `social.cloudless.gr` only; `omv-cloudless`
+(`cloudflared-omv` on omv, compose mirror `deploy/omv-workspace/cloudflared/`)
+serves `cloud`/`office`/`signal`/`push.cloudless.gr`. Remote-managed tunnels
+share ONE ingress config across all replicas — never join a second replica
+to a tunnel unless it can resolve every origin in that ingress (a rogue omv
+replica on the social tunnel 502'd `/api` traffic until removed).
 ```
 
 **Observability (self-hosted, on omv):** Cloudflare zone tracing exports
