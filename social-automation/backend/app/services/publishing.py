@@ -293,7 +293,9 @@ _MB = 1024 * 1024
 _GB = 1024 * _MB
 
 _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
-    # required: platform has no text-only feed posts → empty media = skip
+    # required: owner rule 2026-10-05 — "all posts must be with the correct
+    #           media, never post without media" → empty media = skip on EVERY
+    #           platform, not just the ones whose APIs reject text-only.
     # dim_axis: "width" → min/max_dim bound the width only (Meta docs cap the
     #           width; height is bounded by the aspect ratio); "both" → each side.
     "instagram": {
@@ -311,28 +313,28 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
         "ratio_min": None, "ratio_max": None, "max_count": 35,
     },
     "linkedin": {
-        "required": False, "allow_pdf": True, "max_pdf_bytes": 100 * _MB,
+        "required": True, "allow_pdf": True, "max_pdf_bytes": 100 * _MB,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
         "min_dim": 200, "max_dim": 6024, "dim_axis": "both",
         "max_bytes": 100 * _MB, "max_video_bytes": 500 * _MB,
         "ratio_min": None, "ratio_max": None, "max_count": 20,
     },
     "facebook": {
-        "required": False, "allow_pdf": False,
+        "required": True, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
         "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
         "max_bytes": 10 * _MB, "max_video_bytes": 2 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 10,
     },
     "twitter": {
-        "required": False, "allow_pdf": False,
+        "required": True, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
         "min_dim": 200, "max_dim": 8192, "dim_axis": "both",
         "max_bytes": 5 * _MB, "max_video_bytes": 8 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 4,
     },
     "threads": {
-        "required": False, "allow_pdf": False,
+        "required": True, "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
         "min_dim": 320, "max_dim": 1440, "dim_axis": "width",
         "max_bytes": 8 * _MB, "max_video_bytes": 1 * _GB,
@@ -382,8 +384,9 @@ def validate_media_for_platform(
     if not media_paths:
         if rules["required"]:
             return _skipped_media_result(
-                f"{plat} has no text-only feed posts — attach "
-                "at least one image/video or remove the target."
+                f"{plat} post has no media — every post must carry at least "
+                "one image/video (owner policy: never post without media). "
+                "Attach media or remove the target."
             )
         return None  # genuinely text-only post (no media referenced)
 

@@ -332,6 +332,76 @@
         640,
         540
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-content",
+              "leftValue": "{{ $('Generate Caption (DMR)').item.json.content }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "has-media",
+              "leftValue": "{{ $json.asset_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "054216ab-3d89-4be9-a8fe-301d97f73a3d"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "406beccc-daec-4268-a6e4-0c5bdd636f61"
     }
   ],
   "connections": {
@@ -412,7 +482,7 @@
       "main": [
         [
           {
-            "node": "Create Post",
+            "node": "Content Guard",
             "type": "main",
             "index": 0
           }
@@ -464,6 +534,24 @@
         [
           {
             "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
             "type": "main",
             "index": 0
           }

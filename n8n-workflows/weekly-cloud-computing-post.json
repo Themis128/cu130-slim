@@ -125,7 +125,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Blog Article').item.json.social_post || (($('Generate Blog Article').item.json.title || $('Resolve Weekly Post Config').item.json.title) + '\\n\\n' + ($('Generate Blog Article').item.json.excerpt || $('Resolve Weekly Post Config').item.json.description))) }},\n  \"link_url\": {{ JSON.stringify($('Generate Blog Article').item.json.url || $('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
+        "jsonBody": "={\n  \"media_ids\": {{ JSON.stringify([$('Generate Image (CF FLUX)').item.json.asset_id]) }},\n  \"content_text\": {{ JSON.stringify($('Generate Blog Article').item.json.social_post || (($('Generate Blog Article').item.json.title || $('Resolve Weekly Post Config').item.json.title) + '\\n\\n' + ($('Generate Blog Article').item.json.excerpt || $('Resolve Weekly Post Config').item.json.description))) }},\n  \"link_url\": {{ JSON.stringify($('Generate Blog Article').item.json.url || $('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
         "options": {
           "timeout": 120000
         }
@@ -292,6 +292,106 @@
         300
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Weekly Post Config').item.json.article_topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "name": "Generate Image (CF FLUX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        320
+      ],
+      "id": "b5bde41f-95c2-48ca-999c-d07e13946ace",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-content",
+              "leftValue": "{{ $('Generate Blog Article').item.json.social_post || $('Generate Blog Article').item.json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "has-media",
+              "leftValue": "{{ $('Generate Image (CF FLUX)').item.json.asset_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "6efeed21-2d8c-451c-a19a-63e376a8bee0"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "3e2436ee-90ae-40c8-892b-28baf521e147"
     }
   ],
   "connections": {
@@ -401,7 +501,36 @@
       "main": [
         [
           {
+            "node": "Generate Image (CF FLUX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [
+        [
+          {
+            "node": "Content Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
             "node": "Run Weekly Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
             "type": "main",
             "index": 0
           }

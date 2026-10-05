@@ -532,6 +532,76 @@
         80
       ],
       "id": "video-failed-1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-content",
+              "leftValue": "{{ $('Generate Caption (DMR)').item.json.content }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "has-media",
+              "leftValue": "{{ $('Poll Video Task').item.json.asset_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "c47ed77a-f175-44f9-9e0f-f5e6a7885a8b"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "b2142952-23ba-4601-b80b-3bde25d83e08"
     }
   ],
   "connections": {
@@ -707,7 +777,7 @@
       "main": [
         [
           {
-            "node": "Create Post",
+            "node": "Content Guard",
             "type": "main",
             "index": 0
           }
@@ -733,6 +803,24 @@
         [
           {
             "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
             "type": "main",
             "index": 0
           }
