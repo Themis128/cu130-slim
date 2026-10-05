@@ -1524,23 +1524,28 @@ services:
         last_started=""
         echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
 
-        # Point the docker-model plugin at the engine-level GPU runner
-        docker-model context create gpu --host http://host.docker.internal:12435 2>/dev/null || true
-        docker-model context use gpu 2>/dev/null || true
-
         # Canonical configs mirror _BEST_PRACTICE_CONFIGS in
         # social-automation/backend/app/services/dmr.py — keep in sync.
-        # NOTE: each `configure` call REPLACES a model's whole config, so the
-        # runtime flags must be included here or they'd be stripped.
+        # NOTE: _configure REPLACES a model's whole BackendConfiguration,
+        # so runtime flags must be included or they'd be stripped.
+        # (The docker-model CLI plugin is Desktop-internal and I/O-errors
+        # inside containers — use the HTTP endpoint like the app does.)
+        configure() {
+          wget -q -O /dev/null -T 10 \
+            --header "Content-Type: application/json" \
+            --post-data "$$1" \
+            http://host.docker.internal:12435/engines/_configure
+        }
+
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
           ok=0
-          docker-model configure --context-size 6144 --keep-alive 5m --think=true ai/qwen3:8b-q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
-          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
-          docker-model configure --context-size 8192 --keep-alive 5m ai/llama3.2 -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
-          docker-model configure --context-size 4096 --keep-alive 5m ai/qwen3-vl -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
-          docker-model configure --mode embedding --keep-alive 5m ai/qwen3-embedding -- --n-gpu-layers 99 --threads 8 || ok=1
-          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 --n-gpu-layers 99 --threads 4 --batch-size 512 --flash-attn on || ok=1
+          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"5m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/llama3.2","context-size":8192,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-embedding","keep_alive":"5m","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
+          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"5m","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok
         }
@@ -1581,8 +1586,6 @@ services:
         done
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # docker-model CLI plugin (resolves to the same path inside docker-desktop)
-      - /usr/local/lib/docker/cli-plugins/docker-model:/usr/bin/docker-model:ro
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
