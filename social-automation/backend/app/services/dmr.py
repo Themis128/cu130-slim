@@ -10,7 +10,8 @@ Consolidates all DMR interactions across the backend into a single module with:
   7. Streaming support for long generations
   8. Shared vision helper (replaces duplicates in image_enhance.py & media_ai.py)
   9. Tool calling support (OpenAI function-calling format)
- 10. Runtime configuration (POST /engines/_configure, re-applied per request)
+ 10. Runtime configuration (POST /engines/_configure, re-applied per request,
+     admin keep-alive/speculative overrides persisted and merged in)
  11. VRAM-aware routing (nvidia-smi, ComfyUI /system_stats fallback)
  12. Speculative decoding configuration (draft model for faster generation)
  13. Benchmark caching (cache TPS results for model selection)
@@ -27,6 +28,7 @@ import logging
 import re
 import subprocess
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -47,7 +49,10 @@ class _Mutable:
         "vram",
         "vram_check",
         "warmup_done",
+        "warmup_lock_token",
         "configured",
+        "overrides",
+        "override_store_down_until",
         "client",
         "client_lock",
         "client_loop",
@@ -61,7 +66,12 @@ class _Mutable:
         self.vram: dict[str, Any] = {}
         self.vram_check: float = 0.0
         self.warmup_done: bool = False
+        self.warmup_lock_token: str | None = None
         self.configured: dict[str, float] = {}
+        # Admin runtime overrides (keep_alive, speculative) per model —
+        # local mirror of the Redis hash so they survive Redis outages.
+        self.overrides: dict[str, dict[str, Any]] = {}
+        self.override_store_down_until: float = 0.0
         self.client: httpx.AsyncClient | None = None
         self.client_lock = asyncio.Lock()
         self.client_loop: asyncio.AbstractEventLoop | None = None
@@ -545,53 +555,162 @@ async def get_model_benchmark(model: str, force: bool = False) -> dict[str, floa
     return None
 
 
-# ── Keep-alive configuration (improvement #10) ────────────────────────────────
+# ── Admin runtime overrides (keep-alive / speculative decoding) ─────────────
+#
+# _configure REPLACES the whole BackendConfiguration, and the canonical
+# config is re-pushed on a ~60s TTL (_ensure_model_configured) by EVERY
+# uvicorn/celery process.  An admin override that only lived in one
+# request's POST body was therefore wiped within a minute, and the old
+# per-process "already configured" sets turned a re-apply into a silent
+# no-op.  Overrides are now persisted per model (Redis hash shared by all
+# workers, local mirror as fallback) and merged into every payload.
 
-_keep_alive_configured: set[str] = set()
+_OVERRIDES_KEY = "dmr:config_overrides"
+_OVERRIDE_FIELDS = ("keep_alive", "speculative")
+_OVERRIDE_STORE_BACKOFF = 30.0  # seconds to skip Redis after a failure
+
 _keep_alive_endpoint_warned: set[str] = set()
+
+
+def _redis_client():
+    import redis.asyncio as aioredis
+
+    return aioredis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
+
+
+def _override_store_available() -> bool:
+    return time.monotonic() >= _state.override_store_down_until
+
+
+def _mark_override_store_down() -> None:
+    _state.override_store_down_until = time.monotonic() + _OVERRIDE_STORE_BACKOFF
+
+
+async def _get_model_overrides(model: str) -> dict[str, Any]:
+    """Persisted admin overrides for a model ({} when none).
+
+    Reads the shared Redis hash so an override set via one worker reaches
+    every worker's periodic re-push; falls back to the local mirror when
+    Redis is unreachable.
+    """
+    if _override_store_available():
+        try:
+            r = _redis_client()
+            try:
+                raw = await r.hget(_OVERRIDES_KEY, model)
+            finally:
+                await r.aclose()
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    data = {k: v for k, v in data.items() if k in _OVERRIDE_FIELDS}
+                    _state.overrides[model] = data
+                    return dict(data)
+            else:
+                _state.overrides.pop(model, None)
+                return {}
+        except Exception as exc:
+            _mark_override_store_down()
+            logger.debug("DMR override store read failed (%s)", type(exc).__name__)
+    return dict(_state.overrides.get(model) or {})
+
+
+async def _set_model_override(model: str, field: str, value: Any) -> None:
+    """Persist one override field for a model (None removes it)."""
+    current = dict(_state.overrides.get(model) or {})
+    if _override_store_available():
+        try:
+            r = _redis_client()
+            try:
+                raw = await r.hget(_OVERRIDES_KEY, model)
+                if raw:
+                    stored = json.loads(raw)
+                    if isinstance(stored, dict):
+                        current = {k: v for k, v in stored.items() if k in _OVERRIDE_FIELDS}
+                if value is None:
+                    current.pop(field, None)
+                else:
+                    current[field] = value
+                if current:
+                    await r.hset(_OVERRIDES_KEY, model, json.dumps(current))
+                else:
+                    await r.hdel(_OVERRIDES_KEY, model)
+            finally:
+                await r.aclose()
+        except Exception as exc:
+            _mark_override_store_down()
+            logger.debug("DMR override store write failed (%s)", type(exc).__name__)
+            if value is None:
+                current.pop(field, None)
+            else:
+                current[field] = value
+    else:
+        if value is None:
+            current.pop(field, None)
+        else:
+            current[field] = value
+    if current:
+        _state.overrides[model] = current
+    else:
+        _state.overrides.pop(model, None)
+
+
+async def clear_model_overrides(model: str) -> None:
+    """Drop all admin overrides for a model; canonical config applies again."""
+    for field in _OVERRIDE_FIELDS:
+        await _set_model_override(model, field, None)
+    await _ensure_model_configured(model, force=True)
+
+
+async def _post_configure(model: str, body: dict[str, Any]) -> int | None:
+    """POST a full config body to /engines/_configure; returns HTTP status."""
+    try:
+        client = await _get_client()
+        resp = await client.post(
+            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
+        )
+    except Exception as exc:
+        logger.debug("DMR _configure %s failed (%s)", sanitize_log_text(model, 120), type(exc).__name__)
+        return None
+    if resp.status_code in (200, 202):
+        _state.configured[model] = time.monotonic()
+    else:
+        logger.debug("DMR _configure %s -> HTTP %s", sanitize_log_text(model, 120), resp.status_code)
+    return resp.status_code
 
 
 async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
     """Set keep-alive for a model so it stays loaded between requests.
 
-    _configure REPLACES the whole BackendConfiguration, so the canonical
-    payload is sent with keep_alive overridden — a partial body would wipe
-    context-size/runtime-flags and send the next load back to the model's
-    default context (e.g. 262K tokens → CUDA OOM). The override lasts until
-    the next canonical re-push (TTL/unload); canonical config always wins.
+    The override is persisted per model and merged into every subsequent
+    _configure payload (including the periodic canonical re-push), so it
+    survives the ~60s re-send, unloads and other workers.  Always re-sent:
+    re-applying the same value after a runner restart must not be a no-op.
 
     Args:
         model: Model identifier (e.g. 'ai/qwen3:8b-q4_K_M')
         keep_alive: Duration string ('5m', '1h', '0' for immediate unload, '-1' for forever)
     """
-    key = f"{model}:{keep_alive}"
-    if key in _keep_alive_configured:
-        return  # same override already applied
-
-    body = _configure_payload(model) or {"model": model}
-    body["keep_alive"] = keep_alive
-
-    url = _dmr_base_url()
-    try:
-        client = await _get_client()
-        resp = await client.post(f"{url}/engines/_configure", json=body, timeout=5.0)
-        if resp.status_code in (200, 202):
-            _keep_alive_configured.add(key)
-            logger.info("DMR: keep_alive=%s configured for %s", keep_alive, sanitize_log_text(model, 120))
-        elif resp.status_code == 404 and model not in _keep_alive_endpoint_warned:
-            _keep_alive_endpoint_warned.add(model)
-            logger.warning(
-                "DMR: /engines/_configure returns 404 on this runner build — "
-                "keep_alive for %s is owned by dmr-watchdog configs, not this call",
-                sanitize_log_text(model, 120),
-            )
-    except Exception as exc:
-        logger.debug("DMR keep_alive config failed (%s)", type(exc).__name__)
+    await _set_model_override(model, "keep_alive", keep_alive)
+    body = await _build_configure_body(model)
+    status = await _post_configure(model, body)
+    if status in (200, 202):
+        logger.info("DMR: keep_alive=%s configured for %s", sanitize_log_text(keep_alive, 20), sanitize_log_text(model, 120))
+    elif status == 404 and model not in _keep_alive_endpoint_warned:
+        _keep_alive_endpoint_warned.add(model)
+        logger.warning(
+            "DMR: /engines/_configure returns 404 on this runner build — "
+            "keep_alive for %s is owned by dmr-watchdog configs, not this call",
+            sanitize_log_text(model, 120),
+        )
 
 
 # ── Speculative decoding (improvement #12) ────────────────────────────────────
-
-_speculative_configured: set[str] = set()
 
 
 async def configure_speculative_decoding(
@@ -600,8 +719,10 @@ async def configure_speculative_decoding(
 ) -> None:
     """Configure speculative decoding: use a small draft model to speed up a larger one.
 
-    This is a one-time per-model configuration.  The draft model proposes tokens
-    that the target model verifies, giving 1.5-2x speedup on compatible hardware.
+    The draft model proposes tokens that the target model verifies, giving
+    1.5-2x speedup on compatible hardware.  Persisted per model and merged
+    into every _configure payload (see configure_keep_alive); undo with
+    clear_model_overrides().
 
     NOTE: as of llama.cpp b9879/72874f559 the Qwen3-0.6B GGUF draft crashes the
     runner (``vector::_M_range_check`` during draft load), taking the target
@@ -609,30 +730,12 @@ async def configure_speculative_decoding(
     enabling in production.
 
     Sent over HTTP via /engines/_configure (the container has no docker CLI).
-    The request carries the model's full canonical config plus the
-    ``speculative`` block — _configure REPLACES the whole
-    BackendConfiguration, so a partial body would drop context-size,
-    keep_alive and runtime-flags.
     """
-    key = f"{model}:{draft_model}"
-    if key in _speculative_configured:
-        return
-
-    body = _configure_payload(model) or {"model": model}
-    body["speculative"] = {"draft_model": draft_model}
-
-    try:
-        client = await _get_client()
-        resp = await client.post(
-            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
-        )
-        if resp.status_code in (200, 202):
-            _speculative_configured.add(key)
-            logger.info("DMR: speculative decoding configured")
-        else:
-            logger.debug("DMR speculative decoding -> HTTP %s", resp.status_code)
-    except Exception as exc:
-        logger.debug("DMR speculative decoding error (%s)", type(exc).__name__)
+    await _set_model_override(model, "speculative", {"draft_model": draft_model})
+    body = await _build_configure_body(model)
+    status = await _post_configure(model, body)
+    if status in (200, 202):
+        logger.info("DMR: speculative decoding configured")
 
 
 # ── Model warm-up (improvement #5) ───────────────────────────────────────────
@@ -650,22 +753,56 @@ def is_warmup_done() -> bool:
     return _state.warmup_done
 
 
+_WARMUP_LOCK_KEY = "dmr:warmup_lock"
+_WARMUP_LOCK_TTL = 180  # seconds — safety net if the holder dies mid-warmup
+
+# Compare-and-delete: only the holder's token releases the lock.
+_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
+
 async def _try_acquire_warmup_lock() -> bool:
     """Distributed lock so only one uvicorn worker runs warmup.
 
     The API runs --workers 4 and every worker calls on_startup — without
     this lock each queues its own model-load storm on the shared GPU.
+    The holder releases it when warmup finishes (_release_warmup_lock) so a
+    restart inside the TTL window still warms.
     """
+    token = uuid.uuid4().hex
     try:
-        import redis.asyncio as aioredis
-
-        r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        r = _redis_client()
         try:
-            return bool(await r.set("dmr:warmup_lock", "1", nx=True, ex=180))
+            acquired = bool(
+                await r.set(_WARMUP_LOCK_KEY, token, nx=True, ex=_WARMUP_LOCK_TTL)
+            )
         finally:
             await r.aclose()
     except Exception:
         return True  # Redis unreachable — degrade to per-process warmup
+    if acquired:
+        _state.warmup_lock_token = token
+    return acquired
+
+
+async def _release_warmup_lock() -> None:
+    """Release the warmup lock if this process holds it (best effort)."""
+    token = _state.warmup_lock_token
+    if not token:
+        return
+    _state.warmup_lock_token = None
+    try:
+        r = _redis_client()
+        try:
+            await r.eval(_RELEASE_LOCK_LUA, 1, _WARMUP_LOCK_KEY, token)
+        finally:
+            await r.aclose()
+    except Exception as exc:
+        logger.debug("DMR warmup lock release failed (%s)", type(exc).__name__)
 
 
 async def warmup_models(*, force: bool = False) -> None:
@@ -694,63 +831,78 @@ async def warmup_models(*, force: bool = False) -> None:
             logger.info("DMR warmup skipped — another worker holds the lock")
             return
 
-        # Apply best-practice runtime configurations before warming.
-        # These match the `docker model configure` settings and ensure
-        # the configs are applied even after a DMR restart.
-        await apply_best_practice_configs()
+        try:
+            await _warm_models_locked()
+        finally:
+            await _release_warmup_lock()
 
-        # Always warm the mid instruct (chatbots + short-form platform copy,
-        # latency-critical, ~2.7GB resident). The 8B text model only joins
-        # when the shared GPU genuinely has room — DMR doesn't auto-unload
-        # (docker/model-runner#1014), so warming both while ComfyUI holds
-        # VRAM guarantees the 8B load aborts and wastes the keep-alive slot.
-        models_to_warm = [m for m in [getattr(settings, "DMR_MID_MODEL", "")] if m]
 
-        # Rough resident-size estimates (MiB, weights + KV at configured ctx)
-        _WARM_ESTIMATE = {"8b": 5500, "4b": 2700, "vl": 5000, "embedding": 1200, "smollm3": 2000, "3.2": 2200}
+async def _warm_models_locked() -> None:
+    """Warm-up body; runs while holding the warmup lock (or forced)."""
+    # Apply best-practice runtime configurations before warming.
+    # These match the `docker model configure` settings and ensure
+    # the configs are applied even after a DMR restart.
+    await apply_best_practice_configs()
 
-        def _est(model: str) -> int:
-            low = model.lower()
-            return next((v for k, v in _WARM_ESTIMATE.items() if k in low), 3000)
+    # Always warm the mid instruct (chatbots + short-form platform copy,
+    # latency-critical, ~2.7GB resident). The 8B text model only joins
+    # when the shared GPU genuinely has room — DMR doesn't auto-unload
+    # (docker/model-runner#1014), so warming both while ComfyUI holds
+    # VRAM guarantees the 8B load aborts and wastes the keep-alive slot.
+    primary = getattr(settings, "DMR_MID_MODEL", "") or getattr(settings, "DMR_TINY_MODEL", "")
+    models_to_warm = [m for m in [primary] if m]
 
-        vram = await _get_vram_info()
-        free_mb = vram.get("free", 0) if vram else 1 << 20  # unknown → let heal path arbitrate
-        budget_mb = free_mb - _est(getattr(settings, "DMR_MID_MODEL", "") or "")
+    # Rough resident-size estimates (MiB, weights + KV at configured ctx)
+    _WARM_ESTIMATE = {"8b": 5500, "4b": 2700, "vl": 5000, "embedding": 1200, "smollm3": 2000, "3.2": 2200}
 
-        # 8B text model only when the shared GPU has room after the mid model —
-        # DMR doesn't auto-unload (docker/model-runner#1014), so warming both
-        # while ComfyUI holds VRAM just queues doomed loads.
-        text_model = settings.DMR_TEXT_MODEL
-        if text_model not in models_to_warm:
-            if budget_mb >= _est(text_model) + 1000:  # +1GB headroom
-                models_to_warm.append(text_model)
-                budget_mb -= _est(text_model)
-            else:
-                logger.info(
-                    "DMR warmup: skipping %s — only %dMB free after mid model",
-                    text_model, budget_mb,
-                )
+    def _est(model: str) -> int:
+        low = model.lower()
+        return next((v for k, v in _WARM_ESTIMATE.items() if k in low), 3000)
 
-        # Vision model is large — only warm on the leftover budget
-        vision = settings.DMR_VISION_MODEL
-        if budget_mb >= _est(vision) + 1000:
-            models_to_warm.append(vision)
+    vram = await _get_vram_info()
+    if not vram:
+        # Unmeasurable VRAM is NOT unlimited: queueing the 8B + vision
+        # loads blind on a shared 8GB card is exactly the OOM storm the
+        # budget exists to prevent. Warm only the mid/small model.
+        logger.info("DMR warmup: VRAM unmeasurable — warming only %s", sanitize_log_text(primary, 120))
+        budget_mb = 0
+    else:
+        budget_mb = vram.get("free", 0) - _est(primary)
 
-        for model in models_to_warm:
-            try:
-                # Send a trivial prompt to trigger model load —
-                # _call_dmr_chat_internal re-pushes the canonical config
-                # via _ensure_model_configured before the request.
-                await _call_dmr_chat_internal(
-                    "Hi",
-                    model_override=model,
-                    max_tokens=5,
-                    timeout=60.0,
-                    _skip_health_check=True,
-                )
-                logger.info("DMR warmup: %s loaded", model)
-            except Exception as exc:
-                logger.debug("DMR warmup failed for %s (%s)", model, type(exc).__name__)
+    # 8B text model only when the shared GPU has room after the mid model —
+    # DMR doesn't auto-unload (docker/model-runner#1014), so warming both
+    # while ComfyUI holds VRAM just queues doomed loads.
+    text_model = settings.DMR_TEXT_MODEL
+    if text_model not in models_to_warm:
+        if budget_mb >= _est(text_model) + 1000:  # +1GB headroom
+            models_to_warm.append(text_model)
+            budget_mb -= _est(text_model)
+        else:
+            logger.info(
+                "DMR warmup: skipping %s — only %dMB free after mid model",
+                text_model, budget_mb,
+            )
+
+    # Vision model is large — only warm on the leftover budget
+    vision = settings.DMR_VISION_MODEL
+    if budget_mb >= _est(vision) + 1000:
+        models_to_warm.append(vision)
+
+    for model in models_to_warm:
+        try:
+            # Send a trivial prompt to trigger model load —
+            # _call_dmr_chat_internal re-pushes the canonical config
+            # via _ensure_model_configured before the request.
+            await _call_dmr_chat_internal(
+                "Hi",
+                model_override=model,
+                max_tokens=5,
+                timeout=60.0,
+                _skip_health_check=True,
+            )
+            logger.info("DMR warmup: %s loaded", model)
+        except Exception as exc:
+            logger.debug("DMR warmup failed for %s (%s)", model, type(exc).__name__)
 
 
 # ── Best-practice configuration (applied on startup) ────────────────────────────
@@ -846,30 +998,40 @@ def _configure_payload(model: str) -> dict[str, Any] | None:
     return body
 
 
-async def _ensure_model_configured(model: str, *, force: bool = False) -> None:
-    """Push the canonical runtime config for a model via HTTP _configure.
+def _merge_overrides(body: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Overlay persisted admin overrides onto a canonical _configure body."""
+    merged = dict(body)
+    if overrides.get("keep_alive") is not None:
+        merged["keep_alive"] = overrides["keep_alive"]
+    if overrides.get("speculative"):
+        merged["speculative"] = dict(overrides["speculative"])
+    return merged
 
-    No-op for unlisted models and when re-applied within _CONFIGURE_TTL;
-    pass force=True on the failure-recovery path since an unload or runner
-    restart may have wiped the in-memory config.
+
+async def _build_configure_body(model: str) -> dict[str, Any]:
+    """Full _configure body: canonical config + persisted admin overrides.
+
+    _configure replaces the whole BackendConfiguration, so every push —
+    periodic canonical re-send, heal path, admin override — must carry
+    both, or one silently wipes the other.
     """
-    body = _configure_payload(model)
-    if body is None:
-        return
+    base = _configure_payload(model) or {"model": model}
+    return _merge_overrides(base, await _get_model_overrides(model))
+
+
+async def _ensure_model_configured(model: str, *, force: bool = False) -> None:
+    """Push the runtime config (canonical + overrides) via HTTP _configure.
+
+    No-op for unlisted models without overrides and when re-applied within
+    _CONFIGURE_TTL; pass force=True on the failure-recovery path since an
+    unload or runner restart may have wiped the in-memory config.
+    """
     now = time.monotonic()
     if not force and (now - _state.configured.get(model, 0.0)) < _CONFIGURE_TTL:
         return
-    try:
-        client = await _get_client()
-        resp = await client.post(
-            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
-        )
-        if resp.status_code in (200, 202):
-            _state.configured[model] = now
-        else:
-            logger.debug("DMR _configure %s -> HTTP %s", model, resp.status_code)
-    except Exception as exc:
-        logger.debug("DMR _configure %s failed (%s)", model, type(exc).__name__)
+    if _configure_payload(model) is None and not await _get_model_overrides(model):
+        return
+    await _post_configure(model, await _build_configure_body(model))
 
 
 async def apply_best_practice_configs() -> None:
@@ -1217,6 +1379,26 @@ async def call_dmr_embedding(
 _VISION_SAFE_MIMES = frozenset({"jpeg", "jpg", "png", "gif", "bmp"})
 
 
+def _flatten_alpha(img: Any) -> Any:
+    """RGB copy of a PIL image with transparency composited onto white.
+
+    A bare convert("RGB") drops the alpha channel and exposes whatever
+    colour sits under transparent pixels (usually black), so logos and
+    cut-outs reached the vision model as black blobs.
+    """
+    from PIL import Image
+
+    has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or (
+        "transparency" in img.info
+    )
+    if not has_alpha:
+        return img if img.mode == "RGB" else img.convert("RGB")
+    rgba = img.convert("RGBA")
+    background = Image.new("RGB", rgba.size, (255, 255, 255))
+    background.paste(rgba, mask=rgba.getchannel("A"))
+    return background
+
+
 def _to_vision_safe_uri(image_data_uri: str) -> str:
     """Transcode unsupported data-URI formats (WebP, AVIF, ...) to PNG.
 
@@ -1225,6 +1407,8 @@ def _to_vision_safe_uri(image_data_uri: str) -> str:
     empty pixels and it hallucinates a plausible caption for an image it
     never saw (observed live: WebP homepage -> "person dancing in a
     studio").  Transcode first so the model always sees real pixels.
+    Transparency is flattened onto white.  CPU-bound — call it via
+    asyncio.to_thread from async code.
     """
     m = re.match(r"data:image/([a-z0-9.+-]+);base64,(.*)", image_data_uri, re.S | re.I)
     if not m or m.group(1).lower() in _VISION_SAFE_MIMES:
@@ -1236,8 +1420,9 @@ def _to_vision_safe_uri(image_data_uri: str) -> str:
         from PIL import Image
 
         img = Image.open(io.BytesIO(base64.b64decode(m.group(2))))
+        img.load()
         buf = io.BytesIO()
-        img.convert("RGB").save(buf, "PNG")
+        _flatten_alpha(img).save(buf, "PNG")
         return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     except Exception as exc:
         logger.debug("DMR vision transcode failed (%s) — sending as-is", type(exc).__name__)
@@ -1275,7 +1460,8 @@ async def call_dmr_vision(
     # Ensure it's a data URI
     if not image_data_uri.startswith("data:"):
         image_data_uri = f"data:image/jpeg;base64,{image_data_uri}"
-    image_data_uri = _to_vision_safe_uri(image_data_uri)
+    # Decode/encode is CPU-bound (multi-MB images) — keep it off the loop.
+    image_data_uri = await asyncio.to_thread(_to_vision_safe_uri, image_data_uri)
 
     payload = {
         "model": model,
@@ -1410,4 +1596,7 @@ async def on_startup() -> None:
 
 async def on_shutdown() -> None:
     """Call on FastAPI shutdown to clean up resources."""
+    # Startup warmup may still be running in a background task — don't
+    # leave the lock blocking the next start for the full TTL.
+    await _release_warmup_lock()
     await close_client()
