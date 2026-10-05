@@ -207,7 +207,7 @@ services:
       # Profile files live in ./comfyui/profiles and are bind-mounted into
       # /opt/ComfyUI/profiles. The entrypoint reads the selected profile and
       # appends it to the base listen args. Override with CLI_ARGS if needed.
-      - COMFYUI_PROFILE=sdxl
+      - COMFYUI_PROFILE=flux
       - CLI_ARGS=
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
@@ -405,7 +405,10 @@ services:
     environment:
       - MODEL_ID=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - HF_TOKEN=${HF_TOKEN}
-      - LOAD_ON_STARTUP=true
+      # Retired 2026-10-05: SD 1.5 superseded by ComfyUI FLUX.1-schnell GGUF;
+      # keeping it loaded permanently cost ~1.5-2GB VRAM on the 8GB card.
+      # Service remains defined for manual/dormant use — not in any chain.
+      - LOAD_ON_STARTUP=false
       - TORCH_DTYPE=float16
       - DEVICE=cuda
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
@@ -1567,7 +1570,12 @@ services:
             fi
           fi
 
-          if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
+          # Deep health: /engines/v1/models stays 200 even when the scheduler
+          # is wedged (llama-servers deadlocked on VRAM). /api/ps exercises
+          # the scheduler — a hang there is the true wedge signal (seen
+          # 2026-10-05).
+          if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null \
+             && wget -q -O /dev/null -T 8 http://host.docker.internal:12435/api/ps 2>/dev/null; then
             fails=0
           else
             fails=$$((fails+1))

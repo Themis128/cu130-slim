@@ -5,18 +5,24 @@ Policy (owner directive, 2026-10-04): only ONE model may be resident on the
 8GB GPU at a time. Media creation is serialized: acquire the lock → unload
 resident DMR models → run ONE job (generation OR QA, never both) → release.
 
+DMR control went HTTP-only (2026-10-05): the `docker model` CLI plugin
+I/O-errors inside containers, so unload/list now go through
+`/api/ps` + `/api/chat keep_alive:0` / `/inference/unload` — the same
+paths app/services/dmr.py uses. Server-side, `app/services/gpu_arbiter.py`
+implements the same arbitration for celery media tasks.
+
 Established architectures implementing this pattern (survey 2026-10-04):
   - llama-swap (github.com/mostlygeek/llama-swap): transparent hot-swap proxy
     in front of llama-server — unloads the current model when a request needs
     a different one. The productionized evolution of this script.
   - NVIDIA Triton `--model-control-mode=explicit` +
     `POST v2/repository/models/{model}/load|unload`.
-  - DMR itself (one-at-a-time + idle timers + `docker model stop`).
+  - DMR itself (one-at-a-time + idle timers + HTTP unload).
   - diffusers: `enable_model_cpu_offload()` for the generation side.
 
 Usage:
   python3 scripts/gpu_serial.py status
-  python3 scripts/gpu_serial.py unload            # stop resident DMR models
+  python3 scripts/gpu_serial.py unload            # unload resident DMR models
   python3 scripts/gpu_serial.py run -- <cmd...>   # hold lock, stop DMR, run cmd
   GPU_SERIAL_LOCK=/tmp/gpu.lock python3 scripts/gpu_serial.py run -- ...
 """
@@ -27,44 +33,66 @@ import json
 import os
 import subprocess
 import sys
+import urllib.request
 
+# Docker Desktop publishes the runner on 12435 on this host (12434 is the
+# DMR default; override with DMR_HOST_URL if the engine remap changes).
+DMR_BASE = os.environ.get("DMR_HOST_URL", "http://localhost:12435")
 LOCK_PATH = os.environ.get("GPU_SERIAL_LOCK", "/tmp/cu130-gpu.lock")
 
 
-def _dmr(*args: str) -> str:
-    return subprocess.run(
-        ["docker", "model", *args], capture_output=True, text=True, check=False
-    ).stdout
+def _http(path: str, payload: dict | None = None, timeout: float = 10.0) -> dict | list | None:
+    """GET/POST JSON against the DMR engine; None on any failure."""
+    try:
+        if payload is None:
+            with urllib.request.urlopen(DMR_BASE + path, timeout=timeout) as r:
+                return json.loads(r.read())
+        req = urllib.request.Request(
+            DMR_BASE + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read()
+            return json.loads(body) if body else {}
+    except Exception:
+        return None
 
 
 def resident_dmr_models() -> list[str]:
-    """Names of DMR models currently loaded (docker model ps)."""
-    out = _dmr("ps")
-    names = []
-    for line in out.splitlines()[1:]:  # skip header
-        cols = line.split()
-        if cols and not line.startswith("MODEL NAME"):
-            names.append(cols[0])
-    return names
+    """Names of DMR models currently loaded (GET /api/ps)."""
+    ps = _http("/api/ps")
+    if not isinstance(ps, dict):
+        return []
+    return [m["name"] for m in ps.get("models", []) if m.get("name")]
 
 
 def unload_dmr() -> list[str]:
     """Unload every resident DMR model; returns the names unloaded.
 
-    Prefers `docker model unload --all` (verified available on this host);
-    falls back to per-model `docker model stop` for older DMR versions.
+    Tries POST /inference/unload {"all": true} first (native runner API);
+    falls back to the Ollama-compatible /api/chat with keep_alive=0 per
+    model, which evicts right after serving.
     """
-    r = subprocess.run(
-        ["docker", "model", "unload", "--all"], capture_output=True, text=True
-    )
-    if r.returncode == 0:
-        return resident_dmr_models()  # empty after a successful --all unload
+    loaded = resident_dmr_models()
+    if not loaded:
+        return []
+    if _http("/inference/unload", {"all": True}) is not None:
+        return loaded
     unloaded = []
-    for name in resident_dmr_models():
-        s = subprocess.run(
-            ["docker", "model", "stop", name], capture_output=True, text=True
+    for name in loaded:
+        res = _http(
+            "/api/chat",
+            {
+                "model": name,
+                "messages": [{"role": "user", "content": "."}],
+                "options": {"num_predict": 1},
+                "keep_alive": 0,
+            },
+            timeout=30.0,
         )
-        if "Unloaded" in (s.stdout + s.stderr):
+        if res is not None:
             unloaded.append(name)
     return unloaded
 

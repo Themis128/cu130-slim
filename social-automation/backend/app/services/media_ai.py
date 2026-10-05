@@ -382,3 +382,82 @@ async def get_similar_assets(team_id: uuid.UUID | str, asset_id: uuid.UUID | str
             for doc_id in docs
             if doc_id and doc_id != str(asset_id)
         ][:n_results]
+
+
+async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str:
+    """Expand a terse user prompt into a detailed visual-generation prompt.
+
+    Runs on the warm DMR mid model (fast, already resident) before the GPU
+    lock is taken, so the terse text the user typed becomes the detailed
+    scene description diffusion models actually need (subject, setting,
+    lighting, composition, camera framing for video). Non-raising — returns
+    the original prompt on any failure.
+    """
+    if not (prompt or "").strip():
+        return prompt
+    try:
+        from app.services.dmr import call_dmr_chat
+
+        kind = "short video clip" if media_type == "video" else "image"
+        system = (
+            "You expand terse visual descriptions into detailed generation prompts "
+            f"for a diffusion model that renders a {kind}. Rules: one dense sentence "
+            "or two; concrete subject, setting, lighting, color, composition"
+            + (", and camera motion" if media_type == "video" else "")
+            + "; no text/letters/watermarks; no meta-commentary; output the prompt only."
+        )
+        result = await call_dmr_chat(
+            prompt, system=system,
+            model_override=settings.DMR_MID_MODEL,
+            max_tokens=160, temperature=0.7,
+        )
+        expanded = (result.get("text") or "").strip().strip('"')
+        # Guard: reject empty, absurdly long, or echoed-instruction outputs
+        if not expanded or len(expanded) > 1200 or expanded.lower() == prompt.lower():
+            return prompt
+        return expanded
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("expand_visual_prompt failed (%s) — using raw prompt", type(exc).__name__)
+        return prompt
+
+
+async def verify_media_semantics(
+    image_bytes: bytes,
+    intent: str,
+    *,
+    media_type: str = "image",
+) -> dict:
+    """Semantic QA: caption the generated media and check it matches intent.
+
+    Uses DMR qwen3-vl to caption the output, then asks the same model to
+    judge caption-vs-intent match. Returns {"match": bool, "caption": str,
+    "reason": str} — always non-raising (returns match=True on infra failure
+    so QA never blocks publishing).
+
+    Must be called WITHOUT holding gpu_arbiter.media_gpu_lock() — the vision
+    call itself goes through DMR which waits on the busy flag.
+    """
+    try:
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        caption = await _call_dmr_vision(
+            b64,
+            "Describe this " + media_type + " in one factual sentence: main subject and setting.",
+            max_tokens=80,
+        )
+        if not caption:
+            return {"match": True, "caption": None, "reason": "vision unavailable"}
+        judge = await _call_dmr_vision(
+            b64,
+            (
+                f"The intended subject was: \"{intent[:300]}\". "
+                "Does this " + media_type + " plausibly depict that subject? "
+                "Answer with exactly YES or NO then a short reason."
+            ),
+            max_tokens=60,
+        )
+        verdict = (judge or "").strip().upper()
+        match = not verdict.startswith("NO")
+        return {"match": match, "caption": caption.strip(), "reason": (judge or "").strip()[:200]}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("verify_media_semantics failed (%s)", type(exc).__name__)
+        return {"match": True, "caption": None, "reason": f"qa error: {type(exc).__name__}"}

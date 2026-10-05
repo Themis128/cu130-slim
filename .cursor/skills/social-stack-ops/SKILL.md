@@ -38,7 +38,8 @@ triggers:
 - `social-worker-default` — Celery, `default` + `celery` queues; **restart after analytics/workflow/digest task / celery_app.py changes**
 - `celery-beat` — single scheduler instance; **restart after beat_schedule or queue routing changes**
 - `social-worker-messenger` — Celery, `messenger` queue; **restart after messenger task / celery_app.py changes**
-- `comfyui` — GPU image generation (`--gpu-only --force-fp16 --reserve-vram 1`)
+- `comfyui` — GPU image+video generation (`COMFYUI_PROFILE=flux` → lowvram + fp8 text-enc). Serves FLUX.1-schnell GGUF (images), LTX-Video Q8 + Wan2.1 1.3B (video, t2v+i2v). Custom-node deps (gguf, opencv, colour-science…) are pinned in the Dockerfile — nodes are bind-mounted so their own requirements.txt never install.
+- `local-diffusers` — retired (SD 1.5). Stopped, `LOAD_ON_STARTUP=false`.
 - `n8n` + `n8n-sandbox`
 - `redis`, `social-postgres`
 
@@ -61,6 +62,19 @@ docker compose exec -T social-worker-publishing celery -A app.worker.celery_app 
 
 # check GPU VRAM
 nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
+
+# GPU arbitration (one-model-in-VRAM, 8GB card):
+# media tasks hold Redis lock gpu:media_lock + flag gpu:media_busy
+# (app/services/gpu_arbiter.py). DMR calls wait on the flag; on insufficient
+# VRAM or a timeout/disconnect, dmr.py frees ComfyUI cache + evicts DMR
+# models, then retries once. Host-side equivalent:
+python3 scripts/gpu_serial.py status   # resident DMR models
+python3 scripts/gpu_serial.py unload   # evict all (HTTP, not docker CLI)
+
+# DMR wedge recovery: /engines/v1/models answers 200 even when the llama.cpp
+# scheduler is deadlocked — probe /api/ps instead (hangs when wedged).
+# The dmr-watchdog restarts docker-model-runner after 3 failed deep probes.
+# Manual: docker restart docker-model-runner
 
 # Prometheus shows up{job="socialauto"}=0 but container is "healthy"?
 # Docker Desktop restart breaks the Windows port-proxy for 192.168.1.23:9390

@@ -80,6 +80,28 @@ RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_att
 # soundfile is required by custom_nodes/ComfyUI-Replicate (node.py imports it)
 RUN pip install --no-cache-dir --retries 5 --timeout 60 soundfile
 
+# Layer 4: custom-node dependencies. custom_nodes/ is bind-mounted at runtime
+# (storage-user/custom_nodes), so their requirements.txt files can't be read
+# at build time — pin the union here instead. Sources:
+#   ComfyUI-GGUF:            gguf, sentencepiece, protobuf
+#   ComfyUI-LTXVideo:        colour-science, diffusers, einops, huggingface_hub,
+#                            kornia, ninja, openimageio, transformers[timm]
+#   ComfyUI-VideoHelperSuite: opencv-python (headless variant — no GUI libs),
+#                            imageio-ffmpeg
+RUN pip install --no-cache-dir --retries 10 --timeout 300 \
+        "gguf>=0.13.0" \
+        sentencepiece \
+        protobuf \
+        "colour-science>=0.4.4" \
+        diffusers \
+        einops \
+        "huggingface_hub>=0.25.2" \
+        kornia \
+        "ninja~=1.11.1.4" \
+        "transformers[timm]>=4.50.0" \
+        opencv-python-headless \
+        imageio-ffmpeg
+
 # Data-directory infrastructure:
 # compose bind-mounts ./storage onto /home/user/ComfyUI; symlinks point the
 # ComfyUI workdir at that mount so models/output/input/custom_nodes persist
