@@ -26,6 +26,11 @@ This repo runs Docker Compose (`cu130-slim`) with social-api, social-worker, n8n
 - `.devin/skills/n8n-cloudless/SKILL.md`
 - `.devin/skills/social-stack-ops/SKILL.md`
 
+Per-channel content skills — `social-content-core` (shared rules, account map,
+funnel, quality gate) plus `linkedin-content-ops`, `facebook-content-ops`,
+`instagram-content-ops`, `threads-content-ops`, `x-content-ops`,
+`tiktok-content-ops`, `messaging-channel-ops`. Read core before any channel.
+
 ## Safety
 
 - Never print or commit `.env` secrets (`N8N_API_KEY`, admin passwords, Cloudflare tokens, `GITHUB_TOKEN`).
