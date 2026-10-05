@@ -29,8 +29,8 @@ async def main() -> None:
     assert dmr._state.vram.get("free", 0) == 7000
     dmr._state.vram = {}
 
-    # 4. configure_keep_alive must not raise even though
-    #    /inference/_configure is 404 on the current runner build
+    # 4. configure_keep_alive must not raise; it POSTs the model's full
+    #    canonical config + keep_alive override to /engines/_configure
     await dmr.configure_keep_alive("ai/smollm3", "5m")
 
     # 5. Real inference through the public client (tiny-model route)
