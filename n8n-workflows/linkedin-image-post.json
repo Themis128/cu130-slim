@@ -118,7 +118,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"linkedin\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "id": "generate-caption",
@@ -554,7 +554,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 1200,
+    "executionTimeout": 1500,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"

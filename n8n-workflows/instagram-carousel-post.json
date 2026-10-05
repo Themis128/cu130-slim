@@ -118,7 +118,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Config').item.json.num_slides }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }}\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "id": "gen-carousel",
@@ -480,7 +480,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 1200,
+    "executionTimeout": 1500,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"

@@ -1,6 +1,6 @@
 {
   "id": "socialauto-daily-slack-digest",
-  "name": "SocialAuto Daily Digest \u2192 #socialauto",
+  "name": "SocialAuto Daily Digest → #socialauto",
   "active": true,
   "nodes": [
     {
@@ -210,7 +210,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Athens"
+    "timezone": "Europe/Athens",
+    "executionTimeout": 1500
   },
   "meta": {
     "templateCredsSetupCompleted": true

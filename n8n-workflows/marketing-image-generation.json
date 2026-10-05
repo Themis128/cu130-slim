@@ -137,7 +137,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": false\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "name": "Generate Caption (DMR)",
@@ -555,7 +555,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 1200
+    "executionTimeout": 1500
   },
   "id": "marketing-image-generation",
   "tags": [

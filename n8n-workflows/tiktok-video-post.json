@@ -167,7 +167,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  \"prompt\": $('Resolve Config').item.json.topic,\n  \"platform\": \"tiktok\",\n  \"tone\": $('Resolve Config').item.json.tone,\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "name": "Generate Caption (DMR)",
@@ -199,7 +199,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  \"prompt\": \"Write ONE single-sentence cinematic video scene prompt (max 40 words) for an AI text-to-video model, as a vertical background clip for a TikTok about: \" + $('Resolve Config').item.json.topic + \". Describe only visuals: subject, motion, lighting, mood. No text, no logos, no people facing camera.\",\n  \"platform\": \"tiktok\",\n  \"tone\": \"descriptive\",\n  \"length\": \"short\",\n  \"include_hashtags\": false,\n  \"include_emojis\": false\n}) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "name": "Generate Video Prompt (DMR)",
@@ -822,7 +822,7 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "executionTimeout": 1200
+    "executionTimeout": 1500
   },
   "staticData": null,
   "pinData": {},
