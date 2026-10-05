@@ -537,7 +537,6 @@ async def generate_image(
 
     from app.services.cf_models import CF_TXT2IMG_FREE
     from app.services.inference import (
-        _call_local_diffusers_txt2img,
         _call_workers_ai_image,
     )
     team = await db.get(Team, team_id)
@@ -562,7 +561,6 @@ async def generate_image(
     width = opts.width or 1024
     height = opts.height or 1024
     steps = opts.steps or 4
-    cfg_scale = opts.cfg_scale or 7.5
 
     # ── Infographic detection: if the prompt asks for an infographic, poster,
     # or text-heavy visual, generate a text-free background and overlay
@@ -573,6 +571,12 @@ async def generate_image(
         render_infographic,
         sanitize_prompt_for_background,
     )
+
+    # ── Prompt expansion: terse input → detailed visual prompt (DMR, warm
+    # mid model — runs before the GPU lock is taken by generation).
+    from app.services.media_ai import expand_visual_prompt
+    user_prompt = prompt  # original intent, used by the semantic QA judge
+    prompt = await expand_visual_prompt(prompt, media_type="image")
 
     is_infographic = is_infographic_request(prompt)
     infographic_content = None
@@ -596,20 +600,28 @@ async def generate_image(
             )
 
     generated = None
+    png_bytes = None
 
-    # 1. Local Diffusers (SD 1.5) — PRIMARY
+    # 1. ComfyUI FLUX.1-schnell GGUF — PRIMARY local (SD 1.5 retired 2026-10-05)
     try:
-        logger.info("[media/generate] Trying Local Diffusers (SD 1.5)")
-        generated = await _call_local_diffusers_txt2img(
-            prompt=bg_prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            steps=max(1, min(steps, 50)),
-            cfg_scale=cfg_scale,
-        )
+        from app.services.comfyui_image import generate_image as comfyui_generate_image
+        from app.services.gpu_arbiter import media_gpu_lock
+
+        logger.info("[media/generate] Trying ComfyUI FLUX.1-schnell")
+        async with media_gpu_lock():
+            png_bytes, flux_meta = await comfyui_generate_image(
+                prompt=bg_prompt,
+                width=width,
+                height=height,
+                steps=max(1, min(steps, 8)),
+            )
+        generated = {
+            "image_base64": base64.b64encode(png_bytes).decode(),
+            "model": flux_meta.get("model", "flux1-schnell"),
+            "provider": "comfyui-flux",
+        }
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[media/generate] Local Diffusers failed: %s", type(exc).__name__)
+        logger.warning("[media/generate] ComfyUI FLUX failed: %s", type(exc).__name__)
 
     # 2. Cloudflare Workers AI — ONLY cloud fallback
     if generated is None:
@@ -635,12 +647,42 @@ async def generate_image(
     if generated is None:
         raise HTTPException(
             status_code=502,
-            detail="Image generation failed: Local Diffusers and Cloudflare Workers AI both unavailable.",
+            detail="Image generation failed: ComfyUI FLUX and Cloudflare Workers AI both unavailable.",
         )
 
     image_b64 = generated.get("image_base64") or ""
     if not image_b64:
         raise HTTPException(status_code=502, detail="Image generation returned empty payload")
+
+    # ── Semantic QA: qwen3-vl captions the result and judges it against the
+    # user's intent. Mismatch → one regeneration with the QA reason folded
+    # back into the prompt. Runs outside the GPU lock (DMR reloads its own
+    # model — the arbiter busy flag is already cleared).
+    from app.services.media_ai import verify_media_semantics
+
+    qa = await verify_media_semantics(base64.b64decode(image_b64), user_prompt)
+    if not qa["match"]:
+        logger.warning("[media/generate] semantic QA mismatch (%s) — retrying once", qa.get("reason"))
+        retry_prompt = f"{prompt}. Depict: {user_prompt}. Avoid: {qa.get('reason', 'wrong subject')}"
+        try:
+            if generated.get("provider") == "comfyui-flux":
+                from app.services.comfyui_image import generate_image as comfyui_generate_image
+                from app.services.gpu_arbiter import media_gpu_lock
+
+                async with media_gpu_lock():
+                    png_bytes, _m = await comfyui_generate_image(
+                        prompt=retry_prompt, width=width, height=height, steps=max(1, min(steps, 8)))
+                generated = {"image_base64": base64.b64encode(png_bytes).decode(),
+                             "model": _m.get("model", "flux1-schnell"), "provider": "comfyui-flux"}
+            else:
+                generated = await _call_workers_ai_image(
+                    prompt=retry_prompt, model=opts.model or CF_TXT2IMG_FREE,
+                    negative_prompt=negative_prompt, width=width, height=height,
+                    steps=steps, cfg_scale=opts.cfg_scale or 3.5)
+            image_b64 = generated.get("image_base64") or image_b64
+            qa = await verify_media_semantics(base64.b64decode(image_b64), user_prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[media/generate] semantic-QA retry failed: %s", type(exc).__name__)
 
     # ── Infographic text overlay: composite correctly-spelled text via PIL.
     if is_infographic and infographic_content:
@@ -671,8 +713,11 @@ async def generate_image(
     # Store the provider info in meta_data for provenance tracking
     if asset.meta_data is None:
         asset.meta_data = {}
-    asset.meta_data["inference_provider"] = "local-diffusers" if "stable-diffusion" in gen_model else "cloudflare"
+    asset.meta_data["inference_provider"] = generated.get("provider") or (
+        "comfyui-flux" if "schnell" in gen_model else "cloudflare"
+    )
     asset.meta_data["inference_model"] = gen_model
+    asset.meta_data["semantic_qa"] = qa
     flag_modified(asset, "meta_data")
     await db.commit()
 
@@ -707,7 +752,7 @@ async def generate_image(
 class MediaGenerateVideoOptions(BaseModel):
     width: int = 480            # multiple of 32 — 480x832 is TikTok 9:16
     height: int = 832
-    num_frames: int = 41        # must be 8n+1
+    num_frames: int = 41        # must be 8n+1 (ltxv) or 4n+1 (wan21)
     frame_rate: int = 25
     steps: int = 25
     cfg_scale: float = 3.0
@@ -715,6 +760,9 @@ class MediaGenerateVideoOptions(BaseModel):
     negative_prompt: str = ""
     duration_seconds: int | None = None  # >0 → multi-segment long-form (max 60)
     scene_prompts: list[str] | None = None  # explicit per-segment shot list
+    model: str = "ltxv"         # ltxv (fast) | wan21 (quality, slower)
+    image_asset_id: str | None = None    # set → LTXV image-to-video on this asset
+    i2v_strength: float = 1.0            # first-frame conditioning strength
     tags: list[str] | None = None
     alt_text: str | None = None
 
@@ -750,16 +798,40 @@ async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
         raise HTTPException(status_code=400, detail="prompt is required")
 
     opts = (body.options or MediaGenerateVideoOptions()).model_dump()
+    if opts["model"] not in ("ltxv", "wan21"):
+        raise HTTPException(status_code=400, detail="model must be 'ltxv' or 'wan21'")
+    if opts["image_asset_id"] and opts["model"] != "ltxv":
+        raise HTTPException(status_code=400, detail="image-to-video is only supported on the ltxv model")
+    if opts["model"] == "wan21":
+        # Normalize LTXV-shaped defaults to Wan constraints before validation.
+        if opts["num_frames"] % 4 != 1:
+            opts["num_frames"] = 49
+        if opts["frame_rate"] == 25:
+            opts["frame_rate"] = 24
+        if opts["steps"] == 25:
+            opts["steps"] = 8
+        if opts["cfg_scale"] == 3.0:
+            opts["cfg_scale"] = 6.0
     try:
         # Validate the graph constraints before queueing a doomed task.
-        from app.services.comfyui_video import build_t2v_prompt
-        build_t2v_prompt(
+        from collections.abc import Callable
+
+        from app.services.comfyui_video import build_i2v_prompt, build_t2v_prompt, build_wan21_prompt
+        builder: Callable[..., dict] = (
+            build_i2v_prompt if opts["image_asset_id"]
+            else build_wan21_prompt if opts["model"] == "wan21"
+            else build_t2v_prompt
+        )
+        kwargs = dict(
             prompt=body.prompt,
             negative_prompt=opts["negative_prompt"] or None,
             width=opts["width"], height=opts["height"],
             num_frames=opts["num_frames"], frame_rate=opts["frame_rate"],
             steps=opts["steps"], cfg=opts["cfg_scale"], seed=opts["seed"],
         )
+        if opts["image_asset_id"]:
+            kwargs["image_name"] = "x.png"
+        builder(**kwargs)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

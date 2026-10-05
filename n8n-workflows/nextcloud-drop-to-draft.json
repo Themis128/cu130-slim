@@ -1,6 +1,6 @@
 {
   "id": "nextcloud-drop-to-draft",
-  "name": "Nextcloud Drop \u2192 SocialAuto Draft",
+  "name": "Nextcloud Drop → SocialAuto Draft",
   "nodes": [
     {
       "parameters": {
@@ -89,7 +89,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse PROPFIND multistatus \u2192 keep files only (skip dirs, processed/,\n// the folder itself). Emit one item per file with nc_path + nc_name.\nconst xml = typeof $json === 'string' ? $json : String($json.data ?? $json.body ?? JSON.stringify($json));\nconst prefix = '/remote.php/dav/files/tbaltzakis@cloudless.gr';\nconst hrefs = [...xml.matchAll(/d:href>([^<]+)</g)].map(m => decodeURIComponent(m[1]));\nconst out = [];\nfor (const h of hrefs) {\n  if (h.endsWith('/')) continue;                 // collections\n  if (h.includes('/processed/')) continue;       // already handled\n  if (h.includes('/failed/')) continue;          // previously failed\n  const rel = h.startsWith(prefix) ? h.slice(prefix.length) : h;\n  const name = rel.split('/').pop();\n  if (!name) continue;\n  out.push({ json: { nc_path: rel, nc_name: name } });\n}\nreturn out;"
+        "jsCode": "// Parse PROPFIND multistatus → keep files only (skip dirs, processed/,\n// the folder itself). Emit one item per file with nc_path + nc_name.\nconst xml = typeof $json === 'string' ? $json : String($json.data ?? $json.body ?? JSON.stringify($json));\nconst prefix = '/remote.php/dav/files/tbaltzakis@cloudless.gr';\nconst hrefs = [...xml.matchAll(/d:href>([^<]+)</g)].map(m => decodeURIComponent(m[1]));\nconst out = [];\nfor (const h of hrefs) {\n  if (h.endsWith('/')) continue;                 // collections\n  if (h.includes('/processed/')) continue;       // already handled\n  if (h.includes('/failed/')) continue;          // previously failed\n  const rel = h.startsWith(prefix) ? h.slice(prefix.length) : h;\n  const name = rel.split('/').pop();\n  if (!name) continue;\n  out.push({ json: { nc_path: rel, nc_name: name } });\n}\nreturn out;"
       },
       "id": "files-only",
       "name": "Files Only",
@@ -285,9 +285,9 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('File Context').item.json.gen_prompt) }},\n  \"platform\": {{ JSON.stringify($('File Context').item.json.platform) }},\n  \"tone\": {{ JSON.stringify($('File Context').item.json.tone) }},\n  \"provider\": \"cloudflare\",\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('File Context').item.json.gen_prompt) }},\n  \"platform\": {{ JSON.stringify($('File Context').item.json.platform) }},\n  \"tone\": {{ JSON.stringify($('File Context').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "id": "generate-copy",

@@ -23,7 +23,6 @@ from app.models.user import Team, User
 from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE
 from app.services.duplicate_detector import is_duplicate
 from app.services.inference import (
-    _call_local_diffusers_txt2img,
     _call_workers_ai_image,
     call_inference,
 )
@@ -780,7 +779,7 @@ async def _cf_generate_background(
     """Generate a unique realistic background.
 
     DMR-first architecture:
-    1. local-diffusers (SD 1.5, GPU) — primary, high quality, ~5s per image
+    1. ComfyUI FLUX.1-schnell GGUF — primary local (SD 1.5 retired 2026-10-05)
     2. Cloudflare Workers AI (FLUX schnell) — fallback, free, 4 steps
     3. None — brand canvas only (no photo background)
 
@@ -794,23 +793,23 @@ async def _cf_generate_background(
         f"professional photography, high quality, sharp focus, "
         f"no text, no letters, no words, no watermark"
     )
-    negative = "blurry, low quality, distorted, watermark, text, letters, words, ugly"
 
-    # 1) Try local-diffusers (GPU) first
+    # 1) Try ComfyUI FLUX.1-schnell (GPU) under the media lock
     try:
-        t2i_result = await _call_local_diffusers_txt2img(
-            prompt_t2i,
-            negative_prompt=negative,
-            width=512,
-            height=512,
-            steps=20,
-            cfg_scale=7.5,
-        )
-        raw_bytes = base64.b64decode(t2i_result["image_base64"])
-        logger.info("[carousel] background via local-diffusers (GPU)")
+        from app.services.comfyui_image import generate_image as comfyui_generate_image
+        from app.services.gpu_arbiter import media_gpu_lock
+
+        async with media_gpu_lock():
+            raw_bytes, _meta = await comfyui_generate_image(
+                prompt=prompt_t2i,
+                width=512,
+                height=512,
+                steps=4,
+            )
+        logger.info("[carousel] background via ComfyUI FLUX (GPU)")
         return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     except Exception as e:
-        logger.warning(f"[carousel] local-diffusers txt2img failed: {e}")
+        logger.warning(f"[carousel] ComfyUI FLUX txt2img failed: {e}")
 
     # 2) Fallback to Cloudflare Workers AI
     try:

@@ -29,7 +29,7 @@ x-worker-env: &worker-env
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
   - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-  - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
+  - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
   - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
@@ -207,7 +207,7 @@ services:
       # Profile files live in ./comfyui/profiles and are bind-mounted into
       # /opt/ComfyUI/profiles. The entrypoint reads the selected profile and
       # appends it to the base listen args. Override with CLI_ARGS if needed.
-      - COMFYUI_PROFILE=sdxl
+      - COMFYUI_PROFILE=flux
       - CLI_ARGS=
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - FAL_KEY=${FAL_KEY}
@@ -405,7 +405,10 @@ services:
     environment:
       - MODEL_ID=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - HF_TOKEN=${HF_TOKEN}
-      - LOAD_ON_STARTUP=true
+      # Retired 2026-10-05: SD 1.5 superseded by ComfyUI FLUX.1-schnell GGUF;
+      # keeping it loaded permanently cost ~1.5-2GB VRAM on the 8GB card.
+      # Service remains defined for manual/dormant use — not in any chain.
+      - LOAD_ON_STARTUP=false
       - TORCH_DTYPE=float16
       - DEVICE=cuda
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
@@ -455,7 +458,7 @@ services:
       start_period: 20s
     restart: unless-stopped
   minio:
-    image: minio/minio:latest
+    image: bitnamilegacy/minio:latest
     container_name: minio
     networks:
       - backend
@@ -667,7 +670,7 @@ services:
       - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
+      - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
       - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
@@ -1524,23 +1527,28 @@ services:
         last_started=""
         echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
 
-        # Point the docker-model plugin at the engine-level GPU runner
-        docker-model context create gpu --host http://host.docker.internal:12435 2>/dev/null || true
-        docker-model context use gpu 2>/dev/null || true
-
         # Canonical configs mirror _BEST_PRACTICE_CONFIGS in
         # social-automation/backend/app/services/dmr.py — keep in sync.
-        # NOTE: each `configure` call REPLACES a model's whole config, so the
-        # runtime flags must be included here or they'd be stripped.
+        # NOTE: _configure REPLACES a model's whole BackendConfiguration,
+        # so runtime flags must be included or they'd be stripped.
+        # (The docker-model CLI plugin is Desktop-internal and I/O-errors
+        # inside containers — use the HTTP endpoint like the app does.)
+        configure() {
+          wget -q -O /dev/null -T 10 \
+            --header "Content-Type: application/json" \
+            --post-data "$$1" \
+            http://host.docker.internal:12435/engines/_configure
+        }
+
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
           ok=0
-          docker-model configure --context-size 6144 --keep-alive 5m --think=true ai/qwen3:8b-q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
-          docker-model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M -- --n-gpu-layers 99 --threads 8 --batch-size 1024 --flash-attn on || ok=1
-          docker-model configure --context-size 8192 --keep-alive 5m ai/llama3.2 -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
-          docker-model configure --context-size 4096 --keep-alive 5m ai/qwen3-vl -- --n-gpu-layers 99 --threads 8 --batch-size 512 --flash-attn on || ok=1
-          docker-model configure --mode embedding --keep-alive 5m ai/qwen3-embedding -- --n-gpu-layers 99 --threads 8 || ok=1
-          docker-model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0 --n-gpu-layers 99 --threads 4 --batch-size 512 --flash-attn on || ok=1
+          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"5m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/llama3.2","context-size":8192,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-embedding","keep_alive":"5m","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
+          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"5m","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok
         }
@@ -1562,7 +1570,12 @@ services:
             fi
           fi
 
-          if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
+          # Deep health: /engines/v1/models stays 200 even when the scheduler
+          # is wedged (llama-servers deadlocked on VRAM). /api/ps exercises
+          # the scheduler — a hang there is the true wedge signal (seen
+          # 2026-10-05).
+          if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null \
+             && wget -q -O /dev/null -T 8 http://host.docker.internal:12435/api/ps 2>/dev/null; then
             fails=0
           else
             fails=$$((fails+1))
@@ -1581,8 +1594,6 @@ services:
         done
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # docker-model CLI plugin (resolves to the same path inside docker-desktop)
-      - /usr/local/lib/docker/cli-plugins/docker-model:/usr/bin/docker-model:ro
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
@@ -1613,6 +1624,11 @@ services:
       - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
       - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
+    # host.docker.internal must resolve for DMR_BASE_URL — other services
+    # already carry this mapping; jupyter was missing it (DNS failure made the
+    # semantic vision check silently skip).
+    extra_hosts:
+      - host.docker.internal:host-gateway
     <<: *public-dns
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8888/api || exit 1"]

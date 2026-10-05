@@ -1,7 +1,7 @@
-# FLUX profile for 8GB GPU. FP8 weight quantization is required to fit
-# the 12B-parameter diffusion model; VAE stays FP16.
+# FLUX profile for 8GB GPU. FLUX GGUF unet carries its own quantization;
+# the text encoders are fp8_e4m3fn safetensors. VAE stays FP16.
 --lowvram
---fp8_e4m3fn
+--fp8_e4m3fn-text-enc
 --force-fp16
 --fp16-vae
 --dont-upcast-attention

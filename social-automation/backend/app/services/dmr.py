@@ -1077,6 +1077,12 @@ async def _call_dmr_chat_internal(
         {"tool_calls": list} for tool-calling responses
         {"stream": async_generator} for streaming responses
     """
+    # GPU arbitration: if a media job owns the card, wait for it to finish
+    # instead of loading into a full card (one-model-in-VRAM policy).
+    from app.services.gpu_arbiter import await_media_idle
+
+    await await_media_idle()
+
     # Improvement #6: per-request model routing (platform-aware)
     model = _select_model_by_complexity(prompt, schema, model_override, platform)
 
@@ -1127,8 +1133,13 @@ async def _call_dmr_chat_internal(
 
     # Improvement #11: VRAM-aware routing
     if not await _has_vram_for_model(model):
-        logger.warning("DMR: insufficient VRAM — unloading idle models")
-        await _unload_idle_models()
+        # Free BOTH sources of pressure: other resident DMR runners AND
+        # ComfyUI's cached checkpoints (ComfyUI has no cache TTL — weights
+        # stay resident after every render until explicitly freed, which is
+        # what wedged generate-content 2026-10-05: embedding + chat loads
+        # blocked behind a full card until the caller's timeout).
+        logger.warning("DMR: insufficient VRAM — freeing GPU")
+        await _free_gpu_memory()
         if not await _has_vram_for_model(model):
             # Fall back to tiny model
             tiny = settings.DMR_TINY_MODEL
@@ -1179,11 +1190,20 @@ async def _call_dmr_chat_internal(
                 return _parse_json_response(content)
             return {"text": _strip_think_tags(content)}
 
-        except (httpx.TimeoutException, httpx.ConnectError, ConnectionError) as exc:
+        except (httpx.TimeoutException, httpx.TransportError, ConnectionError) as exc:
+            # TransportError covers ConnectError AND RemoteProtocolError —
+            # a llama-server that dies mid-request (OOM during load, evicted
+            # while serving) surfaces as "Server disconnected without
+            # sending a response" and must heal+retry, not 500 the caller.
             last_exc = exc
             if attempt == 0:
-                # Cold-start retry: model is now loading, wait and retry
+                # Cold-start retry: model is now loading, wait and retry.
+                # A timeout can also mean the load is blocked behind a
+                # saturated card — free VRAM before retrying so the second
+                # attempt isn't doomed to the same hang.
                 logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
+                if isinstance(exc, httpx.TimeoutException | httpx.RemoteProtocolError):
+                    await _free_gpu_memory()
                 await asyncio.sleep(2.0)
                 continue
             _invalidate_health_cache()
@@ -1322,12 +1342,19 @@ async def call_dmr_embedding(
     model_override: str | None = None,
 ) -> list[float]:
     """Generate embeddings via DMR with CLI fallback and connection pooling."""
+    from app.services.gpu_arbiter import await_media_idle
+
+    await await_media_idle()
     model = model_override or settings.DMR_EMBEDDING_MODEL
 
     if not await _check_dmr_health():
         raise ConnectionError("DMR is offline — embeddings unavailable via CLI fallback")
 
     await _ensure_model_configured(model)
+    # Same VRAM gate as chat: a saturated card makes the load hang until the
+    # HTTP timeout instead of failing fast into the Cloudflare fallback.
+    if not await _has_vram_for_model(model):
+        await _free_gpu_memory()
     url = f"{settings.DMR_URL}/embeddings"
     try:
         client = await _get_client()
@@ -1335,13 +1362,13 @@ async def call_dmr_embedding(
             resp = await client.post(
                 url,
                 json={"model": model, "input": text},
-                timeout=120.0,
+                timeout=60.0,
             )
         if resp.status_code == 200:
             return resp.json()["data"][0]["embedding"]
         _invalidate_health_cache()
         raise ConnectionError(f"DMR embedding error {resp.status_code}: {resp.text[:400]}")
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
         _invalidate_health_cache()
         raise ConnectionError(f"DMR embedding connection error: {exc}") from exc
 
@@ -1425,6 +1452,9 @@ async def call_dmr_vision(
     Returns:
         Text response, or None on failure (non-raising for graceful fallback)
     """
+    from app.services.gpu_arbiter import await_media_idle
+
+    await await_media_idle()
     model = model_override or settings.DMR_VISION_MODEL
 
     # Ensure it's a data URI
@@ -1464,10 +1494,11 @@ async def call_dmr_vision(
             try:
                 async with _get_semaphore():
                     resp = await client.post(url, json=payload, timeout=300.0)
-            except httpx.TimeoutException:
+            except (httpx.TimeoutException, httpx.TransportError):
                 # Cold-load timeout — the vision request queued behind other
-                # model loads on the shared GPU. Heal + retry once, same as
-                # the chat path's cold-start retry.
+                # model loads on the shared GPU. TransportError covers a
+                # llama-server that died mid-request (RemoteProtocolError).
+                # Heal + retry once, same as the chat path's cold-start retry.
                 if attempt == 0:
                     logger.warning("DMR vision: timeout — healing GPU state and retrying")
                     await _free_gpu_memory()
