@@ -1231,28 +1231,34 @@ async def _call_dmr_chat_internal(
 async def _stream_dmr_chat(payload: dict, timeout: float):
     """Stream chat completion tokens from DMR (improvement #7).
 
-    Yields content chunks as they arrive (SSE format).
+    Yields content chunks as they arrive (SSE format). The slot is held
+    inside the generator — callers create it lazily, so gating in
+    _call_dmr_chat_internal would release before the first POST.
     """
     url = f"{settings.DMR_URL}/chat/completions"
     payload = {**payload, "stream": True}
     client = await _get_client()
-    async with client.stream("POST", url, json=payload, timeout=timeout) as resp:
-        if resp.status_code != 200:
-            _invalidate_health_cache()
-            raise ConnectionError(f"DMR stream error {resp.status_code}")
-        async for line in resp.aiter_lines():
-            if line.startswith("data: "):
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
-                except json.JSONDecodeError:
-                    continue
+    from app.services.gpu_arbiter import await_media_idle, dmr_slot
+
+    await await_media_idle()
+    async with _get_semaphore(), dmr_slot():
+        async with client.stream("POST", url, json=payload, timeout=timeout) as resp:
+            if resp.status_code != 200:
+                _invalidate_health_cache()
+                raise ConnectionError(f"DMR stream error {resp.status_code}")
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
 
 
 # ── Public chat API ──────────────────────────────────────────────────────────
