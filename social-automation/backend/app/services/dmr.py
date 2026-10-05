@@ -1225,21 +1225,34 @@ async def call_dmr_vision(
         "temperature": temperature,
     }
 
-    # VRAM check — vision models are large
+    # VRAM check — vision models are large. Unload idle runners, then give
+    # DMR a moment to actually release the memory before posting.
     if not await _has_vram_for_model(model):
         logger.warning("DMR vision: insufficient VRAM")
         await _unload_idle_models()
+        await asyncio.sleep(2.0)
 
     await _ensure_model_configured(model)
     url = f"{settings.DMR_URL}/chat/completions"
     try:
         client = await _get_client()
-        async with _get_semaphore():
-            resp = await client.post(url, json=payload, timeout=300.0)
-        if resp.status_code == 200:
-            msg = resp.json()["choices"][0]["message"]
-            return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
-        logger.warning("DMR vision returned %s", resp.status_code)
+        last_status: int | None = None
+        for attempt in range(2):
+            async with _get_semaphore():
+                resp = await client.post(url, json=payload, timeout=300.0)
+            if resp.status_code == 200:
+                msg = resp.json()["choices"][0]["message"]
+                return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
+            last_status = resp.status_code
+            if attempt == 0 and resp.status_code >= 500:
+                # Runner mid-(re)load or OOM while other models were queued —
+                # free VRAM, re-push config, retry once.
+                logger.warning("DMR vision: %s — healing GPU state and retrying", resp.status_code)
+                await _free_gpu_memory()
+                await _ensure_model_configured(model, force=True)
+                continue
+            break
+        logger.warning("DMR vision returned %s", last_status)
     except Exception as exc:
         logger.warning("DMR vision failed (%s)", type(exc).__name__)
     return None
