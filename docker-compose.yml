@@ -29,7 +29,7 @@ x-worker-env: &worker-env
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
   - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-  - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
+  - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
   - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
@@ -670,7 +670,7 @@ services:
       - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-4}
+      - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
       - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
