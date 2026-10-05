@@ -291,21 +291,13 @@
           },
           "conditions": [
             {
-              "id": "has-content",
-              "leftValue": "{{ $('Generate Carousel (DMR→CF)').item.json.suggested_caption }}",
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Carousel (DMR→CF)').item.json.suggested_caption) && !!($('Generate Carousel (DMR→CF)').item.json.media_ids[0]) }}",
               "rightValue": "",
               "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            },
-            {
-              "id": "has-media",
-              "leftValue": "{{ $('Generate Carousel (DMR→CF)').item.json.media_ids[0] }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],

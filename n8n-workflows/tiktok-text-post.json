@@ -307,7 +307,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Config').item.json.topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 180000
+          "timeout": 300000
         }
       },
       "name": "Generate Image (CF FLUX)",
@@ -330,21 +330,13 @@
           },
           "conditions": [
             {
-              "id": "has-content",
-              "leftValue": "{{ $('Generate Caption (DMR)').item.json.content }}",
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Caption (DMR)').item.json.content) && !!($('Generate Image (CF FLUX)').item.json.asset_id) }}",
               "rightValue": "",
               "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            },
-            {
-              "id": "has-media",
-              "leftValue": "{{ $('Generate Image (CF FLUX)').item.json.asset_id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],

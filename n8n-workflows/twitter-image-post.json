@@ -148,7 +148,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 180000
+          "timeout": 300000
         }
       },
       "id": "generate-image",
@@ -343,21 +343,13 @@
           },
           "conditions": [
             {
-              "id": "has-content",
-              "leftValue": "{{ $json.content_text }}",
+              "id": "content-and-media",
+              "leftValue": "={{ !!($json.content_text) && !!($json.asset_id) }}",
               "rightValue": "",
               "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            },
-            {
-              "id": "has-media",
-              "leftValue": "{{ $json.asset_id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
