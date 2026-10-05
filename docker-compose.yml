@@ -455,7 +455,7 @@ services:
       start_period: 20s
     restart: unless-stopped
   minio:
-    image: minio/minio:latest
+    image: bitnamilegacy/minio:latest
     container_name: minio
     networks:
       - backend
@@ -1613,6 +1613,11 @@ services:
       - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
       - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
+    # host.docker.internal must resolve for DMR_BASE_URL — other services
+    # already carry this mapping; jupyter was missing it (DNS failure made the
+    # semantic vision check silently skip).
+    extra_hosts:
+      - host.docker.internal:host-gateway
     <<: *public-dns
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8888/api || exit 1"]
