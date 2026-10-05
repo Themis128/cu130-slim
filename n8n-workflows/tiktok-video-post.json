@@ -821,7 +821,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "executionTimeout": 900
   },
   "staticData": null,
   "pinData": {},

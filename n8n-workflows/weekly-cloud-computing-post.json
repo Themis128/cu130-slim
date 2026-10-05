@@ -534,7 +534,7 @@
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
     "callerPolicy": "workflowsFromSameOwner",
-    "executionTimeout": 300,
+    "executionTimeout": 900,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"
