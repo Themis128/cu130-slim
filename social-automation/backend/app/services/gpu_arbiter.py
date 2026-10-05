@@ -41,6 +41,15 @@ _LOCK_POLL_S = 2.0
 # anyway (keeps text inference bounded even if the flag leaks).
 _DMR_WAIT_MAX_S = 300.0
 
+# Cluster-wide single-flight FIFO for DMR requests.
+_DMR_LOCK_KEY = "gpu:dmr_lock"
+# One DMR request never legitimately holds the slot longer than this;
+# a crashed holder self-releases via TTL instead of deadlocking inference.
+_DMR_LOCK_TTL_S = 300
+# Bounded acquire — a wedged holder degrades callers to competing rather
+# than blocking forever (same philosophy as _DMR_WAIT_MAX_S).
+_DMR_LOCK_ACQUIRE_S = 240.0
+
 
 async def _redis() -> aioredis.Redis:
     return aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
