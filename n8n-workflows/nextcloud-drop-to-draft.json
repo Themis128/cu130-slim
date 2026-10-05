@@ -287,7 +287,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('File Context').item.json.gen_prompt) }},\n  \"platform\": {{ JSON.stringify($('File Context').item.json.platform) }},\n  \"tone\": {{ JSON.stringify($('File Context').item.json.tone) }},\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
         "options": {
-          "timeout": 600000
+          "timeout": 900000
         }
       },
       "id": "generate-copy",
