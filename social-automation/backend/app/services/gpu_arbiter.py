@@ -43,12 +43,14 @@ _DMR_WAIT_MAX_S = 300.0
 
 # Cluster-wide single-flight FIFO for DMR requests.
 _DMR_LOCK_KEY = "gpu:dmr_lock"
-# One DMR request never legitimately holds the slot longer than this;
-# a crashed holder self-releases via TTL instead of deadlocking inference.
-_DMR_LOCK_TTL_S = 300
-# Bounded acquire — a wedged holder degrades callers to competing rather
-# than blocking forever (same philosophy as _DMR_WAIT_MAX_S).
-_DMR_LOCK_ACQUIRE_S = 240.0
+# Longest legitimate hold: the vision path allows 2×300s attempts plus
+# heal inside the slot. A crashed holder self-releases at this TTL
+# instead of deadlocking inference.
+_DMR_LOCK_TTL_S = 660
+# Bounded acquire — sized above one full chat retry cycle (~370s) so a
+# queued caller waits out a legitimately long holder; a wedged holder
+# still degrades callers to competing rather than blocking forever.
+_DMR_LOCK_ACQUIRE_S = 480.0
 
 
 async def _redis() -> aioredis.Redis:
@@ -118,31 +120,36 @@ async def media_gpu_lock(
         # for the busy wait).
         from app.services.dmr import _unload_idle_models
 
-        await _unload_idle_models()
-        logger.info("[gpu-arbiter] GPU lock acquired; DMR models unloaded")
-        try:
-            yield
-        finally:
-            # Return the card to DMR: ComfyUI caches loaded checkpoints with
-            # no TTL, so without this the next llama-server load hangs behind
-            # a full GPU until its client timeout (the 2026-10-05
-            # generate-content wedge).
+        # Hold the DMR slot for the job's duration: an in-flight DMR
+        # request drains first (bounded), and callers that slipped past
+        # the busy check just before the flag was set queue behind the
+        # render instead of racing a model load into a full card.
+        async with dmr_slot(_for_media=True):
+            await _unload_idle_models()
+            logger.info("[gpu-arbiter] GPU lock acquired; DMR models unloaded")
             try:
-                import httpx
+                yield
+            finally:
+                # Return the card to DMR: ComfyUI caches loaded checkpoints
+                # with no TTL, so without this the next llama-server load
+                # hangs behind a full GPU until its client timeout (the
+                # 2026-10-05 generate-content wedge).
+                try:
+                    import httpx
 
-                base = get_settings().COMFYUI_URL.rstrip("/")
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    q = await client.get(f"{base}/queue", timeout=3.0)
-                    running = (
-                        len((q.json() if q.status_code == 200 else {}).get("queue_running") or []) > 0
-                    )
-                    if not running:
-                        await client.post(
-                            f"{base}/free",
-                            json={"unload_models": True, "free_memory": True},
+                    base = get_settings().COMFYUI_URL.rstrip("/")
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        q = await client.get(f"{base}/queue", timeout=3.0)
+                        running = (
+                            len((q.json() if q.status_code == 200 else {}).get("queue_running") or []) > 0
                         )
-            except Exception as exc:
-                logger.debug("[gpu-arbiter] post-job ComfyUI free failed (%s)", type(exc).__name__)
+                        if not running:
+                            await client.post(
+                                f"{base}/free",
+                                json={"unload_models": True, "free_memory": True},
+                            )
+                except Exception as exc:
+                    logger.debug("[gpu-arbiter] post-job ComfyUI free failed (%s)", type(exc).__name__)
     finally:
         if r is not None:
             try:
@@ -154,3 +161,65 @@ async def media_gpu_lock(
                 await r.delete(_BUSY_KEY)
             finally:
                 await r.aclose()
+
+
+@asynccontextmanager
+async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
+    """Cluster-wide single-flight FIFO for DMR requests.
+
+    The per-process asyncio.Semaphore (DMR_MAX_CONCURRENCY) cannot serialize
+    across processes — 4 uvicorn workers + 3 celery workers each get their
+    own, so N parallel requests still reach the runner. On a one-model 8GB
+    card those requests become queued model loads that head-of-line block
+    the scheduler until everything wedges (2026-10-05 incident: /api/ps
+    responsive, inference deadlocked behind 5 queued loads).
+
+    This Redis lock makes the runner see exactly one request at a time.
+    FIFO-fair: pollers wake in rough arrival order. Chosen over LIFO —
+    the n8n pipelines chain stages (embed → generate → rewrite → score),
+    so LIFO would starve early stages behind later arrivals. Bounded
+    acquire: a leaked/wedged holder degrades callers to competing rather
+    than deadlocking inference. Redis down → no-op, never blocks callers.
+
+    ``_for_media`` is used internally by ``media_gpu_lock``: it skips the
+    media-busy re-check that would deadlock against the busy flag the
+    media job itself just set.
+    """
+    token = uuid.uuid4().hex
+    r = None
+    acquired = False
+    try:
+        r = await _redis()
+    except Exception as exc:
+        logger.warning("[gpu-arbiter] Redis unreachable (%s) — DMR unserialized", type(exc).__name__)
+        yield
+        return
+    try:
+        waited = 0.0
+        while waited < _DMR_LOCK_ACQUIRE_S:
+            if await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S):
+                acquired = True
+                break
+            await asyncio.sleep(1.0)
+            waited += 1.0
+        if not acquired:
+            logger.warning(
+                "[gpu-arbiter] DMR slot not acquired in %.0fs — proceeding unserialized",
+                _DMR_LOCK_ACQUIRE_S,
+            )
+        if not _for_media:
+            # Re-check: a caller that passed await_media_idle before the
+            # busy flag was set (or acquired the slot after its TTL lapsed
+            # mid-render) must not run inference into an active media job.
+            await await_media_idle()
+        try:
+            yield
+        finally:
+            if acquired:
+                # Delete only if we still own the slot (TTL may have
+                # expired and another caller taken it).
+                if await r.get(_DMR_LOCK_KEY) == token:
+                    await r.delete(_DMR_LOCK_KEY)
+    finally:
+        if r is not None:
+            await r.aclose()

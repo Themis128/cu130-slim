@@ -1544,7 +1544,7 @@ services:
           echo "[dmr-watchdog] applying canonical model configs"
           ok=0
           configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"5m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/llama3.2","context-size":8192,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/qwen3-embedding","keep_alive":"5m","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1

@@ -392,46 +392,43 @@ async def _has_vram_for_model(model: str) -> bool:
 async def _unload_idle_models() -> None:
     """Unload all running models to free VRAM (best effort).
 
-    Tries the native /inference/unload endpoint first; on 404 (absent in the
-    current docker/model-runner build) falls back to the Ollama-compatible
-    API: list loaded models via /api/ps, then POST /api/chat with
-    keep_alive=0 per model, which evicts immediately.
+    POST /engines/unload is the runner's native endpoint (verified live
+    2026-10-05 on Docker Desktop's bundled runner: returns 200
+    {"unloaded_runners": N}). The listener can drop the connection while
+    tearing runners down, so a transport error is followed by an /api/ps
+    verification rather than treated as failure.
+
+    Do NOT use the Ollama /api/chat keep_alive=0 trick: for a model that
+    is still loading it queues a *new* load to serve the request before
+    evicting — the 2026-10-05 unload-storm that wedged the scheduler.
     """
     url = _dmr_base_url()
     try:
         client = await _get_client()
-        resp = await client.post(f"{url}/inference/unload", json={"all": True}, timeout=5.0)
+    except Exception as exc:
+        logger.debug("DMR unload skipped (%s)", type(exc).__name__)
+        return
+    try:
+        resp = await client.post(f"{url}/engines/unload", json={"all": True}, timeout=30.0)
         if resp.status_code == 200:
-            logger.info("DMR: unloaded idle models to free VRAM")
+            logger.info("DMR: unloaded runners via /engines/unload")
             return
+        logger.debug("DMR /engines/unload -> %s", resp.status_code)
+    except (httpx.TransportError, httpx.TimeoutException) as exc:
+        # Listener may drop mid-teardown — verify instead of retrying.
+        logger.debug("DMR unload transport blip (%s) — verifying", type(exc).__name__)
     except Exception as exc:
         logger.debug("DMR unload failed (%s)", type(exc).__name__)
-    # Fallback: Ollama-compatible API (verified live on
-    # docker/model-runner:latest-vllm-cuda, 2026-09: /api/ps lists loaded
-    # models; /api/chat with keep_alive=0 evicts right after serving).
+        return
     try:
-        client = await _get_client()
+        await asyncio.sleep(2)
         ps = await client.get(f"{url}/api/ps", timeout=5.0)
-        ps.raise_for_status()
-        loaded = [m.get("name") for m in ps.json().get("models", []) if m.get("name")]
-        for name in loaded:
-            try:
-                await client.post(
-                    f"{url}/api/chat",
-                    json={
-                        "model": name,
-                        "messages": [{"role": "user", "content": "."}],
-                        "options": {"num_predict": 1},
-                        "keep_alive": 0,
-                    },
-                    timeout=30.0,
-                )
-            except Exception:
-                logger.debug("DMR fallback unload failed for %s", name)
-        if loaded:
-            logger.info("DMR: unloaded %d model(s) via Ollama API fallback", len(loaded))
+        if ps.status_code == 200 and not ps.json().get("models"):
+            logger.info("DMR: runners unloaded (verified via /api/ps)")
+        else:
+            logger.debug("DMR unload unverified — /api/ps still lists models")
     except Exception as exc:
-        logger.debug("DMR Ollama unload fallback failed (%s)", type(exc).__name__)
+        logger.debug("DMR post-unload verify failed (%s)", type(exc).__name__)
 
 
 async def _free_gpu_memory() -> None:
@@ -936,7 +933,9 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # random intervals. ~2.7GB resident incl. KV at ctx 4096.
     "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M": {
         "context_size": 4096,
-        "keep_alive": "30m",
+        # 5m like every other model — the old 30m pinned a second runner
+        # against the one-model-in-VRAM policy on the 8GB card.
+        "keep_alive": "5m",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     "ai/llama3.2": {
@@ -1161,64 +1160,70 @@ async def _call_dmr_chat_internal(
     # Improvement #4: retry on cold-start timeout
     last_exc: Exception | None = None
     sem = _get_semaphore()
-    for attempt in range(2):  # 1 retry
-        try:
-            client = await _get_client()
-            async with sem:
+    from app.services.gpu_arbiter import dmr_slot
+
+    # In-process semaphore + cluster-wide FIFO slot held across the whole
+    # retry cycle: the runner sees exactly one request at a time, so model
+    # loads never queue head-of-line on the 8GB card, and heal+retry stays
+    # atomic (a competitor can't slip a different model in mid-heal).
+    async with sem, dmr_slot():
+        for attempt in range(2):  # 1 retry
+            try:
+                client = await _get_client()
                 resp = await client.post(url, json=payload, timeout=timeout)
-            if resp.status_code != 200:
-                body = resp.text[:400]
+                if resp.status_code != 200:
+                    body = resp.text[:400]
+                    _invalidate_health_cache()
+                    if attempt == 0 and _RUNNER_LOAD_RE.search(body):
+                        # Runner failed to start (typically CUDA OOM while DMR
+                        # held another model resident or the in-memory config
+                        # was wiped) — free VRAM, re-push config, then retry.
+                        logger.warning("DMR runner load failed for %s — healing GPU state", model)
+                        await _free_gpu_memory()
+                        await _ensure_model_configured(model, force=True)
+                    raise ConnectionError(f"DMR error {resp.status_code}: {body}")
+
+                data = resp.json()
+                msg = data["choices"][0]["message"]
+                content = msg.get("content") or msg.get("reasoning_content") or ""
+
+                # Tool calling response
+                if msg.get("tool_calls"):
+                    return {"tool_calls": msg["tool_calls"], "text": _strip_think_tags(content)}
+
+                if schema:
+                    return _parse_json_response(content)
+                return {"text": _strip_think_tags(content)}
+
+            except (httpx.TimeoutException, httpx.TransportError, ConnectionError) as exc:
+                # TransportError covers ConnectError AND RemoteProtocolError —
+                # a llama-server that dies mid-request (OOM during load, evicted
+                # while serving) surfaces as "Server disconnected without
+                # sending a response" and must heal+retry, not 500 the caller.
+                last_exc = exc
+                if attempt == 0:
+                    # Cold-start retry: model is now loading, wait and retry.
+                    # A timeout can also mean the load is blocked behind a
+                    # saturated card — free VRAM before retrying so the second
+                    # attempt isn't doomed to the same hang.
+                    logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
+                    if isinstance(exc, httpx.TimeoutException | httpx.RemoteProtocolError):
+                        await _free_gpu_memory()
+                    await asyncio.sleep(2.0)
+                    continue
                 _invalidate_health_cache()
-                if attempt == 0 and _RUNNER_LOAD_RE.search(body):
-                    # Runner failed to start (typically CUDA OOM while DMR
-                    # held another model resident or the in-memory config
-                    # was wiped) — free VRAM, re-push config, then retry.
-                    logger.warning("DMR runner load failed for %s — healing GPU state", model)
-                    await _free_gpu_memory()
-                    await _ensure_model_configured(model, force=True)
-                raise ConnectionError(f"DMR error {resp.status_code}: {body}")
-
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-            content = msg.get("content") or msg.get("reasoning_content") or ""
-
-            # Tool calling response
-            if msg.get("tool_calls"):
-                return {"tool_calls": msg["tool_calls"], "text": _strip_think_tags(content)}
-
-            if schema:
-                return _parse_json_response(content)
-            return {"text": _strip_think_tags(content)}
-
-        except (httpx.TimeoutException, httpx.TransportError, ConnectionError) as exc:
-            # TransportError covers ConnectError AND RemoteProtocolError —
-            # a llama-server that dies mid-request (OOM during load, evicted
-            # while serving) surfaces as "Server disconnected without
-            # sending a response" and must heal+retry, not 500 the caller.
-            last_exc = exc
-            if attempt == 0:
-                # Cold-start retry: model is now loading, wait and retry.
-                # A timeout can also mean the load is blocked behind a
-                # saturated card — free VRAM before retrying so the second
-                # attempt isn't doomed to the same hang.
-                logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
-                if isinstance(exc, httpx.TimeoutException | httpx.RemoteProtocolError):
-                    await _free_gpu_memory()
-                await asyncio.sleep(2.0)
-                continue
-            _invalidate_health_cache()
-            # Improvement #1: CLI fallback on connection failure
-            if isinstance(exc, httpx.ConnectError | ConnectionError):
-                logger.info("DMR API failed — falling back to CLI")
-                cli_result = _dmr_cli_run(model, prompt, timeout=int(timeout))
-                if cli_result is not None:
-                    if schema:
-                        return _parse_json_response(cli_result)
-                    return {"text": cli_result}
-            raise ConnectionError(f"DMR failed after retry: {exc}") from exc
-        except Exception as exc:
-            last_exc = exc
-            raise
+                # Improvement #1: CLI fallback on connection failure
+                if isinstance(exc, httpx.ConnectError | ConnectionError):
+                    logger.info("DMR API failed — falling back to CLI")
+                    cli_result = _dmr_cli_run(model, prompt, timeout=int(timeout))
+                    if cli_result is not None:
+                        if schema:
+                            return _parse_json_response(cli_result)
+                        return {"text": cli_result}
+                raise ConnectionError(f"DMR failed after retry: {exc}") from exc
+            except Exception as exc:
+                last_exc = exc
+                raise
 
     raise ConnectionError(f"DMR failed after retries: {last_exc}")
 
@@ -1326,7 +1331,9 @@ async def call_dmr_vllm_chat(
         "max_tokens": max_tokens or 4096,
     }
     client = await _get_client()
-    async with _get_semaphore():
+    from app.services.gpu_arbiter import dmr_slot
+
+    async with _get_semaphore(), dmr_slot():
         resp = await client.post(f"{url}/chat/completions", json=payload, timeout=timeout)
     if resp.status_code != 200:
         raise ConnectionError(f"DMR vLLM error {resp.status_code}: {resp.text[:400]}")
@@ -1358,7 +1365,9 @@ async def call_dmr_embedding(
     url = f"{settings.DMR_URL}/embeddings"
     try:
         client = await _get_client()
-        async with _get_semaphore():
+        from app.services.gpu_arbiter import dmr_slot
+
+        async with _get_semaphore(), dmr_slot():
             resp = await client.post(
                 url,
                 json={"model": model, "input": text},
@@ -1490,33 +1499,36 @@ async def call_dmr_vision(
     try:
         client = await _get_client()
         last_status: int | None = None
-        for attempt in range(2):
-            try:
-                async with _get_semaphore():
+        from app.services.gpu_arbiter import dmr_slot
+
+        # Slot held across both attempts — heal+retry stays atomic.
+        async with _get_semaphore(), dmr_slot():
+            for attempt in range(2):
+                try:
                     resp = await client.post(url, json=payload, timeout=300.0)
-            except (httpx.TimeoutException, httpx.TransportError):
-                # Cold-load timeout — the vision request queued behind other
-                # model loads on the shared GPU. TransportError covers a
-                # llama-server that died mid-request (RemoteProtocolError).
-                # Heal + retry once, same as the chat path's cold-start retry.
-                if attempt == 0:
-                    logger.warning("DMR vision: timeout — healing GPU state and retrying")
+                except (httpx.TimeoutException, httpx.TransportError):
+                    # Cold-load timeout — the vision request queued behind other
+                    # model loads on the shared GPU. TransportError covers a
+                    # llama-server that died mid-request (RemoteProtocolError).
+                    # Heal + retry once, same as the chat path's cold-start retry.
+                    if attempt == 0:
+                        logger.warning("DMR vision: timeout — healing GPU state and retrying")
+                        await _free_gpu_memory()
+                        await _ensure_model_configured(model, force=True)
+                        continue
+                    raise
+                if resp.status_code == 200:
+                    msg = resp.json()["choices"][0]["message"]
+                    return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
+                last_status = resp.status_code
+                if attempt == 0 and resp.status_code >= 500:
+                    # Runner mid-(re)load or OOM while other models were queued —
+                    # free VRAM, re-push config, retry once.
+                    logger.warning("DMR vision: %s — healing GPU state and retrying", resp.status_code)
                     await _free_gpu_memory()
                     await _ensure_model_configured(model, force=True)
                     continue
-                raise
-            if resp.status_code == 200:
-                msg = resp.json()["choices"][0]["message"]
-                return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
-            last_status = resp.status_code
-            if attempt == 0 and resp.status_code >= 500:
-                # Runner mid-(re)load or OOM while other models were queued —
-                # free VRAM, re-push config, retry once.
-                logger.warning("DMR vision: %s — healing GPU state and retrying", resp.status_code)
-                await _free_gpu_memory()
-                await _ensure_model_configured(model, force=True)
-                continue
-            break
+                break
         logger.warning("DMR vision returned %s", last_status)
     except Exception as exc:
         logger.warning("DMR vision failed (%s)", type(exc).__name__)
