@@ -1186,6 +1186,36 @@ async def call_dmr_embedding(
 
 # ── Vision (improvement #8: consolidated) ────────────────────────────────────
 
+# Formats llama.cpp's image decoder (stb_image) can read inline.
+_VISION_SAFE_MIMES = frozenset({"jpeg", "jpg", "png", "gif", "bmp"})
+
+
+def _to_vision_safe_uri(image_data_uri: str) -> str:
+    """Transcode unsupported data-URI formats (WebP, AVIF, ...) to PNG.
+
+    The llama.cpp vision path decodes inline images with stb_image, which
+    has no WebP/AVIF support — an undecodable URI reaches the model as
+    empty pixels and it hallucinates a plausible caption for an image it
+    never saw (observed live: WebP homepage -> "person dancing in a
+    studio").  Transcode first so the model always sees real pixels.
+    """
+    m = re.match(r"data:image/([a-z0-9.+-]+);base64,(.*)", image_data_uri, re.S | re.I)
+    if not m or m.group(1).lower() in _VISION_SAFE_MIMES:
+        return image_data_uri
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(base64.b64decode(m.group(2))))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        logger.debug("DMR vision transcode failed (%s) — sending as-is", type(exc).__name__)
+        return image_data_uri
+
 
 async def call_dmr_vision(
     image_data_uri: str,
@@ -1215,6 +1245,7 @@ async def call_dmr_vision(
     # Ensure it's a data URI
     if not image_data_uri.startswith("data:"):
         image_data_uri = f"data:image/jpeg;base64,{image_data_uri}"
+    image_data_uri = _to_vision_safe_uri(image_data_uri)
 
     payload = {
         "model": model,
@@ -1244,8 +1275,19 @@ async def call_dmr_vision(
         client = await _get_client()
         last_status: int | None = None
         for attempt in range(2):
-            async with _get_semaphore():
-                resp = await client.post(url, json=payload, timeout=300.0)
+            try:
+                async with _get_semaphore():
+                    resp = await client.post(url, json=payload, timeout=300.0)
+            except httpx.TimeoutException:
+                # Cold-load timeout — the vision request queued behind other
+                # model loads on the shared GPU. Heal + retry once, same as
+                # the chat path's cold-start retry.
+                if attempt == 0:
+                    logger.warning("DMR vision: timeout — healing GPU state and retrying")
+                    await _free_gpu_memory()
+                    await _ensure_model_configured(model, force=True)
+                    continue
+                raise
             if resp.status_code == 200:
                 msg = resp.json()["choices"][0]["message"]
                 return _strip_think_tags(msg.get("content") or msg.get("reasoning_content") or "")
