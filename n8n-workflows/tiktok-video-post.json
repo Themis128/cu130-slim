@@ -822,7 +822,7 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "executionTimeout": 900
+    "executionTimeout": 1200
   },
   "staticData": null,
   "pinData": {},

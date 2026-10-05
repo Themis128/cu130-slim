@@ -167,7 +167,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
-          "timeout": 420000
+          "timeout": 600000
         }
       },
       "name": "Generate Image (CF FLUX)",
@@ -555,7 +555,7 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 900
+    "executionTimeout": 1200
   },
   "id": "marketing-image-generation",
   "tags": [
