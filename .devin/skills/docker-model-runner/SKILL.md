@@ -23,7 +23,7 @@ fallback.
 │  │   ├── ai/qwen3:8b-q4_K_M   (long-form + schema, ~5.1GB)│
 │  │   ├── Qwen3-4B-Instruct    (short-form + chatbots, ~2.7GB)│
 │  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
-│  │   ├── ai/qwen3-embedding   (embeddings)                 │
+│  │   ├── Qwen3-Embedding-0.6B (embeddings, hf.co)         │
 │  │   └── ai/smollm3           (tiny/fast, 3.1B)            │
 │  └── Diffusers engine (NOT AVAILABLE on WSL2/Docker Desktop)│
 │      └── ai/stable-diffusion (SDXL, 6.94GB DDUF, pulled)   │
@@ -208,7 +208,7 @@ docker model status
 | `ai/qwen3:8b-q4_K_M` | `DMR_TEXT_MODEL` — long-form (LinkedIn/Facebook) + schema/JSON | ~5.1GB | ctx 6144, keep-alive 5m |
 | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | `DMR_MID_MODEL` + `DMR_CHATBOT_MODEL` — short-form platforms + all chatbots (non-thinking, ~90 TPS) | ~2.7GB | ctx 4096, keep-alive 30m |
 | `ai/qwen3-vl` | `DMR_VISION_MODEL` — alt text, smart crop, tagging | ~5GB | on-demand only |
-| `ai/qwen3-embedding` | `DMR_EMBEDDING_MODEL` — Chroma vectors (4096 dims) | ~1GB | on-demand |
+| `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | `DMR_EMBEDDING_MODEL` — Chroma vectors (1024 dims) | ~0.7GB | on-demand |
 | `ai/smollm3` | `DMR_TINY_MODEL` — <200-char prompts | ~1.9GB | ctx 4096, keep-alive 5m, `--reasoning-budget 0` |
 | `ai/smollm2` | Superseded rollback (360M) | 256MB | - |
 | `ai/llama3.2` | Spare / manual selection | ~2GB | - |
@@ -311,7 +311,7 @@ The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
 | qwen3:8b-q4_K_M (ctx 6144) | ~5.1GB |
 | Qwen3-4B-Instruct (ctx 4096) | ~2.7GB |
 | qwen3-vl | ~5GB |
-| qwen3-embedding | ~1GB |
+| Qwen3-Embedding-0.6B | ~0.7GB |
 | smollm3 | ~1.9GB |
 | smollm2 (rollback) | ~256MB |
 | stable-diffusion (SDXL) | ~6GB (cannot run on WSL2) |
@@ -492,7 +492,7 @@ curl -s http://localhost:12435/engines/llama.cpp/v1/chat/completions \
 ```bash
 curl -s http://localhost:12435/engines/llama.cpp/v1/embeddings \
   -H "Content-Type: application/json" \
-  -d '{"model":"ai/qwen3-embedding","input":"test text"}' | jq '.data[0].embedding[:5]'
+  -d '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","input":"test text"}' | jq '.data[0].embedding[:5]'
 ```
 
 ### Pull a new model from Docker Hub

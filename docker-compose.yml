@@ -25,7 +25,7 @@ x-worker-env: &worker-env
   - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
   - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
+  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
   - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
@@ -678,7 +678,7 @@ services:
       - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
       - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
       - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-ai/qwen3-embedding}
+      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
       - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
@@ -1569,7 +1569,7 @@ services:
           configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-embedding","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
+          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
           configure '{"model":"ai/smollm3","context-size":2048,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok

@@ -90,7 +90,7 @@ EXPECTED_MODELS = {
     "tiny": os.environ.get("DMR_TINY_MODEL", "ai/smollm3"),
     "chatbot": os.environ.get("DMR_CHATBOT_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"),
     "vision": os.environ.get("DMR_VISION_MODEL", "ai/qwen3-vl"),
-    "embedding": os.environ.get("DMR_EMBEDDING_MODEL", "ai/qwen3-embedding"),
+    "embedding": os.environ.get("DMR_EMBEDDING_MODEL", "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"),
 }
 
 
@@ -315,7 +315,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "Text to embed"},
-                "model": {"type": "string", "description": "Embedding model", "default": "ai/qwen3-embedding"},
+                "model": {"type": "string", "description": "Embedding model", "default": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"},
             },
             "required": ["text"],
         },
@@ -664,7 +664,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
     elif name == "dmr_embed":
         text_input = args["text"]
-        model = args.get("model", "ai/qwen3-embedding")
+        model = args.get("model", "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF")
         result = _api_post("/engines/llama.cpp/v1/embeddings", {
             "model": model,
             "input": text_input,
