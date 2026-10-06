@@ -372,6 +372,8 @@ def _model_vram_mb(model: str) -> int:
         return 512  # 360M model
     if "smollm3" in m:
         return 2048  # 3.1B model ~1.9GB
+    if "0.6b" in m:
+        return 768  # Qwen3-Embedding-0.6B ~0.6GB Q8
     if "embedding" in m:
         return 4096  # ai/qwen3-embedding is an 8B (~4.7GB Q4_K_M), not a small embedder
     if "vl" in m or "vision" in m:
@@ -1111,10 +1113,13 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "keep_alive": "90s",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
-    # Embeddings — ~1.2GB. Calls arrive in bursts (similarity search,
-    # dedupe checks); unload quickly so it never lingers through the next
-    # media job or model switch.
-    "ai/qwen3-embedding": {
+    # Qwen3-Embedding-0.6B — same family + 1024 dims as the 8B it replaced,
+    # but ~0.7GB instead of ~4.7GB: the 8B was the single largest storm
+    # contributor on the 8GB card (docker/model-runner has no VRAM
+    # admission control — concurrent spawns OOM each other). Calls arrive
+    # in bursts (similarity search, dedupe checks); unload quickly so it
+    # never lingers through the next media job or model switch.
+    "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {
         "keep_alive": "60s",
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],

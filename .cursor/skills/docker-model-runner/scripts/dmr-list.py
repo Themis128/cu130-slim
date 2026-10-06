@@ -29,7 +29,7 @@ print("""
   Popular models:
     ai/qwen3:8b-q4_K_M       — General text (8B, quantized)
     ai/qwen3-vl              — Vision/multimodal (8B)
-    ai/qwen3-embedding       — Embeddings
+    hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF — Embeddings
     ai/smollm2               — Tiny/fast (360M)
     ai/llama3.2              — Meta Llama 3.2
     ai/qwen2.5-coder         — Code generation

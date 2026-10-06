@@ -641,7 +641,7 @@ to personal Messenger   (Chromium)           (every 2 min)
 | `DMR_URL` | sidecar, worker-messenger | DMR base URL (`http://host.docker.internal:12435/engines/llama.cpp/v1`) |
 | `DMR_TEXT_MODEL` | sidecar, worker-messenger | Primary text model (`ai/llama3.2`) |
 | `DMR_TINY_MODEL` | sidecar, worker-messenger | Intent detection model (`ai/smollm2`) |
-| `DMR_EMBEDDING_MODEL` | sidecar, worker-messenger | Embeddings for RAG (`ai/qwen3-embedding`) |
+| `DMR_EMBEDDING_MODEL` | sidecar, worker-messenger | Embeddings for RAG (`hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF`) |
 | `SOCIAL_ADMIN_EMAIL` | sidecar, worker-messenger | Admin auth to social-api |
 | `SOCIAL_ADMIN_PASSWORD` | sidecar, worker-messenger | Admin auth to social-api |
 

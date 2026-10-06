@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     DMR_BASE_URL: str = "http://host.docker.internal:12435"
     DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # long-form + schema/JSON (thinking model, ~5.2GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
-    DMR_EMBEDDING_MODEL: str = "ai/qwen3-embedding"
+    DMR_EMBEDDING_MODEL: str = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
     DMR_TINY_MODEL: str = "ai/smollm3"
     # Mid-tier non-thinking instruct (4B, ~2.7GB resident) — short-form platform
     # copy + chatbots. Pinned via keep-alive so the latency-critical paths stay warm.

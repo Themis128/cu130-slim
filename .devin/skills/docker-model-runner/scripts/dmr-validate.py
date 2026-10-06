@@ -11,7 +11,7 @@ EXPECTED = [
     "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
     "ai/smollm3",
     "ai/qwen3-vl",
-    "ai/qwen3-embedding",
+    "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF",
 ]
 raw = dmr_get("/engines/v1/models")
 if raw is None:

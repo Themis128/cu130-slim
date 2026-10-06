@@ -1,6 +1,6 @@
 """Thin async client for ChromaDB's HTTP API (v2).
 
-Embeddings use Docker Model Runner (Qwen3-Embedding-8B, local) as the primary
+Embeddings use Docker Model Runner (Qwen3-Embedding-0.6B, local) as the primary
 provider with Cloudflare Workers AI BGE-M3 as cloud failover.
 """
 import re
@@ -66,7 +66,7 @@ async def _cf_embedding(text: str) -> list[float]:
 
 
 async def _dmr_embedding(text: str) -> list[float]:
-    """Call Docker Model Runner (Qwen3-Embedding-8B, local) for embeddings. Returns [] on failure.
+    """Call Docker Model Runner (Qwen3-Embedding-0.6B, local) for embeddings. Returns [] on failure.
 
     Delegates to the shared DMR service (app.services.dmr.call_dmr_embedding)
     which provides connection pooling, health checks, and CLI fallback.

@@ -309,7 +309,7 @@ If login returns `{"detail":"Invalid credentials"}`:
 
 | Task | Engine | Model | Time |
 |------|--------|-------|------|
-| Text embedding | DMR | ai/qwen3-embedding | ~2s |
+| Text embedding | DMR | hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF | ~2s |
 | Similarity search | ChromaDB / CF Vectorize | — | <1s |
 
 ## Task → Model Assignment (Master Table)
@@ -370,7 +370,7 @@ If login returns `{"detail":"Invalid credentials"}`:
 **CLI (host):** `docker model status/list/run/pull`
 **Text model (compose default):** `ai/qwen3:8b-q4_K_M` (~5 GB VRAM); mid/chatbot `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`; legacy NLP helper `ai/llama3.2` still pulled
 **Vision model:** `ai/qwen3-vl` (8.19B, 4.79 GiB)
-**Embedding model:** `ai/qwen3-embedding`
+**Embedding model:** `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF`
 
 **Timeouts:** 180s for schema/JSON, 30s for plain text, 120s for embeddings.
 
@@ -400,7 +400,7 @@ All final infographic text rendered by PIL with verified fonts:
 | `ai/qwen2.5` | 7.62B | 4.36 GiB | Heavy JSON (slow on CPU) |
 | `ai/qwen3:8b` | 8B | 4.79 GiB | Reasoning + JSON (/no_think) |
 | `ai/qwen3-vl` | 8.19B | 4.79 GiB | **Vision (alt text, smart crop)** |
-| `ai/qwen3-embedding` | — | — | **Embeddings** |
+| `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | — | — | **Embeddings** |
 | `ai/gemma3` | 4B | 8.15 GiB | Reasoning (untested) |
 | `ai/phi4` | 14B | 9.05 GiB | Too large for CPU |
 | `ai/smollm2` | 362M | 256 MiB | Tiny tasks (poor quality) |

@@ -35,7 +35,7 @@ Two inference backends are active:
 │  │  llama.cpp 72874f559 ── Running                                │  │
 │  │  ├─ ai/qwen3:8b-q4_K_M   text+chatbot  ~5 GB VRAM              │  │
 │  │  ├─ ai/qwen3-vl          vision        ~5 GB VRAM              │  │
-│  │  ├─ ai/qwen3-embedding   embeddings    ~1 GB VRAM              │  │
+│  │  ├─ Qwen3-Embedding-0.6B embeddings    ~0.7 GB VRAM            │  │
 │  │  ├─ ai/smollm3           tiny/fast     ~1.9 GB                 │  │
 │  │  └─ ai/llama3.2          legacy        ~2 GB                   │  │
 │  │                                                                │  │
@@ -81,7 +81,7 @@ Two inference backends are active:
 flowchart TB
     subgraph Host["Host — WSL2 · RTX 3070 8GB"]
         subgraph Runner["docker-model-runner :12435"]
-            LC["llama.cpp<br/>qwen3:8b · qwen3-vl<br/>qwen3-embedding · smollm3 · llama3.2"]
+            LC["llama.cpp<br/>qwen3:8b · qwen3-vl<br/>qwen3-embed-0.6b · smollm3 · llama3.2"]
             VL["vLLM 0.27.1 (experimental)<br/>smollm2-vllm @ 0.25 gpu-mem"]
             DF["diffusers — Not Installed"]
         end
@@ -115,7 +115,7 @@ flowchart TB
 | `ai/qwen3:8b-q4_K_M` | llama.cpp | Long-form + schema (`DMR_TEXT_MODEL`) — LinkedIn/Facebook posts, carousel outlines, nested JSON | ~5.1 GB | `context-size 6144`, `keep-alive 5m`, thinking enabled |
 | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | llama.cpp | Mid-tier (`DMR_MID_MODEL` + `DMR_CHATBOT_MODEL`) — short-form copy (Instagram/TikTok/X/Threads/YouTube) + all chatbots. Non-thinking instruct → direct content, ~2× faster than the 8B | ~2.7 GB | `context-size 4096`, `keep-alive 5m` (was 30m — pinned a second runner against the one-model-VRAM policy) |
 | `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults (load on demand only) |
-| `ai/qwen3-embedding` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 4096 dims | ~1 GB | defaults |
+| `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 1024 dims | ~0.7 GB | defaults |
 | `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars, no platform hint | ~1.9 GB | `context-size 4096`, `keep-alive 5m`, `--reasoning-budget 0` |
 | `hf.co/Qwen/Qwen3-0.6B-GGUF` | llama.cpp | Speculative-draft candidate for qwen3:8b | ~0.6 GB | **Do not attach** — crashes llama.cpp (`vector::_M_range_check` on draft load, takes target offline) |
 | `ai/smollm2` | llama.cpp | Superseded by smollm3 | ~256 MB | kept pulled as rollback |
@@ -151,7 +151,7 @@ applied override (e.g. it prints 262144 for the 4B even though 4096 is applied).
 | `DMR_MID_MODEL` | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | short-form platform copy |
 | `DMR_CHATBOT_MODEL` | `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | Messenger/WhatsApp/Telegram bots (model_override) |
 | `DMR_VISION_MODEL` | `ai/qwen3-vl` | image_enhance, media_ai |
-| `DMR_EMBEDDING_MODEL` | `ai/qwen3-embedding` | chroma_client |
+| `DMR_EMBEDDING_MODEL` | `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | chroma_client |
 | `DMR_TINY_MODEL` | `ai/smollm3` | short-prompt routing in dmr.py |
 | `DMR_MAX_CONCURRENCY` | `1` | semaphore inside `app/services/dmr.py` — was 4; on a one-model card parallel requests are pure model-load races |
 

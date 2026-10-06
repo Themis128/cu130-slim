@@ -91,7 +91,7 @@ class TestConfigurePayload:
         assert body["context-size"] == 6144
 
     def test_embedding_mode_mapped(self):
-        body = dmr._configure_payload("ai/qwen3-embedding")
+        body = dmr._configure_payload("hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF")
         assert body["mode"] == "embedding"
 
     def test_unlisted_model_returns_none(self):
@@ -274,6 +274,7 @@ class TestQueuedLoadGate:
         assert dmr._model_vram_mb("ai/qwen3-vl") == 4096
         assert dmr._model_vram_mb("ai/qwen3:8b-q4_K_M") == 4096
         assert dmr._model_vram_mb("ai/qwen3-embedding") == 4096
+        assert dmr._model_vram_mb("hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF") == 768
         assert dmr._model_vram_mb("ai/llama3.2") == 2048
         assert dmr._model_vram_mb("ai/smollm2") == 512
 
