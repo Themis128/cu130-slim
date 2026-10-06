@@ -342,11 +342,13 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ops/billing-digest/preview` — GET
 - `/api/v1/ops/browser-orchestrator` — GET
 - `/api/v1/ops/browser-orchestrator/release` — POST
+- `/api/v1/ops/console` — GET
 - `/api/v1/ops/daily-digest` — POST
 - `/api/v1/ops/daily-digest/preview` — GET
 - `/api/v1/ops/paddle-digest` — POST
 - `/api/v1/ops/paddle-digest/preview` — GET
 - `/api/v1/ops/session-heal` — POST
+- `/api/v1/ops/tiktok-audit` — PUT
 
 ## `profile`
 
