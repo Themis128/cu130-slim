@@ -644,7 +644,9 @@ async def _process_publish_queue_async() -> None:
                     item.status = QueueStatus.COMPLETED
                     if target:
                         target.status = "skipped"
-                        target.error_message = pub.error
+                        target.error_message = (
+                            pub.error or "skipped by platform pre-flight (no detail recorded)"
+                        )
                 else:
                     if getattr(pub, "permanent", False):
                         # Deterministic failure (invalid media, tripped

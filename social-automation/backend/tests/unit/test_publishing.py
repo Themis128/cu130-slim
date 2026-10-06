@@ -1156,8 +1156,11 @@ def test_preflight_requires_media_on_instagram():
     assert result.skipped is True
 
 
-def test_preflight_allows_text_only_on_linkedin():
-    assert pub.validate_media_for_platform("linkedin", []) is None
+def test_preflight_rejects_text_only_on_linkedin():
+    # Owner rule 2026-10-05: never post without media — every platform.
+    result = pub.validate_media_for_platform("linkedin", [])
+    assert result is not None
+    assert result.skipped is True
 
 
 def test_preflight_rejects_corrupt_image(tmp_path):
@@ -1253,8 +1256,11 @@ def test_preflight_skips_partial_media_set(tmp_path):
     assert "1/2" in (result.error or "")
 
 
-def test_preflight_text_only_still_allowed_when_no_media_referenced():
-    assert pub.validate_media_for_platform("facebook", [], expected=0) is None
+def test_preflight_text_only_rejected_when_no_media_referenced():
+    # Owner rule 2026-10-05: never post without media — every platform.
+    result = pub.validate_media_for_platform("facebook", [], expected=0)
+    assert result is not None
+    assert result.skipped is True
 
 
 @pytest.mark.asyncio
