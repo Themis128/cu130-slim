@@ -120,9 +120,60 @@ async def _post_cloudless_leads_webhook(payload: dict[str, Any]) -> None:
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(webhook_url, json=payload, headers=headers)
+            resp = await client.post(webhook_url, json=payload, headers=headers)
     except Exception:
         logger.debug("Cloudless leads webhook POST failed (non-fatal) url=%s", webhook_url, exc_info=True)
+        return
+
+    # Persist the returned EspoCRM lead id — datalake exports count a lead as
+    # synced only when meta_data.espocrm_lead_id is set, and ignoring the
+    # response left the flag false forever even when the sync succeeded.
+    espo_id = _espo_lead_id_from_response(resp)
+    lead_id = (payload.get("lead") or {}).get("id")
+    if espo_id and lead_id:
+        await _record_espo_lead_id(str(lead_id), espo_id)
+
+
+def _espo_lead_id_from_response(resp: httpx.Response) -> str | None:
+    """Pull the created EspoCRM lead id out of the webhook result array."""
+    if resp.status_code >= 400:
+        logger.debug(
+            "Cloudless leads webhook rejected (%s): %s", resp.status_code, resp.text[:200]
+        )
+        return None
+    try:
+        results = (resp.json() or {}).get("results") or []
+    except ValueError:
+        return None
+    for r in results:
+        if isinstance(r, dict) and r.get("ok") and r.get("espocrm_lead_id"):
+            return str(r["espocrm_lead_id"])
+    return None
+
+
+async def _record_espo_lead_id(lead_id: str, espo_id: str) -> None:
+    """Write the EspoCRM lead id onto the local Lead row (best-effort)."""
+    try:
+        lid = uuid.UUID(lead_id)
+    except (ValueError, TypeError, AttributeError):
+        return
+    try:
+        from app.db.session import async_session_maker
+
+        async with async_session_maker() as db:
+            lead = (
+                await db.execute(select(Lead).where(Lead.id == lid))
+            ).scalar_one_or_none()
+            if lead is None:
+                return
+            md = dict(lead.meta_data or {})
+            if md.get("espocrm_lead_id") == espo_id:
+                return
+            md["espocrm_lead_id"] = espo_id
+            lead.meta_data = md
+            await db.commit()
+    except Exception:
+        logger.debug("espocrm_lead_id write-back failed (non-fatal)", exc_info=True)
 
 
 async def upsert_lead(

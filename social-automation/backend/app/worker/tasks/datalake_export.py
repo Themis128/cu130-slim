@@ -217,11 +217,26 @@ async def _export_account_events(db: AsyncSession) -> list[dict]:
     ]
 
 
+# CI functional tests write fixture leads into the live table (they hit the
+# real endpoint). Reserved example.* domains can never be a deliverable lead,
+# so exclude them from the lake rather than let digests report test rows as
+# unsynced leads.
+_FIXTURE_EMAIL_SUFFIXES = (
+    "%@example.invalid",
+    "%@example.com",
+    "%@example.org",
+    "%@example.net",
+)
+
+
 async def _export_leads(db: AsyncSession) -> list[dict]:
     rows = (
         await db.execute(
             select(Lead, SocialAccount.platform)
             .outerjoin(SocialAccount, SocialAccount.id == Lead.social_account_id)
+            .where(
+                *[Lead.email.not_ilike(s) for s in _FIXTURE_EMAIL_SUFFIXES]
+            )
             .order_by(Lead.created_at.desc())
         )
     ).all()
