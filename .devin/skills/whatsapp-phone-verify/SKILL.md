@@ -100,6 +100,22 @@ When rate-limited, the API returns:
 The 72-hour window is a **moving window** from the first request. You must
 wait until the oldest request in the window falls outside the 72h period.
 
+### Scheduled-task cooldown state (meta_data keys)
+
+`check_whatsapp_verification` (30-min beat) persists quota state per account:
+
+| Key | Meaning |
+|-----|---------|
+| `whatsapp_code_request_log` | `{phone_id: [iso_ts…]}` — every `request_code` attempt, pruned to 72h. ≥9 entries → skip (headroom under Meta's 10). |
+| `whatsapp_code_status` | `sent` / `rate_limited` |
+| `whatsapp_code_sent_at` + `whatsapp_code_sent_phone_id` | last successful send — no auto-resend for 24h (the beat polls status only) |
+| `whatsapp_rate_limited_at` + `whatsapp_rate_limited_phone_id` | last 136024 — gates for 72h, scoped to that phone |
+| `whatsapp_code_error` | last `error_user_msg` |
+
+Cooldown keys are cleared automatically when `update_whatsapp_credentials`
+changes `phone_number_id` (quotas are per-number). The status GET keeps
+running every 30 min regardless — only `request_code` is gated.
+
 ## Scripts
 
 ### Quick reference
