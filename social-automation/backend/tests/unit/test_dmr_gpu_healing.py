@@ -82,7 +82,7 @@ class TestConfigurePayload:
         body = dmr._configure_payload("hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
         assert body["model"].endswith("Q4_K_M")
         assert body["context-size"] == 4096
-        assert body["keep_alive"] == "30m"
+        assert body["keep_alive"] == "5m"
         assert "--n-gpu-layers" in body["runtime-flags"]
 
     def test_think_maps_to_llamacpp_reasoning_budget(self):

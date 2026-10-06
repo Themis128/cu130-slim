@@ -1,6 +1,6 @@
 {
   "id": "instagram-carousel-post",
-  "name": "Instagram Carousel Post (DMR\u2192CF)",
+  "name": "Instagram Carousel Post (DMR→CF)",
   "active": true,
   "nodes": [
     {
@@ -118,11 +118,11 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Config').item.json.num_slides }},\n  \"platform\": \"instagram\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }}\n}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "id": "gen-carousel",
-      "name": "Generate Carousel (DMR\u2192CF)",
+      "name": "Generate Carousel (DMR→CF)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -146,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR\u2192CF)').item.json.media_ids || []) }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.media_ids || []) }}\n}",
         "options": {
           "timeout": 60000
         }
@@ -280,6 +280,68 @@
         480,
         140
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Carousel (DMR→CF)').item.json.suggested_caption) && !!($('Generate Carousel (DMR→CF)').item.json.media_ids[0]) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "45beda81-bd9e-47f9-80dd-a7621fb5f2e8"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "bd33e2d8-e2ec-40a2-97ff-2661630e8113"
     }
   ],
   "connections": {
@@ -320,7 +382,7 @@
       "main": [
         [
           {
-            "node": "Generate Carousel (DMR\u2192CF)",
+            "node": "Generate Carousel (DMR→CF)",
             "type": "main",
             "index": 0
           }
@@ -334,11 +396,11 @@
         ]
       ]
     },
-    "Generate Carousel (DMR\u2192CF)": {
+    "Generate Carousel (DMR→CF)": {
       "main": [
         [
           {
-            "node": "Create Post",
+            "node": "Content Guard",
             "type": "main",
             "index": 0
           }
@@ -395,12 +457,30 @@
           }
         ]
       ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 600,
+    "executionTimeout": 1500,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"

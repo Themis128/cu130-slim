@@ -167,7 +167,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  \"prompt\": $('Resolve Config').item.json.topic,\n  \"platform\": \"tiktok\",\n  \"tone\": $('Resolve Config').item.json.tone,\n  \"length\": \"short\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "name": "Generate Caption (DMR)",
@@ -199,7 +199,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  \"prompt\": \"Write ONE single-sentence cinematic video scene prompt (max 40 words) for an AI text-to-video model, as a vertical background clip for a TikTok about: \" + $('Resolve Config').item.json.topic + \". Describe only visuals: subject, motion, lighting, mood. No text, no logos, no people facing camera.\",\n  \"platform\": \"tiktok\",\n  \"tone\": \"descriptive\",\n  \"length\": \"short\",\n  \"include_hashtags\": false,\n  \"include_emojis\": false\n}) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "name": "Generate Video Prompt (DMR)",
@@ -532,6 +532,68 @@
         80
       ],
       "id": "video-failed-1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Caption (DMR)').item.json.content) && !!($('Poll Video Task').item.json.asset_id) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "c47ed77a-f175-44f9-9e0f-f5e6a7885a8b"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "b2142952-23ba-4601-b80b-3bde25d83e08"
     }
   ],
   "connections": {
@@ -707,7 +769,7 @@
       "main": [
         [
           {
-            "node": "Create Post",
+            "node": "Content Guard",
             "type": "main",
             "index": 0
           }
@@ -738,10 +800,29 @@
           }
         ]
       ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "executionTimeout": 1500
   },
   "staticData": null,
   "pinData": {},

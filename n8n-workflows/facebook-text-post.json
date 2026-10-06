@@ -118,7 +118,7 @@
         "specifyBody": "json",
         "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.topic) }},\n  \"platform\": \"facebook\",\n  \"tone\": {{ JSON.stringify($('Resolve Config').item.json.tone) }},\n  \"length\": \"medium\",\n  \"include_hashtags\": true,\n  \"include_emojis\": true\n}",
         "options": {
-          "timeout": 120000
+          "timeout": 600000
         }
       },
       "id": "generate-content",
@@ -146,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }}\n}",
+        "jsonBody": "={\n  \"media_ids\": {{ JSON.stringify([$('Generate Image (CF FLUX)').item.json.asset_id]) }},\n  \"content_text\": {{ JSON.stringify($('Generate Content (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Content (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }}\n}",
         "options": {
           "timeout": 60000
         }
@@ -289,6 +289,98 @@
         480,
         140
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Config').item.json.topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "name": "Generate Image (CF FLUX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        320
+      ],
+      "id": "d6f3ef1d-a839-41e5-83bc-45c1466bb8b1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Content (DMR)').item.json.content) && !!($('Generate Image (CF FLUX)').item.json.asset_id) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "f771200e-531c-4e9a-85cd-db4e71468879"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "66f01425-f67e-495f-9595-d319a63dd0c4"
     }
   ],
   "connections": {
@@ -347,7 +439,7 @@
       "main": [
         [
           {
-            "node": "Create Post",
+            "node": "Generate Image (CF FLUX)",
             "type": "main",
             "index": 0
           }
@@ -404,12 +496,41 @@
           }
         ]
       ]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [
+        [
+          {
+            "node": "Content Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Create Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 300,
+    "executionTimeout": 1500,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all"
