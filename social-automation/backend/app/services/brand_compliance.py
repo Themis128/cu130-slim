@@ -159,6 +159,49 @@ Return ONLY the JSON object."""
         return {"score": 3, "issues": [], "suggestions": []}
 
 
+async def load_brand_context(db, team_id) -> tuple[dict | None, dict | None, str]:
+    """Load the team's Brand + BrandVoice and build the brand system prompt.
+
+    Single canonical loader used by every content-generation endpoint so all
+    AI copy is generated against the same Cloudless brand configuration.
+
+    Returns ``(brand_dict, voice_dict, prompt)``; ``prompt`` is "" when the
+    team has no brand configured.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.brand import Brand
+
+    if not team_id:
+        return None, None, ""
+    result = await db.execute(
+        select(Brand).options(selectinload(Brand.voice)).where(Brand.team_id == team_id)
+    )
+    brand = result.scalars().first()
+    if not brand:
+        return None, None, ""
+    brand_dict = {
+        "name": brand.name,
+        "positioning_statement": brand.positioning_statement,
+        "mission": brand.mission,
+        "values": brand.values or [],
+        "tagline": brand.tagline,
+        "target_audience": brand.target_audience or {},
+    }
+    voice_dict = None
+    if brand.voice:
+        voice_dict = {
+            "tone_dimensions": brand.voice.tone_dimensions or {},
+            "messaging_pillars": brand.voice.messaging_pillars or [],
+            "banned_phrases": brand.voice.banned_phrases or [],
+            "preferred_phrases": brand.voice.preferred_phrases or [],
+            "example_content": brand.voice.example_content,
+            "voice_signature": brand.voice.voice_signature or {},
+        }
+    return brand_dict, voice_dict, build_brand_system_prompt(brand_dict, voice_dict)
+
+
 def build_brand_system_prompt(brand: dict, voice: dict | None = None, visual: dict | None = None) -> str:
     """Build a system prompt that enforces brand identity for AI content generation.
 
