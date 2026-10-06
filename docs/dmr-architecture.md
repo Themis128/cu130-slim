@@ -113,7 +113,7 @@ flowchart TB
 | Model | Backend | Role | VRAM | Runtime config |
 |-------|---------|------|------|----------------|
 | `ai/qwen3:8b-q4_K_M` | llama.cpp | Long-form + schema (`DMR_TEXT_MODEL`) — LinkedIn/Facebook posts, carousel outlines, nested JSON | ~5.1 GB | `context-size 6144`, `keep-alive 5m`, thinking enabled |
-| `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | llama.cpp | Mid-tier (`DMR_MID_MODEL` + `DMR_CHATBOT_MODEL`) — short-form copy (Instagram/TikTok/X/Threads/YouTube) + all chatbots. Non-thinking instruct → direct content, ~2× faster than the 8B | ~2.7 GB | `context-size 4096`, `keep-alive 30m` (pinned warm — chatbots are latency-critical) |
+| `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | llama.cpp | Mid-tier (`DMR_MID_MODEL` + `DMR_CHATBOT_MODEL`) — short-form copy (Instagram/TikTok/X/Threads/YouTube) + all chatbots. Non-thinking instruct → direct content, ~2× faster than the 8B | ~2.7 GB | `context-size 4096`, `keep-alive 5m` (was 30m — pinned a second runner against the one-model-VRAM policy) |
 | `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults (load on demand only) |
 | `ai/qwen3-embedding` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 4096 dims | ~1 GB | defaults |
 | `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars, no platform hint | ~1.9 GB | `context-size 4096`, `keep-alive 5m`, `--reasoning-budget 0` |
@@ -134,7 +134,7 @@ flowchart TB
 | Anthropic API | `/anthropic/v1/messages` |
 | Ollama API | `/api/chat`, `/api/tags`, `/api/ps` |
 | Native list | `/models` |
-| Native mgmt | `/inference/status`, `/inference/ps`, `/inference/unload`, `/inference/_configure` — **404 on the current runner build** (`docker/model-runner:latest-vllm-cuda` since Desktop 4.91; verified 2026-09-26). Use the Ollama API instead: `/api/ps` lists loaded models (tracks engine-path loads too), and `/api/chat` with `keep_alive: 0` evicts a model right after serving. |
+| Native mgmt | `POST /engines/unload` — evicts every loaded runner, returns `{"unloaded_runners":N}` (verified 2026-10-05). `/engines/_configure` applies per-model runtime config. `/inference/*` endpoints are **404** on the current runner build. `/api/ps` lists resident *and queued* models (entries with `expires_at=0001-01-01` are scheduler-queue entries, not necessarily running servers — count actual `llama-server` processes to confirm). **Never** evict via `/api/chat keep_alive:0` — it queues a fresh load of the model to serve the unload, which wedged the scheduler on 2026-10-05. |
 
 `docker model configure show <model>` is the source of truth for applied runtime
 configs. `docker model ls`'s CONTEXT column shows the GGUF/bundle default, not the
@@ -153,7 +153,7 @@ applied override (e.g. it prints 262144 for the 4B even though 4096 is applied).
 | `DMR_VISION_MODEL` | `ai/qwen3-vl` | image_enhance, media_ai |
 | `DMR_EMBEDDING_MODEL` | `ai/qwen3-embedding` | chroma_client |
 | `DMR_TINY_MODEL` | `ai/smollm3` | short-prompt routing in dmr.py |
-| `DMR_MAX_CONCURRENCY` | `4` | semaphore inside `app/services/dmr.py` |
+| `DMR_MAX_CONCURRENCY` | `1` | semaphore inside `app/services/dmr.py` — was 4; on a one-model card parallel requests are pure model-load races |
 
 `app/services/dmr.py` is the single client for all DMR traffic: shared httpx
 pool (loop-aware for Celery prefork), health-check cache, cold-start retry,
@@ -165,12 +165,39 @@ Important client-side caveats (verified 2026-09-26):
 - **VRAM guards are dormant in containers.** `_get_vram_info()` shells out to
   `nvidia-smi`, which does not exist inside the compose containers, so
   `_has_vram_for_model()` always allows and `_unload_idle_models()`'s native
-  endpoint 404s. `_unload_idle_models()` now falls back to `/api/ps` +
-  per-model Ollama `keep_alive: 0` (tested working). `warmup_models()` no
-  longer calls `configure_keep_alive` (the 404 endpoint would silently no-op,
-  and a hardcoded 5m would fight the 4B's 30m pin).
+  endpoint was 404. `_unload_idle_models()` now calls the native
+  `POST /engines/unload` (verified 2026-10-05 — the earlier `/api/chat`
+  `keep_alive: 0` fallback queued a model load to serve each unload and
+  wedged the scheduler). `warmup_models()` no
+  longer calls `configure_keep_alive` (the 404 endpoint would silently no-op).
 - **Real VRAM protection** comes from the watchdog's context/keep-alive
   configs plus DMR's own idle eviction — keep those canonical.
+
+### Cluster-wide serialization (`dmr_slot`)
+
+The runner has no admission control — concurrent requests to different
+models each spawn a `llama-server`, and on an 8 GB card the loads race,
+head-of-line-block the scheduler (`/api/ps` itself hangs), and wedge the
+runner. `app/services/gpu_arbiter.py::dmr_slot()` is a **Redis NX+TTL
+single-flight lock** (`gpu:dmr_lock`) giving every DMR request cluster-wide
+FIFO admission — API and all four worker processes queue on the same key.
+
+- Held for the **entire retry cycle** (heal + retry is atomic — a competitor
+  can't slip a different model in mid-heal) and inside the streaming
+  generator for `stream=True` calls.
+- Bounded: `DMR_LOCK_ACQUIRE` wait, 660 s TTL — crashes degrade to
+  unserialized execution rather than deadlock; Redis down → no-op.
+- `media_gpu_lock()` holds `dmr_slot(_for_media=True)` for the render's
+  duration: in-flight DMR calls drain first, callers that passed the
+  media-busy check queue behind the render, then resident models are
+  evicted via `POST /engines/unload`.
+- Verified live 2026-10-05: a held `gpu:dmr_lock` blocks cross-container
+  requests; leaked keys self-clean via TTL.
+
+FIFO was chosen over LIFO: n8n pipelines chain stages (embed → generate →
+rewrite → score), so last-in-first-out would starve early stages. Residual
+cost remains — sequential requests to *different* models still pay a swap
+each (~30–120 s) on a one-model card.
 
 ### Platform-aware routing
 
@@ -199,7 +226,7 @@ does not merge. Always pass every flag in one call:
 
 ```bash
 docker model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
-docker model configure --context-size 4096 --keep-alive 30m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+docker model configure --context-size 4096 --keep-alive 5m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
 docker model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0
 docker model configure show <model>   # verify
 ```
@@ -211,7 +238,7 @@ Applied configs (verify with `configure show`):
   ~5 GB between content-gen bursts. ctx 6144 still covers the largest
   carousel/schema prompts (~2-3k in, ~1.5k out) and frees KV headroom.
 - `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` → `context-size 4096`,
-  `keep-alive 30m`. Pinned warm for chatbots + short-form copy — the
+  `keep-alive 5m`. Was 30m until 2026-10-05 — the permanent pin held a second
   latency-critical paths. **ctx must be set explicitly**: the GGUF advertises
   262144 ctx, and llama.cpp would try to allocate a 36 GB KV cache → OOM.
   Instruct-2507 is a non-thinking model — direct `content`, no reasoning

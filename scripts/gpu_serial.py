@@ -6,10 +6,11 @@ Policy (owner directive, 2026-10-04): only ONE model may be resident on the
 resident DMR models → run ONE job (generation OR QA, never both) → release.
 
 DMR control went HTTP-only (2026-10-05): the `docker model` CLI plugin
-I/O-errors inside containers, so unload/list now go through
-`/api/ps` + `/api/chat keep_alive:0` / `/inference/unload` — the same
-paths app/services/dmr.py uses. Server-side, `app/services/gpu_arbiter.py`
-implements the same arbitration for celery media tasks.
+I/O-errors inside containers, so list/unload go through `/api/ps` +
+native `POST /engines/unload` — the same paths app/services/dmr.py uses.
+Server-side, `app/services/gpu_arbiter.py` implements the same arbitration
+for celery media tasks plus a Redis FIFO gate (`dmr_slot`, `gpu:dmr_lock`)
+serializing every DMR request cluster-wide.
 
 Established architectures implementing this pattern (survey 2026-10-04):
   - llama-swap (github.com/mostlygeek/llama-swap): transparent hot-swap proxy
@@ -71,30 +72,28 @@ def resident_dmr_models() -> list[str]:
 def unload_dmr() -> list[str]:
     """Unload every resident DMR model; returns the names unloaded.
 
-    Tries POST /inference/unload {"all": true} first (native runner API);
-    falls back to the Ollama-compatible /api/chat with keep_alive=0 per
-    model, which evicts right after serving.
+    Uses the native `POST /engines/unload` (verified 2026-10-05, returns
+    {"unloaded_runners": N}). The old `/api/chat keep_alive:0` fallback was
+    removed — it queued a fresh model load to serve each unload and wedged
+    the scheduler under contention.
     """
     loaded = resident_dmr_models()
     if not loaded:
         return []
-    if _http("/inference/unload", {"all": True}) is not None:
-        return loaded
-    unloaded = []
-    for name in loaded:
-        res = _http(
-            "/api/chat",
-            {
-                "model": name,
-                "messages": [{"role": "user", "content": "."}],
-                "options": {"num_predict": 1},
-                "keep_alive": 0,
-            },
-            timeout=30.0,
+    res = _http("/engines/unload", {}, timeout=30.0)
+    if res is None:
+        return []
+    # Verify the post-unload resident state — /api/ps can list queued
+    # scheduler entries, and an HTTP 200 alone does not prove any resident
+    # runner was actually evicted (e.g. {"unloaded_runners": 0}).
+    remaining = set(resident_dmr_models())
+    evicted = [m for m in loaded if m not in remaining]
+    if remaining:
+        print(
+            f"gpu_serial: unload incomplete — still resident: {sorted(remaining)}",
+            file=sys.stderr,
         )
-        if res is not None:
-            unloaded.append(name)
-    return unloaded
+    return evicted
 
 
 def hold_and_run(cmd: list[str]) -> int:

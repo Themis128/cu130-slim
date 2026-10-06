@@ -18,7 +18,7 @@ cu130. All persistent data lives on the 1 TB USB SSD
 | `nextcloud-notify-push` | Client Push daemon (instant Talk/file notifications) | `7867` |
 | `nextcloud-appapi-harp` | AppAPI deploy daemon (HaRP, replaces deprecated DSP) | internal `8780/8782` |
 
-## Public endpoints (via `social-cloudflared` tunnel on cu130)
+## Public endpoints (via dedicated `omv-cloudless` tunnel on omv)
 
 - `https://cloud.cloudless.gr` → `http://192.168.1.200:11000` (Nextcloud)
 - `https://office.cloudless.gr` → `http://192.168.1.200:9980` (Collabora)
@@ -28,9 +28,18 @@ cu130. All persistent data lives on the 1 TB USB SSD
 `NEXTCLOUD_URL=http://nextcloud` on notify-push bypasses the tunnel for its
 callback — required so the self-test sees the push server as a trusted proxy.
 
-Tunnel ingress is configured on the Cloudflare side (tunnel
-`2efdd26e-8379-4b7b-ba7f-f4e6c19e0db3`); DNS CNAMEs for both hostnames point at
-the tunnel and are proxied.
+Tunnel ingress is remotely managed on the Cloudflare side (tunnel
+`a474360d-b7a5-4677-9c33-788adaf1f2ed`, name `omv-cloudless`); the four DNS
+CNAMEs point at it. The `cloudflared-omv` container runs it locally —
+compose + token live in `~/cloudflared/` on omv (repo mirror:
+[`cloudflared/docker-compose.yml`](cloudflared/docker-compose.yml)).
+
+**Do not join a second replica to this tunnel** unless it can resolve every
+ingress origin — remote-managed tunnels share one config across all
+replicas. The same rule applies in reverse: omv hostnames were split off
+the `social-cloudless` tunnel (2026-10-05) because an omv replica of it
+served `social.cloudless.gr/api` with 502s (`social-api` doesn't resolve
+there).
 
 ## Deploy / update on omv
 
