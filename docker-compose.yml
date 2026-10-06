@@ -845,6 +845,11 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-social-api}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://192.168.1.200:4318}
+      # FastAPI 0.142 built-in telemetry exports ALL signals when the endpoint
+      # is set; Tempo on omv only ingests traces (/v1/metrics 404s — spammed
+      # "Failed to export metrics batch" every export interval).
+      - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-none}
+      - OTEL_LOGS_EXPORTER=${OTEL_LOGS_EXPORTER:-none}
     volumes:
       - ./.env:/app/.env:ro
       - ./social-automation/backend/app:/app/app
