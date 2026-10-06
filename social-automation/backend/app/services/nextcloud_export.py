@@ -99,9 +99,19 @@ async def create_public_share(remote_path: str, password: str | None = None) -> 
     """Create a Nextcloud public link share for a file/folder.
 
     Uses the OCS Share API (files_sharing app). Returns the public URL.
+
+    ``remote_path`` follows the same convention as :func:`upload_bytes`
+    (relative to ``NEXTCLOUD_EXPORT_ROOT``); a root-included path is
+    accepted as-is. The OCS API wants a user-root-absolute path, so the
+    export root is prepended when missing — sharing the raw relative path
+    would silently target the wrong file.
     """
     root = settings.NEXTCLOUD_EXPORT_ROOT.strip("/")
-    path = remote_path if remote_path.startswith(f"/{root}") else f"/{remote_path}"
+    stripped = remote_path.strip("/")
+    if stripped == root or stripped.startswith(f"{root}/"):
+        path = f"/{stripped}"
+    else:
+        path = f"/{root}/{stripped}"
     ocs_url = settings.NEXTCLOUD_DAV_URL.split("/remote.php/dav")[0].rstrip("/")
     ocs_url = f"{ocs_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
     payload: dict[str, str | int] = {
