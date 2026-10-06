@@ -866,6 +866,14 @@ async def _warm_models_locked() -> None:
     else:
         budget_mb = vram.get("free", 0) - _est(primary)
 
+    # llama3.2 (carousel/NLP copy, ~2.2GB) co-resides with the pinned mid
+    # model by design — it's also the most damaging cold-load since real
+    # traffic hits it only during pipelines. Warm it ahead of the 8B.
+    carousel = next((m for m in _KEEP_WARM_EXTRA if m not in models_to_warm), None)
+    if carousel and budget_mb >= _est(carousel):
+        models_to_warm.append(carousel)
+        budget_mb -= _est(carousel)
+
     # 8B text model only when the shared GPU has room after the mid model —
     # DMR doesn't auto-unload (docker/model-runner#1014), so warming both
     # while ComfyUI holds VRAM just queues doomed loads.
@@ -900,6 +908,86 @@ async def _warm_models_locked() -> None:
             logger.info("DMR warmup: %s loaded", model)
         except Exception as exc:
             logger.debug("DMR warmup failed for %s (%s)", model, type(exc).__name__)
+
+
+# ── Keep-warm tier (periodic refresh) ──────────────────────────────────────────
+#
+# Startup warmup only loads models once — afterwards keep_alive expiry evicts
+# them. The beat task `keep_warm_dmr_models` pings these models every ~90s so
+# their keep_alive timers never lapse between real calls.
+#
+# Only latency-sensitive models that co-reside on the 8GB card belong here:
+# the pinned mid 4B (~2.7GB, chatbots) + llama3.2 (~2.2GB, carousel/NLP copy)
+# = ~5GB resident, leaving ~2.5GB headroom for burst models (embedding,
+# smollm3) to co-load without eviction. The 8B and vision models stay cold by
+# design — warming them would evict this set and recreate the load storms.
+# The ping interval must stay below the shortest warm-tier keep_alive
+# (llama3.2 = 2m).
+_KEEP_WARM_EXTRA = ("ai/llama3.2",)
+
+
+def _keep_warm_models() -> list[str]:
+    return [m for m in (getattr(settings, "DMR_MID_MODEL", ""), *_KEEP_WARM_EXTRA) if m]
+
+
+async def _running_dmr_models() -> set[str]:
+    """Normalized refs of models currently loaded in the runner (/api/ps)."""
+    try:
+        client = await _get_client()
+        resp = await client.get(f"{_dmr_base_url()}/api/ps", timeout=5.0)
+        if resp.status_code != 200:
+            return set()
+        return {
+            str(m.get("name", "")).lower().replace("hf.co/", "huggingface.co/")
+            for m in resp.json().get("models") or []
+        }
+    except Exception:
+        return set()
+
+
+def _is_resident(model: str, running: set[str]) -> bool:
+    norm = model.lower().replace("hf.co/", "huggingface.co/")
+    return any(norm in r for r in running)
+
+
+async def keep_warm_models() -> dict[str, Any]:
+    """Ping the warm-tier models to refresh their keep_alive timers.
+
+    Skips entirely while a media job owns the GPU — DMR models are evicted
+    for media work anyway, and pinging a cold model there just queues a
+    doomed load. Models that aren't currently resident are also skipped
+    when VRAM is too tight to (re)load them.
+    """
+    if not await _check_dmr_health():
+        return {"warmed": [], "skipped": [], "reason": "dmr_offline"}
+
+    from app.services.gpu_arbiter import media_gpu_busy
+
+    if await media_gpu_busy():
+        return {"warmed": [], "skipped": [], "reason": "media_job"}
+
+    running = await _running_dmr_models()
+    warmed: list[str] = []
+    skipped: list[str] = []
+    for model in _keep_warm_models():
+        if not _is_resident(model, running) and not await _has_vram_for_model(model):
+            skipped.append(model)
+            continue
+        try:
+            await _call_dmr_chat_internal(
+                "ping",
+                model_override=model,
+                max_tokens=1,
+                timeout=60.0,
+                _skip_health_check=True,
+            )
+            warmed.append(model)
+        except Exception as exc:
+            logger.debug("DMR keep-warm failed for %s (%s)", model, type(exc).__name__)
+            skipped.append(model)
+    if warmed:
+        logger.debug("DMR keep-warm: refreshed %s", ", ".join(warmed))
+    return {"warmed": warmed, "skipped": skipped}
 
 
 # ── Best-practice configuration (applied on startup) ────────────────────────────

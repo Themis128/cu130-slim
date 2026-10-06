@@ -327,6 +327,14 @@ celery_app.conf.update(
             "task": "app.worker.tasks.session_healer.heal_sessions",
             "schedule": crontab(minute=20),
         },
+        # Keep-warm ping every 90s — refreshes keep_alive on the warm-tier
+        # DMR models (mid 4B + llama3.2) so pipeline and chatbot calls never
+        # cold-load. Interval stays below llama3.2's 2m keep_alive; the task
+        # skips itself while a media job owns the GPU.
+        "keep-warm-dmr-models": {
+            "task": "app.worker.tasks.dmr_health.keep_warm_dmr_models",
+            "schedule": 90.0,
+        },
         # Daily LinkedIn Page invite-to-follow batch (10:30 Europe/Athens).
         # Monthly invite credits expire unused at refill — NLP-scored top-N
         # selection via browser bridge; idles automatically when credits hit 0.

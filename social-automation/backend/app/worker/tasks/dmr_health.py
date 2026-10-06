@@ -77,3 +77,20 @@ async def _check() -> dict:
 def check_dmr_health() -> dict:
     """Probe DMR health + model store; publish to Redis `dmr:status`."""
     return _run_async(_check())
+
+
+async def _keep_warm() -> dict:
+    from app.services import dmr
+
+    return await dmr.keep_warm_models()
+
+
+@celery_app.task(name="app.worker.tasks.dmr_health.keep_warm_dmr_models")
+def keep_warm_dmr_models() -> dict:
+    """Refresh keep_alive on the warm-tier models (mid 4B + llama3.2).
+
+    Runs every 90s via celery-beat — below llama3.2's 2m keep_alive — so
+    pipeline/chatbot calls never pay a cold-load. Skips while a media job
+    owns the GPU.
+    """
+    return _run_async(_keep_warm())

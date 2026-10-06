@@ -195,9 +195,11 @@ class TestWarmupUnknownVram:
 
     @pytest.mark.asyncio
     async def test_ample_vram_still_warms_text_model(self, monkeypatch, fake_redis):
-        warmed = _patch_warmup(monkeypatch, {"used": 0, "free": 10000, "total": 12288})
+        warmed = _patch_warmup(monkeypatch, {"used": 0, "free": 13000, "total": 16384})
         await dmr.warmup_models()
-        assert warmed[:2] == [MID, TEXT]
+        # llama3.2 warms ahead of the 8B — it co-resides with the pinned mid
+        # and is the most damaging cold-load (pipeline/NLP traffic is sparse).
+        assert warmed[:3] == [MID, "ai/llama3.2", TEXT]
 
 
 # ── #314: persisted admin overrides ──────────────────────────────────────────
