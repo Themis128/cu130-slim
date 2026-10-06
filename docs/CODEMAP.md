@@ -9,9 +9,15 @@ SocialAuto: multi-platform social media automation — compose/publish posts, un
 ## Request path
 
 ```
-browser → social.cloudless.gr → Cloudflare Tunnel (social-cloudflared)
+browser → social.cloudless.gr → Cloudflare Tunnel `social-cloudless` (social-cloudflared, WSL)
         → social-frontend:8083 (Next.js UI; host port 8082→8083)
         → /api/* → social-api:8000 (FastAPI, host port 8083→8000)
+
+omv hostnames (cloud/office/signal/push.cloudless.gr) ride a SEPARATE tunnel
+`omv-cloudless` whose cloudflared runs on omv — remote-managed tunnels share
+one ingress across all replicas, so a replica that can't resolve an origin
+502s its traffic (broke /api 2026-10-05). Never add a replica to either
+tunnel that can't resolve every origin in that tunnel's ingress.
 ```
 
 Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails only). Public Access bypass apps exist for paths that third parties must reach unauthenticated:
@@ -40,7 +46,7 @@ Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypa
 | redis | 6379 | Celery broker + cache failover |
 | celery-beat | — | scheduler (single instance) |
 | social-worker-{publishing,media,default,messenger} | — | 4 queue-dedicated Celery workers, same image/env |
-| cloudflared | — | named tunnel → social.cloudless.gr |
+| cloudflared | — | named tunnel `social-cloudless` → social.cloudless.gr (social.* only since the 2026-10-05 tunnel split) |
 | browser-novnc | 9223 (bridge), 6080 (noVNC), 5900 (VNC) | shared Chromium for DM/profile ops |
 | tiktok-browser-sidecar | 9224 | TikTok browser session |
 | linkedin-browser-sidecar | 9225 | LinkedIn browser session |

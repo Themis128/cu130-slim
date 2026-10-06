@@ -76,6 +76,17 @@ python3 scripts/gpu_serial.py unload   # evict all (HTTP, not docker CLI)
 # The dmr-watchdog restarts docker-model-runner after 3 failed deep probes.
 # Manual: docker restart docker-model-runner
 
+# All DMR requests take dmr_slot() (Redis FIFO lock gpu:dmr_lock) — serializes
+# DMR cluster-wide; concurrent loads of different models wedge the scheduler.
+# Eviction uses native POST /engines/unload — never /api/chat keep_alive:0
+# (that queues a load to serve the unload).
+
+# Cloudflare tunnel: social-cloudless serves social.cloudless.gr ONLY;
+# omv hostnames run on the separate omv-cloudless tunnel on omv.
+# Never join a replica to a tunnel that can't resolve every origin in its
+# ingress — shared config → that replica 502s its traffic share.
+# Replica count: GET /accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/<id>/connections
+
 # Prometheus shows up{job="socialauto"}=0 but container is "healthy"?
 # Docker Desktop restart breaks the Windows port-proxy for 192.168.1.23:9390
 # (TCP accepts, HTTP resets — Pi-side curl gets 000). Fix:
