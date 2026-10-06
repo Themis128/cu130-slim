@@ -1433,6 +1433,10 @@ cloudless.gr playbook form
     → playbook_email.deliver_playbook  (atomic Redis claim → one email/address)
     → SMTP → OMV-HA postfix → Resend relay → lead's inbox
         (links PLAYBOOK_URL on cloudless.gr)
+    → _post_cloudless_leads_webhook (fire-and-forget)
+        → cloudless.gr /api/webhooks/socialauto-leads → EspoCRM Lead
+          (source "Web Site"); returned espocrm_lead_id written back to
+          Lead.meta_data
 ```
 
 `playbook_delivery` in the response tells the form what happened:

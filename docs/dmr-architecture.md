@@ -283,6 +283,13 @@ Important gaps:
   `/engines/v1/models` every **10 s**, restarts the runner after 3 consecutive
   failures. Handles "container up, engine wedged". Reapplies canonical model
   configs whenever the runner's `StartedAt` changes.
+- **Escalation ladder (2026-10)**: restart → `docker kill` → kill the
+  container's `containerd-shim` via a privileged `--pid=host` helper, letting
+  `restart=always` recreate it. Needed because the Docker Desktop–managed
+  runner has no `--init`: a zombie PID 1 makes `docker restart`/`kill`
+  permanently fail ("PID is zombie and can not be killed"), and DMR exposes
+  no HTTP restart endpoint (`docker model restart-runner` is Engine-only and
+  unavailable inside containers).
 - **Restart race (known, bounded)**: the runner's runtime-config store is
   in-memory and lost on every runner restart; loads racing the watchdog's
   re-apply run at GGUF defaults (262144 ctx on the 4B → KV-alloc failures).
