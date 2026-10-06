@@ -624,7 +624,10 @@ class LinkedInAPIClient:
             return LinkedInPostResult(success=False, error=f"Invalid author URN: {author_urn}")
 
         init_url = f"{LINKEDIN_REST_BASE}/videos?action=initializeUpload"
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        # follow_redirects: dms-uploads PUT URLs 3xx to linkedin-ei.com; without
+        # this the PUT "succeeds" on the redirect, no ETag is captured, and the
+        # video stays WAITING_UPLOAD forever.
+        async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
             reg = await client.post(
                 init_url,
                 headers=self._headers(),
@@ -663,7 +666,10 @@ class LinkedInAPIClient:
                 last = int(instr.get("lastByte", len(video_bytes) - 1))
                 up = await client.put(
                     upload_url,
-                    headers={"Authorization": f"Bearer {self.access_token}"},
+                    headers={
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Content-Type": "application/octet-stream",
+                    },
                     content=video_bytes[first : last + 1],
                 )
                 if up.status_code >= 400:
@@ -675,10 +681,20 @@ class LinkedInAPIClient:
                 etag = up.headers.get("ETag")
                 if etag:
                     part_ids.append(etag.strip('"'))
+                else:
+                    logger.warning(
+                        "[linkedin-video] part %d upload returned no ETag", len(part_ids)
+                    )
 
-            # Finalize is required for multi-part uploads and harmless for
-            # single-part ones.
-            if upload_token or len(instructions) > 1:
+            if instructions and not part_ids:
+                return LinkedInPostResult(
+                    success=False,
+                    error="Video upload returned no part ETags — nothing to finalize",
+                )
+
+            # Finalize is a mandatory step in the Videos API flow — LinkedIn
+            # stays in WAITING_UPLOAD until uploadedPartIds are registered.
+            if instructions:
                 fin_url = f"{LINKEDIN_REST_BASE}/videos?action=finalizeUpload"
                 fin = await client.post(
                     fin_url,

@@ -252,7 +252,7 @@ class TestOverridePersistence:
         await dmr.configure_speculative_decoding(TEXT, draft_model="hf.co/x/draft")
         await dmr.clear_model_overrides(TEXT)
         body = client.configure_bodies()[-1]
-        assert body["keep_alive"] == "5m"
+        assert body["keep_alive"] == "2m"
         assert "speculative" not in body
         assert fake_redis.hashes.get(dmr._OVERRIDES_KEY, {}).get(TEXT) is None
 
@@ -283,7 +283,7 @@ class TestOverridePersistence:
         base = dmr._configure_payload(TEXT)
         merged = dmr._merge_overrides(base, {"keep_alive": "1h"})
         assert merged["keep_alive"] == "1h"
-        assert dmr._configure_payload(TEXT)["keep_alive"] == "5m"
+        assert dmr._configure_payload(TEXT)["keep_alive"] == "2m"
 
 
 # ── #315: transparency-preserving transcode ──────────────────────────────────

@@ -499,7 +499,7 @@ async def test_create_video_post_happy_path(monkeypatch, client, no_sleep):
         _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3AugcPost%3Avid1"}),
     ]
     fake = _FakeAsyncClient(responses)
-    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0, **_kw: fake)
 
     result = await client.create_video_post(
         author_urn="urn:li:organization:12345",
@@ -553,7 +553,7 @@ async def test_create_video_post_multipart_splits_byte_ranges(monkeypatch, clien
         _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3Ashare%3Avid2"}),
     ]
     fake = _FakeAsyncClient(responses)
-    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0, **_kw: fake)
 
     result = await client.create_video_post(
         author_urn="urn:li:organization:12345",
@@ -571,7 +571,7 @@ async def test_create_video_post_multipart_splits_byte_ranges(monkeypatch, clien
 @pytest.mark.asyncio
 async def test_create_video_post_init_error(monkeypatch, client, no_sleep):
     fake = _FakeAsyncClient(_FakeResponse(403, {"status": 403}))
-    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0: fake)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=300.0, **_kw: fake)
 
     result = await client.create_video_post(
         author_urn="urn:li:organization:12345",
