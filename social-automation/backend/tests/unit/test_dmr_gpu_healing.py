@@ -282,6 +282,64 @@ class TestWarmupLock:
 # ── Warmup VRAM budgeting ────────────────────────────────────────────────────
 
 
+class TestKeepWarm:
+    """Periodic keep_alive refresh for the warm tier (mid 4B + llama3.2)."""
+
+    def _patch(self, monkeypatch, *, busy=False, running=(), vram_ok=True):
+        monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
+        import app.services.gpu_arbiter as arbiter
+        monkeypatch.setattr(arbiter, "media_gpu_busy", AsyncMock(return_value=busy))
+        monkeypatch.setattr(dmr, "_running_dmr_models", AsyncMock(return_value=set(running)))
+        monkeypatch.setattr(dmr, "_has_vram_for_model", AsyncMock(return_value=vram_ok))
+        spy = AsyncMock(return_value={"text": "ok"})
+        monkeypatch.setattr(dmr, "_call_dmr_chat_internal", spy)
+        return spy
+
+    @pytest.mark.asyncio
+    async def test_pings_warm_tier(self, monkeypatch):
+        spy = self._patch(monkeypatch)
+        result = await dmr.keep_warm_models()
+        models = [c.kwargs["model_override"] for c in spy.await_args_list]
+        assert models == [dmr.settings.DMR_MID_MODEL, "ai/llama3.2"]
+        assert result["warmed"] == models
+
+    @pytest.mark.asyncio
+    async def test_skips_when_media_job_owns_gpu(self, monkeypatch):
+        spy = self._patch(monkeypatch, busy=True)
+        result = await dmr.keep_warm_models()
+        spy.assert_not_awaited()
+        assert result == {"warmed": [], "skipped": [], "reason": "media_job"}
+
+    @pytest.mark.asyncio
+    async def test_cold_model_skipped_when_vram_tight(self, monkeypatch):
+        # llama3.2 unloaded + no room to reload → skipped; the resident mid
+        # model still gets its keep_alive refresh.
+        spy = self._patch(
+            monkeypatch,
+            running={"huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:q4_k_m"},
+            vram_ok=False,
+        )
+        result = await dmr.keep_warm_models()
+        models = [c.kwargs["model_override"] for c in spy.await_args_list]
+        assert models == [dmr.settings.DMR_MID_MODEL]
+        assert result["skipped"] == ["ai/llama3.2"]
+
+    @pytest.mark.asyncio
+    async def test_resident_model_pings_despite_tight_vram(self, monkeypatch):
+        # A loaded model costs ~0 extra VRAM to ping — always refresh it.
+        self._patch(
+            monkeypatch,
+            running={
+                "huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:q4_k_m",
+                "docker.io/ai/llama3.2:latest",
+            },
+            vram_ok=False,
+        )
+        result = await dmr.keep_warm_models()
+        assert result["warmed"] == [dmr.settings.DMR_MID_MODEL, "ai/llama3.2"]
+        assert result["skipped"] == []
+
+
 class TestWarmupBudget:
     @pytest.mark.asyncio
     async def test_skips_8b_when_budget_insufficient(self, monkeypatch):
@@ -305,8 +363,9 @@ class TestWarmupBudget:
         monkeypatch.setattr(dmr, "_call_dmr_chat_internal", _spy)
         try:
             await dmr.warmup_models()
-            # 6700 free - 2700 mid = 4000 budget < 5500+1000 → 8B skipped,
-            # vision (5000+1000) also skipped → only the mid warms
-            assert warmed == ["hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"]
+            # 6700 free - 2700 mid = 4000 budget → llama3.2 (2200) fits and
+            # warms first, leaving 1800 < 5500+1000 → 8B skipped, vision
+            # (5000+1000) also skipped.
+            assert warmed == ["hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "ai/llama3.2"]
         finally:
             dmr._state.warmup_done = False
