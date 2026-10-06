@@ -1,0 +1,26 @@
+# Dedicated Cloudflare Tunnel for omv-hosted services.
+#
+# Lives on the omv node at ~/cloudflared/ — this copy is the repo mirror.
+# Remote-managed tunnel `omv-cloudless` serves ONLY:
+#   cloud.cloudless.gr  -> 192.168.1.200:11000 (Nextcloud)
+#   office.cloudless.gr -> 192.168.1.200:9980  (Collabora)
+#   signal.cloudless.gr -> 192.168.1.200:8090  (Talk HPB)
+#   push.cloudless.gr   -> 192.168.1.200:7867  (notify-push)
+#
+# Why a separate tunnel: remote-managed tunnels share ONE ingress config
+# across ALL replicas — a cloudflared replica on omv joined to the
+# `social-cloudless` tunnel served social.cloudless.gr/api with 502s
+# (social-api doesn't resolve there). Split = each node only ever proxies
+# origins it can actually reach. Do NOT run another cloudflared on either
+# tunnel unless it can resolve every origin in that tunnel's ingress.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-omv
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # TUNNEL_TOKEN comes from .env (0600) — token for tunnel
+      # `omv-cloudless` (a474360d-b7a5-4677-9c33-788adaf1f2ed).
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
