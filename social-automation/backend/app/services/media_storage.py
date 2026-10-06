@@ -298,6 +298,11 @@ async def persist_generated_image(
 
     image_bytes, width, height = downscale_image_bytes(image_bytes, max_edge=max_edge)
 
+    # Brand every generated post image with the Cloudless footer (skipped for
+    # logos, favicons, and already-branded carousel/ad assets).
+    from app.services.brand_footer import maybe_apply_brand_footer
+    image_bytes = await maybe_apply_brand_footer(db, team_id, image_bytes, source)
+
     # Social platforms universally accept JPEG. When the caller requests JPEG,
     # convert to actual JPEG bytes so filename + Content-Type match the payload.
     # For PNG/WebP/etc. requests, detect the real format and label accordingly.

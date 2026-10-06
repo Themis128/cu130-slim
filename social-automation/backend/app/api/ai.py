@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.api.deps import TeamId, check_quota
@@ -1542,37 +1541,12 @@ async def generate_content(
             )
 
     # Load brand context for on-brand generation
-    brand_context_str = ""
     brand_dict: dict | None = None
     voice_dict: dict | None = None
+    brand_context_str = ""
     if team:
-        from app.models.brand import Brand
-        from app.services.brand_compliance import build_brand_system_prompt
-        brand_result = await db.execute(
-            select(Brand)
-            .options(selectinload(Brand.voice))
-            .where(Brand.team_id == team.id)
-        )
-        brand = brand_result.scalars().first()
-        if brand:
-            brand_dict = {
-                "name": brand.name,
-                "positioning_statement": brand.positioning_statement,
-                "mission": brand.mission,
-                "values": brand.values or [],
-                "tagline": brand.tagline,
-                "target_audience": brand.target_audience or {},
-            }
-            if brand.voice:
-                voice_dict = {
-                    "tone_dimensions": brand.voice.tone_dimensions or {},
-                    "messaging_pillars": brand.voice.messaging_pillars or [],
-                    "banned_phrases": brand.voice.banned_phrases or [],
-                    "preferred_phrases": brand.voice.preferred_phrases or [],
-                    "example_content": brand.voice.example_content,
-                    "voice_signature": brand.voice.voice_signature or {},
-                }
-            brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
+        from app.services.brand_compliance import load_brand_context
+        brand_dict, voice_dict, brand_context_str = await load_brand_context(db, team.id)
 
     # Load saved content prompt template if provided
     saved_template = None
@@ -2096,13 +2070,19 @@ Return JSON with: improved_content (string), changes (array of strings describin
         "required": ["improved_content", "changes"],
     }
 
-    result = await call_inference(prompt, provider_name="dmr", schema=schema, platform=request.platform)
+    team = await db.get(Team, team_id)
+
+    from app.services.brand_compliance import load_brand_context
+    _, _, brand_context = await load_brand_context(db, team.id if team else None)
+
+    result = await call_inference(
+        prompt, provider_name="dmr", schema=schema, platform=request.platform,
+        brand_context=brand_context or None,
+    )
     improved = result.get("improved_content", request.content)
 
     # ── Quality pipeline: spellcheck + NLP + SEO + auto-improve ───────
     from app.services.quality_pipeline import apply_quality_pipeline
-
-    team = await db.get(Team, team_id)
 
     quality = await apply_quality_pipeline(
         content=improved,
@@ -2396,10 +2376,14 @@ Return JSON with:
 
     import httpx as _httpx
 
+    from app.services.brand_compliance import load_brand_context
+    _, _, brand_context_str = await load_brand_context(db, team.id if team else None)
+
     try:
         result = await call_inference(
             prompt, provider_name=request.provider, db=db, team_id=team_id,
             schema=schema, model_override=request.model, platform=request.platform,
+            brand_context=brand_context_str or None,
         )
     except HTTPException:
         raise
@@ -3709,35 +3693,8 @@ async def generate_blog_article(
 
     brand_context_str = ""
     if team:
-        from app.models.brand import Brand
-        from app.services.brand_compliance import build_brand_system_prompt
-
-        brand_result = await db.execute(
-            select(Brand)
-            .options(selectinload(Brand.voice))
-            .where(Brand.team_id == team.id)
-        )
-        brand = brand_result.scalars().first()
-        if brand:
-            brand_dict = {
-                "name": brand.name,
-                "positioning_statement": brand.positioning_statement,
-                "mission": brand.mission,
-                "values": brand.values or [],
-                "tagline": brand.tagline,
-                "target_audience": brand.target_audience or {},
-            }
-            voice_dict = None
-            if brand.voice:
-                voice_dict = {
-                    "tone_dimensions": brand.voice.tone_dimensions or {},
-                    "messaging_pillars": brand.voice.messaging_pillars or [],
-                    "banned_phrases": brand.voice.banned_phrases or [],
-                    "preferred_phrases": brand.voice.preferred_phrases or [],
-                    "example_content": brand.voice.example_content,
-                    "voice_signature": brand.voice.voice_signature or {},
-                }
-            brand_context_str = build_brand_system_prompt(brand_dict, voice_dict)
+        from app.services.brand_compliance import load_brand_context
+        _, _, brand_context_str = await load_brand_context(db, team.id)
 
     prompt = blog_articles.build_article_prompt(body.topic, body.extra_context)
     try:
