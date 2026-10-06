@@ -365,28 +365,92 @@ async def _get_vram_info() -> dict[str, int] | None:
     return None
 
 
+def _model_vram_mb(model: str) -> int:
+    """Conservative VRAM estimate (MiB) for a model, by size in its name."""
+    m = model.lower()
+    if "smollm2" in m:
+        return 512  # 360M model
+    if "smollm3" in m:
+        return 2048  # 3.1B model ~1.9GB
+    if "embedding" in m:
+        return 4096  # ai/qwen3-embedding is an 8B (~4.7GB Q4_K_M), not a small embedder
+    if "vl" in m or "vision" in m:
+        return 4096  # vision models ~5GB
+    if "8b" in m or "7b" in m:
+        return 4096  # 7-8B Q4 ~5GB
+    if "4b" in m:
+        return 3072  # 4B Q4_K_M ~2.7GB incl. KV
+    if "3.2" in m or "3b" in m:
+        return 2048  # 3B Q4 ~2GB
+    return 2048  # default conservative
+
+
+async def _queued_load_vram(model: str) -> int:
+    """VRAM (MiB) already reserved by queued 'Loading...' loads, excluding `model`.
+
+    WSL2/Docker-Desktop quirk: nvidia-smi and ComfyUI /system_stats
+    under-report VRAM held by other containers, and queued DMR loads hold
+    scheduler capacity without showing as 'used'. /api/ps marks queued
+    loads with an epoch-0 expires_at ('Loading...' in `docker model ps`);
+    a queued load that can never fit wedges every request behind it until
+    client timeout — counting it as occupied forces the heal path first.
+
+    Returns -1 when `model` itself is already resident (real expires_at):
+    no load is needed at all, so VRAM pressure is irrelevant — without this
+    the gate would heal-evict our own warm model under a foreign load storm.
+    """
+    try:
+        client = await _get_client()
+        resp = await client.get(f"{_dmr_base_url()}/api/ps", timeout=3.0)
+        if resp.status_code != 200:
+            return 0
+    except Exception:
+        return 0
+    target = model.lower().replace("hf.co/", "huggingface.co/")
+    reserved = 0
+    for m in resp.json().get("models") or []:
+        name = str(m.get("name", "")).lower()
+        is_target = target in name or name in target
+        if not str(m.get("expires_at", "")).startswith("0001-01-01"):
+            if is_target:
+                return -1  # target already resident — no load needed
+            continue
+        if is_target:
+            continue
+        reserved += _model_vram_mb(name)
+    return reserved
+
+
 async def _has_vram_for_model(model: str) -> bool:
     """Check if there's enough VRAM for the given model.  Conservative estimates."""
+    queued = await _queued_load_vram(model)
+    if queued < 0:
+        return True  # already resident — no load needed regardless of pressure
     vram = await _get_vram_info()
     if not vram:
         return True  # can't check — allow it
-    free_mb = vram.get("free", 0)
-    # Rough VRAM estimates by model size
-    if "smollm2" in model:
-        return free_mb >= 512  # 360M model
-    if "smollm3" in model:
-        return free_mb >= 2048  # 3.1B model ~1.9GB
-    if "embedding" in model:
-        return free_mb >= 1024
-    if "vl" in model or "vision" in model:
-        return free_mb >= 4096  # vision models ~5GB
-    if "8b" in model or "7b" in model:
-        return free_mb >= 4096  # 7-8B Q4 ~5GB
-    if "4b" in model:
-        return free_mb >= 3072  # 4B Q4_K_M ~2.7GB incl. KV
-    if "3.2" in model or "3b" in model:
-        return free_mb >= 2048  # 3B Q4 ~2GB
-    return free_mb >= 2048  # default conservative
+    free_mb = vram.get("free", 0) - queued
+    return free_mb >= _model_vram_mb(model)
+
+
+async def _wait_for_queue_drain(model: str, max_wait: float = 45.0) -> bool:
+    """Wait for queued 'Loading...' loads (other than `model`) to resolve.
+
+    DMR holds inference requests until resources free — by design it never
+    503s (docker/model-runner design doc), and /engines/unload only evicts
+    *running* runners: queued load entries die only when their spawn
+    completes or the owning client's timeout cancels them (loader.go).
+    Joining a wedged queue just adds another immortal waiter, so we wait
+    briefly for the storm to pass instead.  Returns True when no foreign
+    queued load remains.
+    """
+    waited = 0.0
+    while waited < max_wait:
+        if await _queued_load_vram(model) <= 0:
+            return True
+        await asyncio.sleep(3.0)
+        waited += 3.0
+    return False
 
 
 async def _unload_idle_models() -> None:
@@ -1244,6 +1308,12 @@ async def _call_dmr_chat_internal(
         logger.warning("DMR: insufficient VRAM — freeing GPU")
         await _free_gpu_memory()
         if not await _has_vram_for_model(model):
+            # Queued loads can't be evicted (loader.go: Unload only touches
+            # running runners) — wait for the spawn storm to drain, then
+            # reclaim whatever resident runners it left behind.
+            if await _wait_for_queue_drain(model):
+                await _free_gpu_memory()
+        if not await _has_vram_for_model(model):
             # Fall back to tiny model
             tiny = settings.DMR_TINY_MODEL
             if await _has_vram_for_model(tiny):
@@ -1472,6 +1542,8 @@ async def call_dmr_embedding(
     # HTTP timeout instead of failing fast into the Cloudflare fallback.
     if not await _has_vram_for_model(model):
         await _free_gpu_memory()
+        if not await _has_vram_for_model(model):
+            await _wait_for_queue_drain(model, max_wait=20.0)
     url = f"{settings.DMR_URL}/embeddings"
     try:
         client = await _get_client()
@@ -1603,6 +1675,8 @@ async def call_dmr_vision(
         logger.warning("DMR vision: insufficient VRAM")
         await _unload_idle_models()
         await asyncio.sleep(2.0)
+        if not await _has_vram_for_model(model):
+            await _wait_for_queue_drain(model, max_wait=20.0)
 
     await _ensure_model_configured(model)
     url = f"{settings.DMR_URL}/chat/completions"
