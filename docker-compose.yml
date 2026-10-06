@@ -400,6 +400,11 @@ services:
       context: ./diffusers-server
       dockerfile: Dockerfile
     container_name: local-diffusers
+    # Dormant profile: excluded from default `docker compose up` so the retired
+    # SD 1.5 service can't resurrect on stack restarts or reserve the GPU.
+    # Run explicitly: docker compose --profile local-diffusers up -d local-diffusers
+    profiles:
+      - local-diffusers
     networks:
       - backend
       - gpu
