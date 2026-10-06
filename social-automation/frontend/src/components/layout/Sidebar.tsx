@@ -29,6 +29,7 @@ import {
   Video,
   Send,
   FileBarChart,
+  Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -55,6 +56,7 @@ const navigation = [
   { name: 'Team', href: '/team', icon: Users },
   { name: 'Visual Login', href: '/browser-login', icon: Monitor },
   { name: 'Integrations', href: '/mcp-stack', icon: Server },
+  { name: 'Ops Console', href: '/ops', icon: Activity },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Reports', href: '/reports', icon: FileBarChart },
   { name: 'Settings', href: '/settings', icon: Settings },

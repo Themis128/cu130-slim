@@ -1,14 +1,23 @@
 """Ops endpoints: daily Slack digest for #socialauto."""
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
+from app.core.config import get_settings
 from app.db.session import get_db
+from app.models.content import MediaAsset, Post
+from app.models.queue import PublishQueue
+from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.paddle_digest import send_paddle_digest_to_slack
 from app.services.slack_digest import run_daily_digest_for_all_teams
@@ -208,3 +217,218 @@ async def preview_daily_digest(
         reports=reports,
         message="Preview only (not posted)",
     )
+
+
+# ---------------------------------------------------------------------------
+# Ops Console — aggregated operational state for the dashboard
+# ---------------------------------------------------------------------------
+
+
+class ServiceStatus(BaseModel):
+    name: str
+    online: bool = False
+    detail: str = ""
+
+
+class ConsoleAccount(BaseModel):
+    id: str
+    platform: str
+    username: str | None = None
+    display_name: str | None = None
+    status: str
+    account_type: str = "person"
+    token_expires_at: str | None = None
+    audit: dict[str, Any] | None = None
+
+
+class OpsConsoleResponse(BaseModel):
+    checked_at: str
+    services: list[ServiceStatus] = Field(default_factory=list)
+    accounts: list[ConsoleAccount] = Field(default_factory=list)
+    publish_queue: dict[str, int] = Field(default_factory=dict)
+    media: dict[str, Any] = Field(default_factory=dict)
+    browser_orchestrator: BrowserOrchestratorStatus = Field(
+        default_factory=BrowserOrchestratorStatus
+    )
+    tiktok_audit: dict[str, Any] | None = None
+
+
+class TikTokAuditUpdate(BaseModel):
+    status: str = Field(
+        description="Audit state, e.g. pending_review / approved / rejected / not_submitted"
+    )
+    reference: str | None = None
+    detail: str | None = None
+
+
+async def _probe_service(name: str, url: str, timeout: float = 4.0) -> ServiceStatus:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url)
+            return ServiceStatus(
+                name=name, online=resp.status_code < 500, detail=str(resp.status_code)
+            )
+    except Exception as exc:
+        return ServiceStatus(name=name, online=False, detail=type(exc).__name__)
+
+
+async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            stats_resp, queue_resp = await asyncio.gather(
+                client.get(f"{base}/system_stats"),
+                client.get(f"{base}/queue"),
+            )
+            queue_info: dict[str, Any] = {}
+            if queue_resp.status_code == 200:
+                qdata = queue_resp.json()
+                queue_info = {
+                    "pending": len(qdata.get("queue_pending", [])),
+                    "running": len(qdata.get("queue_running", [])),
+                }
+            return (
+                ServiceStatus(
+                    name="comfyui",
+                    online=stats_resp.status_code == 200,
+                    detail=str(stats_resp.status_code),
+                ),
+                queue_info,
+            )
+    except Exception as exc:
+        return ServiceStatus(name="comfyui", online=False, detail=type(exc).__name__), {}
+
+
+@router.get("/console", response_model=OpsConsoleResponse)
+async def ops_console(
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OpsConsoleResponse:
+    """Aggregated operational state for the Ops Console dashboard.
+
+    Combines sidecar/service health probes, connected-account status,
+    publish-queue counts, ComfyUI media-job state, browser-orchestrator
+    status, and the recorded TikTok Direct Post audit state — one call so
+    the dashboard (and the cloudless.gr admin proxy) never has to fan out.
+    """
+    _ = current_user
+    settings = get_settings()
+
+    sidecar_checks = [
+        ("browser-bridge", f"{settings.BROWSER_BRIDGE_URL}/health"),
+        ("linkedin-sidecar", f"{settings.LINKEDIN_BROWSER_SIDECAR_URL}/health"),
+        ("facebook-sidecar", f"{settings.FACEBOOK_BROWSER_SIDECAR_URL}/health"),
+        ("tiktok-sidecar", f"{settings.TIKTOK_BROWSER_SIDECAR_URL}/health"),
+    ]
+    probes, (comfy_status, comfy_queue) = await asyncio.gather(
+        asyncio.gather(*(_probe_service(n, u) for n, u in sidecar_checks)),
+        _probe_comfyui(settings.COMFYUI_URL.rstrip("/")),
+    )
+    services = [*probes, comfy_status]
+
+    accounts_result = await db.execute(
+        select(SocialAccount)
+        .where(SocialAccount.team_id == team_id)
+        .order_by(SocialAccount.platform, SocialAccount.username)
+    )
+    accounts = [
+        ConsoleAccount(
+            id=str(acc.id),
+            platform=acc.platform,
+            username=acc.username,
+            display_name=acc.display_name,
+            status=acc.status,
+            account_type=acc.account_type,
+            token_expires_at=acc.token_expires_at.isoformat()
+            if acc.token_expires_at
+            else None,
+            audit=(acc.meta_data or {}).get("audit"),
+        )
+        for acc in accounts_result.scalars().all()
+    ]
+
+    queue_counts = await db.execute(
+        select(PublishQueue.status, func.count())
+        .join(PublishQueue.post)
+        .where(Post.team_id == team_id)
+        .group_by(PublishQueue.status)
+    )
+    publish_queue = {
+        str(status.value if hasattr(status, "value") else status): count
+        for status, count in queue_counts.all()
+    }
+
+    recent_media = await db.execute(
+        select(func.count())
+        .select_from(MediaAsset)
+        .where(MediaAsset.team_id == team_id, MediaAsset.source == "ai-generated")
+    )
+    media = {
+        "ai_generated_assets": recent_media.scalar() or 0,
+        "comfyui_queue": comfy_queue,
+    }
+
+    orchestrator = BrowserOrchestratorStatus()
+    try:
+        from app.services.browser_orchestrator import get_current_platform, get_queue_length
+
+        platform = await get_current_platform()
+        orchestrator = BrowserOrchestratorStatus(
+            current_platform=platform,
+            queue_length=await get_queue_length(),
+            lock_held=platform is not None,
+            message=f"Browser held by {platform}" if platform else "Browser idle",
+        )
+    except Exception:
+        orchestrator.message = "Orchestrator status unavailable"
+
+    tiktok_audit = next(
+        (a.audit for a in accounts if a.platform == "tiktok" and a.audit), None
+    )
+
+    return OpsConsoleResponse(
+        checked_at=datetime.now(UTC).isoformat(),
+        services=services,
+        accounts=accounts,
+        publish_queue=publish_queue,
+        media=media,
+        browser_orchestrator=orchestrator,
+        tiktok_audit=tiktok_audit,
+    )
+
+
+@router.put("/tiktok-audit", response_model=dict[str, Any])
+async def update_tiktok_audit(
+    body: TikTokAuditUpdate,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record the TikTok Direct Post audit state on the team's TikTok accounts.
+
+    Written by the console-ops tooling (and the Ops Console UI) after
+    checking the TikTok developer portal, so the dashboard reflects the
+    real review state instead of a stale assumption.
+    """
+    _ = current_user
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team_id, SocialAccount.platform == "tiktok"
+        )
+    )
+    accounts = result.scalars().all()
+    if not accounts:
+        return {"updated": 0, "message": "no TikTok accounts connected"}
+
+    stamp = {
+        "status": body.status,
+        "reference": body.reference,
+        "detail": body.detail,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    for acc in accounts:
+        meta = dict(acc.meta_data or {})
+        meta["audit"] = stamp
+        acc.meta_data = meta
+    await db.commit()
+    return {"updated": len(accounts), "audit": stamp}
