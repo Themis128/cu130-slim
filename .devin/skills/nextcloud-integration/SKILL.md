@@ -27,7 +27,8 @@ For stack ops (containers, Talk, tunnels, storage) see `omv-nextcloud-ops`.
 
 ```
 SocialAuto/            media mirror root (NEXTCLOUD_EXPORT_ROOT)
-  media/               auto-exported assets, mirrors storage_path date dirs
+  media/               auto-exported assets, mirrors storage_path Y/m/d folders
+                       (media_storage.py strftime("%Y/%m/%d") — e.g. media/2026/10/05/…)
   _inbox/              DROP FOLDER → n8n drafts a post per file
     processed/         handled files land here (timestamped)
     failed/            error-branch quarantine — files that failed any pipeline
