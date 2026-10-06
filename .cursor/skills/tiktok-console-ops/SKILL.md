@@ -16,7 +16,7 @@ Official docs (Context7 `/websites/developers_tiktok` or developers.tiktok.com):
 - Content Posting get-started / media transfer — `PULL_FROM_URL` needs verified domain
 - Photo posts require `PULL_FROM_URL` (domain verify mandatory)
 - Videos can use `FILE_UPLOAD` (no domain verify) or `PULL_FROM_URL`
-- `DIRECT_POST` pending — app approved 2026-09-29, but the separate Direct Post audit is **under review** (submitted 2026-09-29 via `/application/content-posting-api`). Until it clears, init returns `unaudited_client_can_only_post_to_private_accounts` and code auto-falls back to `MEDIA_UPLOAD`; per-post override stays available (`platform_specific.tiktok.publish_mode`)
+- `DIRECT_POST` pending — app approved 2026-09-29. First Direct Post audit (submitted 2026-09-29) was **rejected** 2026-10-06 (generic 'adjust to Content Sharing Developer Guidelines'; likely the 42s low-quality demo video + weak multi-user framing). Re-submitted 2026-10-06 with a fresh 41s end-to-end screen recording (`docs/tiktok-demo/videos/tiktok-demo-v2.mp4`: login → Channels → compose → TikTok-only → Direct Post → published inbox draft) and tightened multi-user copy. Until it clears, init returns `unaudited_client_can_only_post_to_private_accounts` and code auto-falls back to `MEDIA_UPLOAD`; per-post override stays available (`platform_specific.tiktok.publish_mode`)
 - Login Kit: `client_key`, PKCE S256, comma-separated scopes, HTTPS redirect only
 
 ## Cloudless defaults

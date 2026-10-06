@@ -17,8 +17,8 @@ src = Path(__file__).resolve().parent / "cp-audit-application.mjs"
 shutil.copy(src, NODE_WORK / src.name)
 
 demo = Path(env_key("TT_AUDIT_VIDEO_HOST") or
-            str(ROOT / "docs/tiktok-demo/videos/tiktok-demo.mp4"))
-shutil.copy(demo, NODE_WORK / "tiktok-demo.mp4")
+            str(ROOT / "docs/tiktok-demo/videos/tiktok-demo-v2.mp4"))
+shutil.copy(demo, NODE_WORK / "tiktok-demo-v2.mp4")
 
 args = sys.argv[1:] or ["--no-submit-flag"]
 sys.exit(run_mjs("cp-audit-application.mjs", extra_args=args))
