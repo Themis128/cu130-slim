@@ -1,0 +1,51 @@
+{
+  "slides": [
+    {
+      "slide_type": "cover",
+      "motif": "cover",
+      "title": "Paying €500+/mo for infrastructure you can't explain?",
+      "body": "",
+      "highlight": null,
+      "chart_data": null
+    },
+    {
+      "slide_type": "content",
+      "motif": "chat",
+      "title": "We help teams who are paying for a cloud stack they can't explain",
+      "body": "Servers, containers, SaaS sprawl - nobody can say where the money actually goes.",
+      "highlight": "We pay for servers nobody touches and services nobody remembers.",
+      "chart_data": {"attribution": "- what we hear in every audit"}
+    },
+    {
+      "slide_type": "content",
+      "motif": "stat",
+      "title": "So they can recover what they're overspending",
+      "body": "A real infrastructure audit surfaces the waste, the duplicates, and the services nobody owns.",
+      "highlight": "€15K - €50K / year",
+      "chart_data": {"label": "typical recoverable spend"}
+    },
+    {
+      "slide_type": "content",
+      "motif": "calendar",
+      "title": "Audit. Migrate. Automate.",
+      "body": "Cut cloud spend, consolidate infrastructure, automate the operations that eat your team's time - with zero lock-in.",
+      "highlight": null,
+      "chart_data": {
+        "heading": "How an audit works",
+        "steps": [
+          {"when": "Day 1", "what": "30-min audit call - free"},
+          {"when": "Week 1", "what": "Full cost & waste report"},
+          {"when": "Week 2-4", "what": "Migrate & automate"}
+        ]
+      }
+    },
+    {
+      "slide_type": "cta",
+      "motif": "cta",
+      "title": "Free 30-minute infrastructure audit",
+      "body": "See exactly where your money goes - and what you could get back.",
+      "highlight": "cloudless.gr/contact",
+      "chart_data": null
+    }
+  ]
+}
