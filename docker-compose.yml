@@ -230,7 +230,7 @@ services:
       start_period: 60s
     restart: unless-stopped
   n8n:
-    image: n8nio/n8n:2.19.5
+    image: n8nio/n8n:2.41.7
     container_name: n8n
     networks:
       - backend
