@@ -386,7 +386,13 @@ app/services/
 │   └── brand_agent.py        — Brand AI agent
 │
 ├── ── Media ─────────────────────────────────────────────────
-│   ├── media_storage.py      — Storage abstraction (R2→MinIO→disk)
+│   ├── media_storage.py      — Storage abstraction (R2→MinIO→disk); enqueues the
+│   │                           nextcloud export task when NEXTCLOUD_* is configured
+│   ├── nextcloud_export.py   — WebDAV mirror of assets to the omv Nextcloud workspace
+│   │                           (cloud.cloudless.gr, SocialAuto/media/<Y>/<m>/<d>/);
+│   │                           shares via OCS: create_public_share takes export-root-
+│   │                           relative paths, create_share_for_recorded takes recorded
+│   │                           root-included paths (nextcloud_path meta)
 │   ├── r2_storage.py         — Cloudflare R2 storage
 │   ├── r2_presigned.py       — R2 presigned URLs
 │   ├── minio_storage.py      — MinIO S3 storage

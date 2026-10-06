@@ -9,11 +9,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from sqlalchemy import select
 
-from app.models.content import MediaAsset
 from app.services import nextcloud_export as nc
-
 
 DAV = "https://cloud.cloudless.gr/remote.php/dav/files/tester"
 
@@ -109,7 +106,7 @@ async def test_create_public_share_read_only(monkeypatch, nc_settings):
 
 
 @pytest.mark.asyncio
-async def test_create_public_share_accepts_root_included_path(monkeypatch, nc_settings):
+async def test_create_public_share_root_named_collision(monkeypatch, nc_settings):
     seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -119,9 +116,31 @@ async def test_create_public_share_accepts_root_included_path(monkeypatch, nc_se
         return httpx.Response(200, json={"ocs": {"data": {"url": "https://x/s/y"}}})
 
     _mock_client(monkeypatch, handler)
-    await nc.create_public_share("/SocialAuto/media/dup.png")
-    # Root-included paths must not get the root appended twice.
+    # A root-relative path that starts with the root's own name must be
+    # treated as relative — the root is ALWAYS prepended, never sniffed.
+    await nc.create_public_share("SocialAuto/photo.png")
+    assert seen["body"]["path"] == "/SocialAuto/SocialAuto/photo.png"
+
+
+@pytest.mark.asyncio
+async def test_create_share_for_recorded(monkeypatch, nc_settings):
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = {
+            k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()
+        }
+        return httpx.Response(200, json={"ocs": {"data": {"url": "https://x/s/rec"}}})
+
+    _mock_client(monkeypatch, handler)
+    # Recorded paths (upload_bytes return / meta_data.nextcloud_path)
+    # carry the root; they must not get it appended twice.
+    url = await nc.create_share_for_recorded("SocialAuto/media/dup.png")
+    assert url == "https://x/s/rec"
     assert seen["body"]["path"] == "/SocialAuto/media/dup.png"
+
+    with pytest.raises(ValueError):
+        await nc.create_share_for_recorded("outside/root.png")
 
 
 @pytest.mark.asyncio
@@ -157,12 +176,20 @@ class _FakeResult:
 
 
 class _FakeSession:
+    """Session double that honors the statement's asset-ID filter.
+
+    Devin review: returning the asset regardless of the query could mask
+    a broken WHERE clause — compile the statement and match the bound id.
+    """
+
     def __init__(self, asset):
         self._asset = asset
         self.committed = False
 
     async def execute(self, stmt):
-        return _FakeResult(self._asset)
+        wanted = stmt.compile().params.get("id_1")
+        matches = self._asset is not None and str(wanted) == str(self._asset.id)
+        return _FakeResult(self._asset if matches else None)
 
     async def commit(self):
         self.committed = True

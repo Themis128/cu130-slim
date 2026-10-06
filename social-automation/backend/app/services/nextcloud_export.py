@@ -95,23 +95,9 @@ async def upload_bytes(
     return full
 
 
-async def create_public_share(remote_path: str, password: str | None = None) -> str | None:
-    """Create a Nextcloud public link share for a file/folder.
-
-    Uses the OCS Share API (files_sharing app). Returns the public URL.
-
-    ``remote_path`` follows the same convention as :func:`upload_bytes`
-    (relative to ``NEXTCLOUD_EXPORT_ROOT``); a root-included path is
-    accepted as-is. The OCS API wants a user-root-absolute path, so the
-    export root is prepended when missing — sharing the raw relative path
-    would silently target the wrong file.
-    """
-    root = settings.NEXTCLOUD_EXPORT_ROOT.strip("/")
-    stripped = remote_path.strip("/")
-    if stripped == root or stripped.startswith(f"{root}/"):
-        path = f"/{stripped}"
-    else:
-        path = f"/{root}/{stripped}"
+async def _create_share(user_root_path: str, password: str | None) -> str | None:
+    """POST an OCS share for a user-root path (leading slash optional)."""
+    path = f"/{user_root_path.strip('/')}"
     ocs_url = settings.NEXTCLOUD_DAV_URL.split("/remote.php/dav")[0].rstrip("/")
     ocs_url = f"{ocs_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
     payload: dict[str, str | int] = {
@@ -129,6 +115,41 @@ async def create_public_share(remote_path: str, password: str | None = None) -> 
         )
         resp.raise_for_status()
         return (resp.json().get("ocs", {}).get("data", {}) or {}).get("url")
+
+
+async def create_public_share(remote_path: str, password: str | None = None) -> str | None:
+    """Create a Nextcloud public link share for a file under the export root.
+
+    Uses the OCS Share API (files_sharing app). Returns the public URL.
+
+    ``remote_path`` is relative to ``NEXTCLOUD_EXPORT_ROOT`` — the same
+    convention as :func:`upload_bytes` input; the root is always
+    prepended and never sniffed. For an already-recorded path
+    (:func:`upload_bytes` return value / ``meta_data.nextcloud_path``)
+    use :func:`create_share_for_recorded` — the two formats overlap when
+    a folder inside the export root is named like the root itself, so
+    guessing the format from the string alone would share the wrong file.
+    """
+    root = settings.NEXTCLOUD_EXPORT_ROOT.strip("/")
+    return await _create_share(f"{root}/{remote_path.strip('/')}", password)
+
+
+async def create_share_for_recorded(
+    recorded_path: str, password: str | None = None
+) -> str | None:
+    """Share a recorded path (:func:`upload_bytes` return / nextcloud_path meta).
+
+    Recorded paths carry the export root (``SocialAuto/media/…``). Paths
+    outside the export root raise — sharing those is a nextcloud-dav.py
+    job, not this service's.
+    """
+    root = settings.NEXTCLOUD_EXPORT_ROOT.strip("/")
+    stripped = recorded_path.strip("/")
+    if not (stripped == root or stripped.startswith(f"{root}/")):
+        raise ValueError(
+            f"recorded path must start with the export root {root!r}: {recorded_path!r}"
+        )
+    return await _create_share(stripped, password)
 
 
 async def _read_asset_bytes(asset: MediaAsset) -> bytes:
