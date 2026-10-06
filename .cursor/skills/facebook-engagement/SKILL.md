@@ -1,3 +1,9 @@
+---
+name: facebook-engagement
+description: >-
+  Automate Facebook engagement the Graph API can't do: commenting on public posts and completing the personal profile's weekly professional-dashboard tasks. Use for dashboard challenges, comment loops, and follower growth.
+---
+
 # Facebook engagement ops
 
 Comment on public posts + complete the personal profile's weekly
@@ -16,8 +22,8 @@ public posts", or when Page-level API paths can't reach profile-level tasks.
 - Comments by the Page do not tick the personal profile's weekly counter.
 
 So profile-level engagement = browser automation only, via the Playwright MCP
-browser (see `playwright-mcp-driver` skill) with a session transplanted from
-the FB sidecar (see `session-transplant`).
+browser (see `playwright-ops` skill) with a session transplanted from
+the FB sidecar (see `session-ops`).
 
 ## Scripts
 

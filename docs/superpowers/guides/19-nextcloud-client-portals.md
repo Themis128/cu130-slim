@@ -21,7 +21,7 @@ Client-Portals/
 Create per client:
 
 ```bash
-DAV=.devin/skills/nextcloud-integration/scripts/nextcloud-dav.py
+DAV=.devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-dav.py
 SLUG=acme
 python3 $DAV mkdir "Client-Portals/$SLUG"
 python3 $DAV mkdir "Client-Portals/$SLUG/01-brief"
@@ -94,7 +94,7 @@ a link leaks.
 
 ## Related
 
-- `.devin/skills/nextcloud-integration/SKILL.md` — WebDAV paths, app
+- `.devin/skills/omv-nextcloud-ops/SKILL.md` — WebDAV paths, app
   passwords, OCS share API, n8n node quirks
 - `.devin/skills/omv-nextcloud-ops/SKILL.md` — stack health, TURN/STUN,
   backups, compose layout

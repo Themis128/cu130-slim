@@ -1,3 +1,9 @@
+---
+name: monthly-checklist-update
+description: >-
+  Update the 12-Automation Checklist lead-magnet PDF on cloudless.gr/links and announce it across all social channels. Run on the 1st of each month or when refreshing the checklist.
+---
+
 # Monthly Checklist PDF Update & Social Announce
 
 Update the **12-Automation Checklist** lead-magnet PDF on `cloudless.gr/links`
@@ -52,10 +58,10 @@ and announce it across all social channels. Run on the **1st of each month**
    | Facebook Page    | `ad83c946-0f6b-4fbf-bc63-543d2c2237f5`  | Business voice, `link_url` to `/links` |
 
 6. **Archive to Nextcloud** — version the PDF on the OMV workspace
-   (`/Marketing/checklist/`) via the `nextcloud-integration` skill's
+   (`/Marketing/checklist/`) via the `omv-nextcloud-ops` skill's
    `nextcloud-dav.py` tool:
    ```bash
-   DAV=.devin/skills/nextcloud-integration/scripts/nextcloud-dav.py
+   DAV=.devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-dav.py
    # dated archive copy (append-only, never overwritten)
    python3 $DAV upload ~/cloudless.gr/public/automation-checklist.pdf \
      "Marketing/checklist/automation-checklist-$(date +%Y-%m).pdf"

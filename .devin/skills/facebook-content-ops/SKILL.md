@@ -68,6 +68,16 @@ then `/debug/page-text`. Criteria: country ✅ · 500 followers ❌ · held 30d 
 
 ## Gotchas
 
-- Session death → `session-auto-heal` (cookie re-inject / credential login).
-- `#200` error on the page = token/permission issue → `publish-alert-triage`.
+- Session death → `session-ops` (cookie re-inject / credential login).
+- `#200` error on the page = token/permission issue → `publish-ops`.
 - `facebook-engagement` skill for engagement-loop work.
+
+## Media capabilities
+
+Full pipeline index: `media-pipelines` skill.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | Page via Graph; personal profile via sidecar `/post/photo` | `cloudless-carousel-pipeline` / FLUX |
+| Video | MP4, muted-autoplay legible | `branded-video-pipeline` |
+| Link post | Personal via sidecar `/post/link` | — |

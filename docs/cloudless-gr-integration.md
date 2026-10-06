@@ -172,7 +172,7 @@ SocialAuto-internal channel.
   `socialauto-app`, admin emails only). Third-party-reachable paths get
   dedicated **bypass apps** scoped to the path prefix (Messenger/WhatsApp/
   Telegram webhooks, OAuth callbacks, health, billing). See
-  `.devin/skills/cloudflare-access-paths/`.
+  `.devin/skills/cloudflare-ops/cloudflare-access-paths/`.
 - `cloudless.gr` webhooks are publicly reachable; they authenticate via
   shared-secret headers / HMAC (leads) or provider signatures (Stripe,
   LinkedIn `X-LI-Signature`).

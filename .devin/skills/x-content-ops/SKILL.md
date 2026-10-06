@@ -49,11 +49,21 @@ Read `social-content-core` first.
 1. **Official API** (OAuth) — primary.
 2. **Browser fallback** (`_publish_twitter_via_browser`) — when the API
    quota is exhausted or the token is revoked; uses the browser-bridge
-   session (`browser-bridge-ops` skill for selectors).
+   session (`browser-ops` skill for selectors).
 
 ## Gotchas
 
 - Quota/rate-limit errors → the browser fallback usually picks them up; if
-  it also fails check `publish-alert-triage` for the X selector drift table.
+  it also fails check `publish-ops` for the X selector drift table.
 - API quota is the free tier — don't schedule high-frequency posting;
   batch into threads instead.
+
+## Media capabilities
+
+Full pipeline index: `media-pipelines` skill.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | ≤4 per tweet | Brand-composed / FLUX |
+| Video | ≤2:20 MP4 | `branded-video-pipeline` |
+| GIF | Supported | `emoji-generator` assets |

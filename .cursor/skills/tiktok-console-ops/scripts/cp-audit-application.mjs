@@ -16,7 +16,7 @@
  *  - Console shows "Under review" beside Direct Post once it lands.
  *
  * Env: TIKTOK_DEV_EMAIL, TIKTOK_DEV_PASSWORD, OUT_DIR
- *   TT_AUDIT_VIDEO — path inside container to MP4 demo (default /work/tiktok-demo-v2.mp4)
+ *   TT_AUDIT_VIDEO — path inside container to MP4 demo (default /work/tiktok-demo.mp4)
  * Args: --submit actually submits; default prepares to the Review step only.
  */
 import { chromium } from 'playwright';
@@ -25,7 +25,7 @@ import path from 'path';
 
 const EMAIL = process.env.TIKTOK_DEV_EMAIL;
 const PASSWORD = process.env.TIKTOK_DEV_PASSWORD;
-const VIDEO = process.env.TT_AUDIT_VIDEO || '/work/tiktok-demo-v2.mp4';
+const VIDEO = process.env.TT_AUDIT_VIDEO || '/work/tiktok-demo.mp4';
 const SUBMIT = process.argv.includes('--submit');
 const OUT = process.env.OUT_DIR || '/out';
 fs.mkdirSync(OUT, { recursive: true });
@@ -38,10 +38,10 @@ const ORG = {
   orgName: 'cloudless.gr',
   orgSite: 'https://cloudless.gr',
   orgDesc:
-    'Cloudless (cloudless.gr) is a multi-user social media management platform. Creators and agencies connect their own TikTok accounts via Login Kit OAuth and use the Content Posting API to publish scheduled videos and photo posts to their own TikTok profiles. Direct Post is used to publish user-authored content directly to the creator\'s own profile; upload-as-draft remains available as a per-post option for creators who prefer TikTok\'s native editor.',
+    'Cloudless (cloudless.gr) is a social-media automation platform. We integrate TikTok Login Kit for OAuth and the Content Posting API so users can publish scheduled videos and photo posts to their own TikTok profiles. Direct Post is used to publish user-authored content directly to the creator\'s own profile; upload-as-draft remains available as a per-post option for creators who prefer TikTok\'s native editor.',
   appId: '7630494700880906241',
   goal:
-    'Cloudless lets multiple creators and teams schedule and publish short-form video to their own TikTok profiles from a unified content calendar. The Content Posting API lets our users write, preview, and publish TikTok videos alongside their other channels without manually recreating posts in the TikTok app. Direct Post removes the extra inbox step so scheduled content lands on the profile at the intended time; upload-as-draft stays available when a creator wants TikTok\'s native editor for music and effects. All published content is authored and reviewed by the account owner before scheduling, and every post carries creator-controlled privacy level, comment/duet/stitch toggles, and AIGC/branded-content flags.',
+    'Cloudless lets creators schedule and publish short-form video to their own TikTok profiles from a unified content calendar. The Content Posting API lets our users write, preview, and publish TikTok videos alongside their other channels without manually recreating posts in the TikTok app. Direct Post removes the extra inbox step so scheduled content lands on the profile at the intended time; upload-as-draft stays available when a creator wants TikTok\'s native editor for music and effects. All published content is authored and reviewed by the account owner before scheduling.',
   estimateExplain:
     'We are a new application and have not launched TikTok publishing to our user base yet. The estimate is based on our current active user count publishing scheduled posts on connected platforms: fewer than 10 users per day. We expect modest growth over the coming months and the Less-than-100 range covers our projected usage with headroom.',
   dbFields:

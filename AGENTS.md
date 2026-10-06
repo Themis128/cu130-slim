@@ -288,7 +288,7 @@ A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_ses
 
 ### Session auto-heal (hourly)
 
-`app.worker.tasks.session_healer.heal_sessions` runs at :20 hourly and probes every browser transport (LinkedIn/Facebook sidecars + all shared-bridge platforms), auto-recovers what it can (credential login, cookie re-inject, Threads IG-SSO bootstrap), persists fresh session material, and Slack-alerts only when human action is needed. On-demand: `POST /api/v1/ops/session-heal`. LinkedIn `li_at` cookies are fingerprint-bound — never transplant them across browsers; native credential login is the recovery path. Bridge pollers use a Redis verified-dead marker (`browser_bridge:dead:*`, 30 min) so a logged-out platform doesn't re-burn ~200s of busy-hold every poll cycle; the healer clears it on recovery. Skill: `.devin/skills/session-auto-heal/`.
+`app.worker.tasks.session_healer.heal_sessions` runs at :20 hourly and probes every browser transport (LinkedIn/Facebook sidecars + all shared-bridge platforms), auto-recovers what it can (credential login, cookie re-inject, Threads IG-SSO bootstrap), persists fresh session material, and Slack-alerts only when human action is needed. On-demand: `POST /api/v1/ops/session-heal`. LinkedIn `li_at` cookies are fingerprint-bound — never transplant them across browsers; native credential login is the recovery path. Bridge pollers use a Redis verified-dead marker (`browser_bridge:dead:*`, 30 min) so a logged-out platform doesn't re-burn ~200s of busy-hold every poll cycle; the healer clears it on recovery. Skill: `.devin/skills/session-ops/session-auto-heal/`.
 
 ### Facebook browser sidecar session validation
 
@@ -326,7 +326,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - **Upload URL hosts**: TikTok returns regional hosts (e.g. `open-upload-i18n.tiktokapis.com`). The `upload_video_file` method accepts any `*.tiktokapis.com` host.
 - **App details**: App name "Cloudless", App ID `7630494700880906241`, currently under Individual ownership (needs transfer to organization `cloudless.gr` / `7630331010873377809`).
 - **Domain verification**: Verify `cloudless.gr` in the TikTok dev console (URL properties) by adding a DNS TXT record in Cloudflare. Covers all subdomains including `social.cloudless.gr`.
-- **Skills**: `.devin/skills/tiktok-publish/` (publishing, spam management, slideshow builder) and `.devin/skills/tiktok-dev-console/` (domain verification, app/org transfer, audit).
+- **Skills**: `.devin/skills/tiktok-console-ops/tiktok-publish/` (publishing, spam management, slideshow builder) and `.devin/skills/developer-apps-ops/tiktok-dev-console/` (domain verification, app/org transfer, audit).
 
 ## Brand identity system
 
@@ -359,7 +359,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
   2. **Cloudflare Workers AI (FLUX schnell)** — the ONLY cloud fallback. Used when Local Diffusers is unavailable or fails. Model: `@cf/black-forest-labs/flux-1-schnell`.
 - **Removed from automatic path**: Pixazo, Together AI, HuggingFace, NVIDIA FLUX — these are manual-selection-only via the AI Providers settings page.
 - **Provider provenance**: Each generated image records `meta_data.inference_provider` (`local-diffusers` or `cloudflare`) and `meta_data.inference_model` for tracking which path produced the asset.
-- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) was removed from DMR — the Diffusers engine is **not available on Docker Desktop/WSL2** anyway (requires native Linux with NVIDIA CUDA). On WSL2, Local Diffusers (SD 1.5) is the working local GPU path. See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
+- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) was removed from DMR — the Diffusers engine is **not available on Docker Desktop/WSL2** anyway (requires native Linux with NVIDIA CUDA). On WSL2, ComfyUI FLUX.1-schnell GGUF is the working local GPU image path (local-diffusers SD 1.5 was retired and its image removed). See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
 
 ## Image quality gate
 

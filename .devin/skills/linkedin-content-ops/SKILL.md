@@ -52,7 +52,7 @@ Read `social-content-core` first (account map, Kakkava source, quality gate, fun
    account; browser session on the LinkedIn sidecar.
 2. **API** (`_publish_linkedin`) — Graph/REST for the org page.
 - LinkedIn sidecar ops (sessions, port 9225) → `linkedin-ads-ops` /
-  `session-auto-heal` skills.
+  `session-ops` skills.
 
 ## Media rules (`_PLATFORM_MEDIA_RULES.linkedin`)
 
@@ -68,6 +68,17 @@ Read `social-content-core` first (account map, Kakkava source, quality gate, fun
 
 ## Gotchas
 
-- `publish-alert-triage` covers LinkedIn session-expiry and media errors.
+- `publish-ops` covers LinkedIn session-expiry and media errors.
 - LinkedIn Marketing API dev→standard tier upgrade in progress — see
-  `linkedin-api-upgrade` skill before assuming new scopes work.
+  `developer-apps-ops` skill before assuming new scopes work.
+
+## Media capabilities
+
+Full pipeline index: `media-pipelines` skill.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | JPG/PNG brand-composed | `cloudless-carousel-pipeline` (single slide) |
+| Carousel PDF | Multi-slide doc post, Company Page only | `cloudless-carousel-pipeline` |
+| Video | MP4 H.264/yuv420p, silent AAC, faststart, spec-QA'd | `branded-video-pipeline` |
+| AI video | Rare — prefer branded for corp voice | ComfyUI LTX/Wan |

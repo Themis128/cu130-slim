@@ -54,6 +54,16 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 - `url_ownership_unverified` → the PULL_FROM_URL domain verify hasn't landed;
   fix via `tiktok-console-ops` (DNS TXT through Cloudflare).
 - Session/token issues → TikTok browser sidecar (`tiktok-console-ops`,
-  `session-auto-heal`).
+  `session-ops`).
 - App is in audit — DIRECT_POST scopes must match the console config or
   posts fail with scope errors.
+
+## Media capabilities
+
+Video-first channel — media REQUIRED. Full index: `media-pipelines`.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Video | 9:16 vertical (480x832 default), DIRECT_POST or MEDIA_UPLOAD | ComfyUI LTX/Wan (primary) / `branded-video-pipeline` shorts |
+| Photo slideshow | Photo-mode post | Brand slides |
+| `is_aigc` flag | Required for AI-generated video | — |

@@ -255,7 +255,7 @@ edit the profile.
 - Instagram Graph API token returns only `{"id":"..."}` — insufficient
   permissions for profile field reads/writes
 - Facebook SSO enters redirect loop on profile picker page
-- `instagram-profile-manager` skill with scripts already exists
+- `instagram-ops` skill with scripts already exists
 
 **Tasks:**
 
@@ -283,10 +283,10 @@ edit the profile.
    if expired.
 
 5. **Document the recovery procedure** in the
-   `instagram-profile-manager` skill.
+   `instagram-ops` skill.
 
 **Files to modify:**
-- `.devin/skills/instagram-profile-manager/SKILL.md` (recovery docs)
+- `.devin/skills/instagram-ops/SKILL.md` (recovery docs)
 - `social-automation/backend/app/worker/tasks/instagram_session_check.py` (new)
 
 **Verification:**

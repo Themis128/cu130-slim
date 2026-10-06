@@ -59,7 +59,17 @@ Read `social-content-core` first.
 ## Gotchas
 
 - "Session expired", "media not available", "missing image" →
-  `publish-alert-triage` signature table.
-- Session recovery → `session-auto-heal` (IG sessions are fragile; re-login
+  `publish-ops` signature table.
+- Session recovery → `session-ops` (IG sessions are fragile; re-login
   via stored creds).
 - Semantic media QA before publish → `media-qa-jupyter`.
+
+## Media capabilities
+
+Media is REQUIRED (API rejects text-only). Full index: `media-pipelines`.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | 4:5 or 1:1, <8MB, on-topic (semantic QA) | `cloudless-carousel-pipeline` / FLUX |
+| Carousel | ≤10 images | Brand-composed set |
+| Reel | MP4 9:16 | `branded-video-pipeline` / ComfyUI LTX |
