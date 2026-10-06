@@ -274,6 +274,10 @@ services:
       - N8N_INSTANCE_AI_SANDBOX_ENABLED=true
       - N8N_INSTANCE_AI_SANDBOX_PROVIDER=n8n-sandbox
       - N8N_INSTANCE_AI_SANDBOX_URL=http://n8n-sandbox:8081
+      - N8N_INSTANCE_AI_MODEL=${N8N_INSTANCE_AI_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - N8N_INSTANCE_AI_MODEL_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
+      - N8N_INSTANCE_AI_MODEL_API_KEY=${N8N_INSTANCE_AI_MODEL_API_KEY:-dmr-local}
+      - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
       - N8N_SANDBOX_SERVICE_URL=http://n8n-sandbox:8081
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
@@ -316,6 +320,8 @@ services:
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - SLACK_ALERTS_WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
       - N8N_ERROR_SLACK_WEBHOOK_URL=${N8N_ERROR_SLACK_WEBHOOK_URL:-}
+    extra_hosts:
+      - host.docker.internal:host-gateway
     restart: unless-stopped
   n8n-sandbox:
     image: n8nio/n8n-sandbox-service-sandbox:latest
