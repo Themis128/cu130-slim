@@ -1543,12 +1543,12 @@ services:
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
           ok=0
-          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"5m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/llama3.2","context-size":8192,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-embedding","keep_alive":"5m","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
-          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"5m","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-embedding","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
+          configure '{"model":"ai/smollm3","context-size":2048,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok
         }

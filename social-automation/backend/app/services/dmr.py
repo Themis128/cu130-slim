@@ -918,44 +918,60 @@ async def _warm_models_locked() -> None:
 # - think mode for qwen3: enables reasoning mode (qwen3 is a thinking model)
 
 _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
-    # 8B thinking model — long-form + schema. keep_alive 5m: the 8B serves
-    # content bursts only (chatbots run on the mid model), and pinning it
-    # would waste ~5 GB VRAM between bursts.
-    # ctx 6144 leaves headroom for the pinned 4B + KV on the 8GB card.
+    # 8B thinking model — long-form + schema. keep_alive 2m: the 8B serves
+    # content bursts only (chatbots run on the mid model). At ~5.5GB it
+    # cannot co-reside with the pinned 4B, so a short residency bounds the
+    # window where it starves smaller models off the card; the eviction
+    # path in _free_gpu_memory handles handoffs cleanly.
+    # ctx 6144 leaves headroom for KV on the 8GB card.
     "ai/qwen3:8b-q4_K_M": {
         "context_size": 6144,
-        "keep_alive": "5m",
+        "keep_alive": "2m",
         "think": True,
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # 4B non-thinking instruct — short-form platform copy + ALL chatbots.
     # Pinned warm (30m): chatbot replies are latency-critical and arrive at
-    # random intervals. ~2.7GB resident incl. KV at ctx 4096.
+    # random intervals — a cold 4B load costs ~20-40s per reply. ~2.7GB
+    # resident incl. KV at ctx 4096 still leaves room for llama3.2 (2.2GB),
+    # smollm3 (2GB) and the embedding model (1.2GB) to co-load — the most
+    # common small-model traffic — without eviction.
     "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M": {
         "context_size": 4096,
-        # 5m like every other model — the old 30m pinned a second runner
-        # against the one-model-in-VRAM policy on the 8GB card.
-        "keep_alive": "5m",
+        "keep_alive": "30m",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
+    # Carousel copy + NLP checker — ~2.2GB, co-resides with the pinned 4B.
+    # ctx 4096 (was 8192): slide copy and plain-English rewrites are short
+    # prompts; llama.cpp KV sizing (~100-500MB per 1K tokens) made 8192
+    # waste ~0.5-1GB that pushed co-residency over the edge.
     "ai/llama3.2": {
-        "context_size": 8192,
-        "keep_alive": "5m",
+        "context_size": 4096,
+        "keep_alive": "2m",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
+    # Vision QA — ~5GB, the largest co-residency offender on the card.
+    # Media QA runs in short bursts (caption-match checks after image
+    # generation); 90s covers a QA batch then releases before the next
+    # model family needs the card.
     "ai/qwen3-vl": {
         "context_size": 4096,
-        "keep_alive": "5m",
+        "keep_alive": "90s",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
+    # Embeddings — ~1.2GB. Calls arrive in bursts (similarity search,
+    # dedupe checks); unload quickly so it never lingers through the next
+    # media job or model switch.
     "ai/qwen3-embedding": {
-        "keep_alive": "5m",
+        "keep_alive": "60s",
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],
     },
+    # Tiny model — sub-200-char prompts. ctx 2048 (was 4096): routed
+    # prompts are tiny by definition; the smaller KV saves ~0.25-0.5GB.
     "ai/smollm3": {
-        "context_size": 4096,
-        "keep_alive": "5m",
+        "context_size": 2048,
+        "keep_alive": "60s",
         "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
 }
