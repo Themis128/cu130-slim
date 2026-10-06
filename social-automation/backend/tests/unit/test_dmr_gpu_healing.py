@@ -193,6 +193,91 @@ class TestVramOracle:
         assert await dmr._get_vram_info() is None
 
 
+# ── Queued-load VRAM gate (epoch-0 'Loading...' entries in /api/ps) ──────────
+
+
+def _ps_model(name: str, expires: str = "0001-01-01T00:00:00Z") -> dict:
+    return {"name": name, "model": name, "size": 0, "expires_at": expires}
+
+
+class TestQueuedLoadGate:
+    @pytest.mark.asyncio
+    async def test_queued_load_reserves_vram_and_fails_gate(
+        self, fake_client, monkeypatch
+    ):
+        """An epoch-0 'Loading...' 8B entry reserves 4096 MiB — with 6GB 'free'
+        reported, a 4B request (3072 needed) must fail the gate and heal first."""
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
+            "used": 2048, "free": 6144, "total": 8192,
+        }))
+        fake_client.set_get("/api/ps", _Resp(200, {"models": [
+            _ps_model("docker.io/ai/qwen3:8b-q4_K_M"),
+        ]}))
+        assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is False
+
+    @pytest.mark.asyncio
+    async def test_loaded_models_do_not_reserve(self, fake_client, monkeypatch):
+        """Models with a real expires_at are resident — counted by nvidia-smi,
+        not re-reserved by the queued-load oracle."""
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
+            "used": 4096, "free": 4096, "total": 8192,
+        }))
+        fake_client.set_get("/api/ps", _Resp(200, {"models": [
+            _ps_model("docker.io/ai/qwen3:8b-q4_K_M", "2030-01-01T00:00:00Z"),
+        ]}))
+        assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is True
+
+    @pytest.mark.asyncio
+    async def test_target_model_excluded_from_reservation(
+        self, fake_client, monkeypatch
+    ):
+        """A queued reload of the requested model itself is not double-counted."""
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
+            "used": 1024, "free": 7168, "total": 8192,
+        }))
+        fake_client.set_get("/api/ps", _Resp(200, {"models": [
+            _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"),
+        ]}))
+        assert await dmr._has_vram_for_model(
+            "hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"
+        ) is True
+
+    @pytest.mark.asyncio
+    async def test_resident_target_passes_gate_under_pressure(
+        self, fake_client, monkeypatch
+    ):
+        """A resident model needs no VRAM — the gate must not heal-evict our
+        own warm model just because foreign loads are queued."""
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
+            "used": 7000, "free": 100, "total": 8192,
+        }))
+        fake_client.set_get("/api/ps", _Resp(200, {"models": [
+            _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M",
+                      "2030-01-01T00:00:00Z"),
+            _ps_model("docker.io/ai/qwen3-vl:latest"),
+        ]}))
+        assert await dmr._has_vram_for_model(
+            "hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"
+        ) is True
+
+    @pytest.mark.asyncio
+    async def test_ps_unreachable_reserves_nothing(self, fake_client, monkeypatch):
+        """DMR /api/ps down → zero reservation, plain free-VRAM check applies."""
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
+            "used": 1024, "free": 7168, "total": 8192,
+        }))
+        fake_client.set_get("/api/ps", _Resp(500, {}))
+        assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is True
+
+    @pytest.mark.asyncio
+    async def test_model_vram_estimates(self):
+        assert dmr._model_vram_mb("ai/qwen3-vl") == 4096
+        assert dmr._model_vram_mb("ai/qwen3:8b-q4_K_M") == 4096
+        assert dmr._model_vram_mb("ai/qwen3-embedding") == 4096
+        assert dmr._model_vram_mb("ai/llama3.2") == 2048
+        assert dmr._model_vram_mb("ai/smollm2") == 512
+
+
 # ── OOM heal retry in _call_dmr_chat_internal ────────────────────────────────
 
 
