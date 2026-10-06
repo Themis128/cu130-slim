@@ -302,6 +302,23 @@ async def update_whatsapp_credentials(
     encrypted_token_str = encrypted_token.decode() if isinstance(encrypted_token, bytes) else encrypted_token
 
     meta = account.meta_data or {}
+    # Meta's 10-requests/72h code quota is per phone number — when the
+    # phone_number_id changes, drop the old number's verification/cooldown
+    # state so the replacement phone is not gated by its predecessor.
+    if meta.get("phone_number_id") and meta["phone_number_id"] != body.phone_number_id:
+        for key in (
+            "whatsapp_code_status",
+            "whatsapp_code_requested_at",
+            "whatsapp_code_sent_at",
+            "whatsapp_code_sent_phone_id",
+            "whatsapp_rate_limited_at",
+            "whatsapp_rate_limited_phone_id",
+            "whatsapp_code_error",
+        ):
+            meta.pop(key, None)
+        log = meta.get("whatsapp_code_request_log")
+        if isinstance(log, dict):
+            log.pop(meta["phone_number_id"], None)
     meta["access_token"] = encrypted_token_str
     meta["phone_number_id"] = body.phone_number_id
     if body.waba_id:

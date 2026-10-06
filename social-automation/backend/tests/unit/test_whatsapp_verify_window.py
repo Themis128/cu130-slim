@@ -117,3 +117,72 @@ def test_rate_limited_without_timestamp_still_attempts_once():
     stats, calls = _run_with(meta, request_code=_limited)
     assert calls == ["SMS"]
     assert stats["rate_limited"] == 1
+
+
+def test_sent_code_is_not_resent_within_24h():
+    """A successful request must not re-burst: while a code is outstanding
+    for this phone, the 30-min beat keeps polling status but never calls
+    request_code again."""
+    meta = {
+        "phone_number_id": "pid-1",
+        "whatsapp_code_status": "sent",
+        "whatsapp_code_sent_at": (datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+        "whatsapp_code_sent_phone_id": "pid-1",
+    }
+    stats, calls = _run_with(meta)
+    assert calls == []
+    assert stats["code_sent"] == 0
+    assert "code already sent" in stats["details"][0]
+
+
+def test_sent_code_resent_after_24h():
+    """If the code went stale unverified, a resend is allowed."""
+    meta = {
+        "phone_number_id": "pid-1",
+        "whatsapp_code_status": "sent",
+        "whatsapp_code_sent_at": (datetime.now(UTC) - timedelta(hours=25)).isoformat(),
+        "whatsapp_code_sent_phone_id": "pid-1",
+    }
+    stats, calls = _run_with(meta)
+    assert calls == ["SMS"]
+    assert stats["code_sent"] == 1
+
+
+def test_rate_limit_is_scoped_to_phone_id():
+    """A rate-limit stamped for a different phone_number_id must not block
+    the current phone (Meta quotas are per-number)."""
+    meta = {
+        "phone_number_id": "pid-new",
+        "whatsapp_code_status": "rate_limited",
+        "whatsapp_rate_limited_at": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+        "whatsapp_rate_limited_phone_id": "pid-old",
+    }
+    stats, calls = _run_with(meta)
+    assert calls == ["SMS"]
+    assert stats["code_sent"] == 1
+
+
+def test_saturated_request_log_skips():
+    """9 logged attempts inside 72h = headroom cap hit — skip without
+    calling Meta."""
+    recent = datetime.now(UTC) - timedelta(hours=3)
+    meta = {
+        "phone_number_id": "pid-1",
+        "whatsapp_code_request_log": {
+            "pid-1": [(recent + timedelta(minutes=i)).isoformat() for i in range(9)]
+        },
+    }
+    stats, calls = _run_with(meta)
+    assert calls == []
+    assert stats["rate_limited"] == 1
+    assert "saturated" in stats["details"][0]
+
+
+def test_attempt_logged_before_request():
+    """Every request_code attempt is recorded in the per-phone log so the
+    72h cap is exact — even when Meta rejects it."""
+    meta = {"phone_number_id": "pid-1"}
+    stats, calls = _run_with(meta)
+    assert calls == ["SMS"]
+    assert stats["code_sent"] == 1
+    assert len(meta["whatsapp_code_request_log"]["pid-1"]) == 1

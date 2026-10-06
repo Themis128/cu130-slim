@@ -135,29 +135,84 @@ async def _check_and_request() -> dict[str, Any]:
                 stats["details"].append(f"{account.id}: already VERIFIED ✓")
                 continue
 
-            # Honor the 72h/10-request rate-limit window: every code request
-            # Meta sees counts toward the rolling cap, so re-asking inside
-            # the window both burns budget and keeps it rolling. Skip while
-            # we're inside 72h of the last observed 136024.
-            if meta.get("whatsapp_code_status") == "rate_limited":
-                rl_at_raw = meta.get("whatsapp_rate_limited_at")
-                try:
-                    rl_at = datetime.fromisoformat(rl_at_raw) if rl_at_raw else None
-                except (ValueError, TypeError):
-                    rl_at = None
-                if rl_at is not None:
-                    if rl_at.tzinfo is None:
-                        rl_at = rl_at.replace(tzinfo=UTC)
-                    window_end = rl_at + timedelta(hours=72)
-                    if datetime.now(UTC) < window_end:
-                        stats["rate_limited"] += 1
-                        stats["details"].append(
-                            f"{account.id}: in 72h rate-limit window (until "
-                            f"{window_end:%Y-%m-%d %H:%M}Z) — skipping code request"
-                        )
-                        continue
+            now = datetime.now(UTC)
 
-            # Try requesting a code
+            # ── Quota guards ─────────────────────────────────────────────
+            # Meta allows 10 code requests per phone per rolling 72h. Every
+            # attempt Meta sees counts — including rejected ones — so we keep
+            # a per-phone request log in meta_data and prune it to the window.
+            req_log = meta.get("whatsapp_code_request_log") or {}
+            times: list[datetime] = []
+            for raw in req_log.get(phone_id) or []:
+                try:
+                    t = datetime.fromisoformat(raw)
+                except (ValueError, TypeError):
+                    continue
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=UTC)
+                if now - t < timedelta(hours=72):
+                    times.append(t)
+            req_log[phone_id] = [t.isoformat() for t in times]
+            meta["whatsapp_code_request_log"] = req_log
+
+            def _meta_dt(key: str) -> datetime | None:
+                raw = meta.get(key)
+                if not raw:
+                    return None
+                try:
+                    t = datetime.fromisoformat(raw)
+                except (ValueError, TypeError):
+                    return None
+                return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+            skip_reason: str | None = None
+            rl_at = _meta_dt("whatsapp_rate_limited_at")
+            rl_phone = meta.get("whatsapp_rate_limited_phone_id")
+            sent_at = _meta_dt("whatsapp_code_sent_at")
+            sent_phone = meta.get("whatsapp_code_sent_phone_id")
+
+            if len(times) >= 9:
+                # Keep one slot of headroom under Meta's 10-request ceiling.
+                oldest = min(times)
+                skip_reason = (
+                    f"72h request window saturated ({len(times)} logged, "
+                    f"oldest exits {oldest + timedelta(hours=72):%Y-%m-%d %H:%M}Z)"
+                )
+            elif rl_at and now - rl_at < timedelta(hours=72) and rl_phone in (None, phone_id):
+                # A recent 136024 for this phone (or a legacy marker without
+                # a phone id) means Meta's window is still saturated. With a
+                # request log the cap check above expires precisely; without
+                # one this is intentionally conservative — over-waiting costs
+                # nothing, another burst costs the whole quota.
+                window_end = rl_at + timedelta(hours=72)
+                skip_reason = f"in 72h rate-limit window (until {window_end:%Y-%m-%d %H:%M}Z)"
+            elif (
+                meta.get("whatsapp_code_status") == "sent"
+                and sent_at
+                and sent_phone in (None, phone_id)
+                and now - sent_at < timedelta(hours=24)
+            ):
+                # A code is already outstanding for this phone — the user has
+                # 24h to enter it before we auto-resend. Without this gate the
+                # 30-min beat would burst SMS codes until Meta 136024s again.
+                resend_at = sent_at + timedelta(hours=24)
+                skip_reason = (
+                    f"code already sent {(now - sent_at).seconds // 3600}h ago "
+                    f"— resend at {resend_at:%Y-%m-%d %H:%M}Z if still unverified"
+                )
+
+            if skip_reason:
+                stats["rate_limited"] += 1
+                stats["details"].append(f"{account.id}: {skip_reason} — skipping code request")
+                account.meta_data = meta
+                flag_modified(account, "meta_data")
+                await db.commit()
+                continue
+
+            # Try requesting a code — log the attempt up front: Meta counts
+            # it toward the quota even when it rejects.
+            times.append(now)
+            req_log[phone_id] = [t.isoformat() for t in times]
             code_resp = await _request_code(phone_id, token, "SMS")
             status_code = code_resp.get("_status_code", 0)
 
@@ -166,8 +221,9 @@ async def _check_and_request() -> dict[str, Any]:
                 stats["details"].append(
                     f"{account.id}: ✅ verification code SENT to {status.get('display_phone_number', '?')}"
                 )
-                # Record the timestamp
-                meta["whatsapp_code_requested_at"] = datetime.now(UTC).isoformat()
+                meta["whatsapp_code_requested_at"] = now.isoformat()
+                meta["whatsapp_code_sent_at"] = now.isoformat()
+                meta["whatsapp_code_sent_phone_id"] = phone_id
                 meta["whatsapp_code_status"] = "sent"
                 account.meta_data = meta
                 flag_modified(account, "meta_data")
@@ -182,7 +238,8 @@ async def _check_and_request() -> dict[str, Any]:
                     stats["rate_limited"] += 1
                     stats["details"].append(f"{account.id}: rate-limited (136024), waiting for 72h window reset")
                     meta["whatsapp_code_status"] = "rate_limited"
-                    meta["whatsapp_rate_limited_at"] = datetime.now(UTC).isoformat()
+                    meta["whatsapp_rate_limited_at"] = now.isoformat()
+                    meta["whatsapp_rate_limited_phone_id"] = phone_id
                     meta["whatsapp_code_error"] = code_resp.get("error", {}).get("error_user_msg", "")
                     account.meta_data = meta
                     flag_modified(account, "meta_data")
