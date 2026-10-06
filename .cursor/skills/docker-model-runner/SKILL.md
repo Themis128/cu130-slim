@@ -535,3 +535,31 @@ docker model unload ai/qwen3:8b-q4_K_M
 - [DeepWiki: Model Management Endpoints](https://deepwiki.com/docker/model-runner/8.1-model-management-endpoints)
 - [DeepWiki: Inference Endpoints](https://deepwiki.com/docker/model-runner/8.2-inference-endpoints)
 - [DeepWiki: Management Endpoints](https://deepwiki.com/docker/model-runner/8.3-management-endpoints)
+
+
+## VRAM wedge — queued "Loading..." loads (seen 2026-10-06)
+
+Symptom: generate-content 502s; n8n nodes abort at their 300s timeout with
+'connection aborted'; logs show 'DMR: insufficient VRAM — freeing GPU' +
+'docker CLI not found — DMR CLI fallback unavailable'.
+
+Diagnosis:
+- Host nvidia-smi is BLIND to container VRAM under WSL2 — always check
+  inside: docker exec docker-model-runner nvidia-smi
+- docker model ps shows models stuck 'Loading...' — queued load requests
+  that can't fit never time out and block the scheduler; /api/ps shows
+  expires_at=0001-01-01 (epoch) for these queued entries, NOT a real pin
+- Real caller chain: n8n -> social-api generate-content -> DMR; a 502
+  means the model load queued behind doomed loads
+
+Recovery:
+1. POST /engines/unload {"all": true} on :12435 (evicts runners)
+2. docker restart docker-model-runner (clears wedged queued loads)
+3. keep-warm task re-establishes mid-4B + llama3.2 (~90s)
+4. verify: docker model ps + a direct chat completion
+
+Notes:
+- _BEST_PRACTICE_CONFIGS keep_alives are all finite (2m/30m/90s/60s) —
+  epoch-0 expiry in /api/ps means 'queued', not an admin pin
+- Admin keep-alive overrides persist in Redis hash dmr:config_overrides
+- ComfyUI /free is called by the heal path only when its queue is idle
