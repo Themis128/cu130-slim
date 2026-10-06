@@ -82,7 +82,7 @@ class TestConfigurePayload:
         body = dmr._configure_payload("hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
         assert body["model"].endswith("Q4_K_M")
         assert body["context-size"] == 4096
-        assert body["keep_alive"] == "5m"
+        assert body["keep_alive"] == "30m"
         assert "--n-gpu-layers" in body["runtime-flags"]
 
     def test_think_maps_to_llamacpp_reasoning_budget(self):
@@ -113,7 +113,7 @@ class TestEnsureModelConfigured:
         posts = [c for c in fake_client.calls if c[0] == "post" and "_configure" in c[1]]
         assert len(posts) == 1
         assert posts[0][2]["model"] == "ai/smollm3"
-        assert posts[0][2]["context-size"] == 4096
+        assert posts[0][2]["context-size"] == 2048
 
     @pytest.mark.asyncio
     async def test_ttl_skips_second_call(self, fake_client, monkeypatch):
