@@ -1582,7 +1582,26 @@ services:
             echo "[dmr-watchdog] DMR health check failed ($$fails/3)"
             if [ "$$fails" -ge 3 ]; then
               echo "[dmr-watchdog] restarting docker-model-runner"
-              docker restart docker-model-runner || docker start docker-model-runner || true
+              if ! docker restart docker-model-runner; then
+                echo "[dmr-watchdog] restart failed — trying docker kill"
+                if ! docker kill docker-model-runner 2>/dev/null; then
+                  # Zombie PID 1 cannot be killed through the docker API
+                  # (seen 2026-10-06: "PID is zombie and can not be killed")
+                  # and the Desktop-managed container has no --init. Kill the
+                  # container's containerd-shim on the host instead — the
+                  # runner's restart=always policy then recreates it cleanly.
+                  echo "[dmr-watchdog] kill failed — zombie PID 1; killing containerd-shim"
+                  cid=$$(docker inspect -f '{{.Id}}' docker-model-runner 2>/dev/null)
+                  if [ -n "$$cid" ]; then
+                    docker run --rm --privileged --pid=host docker:27-cli \
+                      pkill -9 -f "containerd-shim.*-id $$cid" \
+                      && echo "[dmr-watchdog] shim killed — restart=always recreates the runner" \
+                      || echo "[dmr-watchdog] shim kill failed — Docker Desktop restart required"
+                  else
+                    echo "[dmr-watchdog] container gone — Docker Desktop restart required"
+                  fi
+                fi
+              fi
               fails=0
             fi
           fi
