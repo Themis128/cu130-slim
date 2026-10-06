@@ -98,7 +98,21 @@ leads.py upsert_lead()/create_lead()
       verifies SOCIALAUTO_LEADS_WEBHOOK_SECRET (timing-safe compare)
       → isSocialAutoLead() → toEspoLeadData() → espocrm.createLead()
       campaignSlug: socialauto-<source>
+  → _record_espo_lead_id() writes the returned results[].espocrm_lead_id
+    back to Lead.meta_data (best-effort, non-fatal) — that marker is what
+    downstream sync checks read.
 ```
+
+**Source allowlist** (`isSocialAutoLead`): `whatsapp_flow`, `whatsapp_dm`,
+`facebook_messenger`, `instagram_dm`, `website`. `website` (contact form,
+playbook, funnel captures via `/api/v1/leads/public`) maps to EspoCRM's
+native `Web Site` lead-source enum; the four DM sources map to `Other`
+with the channel named in the description. Any other source is rejected
+with `ok:false` in the per-item results.
+
+**Datalake export excludes test fixtures**: `_export_leads` filters
+reserved `example.*` email domains in SQL, so CI fixtures never inflate
+the lead count in the gold snapshot.
 
 **Config:** `CLOUDLESS_LEADS_WEBHOOK_URL` + `CLOUDLESS_LEADS_WEBHOOK_SECRET`
 (SocialAuto `.env`) ↔ `SOCIALAUTO_LEADS_WEBHOOK_SECRET` (cloudless.gr

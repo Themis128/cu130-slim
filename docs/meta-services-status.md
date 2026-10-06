@@ -213,6 +213,21 @@ The WhatsApp Business Account is active and the webhook is configured, but the p
 
 **Impact:** WhatsApp messaging (both sending and receiving) is blocked until verification is complete. The webhook and bot configuration are ready and will work once the phone is verified.
 
+**Quota guards (2026-10-06, `whatsapp_verify.py`):** the 30-min verification
+beat is gated so it can't burn Meta's 10-requests-per-72h budget:
+
+- Every `request_code` attempt is logged per phone in
+  `meta_data.whatsapp_code_request_log` (pruned to 72h); ≥9 logged attempts
+  skips the request — one slot of headroom under the cap.
+- A `136024` rejection stamps `whatsapp_rate_limited_at` +
+  `whatsapp_rate_limited_phone_id` and gates for 72h, scoped to that phone.
+- A successful send stamps `whatsapp_code_sent_at`/`_phone_id`; resends are
+  suppressed for 24h while the status GET keeps polling.
+- `update_whatsapp_credentials` clears all cooldown keys when
+  `phone_number_id` changes (quotas are per-number).
+
+State table: `.devin/skills/whatsapp-phone-verify/SKILL.md` §Meta rate limits.
+
 ---
 
 ### Issue 5: Meta App Review — Not Submitted
