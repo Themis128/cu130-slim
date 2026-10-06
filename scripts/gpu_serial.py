@@ -81,9 +81,19 @@ def unload_dmr() -> list[str]:
     if not loaded:
         return []
     res = _http("/engines/unload", {}, timeout=30.0)
-    if res is not None:
-        return loaded
-    return []
+    if res is None:
+        return []
+    # Verify the post-unload resident state — /api/ps can list queued
+    # scheduler entries, and an HTTP 200 alone does not prove any resident
+    # runner was actually evicted (e.g. {"unloaded_runners": 0}).
+    remaining = set(resident_dmr_models())
+    evicted = [m for m in loaded if m not in remaining]
+    if remaining:
+        print(
+            f"gpu_serial: unload incomplete — still resident: {sorted(remaining)}",
+            file=sys.stderr,
+        )
+    return evicted
 
 
 def hold_and_run(cmd: list[str]) -> int:
