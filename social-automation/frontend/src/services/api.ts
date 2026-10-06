@@ -1287,4 +1287,47 @@ export const reportsApi = {
     api.post<{ queued: boolean; task_id: string; notebook: string }>('/reports/run', { notebook, parameters, send }),
 }
 
+export interface OpsServiceStatus {
+  name: string
+  online: boolean
+  detail: string
+}
+
+export interface OpsConsoleAccount {
+  id: string
+  platform: string
+  username: string | null
+  display_name: string | null
+  status: string
+  account_type: string
+  token_expires_at: string | null
+  audit: Record<string, unknown> | null
+}
+
+export interface OpsConsoleResponse {
+  checked_at: string
+  services: OpsServiceStatus[]
+  accounts: OpsConsoleAccount[]
+  publish_queue: Record<string, number>
+  media: { ai_generated_assets?: number; comfyui_queue?: { pending?: number; running?: number } }
+  browser_orchestrator: {
+    current_platform: string | null
+    queue_length: number
+    lock_held: boolean
+    message: string
+  }
+  tiktok_audit: Record<string, unknown> | null
+}
+
+export const opsApi = {
+  getConsole: () => api.get<OpsConsoleResponse>('/ops/console'),
+  getBrowserOrchestrator: () => api.get('/ops/browser-orchestrator'),
+  releaseBrowserLock: () => api.post('/ops/browser-orchestrator/release'),
+  sessionHeal: () => api.post<Record<string, unknown>>('/ops/session-heal'),
+  updateTikTokAudit: (data: { status: string; reference?: string; detail?: string }) =>
+    api.put('/ops/tiktok-audit', data),
+  triggerDigest: (params?: { days?: number; async_queue?: boolean }) =>
+    api.post('/ops/daily-digest', null, { params: { async_queue: true, ...params } }),
+}
+
 export default api
