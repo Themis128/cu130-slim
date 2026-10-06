@@ -22,7 +22,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -135,6 +135,28 @@ async def _check_and_request() -> dict[str, Any]:
                 stats["details"].append(f"{account.id}: already VERIFIED ✓")
                 continue
 
+            # Honor the 72h/10-request rate-limit window: every code request
+            # Meta sees counts toward the rolling cap, so re-asking inside
+            # the window both burns budget and keeps it rolling. Skip while
+            # we're inside 72h of the last observed 136024.
+            if meta.get("whatsapp_code_status") == "rate_limited":
+                rl_at_raw = meta.get("whatsapp_rate_limited_at")
+                try:
+                    rl_at = datetime.fromisoformat(rl_at_raw) if rl_at_raw else None
+                except (ValueError, TypeError):
+                    rl_at = None
+                if rl_at is not None:
+                    if rl_at.tzinfo is None:
+                        rl_at = rl_at.replace(tzinfo=UTC)
+                    window_end = rl_at + timedelta(hours=72)
+                    if datetime.now(UTC) < window_end:
+                        stats["rate_limited"] += 1
+                        stats["details"].append(
+                            f"{account.id}: in 72h rate-limit window (until "
+                            f"{window_end:%Y-%m-%d %H:%M}Z) — skipping code request"
+                        )
+                        continue
+
             # Try requesting a code
             code_resp = await _request_code(phone_id, token, "SMS")
             status_code = code_resp.get("_status_code", 0)
@@ -160,6 +182,7 @@ async def _check_and_request() -> dict[str, Any]:
                     stats["rate_limited"] += 1
                     stats["details"].append(f"{account.id}: rate-limited (136024), waiting for 72h window reset")
                     meta["whatsapp_code_status"] = "rate_limited"
+                    meta["whatsapp_rate_limited_at"] = datetime.now(UTC).isoformat()
                     meta["whatsapp_code_error"] = code_resp.get("error", {}).get("error_user_msg", "")
                     account.meta_data = meta
                     flag_modified(account, "meta_data")
