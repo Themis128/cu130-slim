@@ -1,0 +1,278 @@
+# Standalone SocialAuto stack — deploys the published GHCR images on any
+# Docker host with no source checkout. Copy `.env.example` (repo root) to
+# `.env` next to this file and fill in real secrets before `compose up`.
+#
+# The `env_file: .env` entries feed app config; the inline `environment:`
+# keys below pin the internal service URLs so an env file exported for
+# localhost can never break service-to-service wiring.
+
+services:
+  # Core SocialAuto API Stack
+  social-api:
+    image: ghcr.io/themis128/cu130-slim:social-api-latest
+    pull_policy: always
+    container_name: social-api
+    ports:
+      - "127.0.0.1:8083:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      social-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  social-frontend:
+    image: ghcr.io/themis128/cu130-slim:social-frontend-latest
+    pull_policy: always
+    container_name: social-frontend
+    ports:
+      - "127.0.0.1:8082:8083"
+    depends_on:
+      social-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  social-worker-publishing:
+    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    pull_policy: always
+    container_name: social-worker-publishing
+    command: celery -A app.worker.celery_app worker -Q publishing --loglevel=info --concurrency=3 --max-tasks-per-child=200 --hostname=publishing@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
+  social-worker-media:
+    image: ghcr.io/themis128/cu130-slim:social-worker-media-latest
+    pull_policy: always
+    container_name: social-worker-media
+    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=media@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
+  social-worker-default:
+    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    pull_policy: always
+    container_name: social-worker-default
+    command: celery -A app.worker.celery_app worker -Q default,celery --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=default@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
+  social-worker-messenger:
+    image: ghcr.io/themis128/cu130-slim:social-worker-messenger-latest
+    pull_policy: always
+    container_name: social-worker-messenger
+    command: celery -A app.worker.celery_app worker -Q messenger --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=messenger@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
+  celery-beat:
+    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    pull_policy: always
+    container_name: celery-beat
+    command: celery -A app.worker.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
+  # Browser Sidecars (local build images — not published to GHCR)
+  linkedin-browser-sidecar:
+    image: cu130-slim-linkedin-browser-sidecar
+    container_name: linkedin-browser-sidecar
+    ports:
+      - "127.0.0.1:9225:9225"
+    volumes:
+      - linkedin-browser-data:/data
+    restart: unless-stopped
+
+  tiktok-browser-sidecar:
+    image: cu130-slim-tiktok-browser-sidecar
+    container_name: tiktok-browser-sidecar
+    ports:
+      - "127.0.0.1:9224:9224"
+    volumes:
+      - tiktok-browser-data:/data
+    restart: unless-stopped
+
+  facebook-browser-sidecar:
+    image: cu130-slim-facebook-browser-sidecar
+    container_name: facebook-browser-sidecar
+    ports:
+      - "127.0.0.1:9226:9226"
+    volumes:
+      - facebook-browser-data:/data
+    restart: unless-stopped
+
+  messenger-sidecar:
+    image: cu130-slim-messenger-sidecar
+    container_name: messenger-sidecar
+    ports:
+      - "127.0.0.1:9230:9230"
+    volumes:
+      - messenger-browser-data:/data
+    restart: unless-stopped
+
+  # Infrastructure
+  social-postgres:
+    image: postgres:16-alpine
+    container_name: social-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=social
+    volumes:
+      - social-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AI / GPU Services
+  social-media-comfyui-gpu:
+    image: ghcr.io/themis128/cu130-slim:comfyui-latest
+    pull_policy: always
+    container_name: social-media-comfyui-gpu
+    ports:
+      - "127.0.0.1:8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # Supporting Services
+  n8n:
+    image: n8nio/n8n:2.19.5
+    container_name: n8n
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:?set N8N_BASIC_AUTH_PASSWORD in .env}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=social-postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-postgres}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      - social-postgres
+    restart: unless-stopped
+
+  instagram-private-api:
+    image: subzeroid/aiograpi-rest:latest
+    container_name: instagram-private-api
+    ports:
+      - "127.0.0.1:8011:8000"
+    restart: unless-stopped
+
+  # Gateways
+  social-api-gateway:
+    image: nginx:1.27-alpine
+    container_name: social-api-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/social-api.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - social-api
+    restart: unless-stopped
+
+  social-metrics:
+    image: nginx:1.27-alpine
+    container_name: social-metrics
+    ports:
+      - "0.0.0.0:9390:80"
+    volumes:
+      - ./nginx/metrics.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+
+volumes:
+  social-postgres-data:
+  redis-data:
+  n8n-data:
+  linkedin-browser-data:
+  tiktok-browser-data:
+  facebook-browser-data:
+  messenger-browser-data:
