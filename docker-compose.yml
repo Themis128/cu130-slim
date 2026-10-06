@@ -188,6 +188,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: social-media-comfyui-gpu
+    init: true  # reaps zombie PIDs — the 2026-10-06 FLUX job left the container unkillable
     networks:
       - backend
       - gpu
@@ -399,6 +400,11 @@ services:
       context: ./diffusers-server
       dockerfile: Dockerfile
     container_name: local-diffusers
+    # Dormant profile: excluded from default `docker compose up` so the retired
+    # SD 1.5 service can't resurrect on stack restarts or reserve the GPU.
+    # Run explicitly: docker compose --profile local-diffusers up -d local-diffusers
+    profiles:
+      - local-diffusers
     networks:
       - backend
       - gpu
@@ -1258,6 +1264,7 @@ services:
       context: ./browser-novnc
       dockerfile: Dockerfile
     container_name: browser-novnc
+    init: true  # browser processes spawn zombies
     networks:
       - backend
     ports:
@@ -1300,6 +1307,7 @@ services:
       context: ./tiktok-browser-sidecar
       dockerfile: Dockerfile
     container_name: tiktok-browser-sidecar
+    init: true  # browser processes spawn zombies
     networks:
       - backend
     ports:
@@ -1329,6 +1337,7 @@ services:
       context: ./linkedin-browser-sidecar
       dockerfile: Dockerfile
     container_name: linkedin-browser-sidecar
+    init: true  # browser processes spawn zombies
     networks:
       - backend
     ports:
@@ -1455,6 +1464,7 @@ services:
       context: ./facebook-browser-sidecar
       dockerfile: Dockerfile
     container_name: facebook-browser-sidecar
+    init: true  # browser processes spawn zombies
     networks:
       - backend
     ports:
@@ -1483,6 +1493,7 @@ services:
       context: ./messenger-sidecar
       dockerfile: Dockerfile
     container_name: messenger-sidecar
+    init: true  # browser processes spawn zombies
     networks:
       - backend
     ports:
