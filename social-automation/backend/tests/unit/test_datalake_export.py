@@ -206,3 +206,46 @@ def test_ops_health_flags_stale_sync():
     assert "tiktok/@tt" in out["stale_sync_accounts"]
     assert "instagram/@ig" in out["stale_sync_accounts"]
     assert "linkedin/@tb" not in out["stale_sync_accounts"]
+
+
+class _CompileCheckDB:
+    """execute() compiles the statement so tests can assert the WHERE clause
+    actually filters fixture emails, then returns canned rows."""
+
+    def __init__(self, rows):
+        self._rows = rows
+        self.compiled_sql = ""
+
+    async def execute(self, stmt):
+        self.compiled_sql = str(
+            stmt.compile(compile_kwargs={"literal_binds": True})
+        )
+        return _Rows(self._rows)
+
+
+def test_export_leads_excludes_fixture_emails():
+    """CI fixtures (@example.invalid / example.com) must be filtered in SQL —
+    the live table holds 13 'CI Functional Test' rows that made the digest
+    report '13 leads, 0 synced'."""
+    import uuid
+
+    from app.models.lead import Lead, LeadSource
+    from app.worker.tasks import datalake_export as de
+
+    lead = Lead(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        source=LeadSource.website,
+        name="Real Person",
+        email="real@customer.gr",
+        meta_data={"espocrm_lead_id": "espo-1"},
+        created_at=datetime(2026, 10, 1, tzinfo=UTC),
+    )
+    db = _CompileCheckDB([(lead, None)])
+    rows = _run(de._export_leads(db))
+
+    for suffix in ("example.invalid", "example.com", "example.org", "example.net"):
+        assert suffix in db.compiled_sql
+    assert len(rows) == 1
+    assert rows[0]["espocrm_synced"] is True
+    assert rows[0]["email_domain"] == "customer.gr"
