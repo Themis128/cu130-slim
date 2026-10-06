@@ -668,7 +668,7 @@ Beat Schedule:
 > `— (member metrics scope missing)`. The browser sidecar's activity-page
 > scrape covers impressions/reactions/comments in the meantime. Never add
 > the scope to `LINKEDIN_EXTRA_SCOPES` on the main app — OAuth rejects it
-> with `unauthorized_scope_error`. Runbook: `.devin/skills/linkedin-api-upgrade/`.
+> with `unauthorized_scope_error`. Runbook: `.devin/skills/developer-apps-ops/linkedin-api-upgrade/`.
 
 ### API Versions (as of September 2026)
 

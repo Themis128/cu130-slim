@@ -119,7 +119,7 @@ container and the Playwright browser image — no local installs needed.
 | Task | Tool | Notes |
 |------|------|-------|
 | Check granted OAuth scopes | `.devin/skills/tiktok-console-ops/scripts/check-scopes.py` | Prints granted vs expected scopes for the active TikTok account. Exit 1 if any are missing. |
-| Reconnect / upgrade scopes | `.devin/skills/social-oauth-ops/scripts/tiktok-reconnect.py` | Drives the OAuth consent flow using the stored `tiktok_web_cookies` session; `--dry-run` stops after building the authorize URL. Pass `TIKTOK_USERNAME=<handle>` or a second arg to pick a specific account when several are connected. Targets the account's own `team_id`. |
+| Reconnect / upgrade scopes | `.devin/skills/social-accounts-manager/social-oauth-ops/scripts/tiktok-reconnect.py` | Drives the OAuth consent flow using the stored `tiktok_web_cookies` session; `--dry-run` stops after building the authorize URL. Pass `TIKTOK_USERNAME=<handle>` or a second arg to pick a specific account when several are connected. Targets the account's own `team_id`. |
 | Prepare the Direct Post audit | `.devin/skills/tiktok-console-ops/scripts/cp-audit-application.py` | Fills all 4 wizard steps up to Review. Exits without submitting. Requires `TIKTOK_DEV_EMAIL`/`TIKTOK_DEV_PASSWORD` in `.env` and `docs/tiktok-demo/videos/tiktok-demo.mp4`. |
 | Submit the Direct Post audit | `cp-audit-application.py --submit` | Submits, then verifies the app page shows "Under review" beside Direct Post. Exits non-zero if the submission can't be confirmed. |
 

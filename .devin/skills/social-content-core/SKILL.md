@@ -45,7 +45,7 @@ DAY 4 (5-second profile test), DAY 5 (bio that sells), `2 week/`, `Linkedin/`.
 
 Core frameworks: niche formula "We help [WHO] who [PROBLEM] so they can [RESULT]";
 "Clarity attracts. Vagueness gets ignored"; plain audience-first language.
-Applied voice lives in `brand_voices.voice_signature` — see `creator-type-voice` skill.
+Applied voice lives in `brand_voices.voice_signature` — see `content-strategy` skill.
 
 ## Monetization funnel (primary optimization goal)
 
@@ -91,7 +91,7 @@ POST /api/v1/content/posts/{id}/submit-review  # review workflow
 POST /api/v1/content/posts/{id}/cross-post     # fan out to other accounts
 ```
 
-Failed/odd publishes → `publish-alert-triage` skill (signature table for every
+Failed/odd publishes → `publish-ops` skill (signature table for every
 known platform error).
 
 ## Monthly ritual — automation checklist

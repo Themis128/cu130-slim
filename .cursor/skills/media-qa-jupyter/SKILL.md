@@ -1,24 +1,21 @@
 ---
 name: media-qa-jupyter
 description: >-
-  Validate post media before publishing using the media-notebooks QA flow —
-  deterministic platform-rule checks plus a semantic DMR vision-model
-  (qwen3-vl) caption match. Use before publishing posts with generated
-  media, when a digest flags broken/wrong media, or after changing the
-  generation pipeline (e.g. #301 SD 1.5 settings fix).
-allowed-tools:
-  - read
-  - exec
-  - grep
-  - glob
-triggers:
-  - user
-  - model
+  Validate post media before publishing: deterministic platform-rule checks + DMR vision-model semantic match, plus the media-required correctness rule (every post must carry correct media). Use before publishing generated media or when digests flag wrong media.
 ---
 
-# Media QA via Jupyter + DMR
+# Media Qa Jupyter
 
-## When to use
+Consolidated skill — each section below was a standalone skill. Member scripts/templates live under `<source-skill>/` inside this directory.
+
+| Section | Source |
+|---|---|
+| Media QA via Jupyter + DMR | `media-qa-jupyter` |
+| Post media correctness | `media-qa-jupyter` |
+
+## Media QA via Jupyter + DMR
+
+### When to use
 
 - Before publishing posts that carry AI-generated media (the 2026-10-04
   digest shipped three distorted/unrelated images to production).
@@ -26,7 +23,7 @@ triggers:
 - After changing the image-generation pipeline (provider, settings, prompt
   templates) — run the QA notebook over sample outputs first.
 
-## What runs where
+### What runs where
 
 | Layer | Where | Checks |
 |---|---|---|
@@ -37,22 +34,22 @@ The deterministic layer blocks media that *cannot* publish; the semantic
 layer catches media that *would publish but is wrong* (e.g. the 2026-10-04
 crowd image generated for a Raspberry Pi story).
 
-## Procedure
+### Procedure
 
 ```bash
-# 1. Interactive QA in the notebook UI (localhost:8888, token from .env):
+## 1. Interactive QA in the notebook UI (localhost:8888, token from .env):
 docker compose up -d social-jupyter
-#    open work/media_validation.ipynb → set media_paths + platform → Run All
+##    open work/media_validation.ipynb → set media_paths + platform → Run All
 
-# 2. Headless (papermill) — parameters: media_paths (JSON list), platform, post_id:
+## 2. Headless (papermill) — parameters: media_paths (JSON list), platform, post_id:
 docker exec social-jupyter papermill work/media_validation.ipynb \
   work/media_validation-output.ipynb \
   -p media_paths '["2026/10/04/f66a441d654f4e04.jpg"]' -p platform instagram
 
-# 3. Report: work/media_validation_report.json (verdict per asset + DMR captions)
+## 3. Report: work/media_validation_report.json (verdict per asset + DMR captions)
 ```
 
-## DMR requirements
+### DMR requirements
 
 - Docker Model Runner serves OpenAI-compatible chat at
   `http://host.docker.internal:12435/engines/v1` (host: `localhost:12434`).
@@ -61,7 +58,7 @@ docker exec social-jupyter papermill work/media_validation.ipynb \
 - No DMR/no model pulled → the deterministic verdict still stands; the
   semantic cell degrades to a warning, the report notes it.
 
-## Interpreting results
+### Interpreting results
 
 - `verdict: fail` + dimension/ratio reason → regenerate at the platform's
   creation size (see the table in `notebooks/media_validation.ipynb`).
@@ -71,7 +68,7 @@ docker exec social-jupyter papermill work/media_validation.ipynb \
 - Records are kept next to the notebook (`media_validation_report.json`) —
   attach them to the digest triage when re-publishing.
 
-## GPU serialization — HARD RULE (owner directive 2026-10-04)
+### GPU serialization — HARD RULE (owner directive 2026-10-04)
 
 Only ONE model may be resident in VRAM at a time. Media creation is
 serialized: acquire the GPU lock → unload resident DMR models → run ONE job
@@ -91,3 +88,17 @@ proxy for llama-server on a single GPU (the productionized evolution of
 `gpu_serial.py`); NVIDIA Triton `--model-control-mode=explicit` with the
 `v2/repository/models/{model}/load|unload` API; DMR's own one-at-a-time
 scheduler with idle timers; diffusers `enable_model_cpu_offload()`.
+
+## Post media correctness
+
+Standing product rule: every post must always have the correct media for its type (carousel, single post, infographic, video/Reel/TikTok, etc.).
+
+### Checklist before schedule/publish
+1. `media_ids` non-empty when the format requires media (never accidentally empty).
+2. Asset type matches format (image vs video vs multi-slide carousel).
+3. Carousel: all slides present and ordered; respect platform slide limits.
+4. Infographic/poster: use the infographic renderer path so text is readable.
+5. Instagram images: JPEG-compatible public URL (`/api/v1/media/view?format=jpeg` for WebP/HEIC/AVIF).
+6. TikTok/Reels video: meet FPS/codec rules (≥23 FPS, H.264 preferred).
+
+If media is wrong or missing: fix/regenerate first. Do not publish broken media.

@@ -54,3 +54,13 @@ Read `social-content-core` first.
   freeform send outside the 24h window fails.
 - Both are secondary channels — never block a multi-platform publish on
   them; a messaging failure shouldn't fail the whole post.
+
+## Media capabilities
+
+Full pipeline index: `media-pipelines` skill.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | Attachment on TG channel / WA template | Brand-composed |
+| Video | MP4 attachment | `branded-video-pipeline` |
+| Document | PDF (e.g. monthly checklist) | `monthly-checklist-update` |

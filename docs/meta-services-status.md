@@ -226,7 +226,7 @@ beat is gated so it can't burn Meta's 10-requests-per-72h budget:
 - `update_whatsapp_credentials` clears all cooldown keys when
   `phone_number_id` changes (quotas are per-number).
 
-State table: `.devin/skills/whatsapp-phone-verify/SKILL.md` §Meta rate limits.
+State table: `.devin/skills/whatsapp-ops/SKILL.md` §Meta rate limits.
 
 ---
 
@@ -372,7 +372,7 @@ All Meta-related environment variables in `/home/tbaltzakis/cu130-slim/.env`:
 - `docs/messenger-architecture.md` — Messenger bot architecture
 - `docs/messenger-bot-guide.md` — Messenger bot configuration guide
 - `docs/messenger-app-review-permissions.md` — Messenger App Review permissions
-- `.devin/skills/meta-app-review/SKILL.md` — Meta App Review skill
-- `.devin/skills/meta-oauth-setup/SKILL.md` — Meta OAuth setup skill
-- `.devin/skills/instagram-private-api/SKILL.md` — Instagram private API skill
-- `.devin/skills/whatsapp-phone-verify/SKILL.md` — WhatsApp phone verification skill
+- `.devin/skills/developer-apps-ops/SKILL.md` — Meta App Review skill
+- `.devin/skills/developer-apps-ops/SKILL.md` — Meta OAuth setup skill
+- `.devin/skills/instagram-ops/SKILL.md` — Instagram private API skill
+- `.devin/skills/whatsapp-ops/SKILL.md` — WhatsApp phone verification skill

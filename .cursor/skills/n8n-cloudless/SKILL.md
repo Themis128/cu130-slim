@@ -168,7 +168,7 @@ Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
 4. **`.item` pairing**: `$('Node').item.json` resolves via paired items —
    works through If/Switch nodes but fails if the referenced node produced
    zero items (e.g. empty inbox). Guard or default early.
-5. **NextCloud node is broken for modern NC** — see `nextcloud-integration`
+5. **NextCloud node is broken for modern NC** — see `omv-nextcloud-ops`
    skill (issue n8n-io/n8n#8802). Use raw HTTP PROPFIND/GET/MOVE instead.
 6. **Debug loop that works**: trigger webhook → `n8n_list_executions` →
    `n8n_get_execution` (per-node errors via Postgres fallback — the API key

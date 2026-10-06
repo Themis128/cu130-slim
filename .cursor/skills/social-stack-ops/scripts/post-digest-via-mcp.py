@@ -12,7 +12,7 @@ from skill_http import repo_root  # noqa: E402
 
 ROOT = repo_root()
 out = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / ".tmp-socialauto-digest-slack.md"
-script = ROOT / ".cursor/skills/social-stack-ops/scripts/build_digest_for_slack.py"
+script = ROOT / ".devin/skills/social-stack-ops/scripts/build_digest_for_slack.py"
 
 subprocess.run(["docker", "cp", str(script),
                 "social-api:/tmp/build_digest_for_slack.py"], check=True)

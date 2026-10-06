@@ -133,7 +133,7 @@ mcp/server.py      MCP server exposing social tools
 2. **Shared bridge** `browser-novnc:9223` — one Chromium for all web-session work (IG DMs fallback, personal Messenger, Threads, X). Owner-hold: requests carry `X-Platform`; owner holds browser ~180s past last touch; `POST /session/start {platform, force:true}` claims it; `POST /session/cookies` injects; `POST /session/extract` persists storage state.
 3. **Dedicated sidecars** — TikTok 9224, LinkedIn 9225, Facebook 9226, Messenger 9230. Each keeps its own Playwright profile + storage state under its data volume. `/login`, `/session/validate`, `/debug/all-cookies` (cookie export for transplants). TikTok sidecar `/session` fast-paths to `logged_in:false, reason:"no_session"` when no session cookies are injected — no 15s anonymous profile navigation on every health probe.
 
-Session healing: `.devin/skills/session-transplant/` + `scripts/session_transplant.py` — export cookies from sidecar/MCP browser → inject into bridge → verify → persist.
+Session healing: `.devin/skills/session-ops/session-transplant/` + `scripts/session_transplant.py` — export cookies from sidecar/MCP browser → inject into bridge → verify → persist.
 
 ## Messenger/DM data flow
 
@@ -254,7 +254,7 @@ Sofia Kakkava's "Visibility Era" framework is encoded in the brand voice so ever
   - **MAIN = LinkedIn** — original content, carousels (Company Page `9c4451bb-…`), Educator posts.
   - **SECONDARY = Meta** — Instagram `38ddbd44-…`, Facebook Page, Threads `1071dcd5-…` — adapted/cross-posted versions.
   - **LAST = Twitter/X + TikTok** — opportunistic only (X free-tier quota ~1.5k posts/mo is chronically exhausted; don't schedule into it).
-- **Tools/skills**: `.devin/skills/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `profile-5sec-test` (DAY 4 audit); `publish-alert-triage` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug).
+- **Tools/skills**: `.devin/skills/content-strategy/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `social-profile-update` (DAY 4 audit); `publish-ops` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug).
 
 ## n8n workflows (`n8n-workflows/`, 15 total)
 
@@ -272,4 +272,4 @@ All workflows authenticate to social-api via admin **TOTP login**; text generati
 
 ## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
 
-Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `creator-type-voice`, `publish-alert-triage`, `session-transplant`, `session-health-ops`, `profile-5sec-test`, `linkedin-sidecar-ops`, `tiktok-console-ops`, `messenger-management`, `instagram-dm`, `instagram-account-config`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-oauth-ops`, `meta-{oauth-setup,app-review}`, `twitter-oauth-setup`, `whatsapp-{platform,phone-verify}`, `browser-daemon-mode`, `novnc-login-helper`, `playwright-e2e`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-access-paths`, `cloudflare-token-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-scoring`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`.
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`.

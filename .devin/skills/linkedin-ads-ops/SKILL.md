@@ -157,7 +157,7 @@ Navigate to their profile → the Message link contains
 
 ## Related skills
 
-- `linkedin-sidecar-ops` — session injection, login/2FA, profile ops
+- `browser-ops` — session injection, login/2FA, profile ops
 - `socialauto-publish` — create the organic post to sponsor
 - `socialauto-media` — media library upload/view/enhance
 - `cloudless-carousel-pipeline` — branded carousel generation

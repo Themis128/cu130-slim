@@ -42,7 +42,7 @@ Read `social-content-core` first.
 - **Media must be hosted at public URLs** — resolved via `_media_public_url`
   (R2/CDN storage path); local files are uploaded to storage first.
 - Caption attaches to the parent carousel container, not items.
-- Threads IG-SSO bootstrap exists in `session-auto-heal` if the token dies.
+- Threads IG-SSO bootstrap exists in `session-ops` if the token dies.
 
 ## Media rules
 
@@ -53,7 +53,17 @@ Read `social-content-core` first.
 
 ## Gotchas
 
-- "object-not-found" → `publish-alert-triage` (usually a media URL that
+- "object-not-found" → `publish-ops` (usually a media URL that
   expired or isn't publicly fetchable — check R2/MinIO object ACL).
 - Container publishing is async — a 200 on create ≠ published; the worker
   polls container status before publish.
+
+## Media capabilities
+
+Full pipeline index: `media-pipelines` skill.
+
+| Type | Constraint | Pipeline |
+|---|---|---|
+| Image | Must be a **public URL** (R2/MinIO), JPEG/PNG only | Brand-composed image |
+| Carousel | ≤20 items, images only | — |
+| Video | Public-URL MP4 | `branded-video-pipeline` |

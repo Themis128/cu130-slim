@@ -1,3 +1,9 @@
+---
+name: cross-promo-drip
+description: >-
+  Schedule multi-platform cross-promotion drip campaigns through SocialAuto (e.g. 'follow me on Facebook' posts across LinkedIn/X/Threads/Instagram to grow toward platform gates like the Meta Stars 500-follower threshold). Use for funnel-growth campaigns.
+---
+
 # Cross-Promo Drip
 
 Schedule a multi-platform cross-promotion drip campaign through SocialAuto —
@@ -39,7 +45,7 @@ monetization, etc.).
    deletes any created post that fails this check.
 8. **Last-tier guard (2-Platform Rule)**: Twitter/X and TikTok are
    "opportunistic only" — never add a *schedule* that fires into them
-   (see `creator-type-voice` SKILL.md). Cross-promo on those platforms is
+   (see `content-strategy` SKILL.md). Cross-promo on those platforms is
    manual/publish-now only. `drip.py --schedule` rejects last-tier targets.
 
 **Fail-closed gate**: a post is created only when the analyzer returns a

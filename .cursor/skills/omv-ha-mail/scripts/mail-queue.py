@@ -26,11 +26,13 @@ while i < len(sys.argv):
         sys.exit(1)
 
 print(f"=== Mail Queue on omv-ha ({SSH_HOST}) ===\n")
+remote_cmd = (
+    "echo '--- Queue count ---'; sudo postqueue -p 2>/dev/null | tail -1; echo; "
+    + "echo '--- Queued messages ---'; sudo postqueue -p 2>/dev/null | head -20; echo; "
+    + "echo '--- Recent mail log ---'; sudo tail -20 /var/log/mail.log 2>/dev/null "
+    + "|| sudo journalctl -u postfix -n 20 --no-pager 2>/dev/null"
+)
 subprocess.run([
     "ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
-    f"{SSH_USER}@{SSH_HOST}",
-    "echo '--- Queue count ---'; sudo postqueue -p 2>/dev/null | tail -1; echo; "
-    "echo '--- Queued messages ---'; sudo postqueue -p 2>/dev/null | head -20; echo; "
-    "echo '--- Recent mail log ---'; sudo tail -20 /var/log/mail.log 2>/dev/null "
-    "|| sudo journalctl -u postfix -n 20 --no-pager 2>/dev/null"])
+    f"{SSH_USER}@{SSH_HOST}", remote_cmd])
 print("\n=== Done ===")

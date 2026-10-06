@@ -104,7 +104,7 @@ daily digest email) and `post_targets.error_message`. Failure alerts include
 the post's other outcomes — `published: linkedin, threads · failed:
 instagram` — so a partially published post doesn't read as fully dead.
 The daily digest (`send_daily_slack_digest`, 09:00 Europe/Athens) summarizes
-failed/queued posts — see `publish-alert-triage` skill for the
+failed/queued posts — see `publish-ops` skill for the
 error-signature runbook.
 
 ## Notifications
