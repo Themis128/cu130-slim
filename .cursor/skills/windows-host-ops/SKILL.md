@@ -47,6 +47,13 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   Persistent breakage → `wsl --shutdown` (kills Docker Desktop + all sessions — plan it).
 - **Docker Desktop bounces** under memory pressure: WSL capped at ~19–20GB,
   dropcache reclaim, 16GB swap — watch `WSL-Memory-Watchdog` results.
+- **Resource Saver**: no `EnableResourceSaver` key in
+  `%APPDATA%\Docker\settings-store.json` → default ON. Resource Saver + WSL
+  `autoMemoryReclaim=gradual` is a documented freeze combo; the host runs
+  `dropCache` which is the safe pairing. Do NOT switch `.wslconfig` back to
+  `gradual` (host-starvation freezes observed); if freezes return, disable
+  Resource Saver in Docker Desktop Settings → Resources instead. Idle
+  container memory is handled in-stack by `stack-ops` (idle-sleep proxy).
 - Non-task console spawns are NOT fixable via tasks: Chrome extension
   native-messaging (`cmd.exe` from McAfee WebAdvisor etc.), Devin/Windsurf's own
   `wsl.exe`, Lenovo Vantage. Disable the extension if a flash traces to it.
