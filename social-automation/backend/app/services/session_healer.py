@@ -124,9 +124,17 @@ async def _alert(platform: str, text: str) -> None:
         r = await _get_redis()
         try:
             if await r.set(_ALERT_KEY.format(platform=platform), "1", nx=True, ex=_ALERT_TTL):
-                from app.services.slack_notifications import post_alert_to_slack
+                from app.services.slack_notifications import (
+                    post_alert_to_slack,
+                    session_heal_buttons,
+                )
 
-                await post_alert_to_slack(text[:2000])
+                alert_text = text[:2000]
+                blocks: list[dict] = [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}
+                ]
+                blocks += session_heal_buttons()
+                await post_alert_to_slack(alert_text, blocks=blocks)
         finally:
             await r.aclose()
     except Exception:

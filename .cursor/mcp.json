@@ -54,6 +54,13 @@
     },
     "airbyte": {
       "url": "http://127.0.0.1:9228/mcp"
+    },
+    "slack": {
+      "command": "/home/tbaltzakis/.local/bin/node",
+      "args": [
+        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://mcp.slack.com/mcp"
+      ]
     }
   }
 }

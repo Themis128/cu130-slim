@@ -24,7 +24,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_field, decrypt_token
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
-from app.services.slack_notifications import post_alert_to_slack
+from app.services.slack_notifications import post_alert_to_slack, session_heal_buttons
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -125,16 +125,19 @@ async def _send_alert(owner: User, account_username: str, reason: str) -> None:
                 return
 
         # Slack alert (best-effort; uses same cooldown gating as email).
+        alert_text = "\n".join(
+            [
+                "*Instagram needs you to reconnect*",
+                f"• Account: `@{account_username}`",
+                "• What to do next: go to Settings → Accounts and re-connect Instagram.",
+                f"• What happened: {(reason or '').replace(chr(10), ' ').strip()[:300] or 'Session check failed'}",
+                "_Cloudless · Clear skies. Zero friction._",
+            ]
+        )[:2000]
         await post_alert_to_slack(
-            "\n".join(
-                [
-                    "*Instagram needs you to reconnect*",
-                    f"• Account: `@{account_username}`",
-                    "• What to do next: go to Settings → Accounts and re-connect Instagram.",
-                    f"• What happened: {(reason or '').replace(chr(10), ' ').strip()[:300] or 'Session check failed'}",
-                    "_Cloudless · Clear skies. Zero friction._",
-                ]
-            )[:2000]
+            alert_text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
+            + session_heal_buttons(),
         )
 
         from app.services.email_templates import send_instagram_session_alert_email
