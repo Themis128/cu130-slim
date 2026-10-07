@@ -114,11 +114,12 @@ async def wake(name: str) -> bool:
 
 
 async def sleep_service(name: str) -> bool:
-    rc, out = await docker("stop", "-t", "30", name)
+    docker_name = SERVICES.get(name, {}).get("container", name)
+    rc, out = await docker("stop", "-t", "30", docker_name)
     if rc == 0:
-        log.info("slept %s", name)
+        log.info("slept %s", docker_name)
     else:
-        log.error("docker stop %s: %s", name, out)
+        log.error("docker stop %s: %s", docker_name, out)
     return rc == 0
 
 
