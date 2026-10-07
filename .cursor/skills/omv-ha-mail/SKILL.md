@@ -45,9 +45,16 @@ Inbound:
   (not in any repo env file).
 - **No port 25**: omv-ha is behind Starlink CGNAT; port 25 is blocked.
   All outbound goes through Resend.
-- **Inbound phishing protection**: the Cloudflare `mail-ingest` Worker scores and
-  rejects high-confidence phishing before forwarding; Dovecot LMTP runs a
-  default Sieve rule that moves HTTP redirect/login lures into `Junk`.
+- **Inbound spam/phishing protection**: the Cloudflare `mail-ingest` Worker
+  scores every message (SPF/DKIM/DMARC stamps, DNSBL via DoH, header hygiene,
+  spam subject terms) — score ≥ `SPAM_REJECT_AT` (9) is SMTP-rejected,
+  ≥ `SPAM_TAG_AT` (4) gets `X-Spam-Flag: YES` prepended and the default Sieve
+  files it into `Junk`. Source: `cloudless.gr/workers/mail-ingest/`.
+- **Sieve caveat (fixed 2026-10-07)**: ingest delivers via `dovecot-lda`
+  (protocol `lda`), NOT LMTP — Sieve must be enabled in
+  `/etc/dovecot/conf.d/15-lda.conf` (`mail_plugins { sieve = yes }`), not just
+  `20-lmtp.conf`. Before the fix the default script never ran on ingested mail.
+  `install-mail-ingest.py` now enables it + installs `default.sieve`.
 - **Rspamd is disabled** on OMV-HA because its startup saturates the 1 GB Pi.
   Keep the lightweight Worker + Sieve path unless the mailbox host is upgraded.
 
