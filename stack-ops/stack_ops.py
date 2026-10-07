@@ -278,12 +278,13 @@ async def api_handler(reader: asyncio.StreamReader,
 
 
 async def _status_of(name: str) -> dict:
+    docker_name = SERVICES.get(name, {}).get("container", name)
     return {
-        "state": await container_state(name),
-        "last_active_ago_s": int(time.monotonic() - last_active[name])
-        if name in last_active else None,
-        "active_conns": active_conns.get(name, 0),
-        "keepawake_s": max(0, int(keepawake.get(name, 0) - time.monotonic())),
+        "state": await container_state(docker_name),
+        "last_active_ago_s": int(time.monotonic() - last_active[docker_name])
+        if docker_name in last_active else None,
+        "active_conns": active_conns.get(docker_name, 0),
+        "keepawake_s": max(0, int(keepawake.get(docker_name, 0) - time.monotonic())),
     }
 
 

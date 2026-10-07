@@ -19,7 +19,8 @@
     "airbyte-mcp-server":       {"target": "airbyte-mcp-server:9228",       "idle_min": 45},
     "browser-novnc-ui":         {"container": "browser-novnc",              "target": "browser-novnc:6080", "idle_min": 20, "wait_page": true},
     "browser-novnc-ui2":        {"container": "browser-novnc",              "target": "browser-novnc:6081", "idle_min": 20},
-    "browser-novnc-vnc":        {"container": "browser-novnc",              "target": "browser-novnc:5900", "idle_min": 20}
+    "browser-novnc-vnc":        {"container": "browser-novnc",              "target": "browser-novnc:5900", "idle_min": 20},
+    "comfyui":                  {"container": "social-media-comfyui-gpu",   "target": "social-media-comfyui-gpu:8000", "idle_min": 30, "wait_page": true}
   },
   "listeners": {
     "9223": "browser-novnc",
@@ -40,6 +41,7 @@
     "9228": "airbyte-mcp-server",
     "6080": "browser-novnc-ui",
     "6081": "browser-novnc-ui2",
-    "5900": "browser-novnc-vnc"
+    "5900": "browser-novnc-vnc",
+    "8199": "comfyui"
   }
 }

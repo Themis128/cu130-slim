@@ -21,7 +21,7 @@ x-worker-env: &worker-env
   - N8N_API_KEY=${N8N_API_KEY}
   - N8N_USER=${N8N_USER}
   - N8N_PASSWORD=${N8N_PASSWORD}
-  - COMFYUI_URL=http://comfyui:8000
+  - COMFYUI_URL=http://stack-ops:8199
   - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
   - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
@@ -192,8 +192,6 @@ services:
     networks:
       - backend
       - gpu
-    ports:
-      - 127.0.0.1:8000:8000
     volumes:
       - ./.env:/app/.env:ro
       - ./comfyui/profiles:/opt/ComfyUI/profiles:ro
@@ -690,7 +688,7 @@ services:
       - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
-      - COMFYUI_URL=http://comfyui:8000
+      - COMFYUI_URL=http://stack-ops:8199
       - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
       - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
       - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
@@ -1728,6 +1726,7 @@ services:
       - backend
     ports:
       - 127.0.0.1:8787:8787 # control API
+      - 127.0.0.1:8000:8199 # comfyui (wake-proxied)
       - 127.0.0.1:3000:3000 # metabase
       - 127.0.0.1:5555:5555 # flower
       - 127.0.0.1:5900:5900 # noVNC VNC
