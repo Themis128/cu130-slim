@@ -1747,6 +1747,7 @@ services:
       - 127.0.0.1:1080:1080 # warp-proxy socks5
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./stack-ops/services.json:/app/services.json:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/healthz >/dev/null || exit 1"]
       interval: 30s
