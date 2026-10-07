@@ -1,5 +1,7 @@
 {
+  "id": "linkedin-dm-deferred-reply",
   "name": "linkedin-dm-deferred-reply",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -209,5 +211,6 @@
   },
   "settings": { "executionOrder": "v1" },
   "staticData": null,
+  "tags": [],
   "pinData": {}
 }
