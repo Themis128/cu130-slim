@@ -1723,6 +1723,12 @@ services:
     build:
       context: ./stack-ops
     container_name: stack-ops
+    environment:
+      - STACK_OPS_POLL_SECONDS=${STACK_OPS_POLL_SECONDS:-60}
+      - STACK_OPS_CPU_MAX=${STACK_OPS_CPU_MAX:-3.0}
+      - STACK_OPS_WAKE_TIMEOUT=${STACK_OPS_WAKE_TIMEOUT:-120}
+      - STACK_OPS_CONN_STREAK=${STACK_OPS_CONN_STREAK:-4}
+      - STACK_OPS_SLEEPER=${STACK_OPS_SLEEPER:-1}
     networks:
       - backend
     ports:
