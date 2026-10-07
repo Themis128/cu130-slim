@@ -5,7 +5,7 @@
     "linkedin-browser-sidecar": {"target": "linkedin-browser-sidecar:9225", "idle_min": 20, "group": ["warp-proxy"]},
     "facebook-browser-sidecar": {"target": "facebook-browser-sidecar:9226", "idle_min": 20},
     "messenger-sidecar":        {"target": "messenger-sidecar:9230",        "idle_min": 20},
-    "instagram-private-api":    {"target": "instagram-private-api:8000",    "idle_min": 20},
+    "instagram-private-api":    {"target": "instagram-private-api:8000",    "idle_min": 20, "group": ["warp-proxy"]},
     "warp-proxy":               {"target": "warp-proxy:1080",               "idle_min": 20},
     "languagetool":             {"target": "languagetool:8010",             "idle_min": 20},
     "n8n-sandbox":              {"target": "n8n-sandbox:8081",              "idle_min": 30},

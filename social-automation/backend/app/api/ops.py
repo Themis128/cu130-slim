@@ -281,6 +281,12 @@ async def _probe_service(
 
 
 async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
+    # Fronted by stack-ops — don't wake a sleeping GPU service just to probe it.
+    if await stack_ops.is_asleep("social-media-comfyui-gpu"):
+        return (
+            ServiceStatus(name="comfyui", online=True, detail="sleeping"),
+            {},
+        )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             stats_resp, queue_resp = await asyncio.gather(
