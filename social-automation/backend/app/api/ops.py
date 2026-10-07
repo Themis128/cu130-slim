@@ -19,6 +19,7 @@ from app.models.content import MediaAsset, Post
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.user import User
+from app.services import stack_ops
 from app.services.paddle_digest import send_paddle_digest_to_slack
 from app.services.slack_digest import run_daily_digest_for_all_teams
 from app.worker.tasks.digest import send_daily_slack_digest
@@ -261,7 +262,14 @@ class TikTokAuditUpdate(BaseModel):
     detail: str | None = None
 
 
-async def _probe_service(name: str, url: str, timeout: float = 4.0) -> ServiceStatus:
+async def _probe_service(
+    name: str, url: str, timeout: float = 4.0, container: str | None = None
+) -> ServiceStatus:
+    if container:
+        # stack-ops fronts these services; probing the proxy would wake them.
+        state = await stack_ops.service_state(container)
+        if state == "stopped":
+            return ServiceStatus(name=name, online=True, detail="sleeping")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(url)
@@ -273,6 +281,12 @@ async def _probe_service(name: str, url: str, timeout: float = 4.0) -> ServiceSt
 
 
 async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
+    # Fronted by stack-ops — don't wake a sleeping GPU service just to probe it.
+    if await stack_ops.is_asleep("social-media-comfyui-gpu"):
+        return (
+            ServiceStatus(name="comfyui", online=True, detail="sleeping"),
+            {},
+        )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             stats_resp, queue_resp = await asyncio.gather(
@@ -315,13 +329,13 @@ async def ops_console(
     settings = get_settings()
 
     sidecar_checks = [
-        ("browser-bridge", f"{settings.BROWSER_BRIDGE_URL}/health"),
-        ("linkedin-sidecar", f"{settings.LINKEDIN_BROWSER_SIDECAR_URL}/health"),
-        ("facebook-sidecar", f"{settings.FACEBOOK_BROWSER_SIDECAR_URL}/health"),
-        ("tiktok-sidecar", f"{settings.TIKTOK_BROWSER_SIDECAR_URL}/health"),
+        ("browser-bridge", f"{settings.BROWSER_BRIDGE_URL}/health", "browser-novnc"),
+        ("linkedin-sidecar", f"{settings.LINKEDIN_BROWSER_SIDECAR_URL}/health", "linkedin-browser-sidecar"),
+        ("facebook-sidecar", f"{settings.FACEBOOK_BROWSER_SIDECAR_URL}/health", "facebook-browser-sidecar"),
+        ("tiktok-sidecar", f"{settings.TIKTOK_BROWSER_SIDECAR_URL}/health", "tiktok-browser-sidecar"),
     ]
     probes, (comfy_status, comfy_queue) = await asyncio.gather(
-        asyncio.gather(*(_probe_service(n, u) for n, u in sidecar_checks)),
+        asyncio.gather(*(_probe_service(n, u, container=c) for n, u, c in sidecar_checks)),
         _probe_comfyui(settings.COMFYUI_URL.rstrip("/")),
     )
     services = [*probes, comfy_status]
