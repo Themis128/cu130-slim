@@ -1,109 +1,26 @@
 {
   "services": {
-    "browser-novnc": {
-      "target": "browser-novnc:9223",
-      "idle_min": 20
-    },
-    "tiktok-browser-sidecar": {
-      "target": "tiktok-browser-sidecar:9224",
-      "idle_min": 20
-    },
-    "linkedin-browser-sidecar": {
-      "target": "linkedin-browser-sidecar:9225",
-      "idle_min": 20,
-      "group": [
-        "warp-proxy"
-      ]
-    },
-    "facebook-browser-sidecar": {
-      "target": "facebook-browser-sidecar:9226",
-      "idle_min": 20
-    },
-    "messenger-sidecar": {
-      "target": "messenger-sidecar:9230",
-      "idle_min": 20
-    },
-    "instagram-private-api": {
-      "target": "instagram-private-api:8000",
-      "idle_min": 20,
-      "group": [
-        "warp-proxy"
-      ]
-    },
-    "warp-proxy": {
-      "target": "warp-proxy:1080",
-      "idle_min": 20
-    },
-    "languagetool": {
-      "target": "languagetool:8010",
-      "idle_min": 0.5
-    },
-    "n8n-sandbox": {
-      "target": "n8n-sandbox:8081",
-      "idle_min": 30
-    },
-    "metabase": {
-      "target": "metabase:3000",
-      "idle_min": 45,
-      "wait_page": true
-    },
-    "social-jupyter": {
-      "target": "social-jupyter:8888",
-      "idle_min": 90,
-      "wait_page": true
-    },
-    "flower": {
-      "target": "flower:5555",
-      "idle_min": 45,
-      "wait_page": true
-    },
-    "portainer": {
-      "target": "portainer:9000",
-      "idle_min": 45,
-      "wait_page": true
-    },
-    "env-manager-frontend": {
-      "target": "env-manager-frontend:8080",
-      "idle_min": 45,
-      "wait_page": true,
-      "group": [
-        "env-manager-backend"
-      ]
-    },
-    "env-manager-backend": {
-      "target": "env-manager-backend:8081",
-      "idle_min": 45
-    },
-    "linkedin-mcp-server": {
-      "target": "linkedin-mcp-server:9227",
-      "idle_min": 45
-    },
-    "airbyte-mcp-server": {
-      "target": "airbyte-mcp-server:9228",
-      "idle_min": 45
-    },
-    "browser-novnc-ui": {
-      "container": "browser-novnc",
-      "target": "browser-novnc:6080",
-      "idle_min": 20,
-      "wait_page": true
-    },
-    "browser-novnc-ui2": {
-      "container": "browser-novnc",
-      "target": "browser-novnc:6081",
-      "idle_min": 20
-    },
-    "browser-novnc-vnc": {
-      "container": "browser-novnc",
-      "target": "browser-novnc:5900",
-      "idle_min": 20
-    },
-    "comfyui": {
-      "container": "social-media-comfyui-gpu",
-      "target": "social-media-comfyui-gpu:8000",
-      "idle_min": 0.5,
-      "wait_page": true
-    }
+    "browser-novnc":            {"target": "browser-novnc:9223",            "idle_min": 20},
+    "tiktok-browser-sidecar":   {"target": "tiktok-browser-sidecar:9224",   "idle_min": 20},
+    "linkedin-browser-sidecar": {"target": "linkedin-browser-sidecar:9225", "idle_min": 20, "group": ["warp-proxy"]},
+    "facebook-browser-sidecar": {"target": "facebook-browser-sidecar:9226", "idle_min": 20},
+    "messenger-sidecar":        {"target": "messenger-sidecar:9230",        "idle_min": 20},
+    "instagram-private-api":    {"target": "instagram-private-api:8000",    "idle_min": 20, "group": ["warp-proxy"]},
+    "warp-proxy":               {"target": "warp-proxy:1080",               "idle_min": 20},
+    "languagetool":             {"target": "languagetool:8010",             "idle_min": 20},
+    "n8n-sandbox":              {"target": "n8n-sandbox:8081",              "idle_min": 30},
+    "metabase":                 {"target": "metabase:3000",                 "idle_min": 45, "wait_page": true},
+    "social-jupyter":           {"target": "social-jupyter:8888",           "idle_min": 90, "wait_page": true},
+    "flower":                   {"target": "flower:5555",                   "idle_min": 45, "wait_page": true},
+    "portainer":                {"target": "portainer:9000",                "idle_min": 45, "wait_page": true},
+    "env-manager-frontend":     {"target": "env-manager-frontend:8080",     "idle_min": 45, "wait_page": true, "group": ["env-manager-backend"]},
+    "env-manager-backend":      {"target": "env-manager-backend:8081",      "idle_min": 45},
+    "linkedin-mcp-server":      {"target": "linkedin-mcp-server:9227",      "idle_min": 45},
+    "airbyte-mcp-server":       {"target": "airbyte-mcp-server:9228",       "idle_min": 45},
+    "browser-novnc-ui":         {"container": "browser-novnc",              "target": "browser-novnc:6080", "idle_min": 20, "wait_page": true},
+    "browser-novnc-ui2":        {"container": "browser-novnc",              "target": "browser-novnc:6081", "idle_min": 20},
+    "browser-novnc-vnc":        {"container": "browser-novnc",              "target": "browser-novnc:5900", "idle_min": 20},
+    "comfyui":                  {"container": "social-media-comfyui-gpu",   "target": "social-media-comfyui-gpu:8000", "idle_min": 30, "wait_page": true}
   },
   "listeners": {
     "9223": "browser-novnc",
