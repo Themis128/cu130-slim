@@ -13,5 +13,9 @@
     "typescript": "^5.5.0",
     "vitest": "^5.0.0",
     "wrangler": "^4.144.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2"
   }
 }

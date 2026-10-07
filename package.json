@@ -3,5 +3,8 @@
     "@types/node": "^22.15.0",
     "playwright": "^1.62.1",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "source-map-js": "1.2.2"
   }
 }
