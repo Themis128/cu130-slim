@@ -45,10 +45,23 @@ Registered in `.devin/mcp_config.json`; script at
 | `n8n_trigger_webhook` | POST JSON to a workflow webhook (supports `publish:false`) |
 | `n8n_list_credentials` | names/types only — never secrets |
 
-**API key scope**: the UI-minted `N8N_API_KEY` only covers workflows +
-credentials (`/executions`, `/tags`, `/variables` → 403). The MCP server
-falls back to Postgres (`social-postgres` → `n8n` DB) for execution reads
-and rehydrates n8n 2.x's deduplicated `execution_data` format.
+**API key scope**: the current `N8N_API_KEY` (label `devin-cli-exec`) carries
+24 scopes — all workflow/credential ops plus `execution:{read,list,retry,stop,delete}`,
+`tag:read/list`, `variable:list`. `/executions` and `/tags` are 200; `GET
+/variables` still 403s (n8n grants `variable:list` but not `variable:read`).
+If execution calls ever 403 again, the key was rotated without scopes —
+re-mint via `scripts/init-n8n-api-key.py` (n8n 2.x: session login →
+`POST /rest/api-keys`; the 1.x `/api/v1/user/api-keys` endpoint is gone).
+The MCP server still falls back to Postgres (`social-postgres` → `n8n` DB)
+for execution *detail* reads and rehydrates n8n 2.x's deduplicated
+`execution_data` format — the public API returns stripped `resultData` for
+finished executions regardless of scope.
+
+**Retry caveat**: `n8n_retry_execution` resumes a failed run with its
+original node outputs — SocialAuto login-node data can be stale/missing, so
+retried executions may fail with "Authorization failed" at the first
+authenticated node. For workflows that log in per-run, prefer re-firing the
+webhook (`n8n_trigger_webhook`) over retry.
 
 ## Workflow facts
 

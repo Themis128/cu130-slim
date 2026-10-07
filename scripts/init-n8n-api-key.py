@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""Initialize the n8n API key after n8n starts.
-Run this after the n8n container is up and running.
-Usage: init-n8n-api-key.py"""
+"""Initialize/rotate the n8n public API key (n8n 2.x).
 
-import base64
+n8n 2.x removed the 1.x `/api/v1/user/api-keys` minting endpoint — keys are
+created via `/rest/api-keys` with a session cookie from `/rest/login`.
+
+Usage: init-n8n-api-key.py
+
+Reads N8N_USER / N8N_PASSWORD from .env (the owner login), mints a
+`social-automation-api-key` with the full set of scopes the owner role can
+grant (workflow + credential + execution + tag/variable read), writes it to
+N8N_API_KEY in .env, and prints where to restart. The raw key is NEVER
+printed.
+"""
+
 import json
 import re
 import sys
-import time
+import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 N8N_URL = "http://localhost:5678"
 API_KEY_LABEL = "social-automation-api-key"
-API_KEY_EXPIRY_DAYS = 365
 
 env_file = ROOT / ".env"
 if not env_file.is_file():
@@ -28,80 +35,98 @@ for line in env_file.read_text().splitlines():
         k, v = line.split("=", 1)
         env[k.strip()] = v.strip()
 
-auth = base64.b64encode(
-    f"{env.get('N8N_USER', '')}:{env.get('N8N_PASSWORD', '')}"
-    .encode()).decode()
+USER = env.get("N8N_USER", "")
+PASSWORD = env.get("N8N_PASSWORD", "")
+if not USER or not PASSWORD:
+    print("Error: N8N_USER / N8N_PASSWORD not set in .env", file=sys.stderr)
+    sys.exit(1)
 
 
-def call(method: str, path: str, body: dict | None = None) -> dict:
+def post(path: str, body: dict, cookie: str | None = None) -> dict:
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
     req = urllib.request.Request(
-        f"{N8N_URL}{path}",
-        data=json.dumps(body).encode() if body else None,
-        headers={"Authorization": f"Basic {auth}",
-                 "Accept": "application/json",
-                 "Content-Type": "application/json"}, method=method)
+        f"{N8N_URL}{path}", data=json.dumps(body).encode(),
+        headers=headers, method="POST")
+    return urllib.request.urlopen(req, timeout=15)
+
+
+def get(path: str, cookie: str) -> dict:
+    req = urllib.request.Request(
+        f"{N8N_URL}{path}", headers={"Cookie": cookie,
+                                     "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode() or "{}")
 
 
-print("Waiting for n8n to be ready...")
-while True:
-    try:
-        urllib.request.urlopen(urllib.request.Request(
-            f"{N8N_URL}/healthz",
-            headers={"Authorization": f"Basic {auth}"}), timeout=5)
-        break
-    except Exception:
-        print("  n8n not ready yet, waiting...")
-        time.sleep(5)
-
-print("n8n is ready!")
-
-print("Checking for existing API key...")
+print("Logging in to n8n (session cookie)...")
 try:
-    existing = call("GET", "/api/v1/user/api-keys")
-except Exception:
-    existing = {}
-for key in existing.get("data", []):
-    if key.get("label") == API_KEY_LABEL:
-        print(f"API key '{API_KEY_LABEL}' already exists")
-        existing_key = key.get("key", "")
-        if existing_key:
-            print(f"Existing API key: {existing_key}")
-            print(f"N8N_API_KEY={existing_key}")
-            sys.exit(0)
-
-print("Creating new API key...")
-expires = (datetime.now(timezone.utc)
-           + timedelta(days=API_KEY_EXPIRY_DAYS)).isoformat()
-resp = call("POST", "/api/v1/user/api-keys", {
-    "label": API_KEY_LABEL,
-    "expiresAt": expires,
-    "scopes": ["workflow:create", "workflow:read", "workflow:execute",
-               "workflow:list", "workflow:update", "workflow:delete",
-               "workflow:activate"],
-})
-print(f"Create response: {resp}")
-
-api_key = (resp.get("data", {}).get("key") or resp.get("key")
-           or resp.get("apiKey") or "")
-if not api_key:
-    print("ERROR: Failed to create API key", file=sys.stderr)
-    print(f"Response: {resp}", file=sys.stderr)
+    with post("/rest/login",
+              {"emailOrLdapLoginId": USER, "password": PASSWORD}) as r:
+        cookies = r.headers.get_all("Set-Cookie", [])
+except urllib.error.HTTPError as e:
+    print(f"Login failed: HTTP {e.code} {e.read()[:200]}", file=sys.stderr)
     sys.exit(1)
 
-print(f"Successfully created API key: {api_key}\n")
-print("Add this to your .env file:")
-print(f"N8N_API_KEY={api_key}\n")
-print("Then restart social-api and social-worker containers:")
-print("  docker compose restart social-api social-worker")
+cookie = next((c.split(";")[0] for c in cookies if c.startswith("n8n-auth=")),
+              None)
+if not cookie:
+    print("Login failed: no n8n-auth cookie (MFA enabled?)", file=sys.stderr)
+    sys.exit(1)
+print("Logged in.")
 
-# Optionally update .env file automatically
+print("Fetching grantable scopes for owner role...")
+granted = set(get("/rest/api-keys/scopes", cookie).get("data", []))
+want = [
+    "workflow:read", "workflow:create", "workflow:update", "workflow:delete",
+    "workflow:list", "workflow:activate", "workflow:deactivate",
+    "workflow:export", "workflow:import", "workflow:move",
+    "credential:read", "credential:create", "credential:update",
+    "credential:delete", "credential:list", "credential:move",
+    "execution:read", "execution:list", "execution:retry", "execution:stop",
+    "execution:delete",
+    "tag:read", "tag:list", "variable:list",
+]
+scopes = [s for s in want if s in granted]
+skipped = [s for s in want if s not in granted]
+if skipped:
+    print(f"  (not grantable, skipped: {skipped})")
+
+existing = get("/rest/api-keys", cookie).get("data", {})
+items = existing.get("items", existing) if isinstance(existing, dict) \
+    else existing
+for key in items:
+    if key.get("label") == API_KEY_LABEL:
+        print(f"Deleting stale key '{API_KEY_LABEL}' ({key.get('id')})...")
+        req = urllib.request.Request(
+            f"{N8N_URL}/rest/api-keys/{key['id']}",
+            headers={"Cookie": cookie}, method="DELETE")
+        urllib.request.urlopen(req, timeout=15)
+
+print(f"Minting '{API_KEY_LABEL}' with {len(scopes)} scopes...")
+try:
+    with post("/rest/api-keys",
+              {"label": API_KEY_LABEL, "expiresAt": None,
+               "scopes": scopes}, cookie=cookie) as r:
+        item = json.loads(r.read().decode()).get("data", {})
+except urllib.error.HTTPError as e:
+    print(f"Mint failed: HTTP {e.code} {e.read()[:200]}", file=sys.stderr)
+    sys.exit(1)
+
+api_key = item.get("rawApiKey") or ""
+if not api_key:
+    print("ERROR: response had no rawApiKey", file=sys.stderr)
+    sys.exit(1)
+
 text = env_file.read_text()
-new_text, n = re.subn(r"^# N8N_API_KEY=.*", f"N8N_API_KEY={api_key}",
+new_text, n = re.subn(r"^#?\s*N8N_API_KEY=.*", f"N8N_API_KEY={api_key}",
                       text, flags=re.MULTILINE)
-if n == 0 and "N8N_API_KEY=" not in text:
+if n == 0:
     new_text = text.rstrip("\n") + f"\nN8N_API_KEY={api_key}\n"
-if new_text != text:
-    env_file.write_text(new_text)
-    print("\n.env updated. Restart containers to apply.")
+env_file.write_text(new_text)
+
+print("Done. N8N_API_KEY written to .env (value not printed).")
+print("Recreate consumers: docker compose up -d --force-recreate "
+      "social-api social-worker-default social-worker-publishing "
+      "social-worker-media social-worker-messenger celery-beat")
