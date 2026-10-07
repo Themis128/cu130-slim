@@ -1,0 +1,213 @@
+{
+  "name": "linkedin-dm-deferred-reply",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-dm-deferred-reply",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "deferred-reply-webhook",
+      "name": "Deferred Reply Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "linkedin-dm-deferred-reply",
+      "position": [-860, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst raw = body.execute_after || '';\nconst d = new Date(raw);\nif (isNaN(d.getTime())) throw new Error('execute_after is not a valid datetime: ' + raw);\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });\nconst p = Object.fromEntries(fmt.formatToParts(d).map(x => [x.type, x.value]));\n// n8n Wait node needs YYYY-MM-DDTHH:mm:ss in workflow TZ (Europe/Athens), no ms/offset\nconst wait_until = `${p.year}-${p.month}-${p.day}T${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`;\nreturn [{ json: { wait_until } }];"
+      },
+      "id": "compute-wait-time",
+      "name": "Compute Wait Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-640, 300]
+    },
+    {
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $json.wait_until }}"
+      },
+      "id": "wait-until-window",
+      "name": "Wait Until Window",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "webhookId": "linkedin-dm-deferred-reply",
+      "position": [-420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "generate-totp",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
+            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" },
+            { "name": "otp", "value": "={{ $('Generate TOTP').item.json.otp }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "login-social-api",
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "login-ok",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "name": "filter.operator.string.notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "login-ok-check",
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/linkedin/' + ($('Deferred Reply Webhook').item.json.body.account_id || '18d5cd59-f0c2-4fc4-986e-03601734c7a5') + '/dm/conversations' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 300000,
+        "options": { "timeout": 120000 }
+      },
+      "id": "list-conversations",
+      "name": "List Conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Deferred Reply Webhook').item.json.body || {};\nconst kw = (body.match_keywords || ['hikerapi', 'xpoz', 'instagrapi', 'throttle', 'proxies'])\n  .map(k => String(k).toLowerCase());\nconst convos = ($json.conversations || []);\nconst scored = [];\nfor (const c of convos) {\n  const hay = ((c.name || '') + ' ' + (c.preview || '')).toLowerCase();\n  const hit = kw.some(k => hay.includes(k));\n  const unread = String(c.unread || '').trim() !== '';\n  if (c.thread_id && (hit || unread)) scored.push({ thread_id: c.thread_id, name: c.name, preview: c.preview, hit, unread });\n}\n// Preview-matches first, then unread; cap navigations at 5 threads.\nscored.sort((a, b) => (b.hit - a.hit) || (b.unread - a.unread));\nlet out = scored.slice(0, 5);\nif (out.length === 0) {\n  // No signal — fall back to the 3 most recent conversations.\n  out = convos.filter(c => c.thread_id).slice(0, 3)\n    .map(c => ({ thread_id: c.thread_id, name: c.name, preview: c.preview, hit: false, unread: false }));\n}\nif (out.length === 0) throw new Error('No LinkedIn conversations returned by sidecar');\nreturn out.map(c => ({ json: c }));"
+      },
+      "id": "pick-candidates",
+      "name": "Pick Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 220]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/linkedin/' + ($('Deferred Reply Webhook').item.json.body.account_id || '18d5cd59-f0c2-4fc4-986e-03601734c7a5') + '/dm/threads/' + $json.thread_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "options": { "timeout": 120000 },
+        "onError": "continueErrorOutput"
+      },
+      "id": "read-thread",
+      "name": "Read Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Deferred Reply Webhook').item.json.body || {};\nconst kw = (body.match_keywords || ['hikerapi', 'xpoz', 'instagrapi', 'throttle', 'proxies'])\n  .map(k => String(k).toLowerCase());\nconst matches = [];\nfor (const item of $input.all()) {\n  const msgs = (item.json && item.json.messages) || [];\n  const hit = msgs.some(m => kw.some(k => String(m.text || '').toLowerCase().includes(k)));\n  if (hit && item.json.thread_id) {\n    matches.push({ json: { thread_id: item.json.thread_id, messages_found: msgs.length } });\n  }\n}\nif (matches.length !== 1) {\n  throw new Error('Expected exactly 1 matching thread, found ' + matches.length + ' — refusing to send to an ambiguous thread');\n}\nreturn matches;"
+      },
+      "id": "match-pitch-thread",
+      "name": "Match Pitch Thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/linkedin/' + ($('Deferred Reply Webhook').item.json.body.account_id || '18d5cd59-f0c2-4fc4-986e-03601734c7a5') + '/dm/threads/' + $json.thread_id + '/send' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": {{ JSON.stringify($('Deferred Reply Webhook').item.json.body.reply_text || 'Hi, thanks for reaching out. We are still in development on this side, so we are not evaluating new providers right now. Happy to revisit once we are further along.') }}\n}",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 300000,
+        "options": { "timeout": 120000 }
+      },
+      "id": "send-reply",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "fail-reason", "name": "error", "value": "Login failed — no access_token", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "login-failed",
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 380]
+    }
+  ],
+  "connections": {
+    "Deferred Reply Webhook": { "main": [[{ "node": "Compute Wait Time", "type": "main", "index": 0 }]] },
+    "Compute Wait Time": { "main": [[{ "node": "Wait Until Window", "type": "main", "index": 0 }]] },
+    "Wait Until Window": { "main": [[{ "node": "Generate TOTP", "type": "main", "index": 0 }]] },
+    "Generate TOTP": { "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]] },
+    "Login Social API": { "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]] },
+    "Login OK?": {
+      "main": [
+        [{ "node": "List Conversations", "type": "main", "index": 0 }],
+        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "List Conversations": { "main": [[{ "node": "Pick Candidates", "type": "main", "index": 0 }]] },
+    "Pick Candidates": { "main": [[{ "node": "Read Thread", "type": "main", "index": 0 }]] },
+    "Read Thread": { "main": [[{ "node": "Match Pitch Thread", "type": "main", "index": 0 }], []] },
+    "Match Pitch Thread": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "pinData": {}
+}
