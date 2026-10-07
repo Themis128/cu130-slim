@@ -49,6 +49,16 @@ triggers:
 .devin/skills/social-stack-ops/scripts/stack-status.py
 ```
 
+## MCP coverage (registered in `.devin/mcp_config.json` + `.cursor/mcp.json`)
+
+| Server | Transport | Surface |
+|--------|-----------|---------|
+| `platform` | stdio — `scripts/platform-mcp-server.py` | read-only infra: `stack_ps`, `service_health` (14 endpoints), `pg_query` (SELECT-only on social-postgres 5433: `social_automation`/`n8n` DBs, 15s timeout, LIMIT 500), `redis_inspect` (info/get/ttl/scan/slowlog), `celery_status` (Flower 5555, auth from `ENV_MANAGER_USER`/`ENV_MANAGER_PASS`), `chroma_stats` (8001), `comfyui_status` (8000 — VRAM under-reports on WSL2), `metrics_digest` (9390) |
+| `linkedin` | `url: http://127.0.0.1:9227/mcp` (streamable-http) | `linkedin-mcp-server` container — 19 LinkedIn read tools (profiles, company posts, search) sharing the sidecar cookie session |
+| `airbyte` | `url: http://127.0.0.1:9228/mcp` (streamable-http) | `airbyte-mcp-server` container — connector catalog (`list_connectors`, `list_env_vars`); creds in env |
+
+HTTP MCPs use native `url` config (Devin CLI + Cursor support Streamable HTTP directly — no mcp-remote proxy needed for unauthenticated local servers). The `platform` server is read-only by construction; credentials are read from `.env` and never returned.
+
 ## Common ops
 
 ```bash

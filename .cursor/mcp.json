@@ -39,6 +39,21 @@
         "--timeout-settle",
         "1500"
       ]
+    },
+    "platform": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/social-stack-ops/scripts/platform-mcp-server.py"
+      ],
+      "env": {
+        "CU130_ROOT": "/home/tbaltzakis/cu130-slim"
+      }
+    },
+    "linkedin": {
+      "url": "http://127.0.0.1:9227/mcp"
+    },
+    "airbyte": {
+      "url": "http://127.0.0.1:9228/mcp"
     }
   }
 }
