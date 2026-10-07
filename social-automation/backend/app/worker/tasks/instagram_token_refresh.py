@@ -30,7 +30,7 @@ from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token
 from app.models.social_account import SocialAccount
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
-from app.services.slack_notifications import post_alert_to_slack
+from app.services.slack_notifications import post_alert_to_slack, session_heal_buttons
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -73,16 +73,19 @@ async def _mark_reconnect_required(db: AsyncSession, account: SocialAccount, met
     flag_modified(account, "meta_data")
     await db.commit()
     try:
+        alert_text = "\n".join(
+            [
+                "*Instagram account needs reconnection*",
+                f"• Account: @{account.username or account.account_id}",
+                "• What to do: open SocialAuto → Accounts → Instagram → Reconnect.",
+                f"• Reason: {error[:200]}",
+                "_Cloudless · Clear skies. Zero friction._",
+            ]
+        )[:2000]
         await post_alert_to_slack(
-            "\n".join(
-                [
-                    "*Instagram account needs reconnection*",
-                    f"• Account: @{account.username or account.account_id}",
-                    "• What to do: open SocialAuto → Accounts → Instagram → Reconnect.",
-                    f"• Reason: {error[:200]}",
-                    "_Cloudless · Clear skies. Zero friction._",
-                ]
-            )[:2000]
+            alert_text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
+            + session_heal_buttons(),
         )
     except Exception:
         logger.debug("Slack reconnect alert failed (non-fatal)", exc_info=True)
@@ -273,15 +276,21 @@ async def _refresh_instagram_tokens_async() -> dict:
                 # be revived after expiry, so warn ahead of the deadline.
                 if 0 <= days_until_expiry <= 7 and not meta.get("expiry_alert_sent"):
                     try:
+                        expiry_text = "\n".join(
+                            [
+                                f"*{account.platform.title()} token expires in {days_until_expiry}d*",
+                                f"• Account: @{account.username or account.account_id}",
+                                "• What to do: open SocialAuto → Accounts → Reconnect to keep auto-refresh working.",
+                                "_Cloudless · Clear skies. Zero friction._",
+                            ]
+                        )[:2000]
                         await post_alert_to_slack(
-                            "\n".join(
-                                [
-                                    f"*{account.platform.title()} token expires in {days_until_expiry}d*",
-                                    f"• Account: @{account.username or account.account_id}",
-                                    "• What to do: open SocialAuto → Accounts → Reconnect to keep auto-refresh working.",
-                                    "_Cloudless · Clear skies. Zero friction._",
-                                ]
-                            )[:2000]
+                            expiry_text,
+                            blocks=[
+                                {"type": "section",
+                                 "text": {"type": "mrkdwn", "text": expiry_text}}
+                            ]
+                            + session_heal_buttons(),
                         )
                         meta["expiry_alert_sent"] = True
                     except Exception:

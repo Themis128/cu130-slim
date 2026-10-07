@@ -27,7 +27,11 @@ from app.services.publishing import (
     _resolve_ig_user_token,
     publish_to_platform,
 )
-from app.services.slack_notifications import post_alert_to_slack, post_publishing_to_slack
+from app.services.slack_notifications import (
+    post_alert_to_slack,
+    post_publishing_to_slack,
+    publish_failure_buttons,
+)
 from app.services.spellcheck import auto_correct
 from app.worker.celery_app import celery_app
 
@@ -246,7 +250,10 @@ async def _notify_publish_failure(
         f"• queue item: `{queue_id}`",
         "_Cloudless · Clear skies. Zero friction._",
     ]
-    await post_alert_to_slack("\n".join(lines)[:2000])
+    text = "\n".join(lines)[:2000]
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    blocks += publish_failure_buttons(queue_id)
+    await post_alert_to_slack(text, blocks=blocks)
 
 
 async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:

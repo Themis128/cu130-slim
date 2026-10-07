@@ -96,8 +96,14 @@ async def _post_slack_text(
     return False, last_err or "unknown error", None
 
 
-async def post_alert_to_slack(text: str) -> None:
-    """Post an operational alert to #socialauto-alerts (best-effort, non-fatal)."""
+async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> None:
+    """Post an operational alert to #socialauto-alerts (best-effort, non-fatal).
+
+    Pass ``blocks`` for a Block Kit layout — interactive elements (buttons)
+    dispatch to the Slack app that owns the webhook (the Cloudless app), whose
+    Interactivity URL proxies back into SocialAuto via ``socialauto_*``
+    action ids.
+    """
     settings = get_settings()
     ok, err, _ = await _post_slack_text(
         text=text,
@@ -105,9 +111,79 @@ async def post_alert_to_slack(text: str) -> None:
         token=_get_slack_token(),
         channel_id=settings.SLACK_ALERTS_CHANNEL_ID,
         purpose="alerts",
+        blocks=blocks,
     )
     if not ok:
         logger.warning("Slack alerts disabled or failed: %s", err)
+
+
+# ---------------------------------------------------------------------------
+# Block Kit helpers for actionable alerts
+#
+# action_ids starting with "socialauto_" are handled by the Cloudless web
+# app's /api/slack/interactions endpoint, which proxies into this API as the
+# admin user. Keep the ids in sync with src/app/api/slack/interactions/route.ts
+# in the cloudless.gr repo.
+# ---------------------------------------------------------------------------
+
+SOCIALAUTO_ADMIN_URL = "https://social.cloudless.gr"
+
+
+def _button(text: str, action_id: str, *, value: str = "", style: str | None = None,
+            url: str | None = None, confirm: str | None = None) -> dict:
+    btn: dict = {
+        "type": "button",
+        "text": {"type": "plain_text", "text": text, "emoji": True},
+        "action_id": action_id,
+    }
+    if url:
+        btn["url"] = url
+    else:
+        btn["value"] = value or action_id
+    if style:
+        btn["style"] = style
+    if confirm:
+        btn["confirm"] = {
+            "title": {"type": "plain_text", "text": "Are you sure?"},
+            "text": {"type": "plain_text", "text": confirm},
+            "confirm": {"type": "plain_text", "text": "Confirm"},
+            "deny": {"type": "plain_text", "text": "Cancel"},
+        }
+    return btn
+
+
+def session_heal_buttons() -> list[dict]:
+    """Actions block for dead/expired session alerts — one-click heal + admin."""
+    return [
+        {
+            "type": "actions",
+            "elements": [
+                _button("Run session heal", "socialauto_session_heal", style="primary"),
+                _button("Ops console", "socialauto_ops_status"),
+                _button("Open SocialAuto", "open_socialauto_admin",
+                        url=f"{SOCIALAUTO_ADMIN_URL}/admin"),
+            ],
+        }
+    ]
+
+
+def publish_failure_buttons(queue_id: str) -> list[dict]:
+    """Actions block for publish-failure alerts — retry/cancel the queue item."""
+    elements: list[dict] = []
+    if queue_id and queue_id != "unknown":
+        elements.append(
+            _button("Retry", "socialauto_retry_queue", value=queue_id, style="primary")
+        )
+        elements.append(
+            _button("Skip (cancel)", "socialauto_cancel_queue", value=queue_id,
+                    style="danger",
+                    confirm="Cancel this queue item permanently? The post won't publish to this target.")
+        )
+    elements.append(
+        _button("Open queue", "open_socialauto_queue",
+                url=f"{SOCIALAUTO_ADMIN_URL}/admin")
+    )
+    return [{"type": "actions", "elements": elements}]
 
 
 async def post_digest_text_to_slack(text: str) -> tuple[bool, str | None, str | None]:
