@@ -135,9 +135,43 @@ _PROBES = {
 }
 
 
+# stack-ops fronts these containers with a wake-on-connect proxy — probing
+# their port wakes them. Map probe name -> stack-ops container name; when
+# stack-ops reports "stopped" the service is sleeping-on-demand, not down.
+_STACKOPS_PROXIED = {
+    "browser-novnc": "browser-novnc",
+    "linkedin-sidecar": "linkedin-browser-sidecar",
+    "tiktok-sidecar": "tiktok-browser-sidecar",
+    "facebook-sidecar": "facebook-browser-sidecar",
+    "messenger-sidecar": "messenger-sidecar",
+    "linkedin-mcp": "linkedin-mcp-server",
+    "airbyte-mcp": "airbyte-mcp-server",
+    "flower": "flower",
+    "comfyui": "social-media-comfyui-gpu",
+}
+_STACK_OPS_STATUS = "http://127.0.0.1:8787/status"
+
+
+def _stack_ops_states() -> dict:
+    code, body = _http(_STACK_OPS_STATUS, timeout=5)
+    if code != 200 or not body:
+        return {}
+    try:
+        return json.loads(body)
+    except Exception:
+        return {}
+
+
 def _service_health(_a: dict) -> dict[str, Any]:
+    states = _stack_ops_states()
     out = {}
     for name, url in _PROBES.items():
+        container = _STACKOPS_PROXIED.get(name)
+        state = (states.get(container) or {}).get("state") if container else None
+        if state in ("stopped", "missing"):
+            out[name] = {"up": True, "http": None,
+                         "detail": f"sleeping (stack-ops wakes on demand)"}
+            continue
         code, body = _http(url, timeout=5)
         up = code is not None  # any HTTP response (even 401/405) = listening
         out[name] = {"up": up, "http": code,

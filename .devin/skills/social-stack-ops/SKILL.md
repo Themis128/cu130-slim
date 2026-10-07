@@ -120,3 +120,20 @@ docker restart social-metrics
   - Do **not** use paid Cloudflare Email Sending for this.
 - Recreate `social-api` / `social-worker-*` after changing email/Slack env.
 - Manual: login as admin → `POST /api/v1/ops/daily-digest?post_to_slack=true&post_to_email=true`
+
+## Idle-sleep / wake-on-connect (stack-ops)
+
+The `stack-ops` container (built from `stack-ops/`) fronts every
+idle-tolerant service with a TCP proxy that wakes it on connect and stops
+it after an idle timeout. **A container showing `Exited` may be asleep by
+design — check `curl http://127.0.0.1:8787/status` before calling it down.**
+
+- Wake: `POST http://127.0.0.1:8787/wake/<name>` (or `python3 scripts/stackctl.py wake <name>`)
+- Sleep now: `POST /sleep/<name>` · Status: `GET /status` · Keep awake: `POST /keepawake/<name>?ttl=<s>`
+- Managed set + timeouts live in `stack-ops/services.json` — sidecars 20min, UIs 45-90min.
+- Backends reach managed services via `http://stack-ops:<orig-port>` (env URLs in compose).
+- Host ports for managed services publish on stack-ops, so `localhost:PORT` tools work unchanged.
+- Probing a managed port wakes it — use `/status` for health checks instead of hitting `/health`.
+- Never-sleep core: social-api, social-frontend, api-gateway, workers, celery-beat,
+  redis, postgres ×2, minio, chroma, n8n, cloudflared, social-metrics, dmr-watchdog, stack-ops.
+- ComfyUI stays manual/GPU-arbitrated — `restart: no`, start via `docker compose up -d <service>`.
