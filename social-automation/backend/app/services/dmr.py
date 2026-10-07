@@ -554,7 +554,9 @@ def _select_model_by_complexity(
 ) -> str:
     """Route to the appropriate model based on platform, task, and complexity.
 
-    - Explicit model_override always wins.
+    - Explicit model_override wins *only if it can serve a text task* —
+      a mismatched override (embedder, vision) is coerced to the routed model
+      so the correct model family is always chosen.
     - Long-form platforms (linkedin, facebook) → DMR_TEXT_MODEL.
     - Short-form platforms (instagram, tiktok, x, threads, youtube) →
       DMR_MID_MODEL (non-thinking instruct — much faster than the 8B thinking
@@ -566,20 +568,57 @@ def _select_model_by_complexity(
     - Short prompts (<200 chars, no platform hint) → DMR_TINY_MODEL.
     - Everything else → DMR_TEXT_MODEL.
     """
-    if model_override:
-        return model_override
-
     p = platform.strip().lower() if platform else ""
     if p in SHORT_FORM_PLATFORMS:
-        return settings.DMR_MID_MODEL
-    if schema or p in LONG_FORM_PLATFORMS:
-        return settings.DMR_TEXT_MODEL
+        routed = settings.DMR_MID_MODEL
+    elif schema or p in LONG_FORM_PLATFORMS:
+        routed = settings.DMR_TEXT_MODEL
+    elif len(prompt) < 200:
+        routed = settings.DMR_TINY_MODEL
+    else:
+        routed = settings.DMR_TEXT_MODEL
 
-    # Short prompts don't need a big model
-    if len(prompt) < 200:
-        return settings.DMR_TINY_MODEL
+    return _coerce_model_for_task(model_override, "text", routed)
 
-    return settings.DMR_TEXT_MODEL
+
+# ── Task-family enforcement ─────────────────────────────────────────────────
+# Every typed entry point coerces a model_override that cannot serve the call's
+# modality: an embedding model cannot chat, a text-only model cannot see images.
+# Without this, a stale/hardcoded override reaches llama.cpp and fails late (or
+# worse, silently drops the image). Coerce-and-warn keeps the request working
+# on the right model instead of erroring out.
+
+
+def _model_task_family(model: str) -> str:
+    """Classify a model ref by the task family it can serve."""
+    m = model.lower()
+    if "embed" in m:
+        return "embedding"
+    # Delimited "vl" (qwen3-vl) — a bare substring check would match "vllm"
+    if re.search(r"(?:^|[-/_.:])vl(?:$|[-/_.:])|vision|multimodal", m):
+        return "vision"
+    return "text"
+
+
+def _coerce_model_for_task(
+    model: str | None,
+    task: str,
+    fallback: str,
+) -> str:
+    """Return ``model`` if it serves ``task``, else ``fallback`` with a warning."""
+    if not model:
+        return fallback
+    family = _model_task_family(model)
+    if family == task:
+        return model
+    logger.warning(
+        "DMR model %r cannot serve %s requests (family=%s) — using %s",
+        model,
+        task,
+        family,
+        fallback,
+    )
+    return fallback
 
 
 # ── Benchmark caching (improvement #13) ───────────────────────────────────────
@@ -1504,7 +1543,7 @@ async def call_dmr_vllm_chat(
     url = getattr(settings, "DMR_VLLM_URL", "") or ""
     if not url:
         raise ConnectionError("DMR vLLM backend is not configured (DMR_VLLM_URL)")
-    model = model_override or "docker.io/ai/smollm2-vllm:latest"
+    model = _coerce_model_for_task(model_override, "text", "docker.io/ai/smollm2-vllm:latest")
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -1537,7 +1576,7 @@ async def call_dmr_embedding(
     from app.services.gpu_arbiter import await_media_idle
 
     await await_media_idle()
-    model = model_override or settings.DMR_EMBEDDING_MODEL
+    model = _coerce_model_for_task(model_override, "embedding", settings.DMR_EMBEDDING_MODEL)
 
     if not await _check_dmr_health():
         raise ConnectionError("DMR is offline — embeddings unavailable via CLI fallback")
@@ -1651,7 +1690,7 @@ async def call_dmr_vision(
     from app.services.gpu_arbiter import await_media_idle
 
     await await_media_idle()
-    model = model_override or settings.DMR_VISION_MODEL
+    model = _coerce_model_for_task(model_override, "vision", settings.DMR_VISION_MODEL)
 
     # Ensure it's a data URI
     if not image_data_uri.startswith("data:"):

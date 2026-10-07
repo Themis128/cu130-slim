@@ -455,3 +455,62 @@ class TestWarmupBudget:
             assert warmed == ["hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "ai/llama3.2"]
         finally:
             dmr._state.warmup_done = False
+
+
+# ── Task-family model coercion ────────────────────────────────────────────────
+
+
+class TestModelTaskCoercion:
+    def test_family_classification(self):
+        assert dmr._model_task_family("ai/qwen3-embedding") == "embedding"
+        assert dmr._model_task_family("hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF") == "embedding"
+        assert dmr._model_task_family("ai/nomic-embed-text-v1.5") == "embedding"
+        assert dmr._model_task_family("ai/qwen3-vl") == "vision"
+        assert dmr._model_task_family("hf.co/unsloth/Qwen3-VL-4B-GGUF") == "vision"
+        # "vllm" contains "vl" as a substring — must NOT classify as vision
+        assert dmr._model_task_family("docker.io/ai/smollm2-vllm:latest") == "text"
+        assert dmr._model_task_family("ai/qwen3:8b-q4_K_M") == "text"
+        assert dmr._model_task_family("ai/smollm3") == "text"
+        assert dmr._model_task_family("ai/llama3.2") == "text"
+
+    def test_none_returns_fallback(self):
+        assert dmr._coerce_model_for_task(None, "text", "FB") == "FB"
+
+    def test_matching_family_passthrough(self):
+        assert dmr._coerce_model_for_task(
+            "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF", "embedding", "FB"
+        ) == "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
+        assert dmr._coerce_model_for_task("ai/qwen3-vl", "vision", "FB") == "ai/qwen3-vl"
+        assert dmr._coerce_model_for_task("ai/qwen3:8b-q4_K_M", "text", "FB") == "ai/qwen3:8b-q4_K_M"
+
+    def test_mismatch_coerced_to_fallback(self, caplog):
+        assert dmr._coerce_model_for_task("ai/qwen3-embedding", "text", "FB") == "FB"
+        assert dmr._coerce_model_for_task("ai/smollm3", "vision", "FB") == "FB"
+        assert dmr._coerce_model_for_task("ai/qwen3-vl", "embedding", "FB") == "FB"
+
+    def test_select_model_embedder_override_coerced(self, monkeypatch):
+        monkeypatch.setattr(
+            dmr.settings, "DMR_MID_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+        )
+        got = dmr._select_model_by_complexity(
+            "write a caption", model_override="ai/qwen3-embedding", platform="tiktok"
+        )
+        assert got == "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+
+    def test_select_model_valid_override_wins(self):
+        got = dmr._select_model_by_complexity(
+            "write a caption", model_override="ai/llama3.2", platform="tiktok"
+        )
+        assert got == "ai/llama3.2"
+
+    @pytest.mark.asyncio
+    async def test_embedding_endpoint_coerces_text_model(self, monkeypatch, caplog):
+        import app.services.gpu_arbiter as arbiter
+
+        monkeypatch.setattr(dmr.settings, "DMR_EMBEDDING_MODEL", "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF")
+        monkeypatch.setattr(arbiter, "await_media_idle", AsyncMock())
+        monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=False))
+        with caplog.at_level("WARNING"):
+            with pytest.raises(ConnectionError):
+                await dmr.call_dmr_embedding("hi", model_override="ai/qwen3:8b-q4_K_M")
+        assert "cannot serve embedding" in caplog.text
