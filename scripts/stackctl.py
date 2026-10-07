@@ -6,6 +6,7 @@ Usage:
   python3 scripts/stackctl.py wake <name>            # start + wait healthy
   python3 scripts/stackctl.py sleep <name>           # stop now
   python3 scripts/stackctl.py keepawake <name> [ttl] # don't auto-sleep (default 2h)
+  python3 scripts/stackctl.py sleep-all              # sleep every managed service
   python3 scripts/stackctl.py savings                # memory freed by sleeping
 """
 
@@ -41,6 +42,8 @@ def main() -> int:
     elif cmd == "keepawake":
         ttl = sys.argv[3] if len(sys.argv) > 3 else "7200"
         print(json.dumps(_req("POST", f"/keepawake/{sys.argv[2]}?ttl={ttl}"), indent=2))
+    elif cmd == "sleep-all":
+        print(json.dumps(_req("POST", "/sleep-all"), indent=2))
     elif cmd == "savings":
         out = subprocess.run(
             ["docker", "stats", "--no-stream", "--format",
