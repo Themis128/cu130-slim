@@ -525,9 +525,9 @@ async def list_threads_dm_conversations(
 ):
     """List Threads DM conversations via the browser bridge."""
     await _get_threads_account(db, team_id, account_id)
-    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+    from app.services.browser_bridge import BrowserBridgeError
 
-    bridge = BrowserBridgeClient("http://browser-novnc:9223", platform='threads')
+    bridge = _get_browser_bridge_client()
     try:
         result = await bridge.get_threads_dm_conversations()
         return result
@@ -543,9 +543,9 @@ async def read_threads_dm_thread(
 ):
     """Read messages in a Threads DM thread via the browser bridge."""
     await _get_threads_account(db, team_id, account_id)
-    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+    from app.services.browser_bridge import BrowserBridgeError
 
-    bridge = BrowserBridgeClient("http://browser-novnc:9223", platform='threads')
+    bridge = _get_browser_bridge_client()
     try:
         result = await bridge.get_threads_dm_messages(thread_id)
         return result
@@ -565,9 +565,9 @@ async def send_threads_dm(
     text = body.get("text")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+    from app.services.browser_bridge import BrowserBridgeError
 
-    bridge = BrowserBridgeClient("http://browser-novnc:9223", platform='threads')
+    bridge = _get_browser_bridge_client()
     try:
         result = await bridge.send_threads_dm_message(thread_id, text)
         return result

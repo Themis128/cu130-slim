@@ -45,6 +45,29 @@ async def _post_slack_text(
     last_err: str | None = None
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
+
+            async def _via_token() -> tuple[bool, str | None, str | None]:
+                # Prefer api.slack.com — bare slack.com TLS often hangs in Docker/WSL.
+                resp = await client.post(
+                    "https://api.slack.com/api/chat.postMessage",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={
+                        "channel": channel_id,
+                        "text": text,
+                        "mrkdwn": True,
+                        **({"blocks": blocks} if blocks else {}),
+                    },
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    err = data.get("error") or "unknown"
+                    needed = data.get("needed")
+                    detail = f"Slack API error: {err}"
+                    if needed:
+                        detail += f" (needed: {needed})"
+                    return False, detail, None
+                return True, None, str(data.get("ts") or "") or None
+
             for attempt in range(1, 5):
                 try:
                     if webhook_url:
@@ -56,38 +79,34 @@ async def _post_slack_text(
                         resp = await client.post(webhook_url, json=payload)
                         if resp.status_code >= 300:
                             last_err = f"Webhook HTTP {resp.status_code}: {resp.text[:200]}"
-                            # Webhooks rarely need retry on 4xx.
+                            # Webhooks rarely need retry on 4xx. A dead or
+                            # revoked webhook (404 no_service, 410 gone) is
+                            # permanent — fall back to the bot token when
+                            # configured instead of dropping the alert
+                            # (observed 2026-10-08: app uninstall killed all
+                            # configured webhooks at once).
                             if resp.status_code < 500:
+                                if token and channel_id:
+                                    logger.warning(
+                                        "Slack %s webhook dead (%s) — falling back to bot token",
+                                        purpose,
+                                        resp.status_code,
+                                    )
+                                    return await _via_token()
                                 return False, last_err, None
                         else:
                             return True, None, None
                     else:
-                        # Prefer api.slack.com — bare slack.com TLS often hangs in Docker/WSL.
-                        resp = await client.post(
-                            "https://api.slack.com/api/chat.postMessage",
-                            headers={"Authorization": f"Bearer {token}"},
-                            json={
-                                "channel": channel_id,
-                                "text": text,
-                                "mrkdwn": True,
-                                **({"blocks": blocks} if blocks else {}),
-                            },
-                        )
-                        data = resp.json()
-                        if not data.get("ok"):
-                            err = data.get("error") or "unknown"
-                            needed = data.get("needed")
-                            detail = f"Slack API error: {err}"
-                            if needed:
-                                detail += f" (needed: {needed})"
-                            return False, detail, None
-                        return True, None, str(data.get("ts") or "") or None
+                        return await _via_token()
                 except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as exc:
                     last_err = f"{type(exc).__name__}: {exc or repr(exc)}"
                     logger.warning("Slack %s post attempt %s failed: %s", purpose, attempt, last_err)
                     if attempt < 4:
                         await asyncio.sleep(1.5 * attempt)
                         continue
+                    if webhook_url and token and channel_id:
+                        logger.warning("Slack %s webhook unreachable — falling back to bot token", purpose)
+                        return await _via_token()
                     return False, last_err, None
     except Exception as exc:  # noqa: BLE001
         logger.exception("Slack %s post failed", purpose)
