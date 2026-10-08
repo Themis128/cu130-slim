@@ -1167,13 +1167,16 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8"],
     },
-    # Tiny model — sub-200-char prompts. ctx 2048 (was 4096): routed
-    # prompts are tiny by definition; the smaller KV saves ~0.25-0.5GB.
+    # Tiny model — sub-200-char prompts + last-resort generation fallback.
+    # ctx 4096 on CPU (was 2048 on GPU): the VRAM fail-over path routes
+    # full-size prompts here — 2048 overflowed them (observed 502:
+    # "request 4047 tokens exceeds context size 2048"). On CPU the KV
+    # cost is RAM, not VRAM, so the larger context is free.
     # n-gpu-layers 0: prompts routed here are trivially small — CPU
     # latency is identical in practice and ~2GB of VRAM contention
     # disappears from the load/evict cycle.
     "ai/smollm3": {
-        "context_size": 2048,
+        "context_size": 4096,
         "keep_alive": "60s",
         "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "0", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
