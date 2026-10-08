@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import uuid
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 import httpx
@@ -651,6 +652,60 @@ async def analyze_seo_endpoint(
         team_id=team_id,
     )
     return SeoResponse(**result)
+
+
+class NlpCheckRequest(BaseModel):
+    content: str
+    platform: str = "linkedin"
+
+
+class NlpCheckResponse(BaseModel):
+    score: int
+    avg_sentence_words: float
+    issue_count: int
+    issues: list[dict] = []
+    recommendations: list[str] = []
+
+
+_NLP_REASON_LABELS = {
+    "jargon_or_buzzwords": "Jargon / buzzwords",
+    "long_sentences": "Sentences too long",
+    "long_uncommon_words": "Uncommon long words",
+    "weak_hook": "Weak hook",
+    "generic_hook": "Generic hook opener",
+    "ai_tell_phrases": "AI-tell phrases",
+    "em_dash": "Em dash",
+    "flat_rhythm": "Flat sentence rhythm",
+    "no_specifics": "No specifics",
+    "missing_cta": "No CTA / question",
+    "missing_ps": "Missing P.S.",
+}
+
+
+@router.post("/nlp-check", response_model=NlpCheckResponse)
+async def nlp_check_endpoint(
+    request: NlpCheckRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Deterministic NLP score — Sofia Kakkava rules + plain-English, no AI call.
+
+    Safe to invoke live (debounced) while the user types. Scores the copy
+    against the Marketing-on-Autopilot playbook: hook, AI tells, em dashes,
+    rhythm, specifics, CTA, P.S. — plus the jargon/long-sentence checks.
+    """
+    from app.services.plain_english import sofia_nlp_score
+
+    score, issues = sofia_nlp_score(request.content)
+    sentences = [s.strip() for s in re.split(r"[.!?]+", request.content) if s.strip()]
+    avg = round(sum(len(s.split()) for s in sentences) / len(sentences), 1) if sentences else 0.0
+    recommendations = [f"{_NLP_REASON_LABELS.get(i.reason, i.reason)}: {i.matches[0] if i.matches else i.snippet[:80]}" for i in issues]
+    return NlpCheckResponse(
+        score=score,
+        avg_sentence_words=avg,
+        issue_count=len(issues),
+        issues=[asdict(i) for i in issues],
+        recommendations=recommendations,
+    )
 
 
 class ContentScoreRequest(BaseModel):

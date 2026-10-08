@@ -18,6 +18,7 @@ import toast from 'react-hot-toast'
 import { Undo2 } from 'lucide-react'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 import { SeoPanel } from '@/components/content/SeoPanel'
+import { NlpPanel } from '@/components/content/NlpPanel'
 import { ObjectUrlImage } from '@/components/content/previewIdentity'
 import { athensDateTimeLocalToIso, toAthensDateTimeLocal } from '@/lib/utils'
 import { normalizeTag, normalizeTagList } from '@/lib/hashtags'
@@ -649,12 +650,18 @@ export default function EditPostPage() {
         )
       })()}
 
-      {/* SEO Analysis */}
+      {/* NLP + SEO Analysis */}
       {content.trim().length > 20 && (
-        <SeoPanel
-          content={content}
-          platform={typedPost.targets?.[0]?.social_account?.platform || 'linkedin'}
-        />
+        <>
+          <NlpPanel
+            content={content}
+            platform={typedPost.targets?.[0]?.social_account?.platform || 'linkedin'}
+          />
+          <SeoPanel
+            content={content}
+            platform={typedPost.targets?.[0]?.social_account?.platform || 'linkedin'}
+          />
+        </>
       )}
 
       {/* Actions */}

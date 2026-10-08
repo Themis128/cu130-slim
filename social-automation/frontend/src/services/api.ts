@@ -1031,6 +1031,15 @@ export const aiApi = {
     platform?: string
     title?: string
   }) => api.post('/ai/seo', data),
+  /** Deterministic NLP score (plain-English + Sofia copy rules) — no AI call. */
+  nlpCheck: (data: { content: string; platform?: string }) =>
+    api.post<{
+      score: number
+      avg_sentence_words: number
+      issue_count: number
+      issues: Array<{ field: string; reason: string; snippet: string; matches: string[] }>
+      recommendations: string[]
+    }>('/ai/nlp-check', data),
   spellcheck: (text: string, language = 'en-US') =>
     api.post<{
       matches: Array<{

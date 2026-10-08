@@ -60,3 +60,56 @@ def test_build_caption_no_duplicate_site():
     )
     assert text.lower().count("www.cloudless.gr") == 1
     assert text.count("#cloudless") == 1
+
+
+def test_sofia_rules_flag_ai_slop():
+    from app.services.plain_english import check_sofia_rules
+
+    text = (
+        "In today's fast-paced digital landscape, it's no secret that teams need to move fast. "
+        "Moreover, seamless tools unlock real outcomes — taking your workflow to the next level. "
+        "At the end of the day, results matter most for everyone involved."
+    )
+    reasons = {i.reason for i in check_sofia_rules(text)}
+    assert {"ai_tell_phrases", "weak_hook", "em_dash", "no_specifics", "missing_cta"} <= reasons
+
+
+def test_sofia_rules_accept_clean_post():
+    from app.services.plain_english import check_sofia_rules
+
+    text = (
+        "I finally shipped it.\n\n"
+        "The checklist took 3 days. Clients kept asking for the same thing.\n\n"
+        "So I wrote it down once. Now it sells while I sleep.\n\n"
+        "Want a copy? Comment below.\n\n"
+        "P.S. It is free, no signup."
+    )
+    assert check_sofia_rules(text) == []
+
+
+def test_sofia_nlp_score_rewards_clean_punishes_slop():
+    from app.services.plain_english import sofia_nlp_score
+
+    good = "I shipped it in 3 days.\n\nClients asked for it every week.\n\nNow it sells while I sleep.\n\nWant one?"
+    bad = (
+        "In today's fast-paced digital landscape, it's no secret that enterprises leverage synergy. "
+        "Moreover, seamless, cutting-edge, enterprise-grade holistic paradigms empower world-class "
+        "digital transformation — unlocking scalable solutions that take your brand to the next level."
+    )
+    good_score, _ = sofia_nlp_score(good)
+    bad_score, bad_issues = sofia_nlp_score(bad)
+    assert good_score >= 80
+    assert bad_score < 50
+    assert any(i.reason == "ai_tell_phrases" for i in bad_issues)
+
+
+def test_sofia_rules_require_ps_on_longform():
+    from app.services.plain_english import check_sofia_rules
+
+    long_no_ps = "I wrote a long post. " * 60
+    reasons = {i.reason for i in check_sofia_rules(long_no_ps)}
+    assert "missing_ps" in reasons
+
+    long_with_ps = long_no_ps + "\n\nP.S. Steal this and adapt it."
+    reasons = {i.reason for i in check_sofia_rules(long_with_ps)}
+    assert "missing_ps" not in reasons

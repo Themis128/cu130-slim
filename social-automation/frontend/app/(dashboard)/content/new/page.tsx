@@ -25,6 +25,7 @@ import { useAdvisor } from '@/hooks/useAdvisor'
 import { VoiceRecorder } from '@/components/content/VoiceRecorder'
 import { SpellCheckButton } from '@/components/content/SpellCheckButton'
 import { SeoPanel } from '@/components/content/SeoPanel'
+import { NlpPanel } from '@/components/content/NlpPanel'
 import {
   preferredAccount,
   identityFromAccount,
@@ -1398,12 +1399,18 @@ export default function NewPostPage() {
             </Card>
           )}
 
-          {/* SEO Analysis */}
+          {/* NLP + SEO Analysis */}
           {content.trim().length > 20 && (
-            <SeoPanel
-              content={content}
-              platform={selectedPlatforms[0] || 'linkedin'}
-            />
+            <>
+              <NlpPanel
+                content={content}
+                platform={selectedPlatforms[0] || 'linkedin'}
+              />
+              <SeoPanel
+                content={content}
+                platform={selectedPlatforms[0] || 'linkedin'}
+              />
+            </>
           )}
 
           {/* Brand Compliance */}

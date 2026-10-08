@@ -36,7 +36,12 @@ _ORG_ID = "108614163"
 _PAGE_POSTS_URL = f"https://www.linkedin.com/company/{_ORG_ID}/admin/page-posts/"
 _PAGE_ADMIN_URL = f"https://www.linkedin.com/company/{_ORG_ID}/admin/dashboard/"
 _PAGE_PUBLIC_URL = "https://www.linkedin.com/company/cloudless-gr/"
+# LinkedIn renamed the entry point: "Invite connections" → "Invite to follow"
+# on the admin dashboard (verified Oct 2026). Match either label.
 _INVITE_TEXT = "Invite connections"
+_INVITE_RE = re.compile(r"^(?:invite connections|invite to follow)", re.IGNORECASE)
+# JS-side equivalent for in-page finders (innerText match, case-insensitive).
+_INVITE_JS = "/^(invite connections|invite to follow)/i"
 
 _RESULTS_CONTAINER = ".invitee-picker__results-container"
 _SHOW_MORE_TEXT = "Show more results"
@@ -149,10 +154,23 @@ async def _harvest_candidates(
     return candidates
 
 
+# Large candidate pools overflow the small model's effective context and it
+# degenerates to s=0 for every row — score in chunks and merge.
+_SCORE_CHUNK = 40
+
+
 async def _score_candidates(candidates: list[_Candidate]) -> dict[int, int]:
-    """NLP-score all candidates in one DMR call. Returns {index: score}."""
+    """NLP-score all candidates in chunked DMR calls. Returns {index: score}."""
     if not candidates:
         return {}
+    merged: dict[int, int] = {}
+    for off in range(0, len(candidates), _SCORE_CHUNK):
+        merged.update(await _score_chunk(candidates[off : off + _SCORE_CHUNK]))
+    return merged
+
+
+async def _score_chunk(candidates: list[_Candidate]) -> dict[int, int]:
+    """NLP-score one chunk of candidates in one DMR call."""
     listing = "\n".join(f"{c['i']}. {c['name']} — {c['headline']}" for c in candidates)
     try:
         from app.services.inference import call_inference
@@ -240,6 +258,21 @@ async def _click_invite_anywhere(client: BrowserBridgeClient) -> bool:
     The button's wrapping element varies by surface — try plain buttons first,
     then open the ⋯ "More" menu and click the matching menu item.
     """
+    # Primary surface: any clickable element whose label starts with an
+    # accepted invite label — LinkedIn renders it as button on some surfaces
+    # and as a link/card on the admin dashboard.
+    coords = await _eval(
+        client,
+        "(()=>{const b=[...document.querySelectorAll('button,a,[role=button],[role=link]')]"
+        f".find(e=>e.offsetParent&&{_INVITE_JS}.test((e.innerText||'').trim()));"
+        "if(!b) return null;"
+        "b.scrollIntoView({block:'center'});"
+        "const r=b.getBoundingClientRect();"
+        "return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()",
+    )
+    if coords and isinstance(coords, dict):
+        await client.mouse_click(coords["x"], coords["y"])
+        return True
     if await _click_button_by_text(client, _INVITE_TEXT):
         return True
     # Overflow menu: open ⋯ and click the Invite connections item.
@@ -255,8 +288,8 @@ async def _click_invite_anywhere(client: BrowserBridgeClient) -> bool:
     return bool(
         await _eval(
             client,
-            f"(()=>{{const it=[...document.querySelectorAll('[role=menuitem],button,li')]"
-            f".find(e=>e.offsetParent&&(e.innerText||'').trim()==='{_INVITE_TEXT}');"
+            f"(()=>{{const it=[...document.querySelectorAll('[role=menuitem],button,li,a')]"
+            f".find(e=>e.offsetParent&&{_INVITE_JS}.test((e.innerText||'').trim()));"
             "if(!it) return false; it.click(); return true})()",
         )
     )
