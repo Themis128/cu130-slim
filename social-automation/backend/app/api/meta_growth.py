@@ -54,7 +54,7 @@ class OrganicCampaignRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _safe_organic_request(self) -> "OrganicCampaignRequest":
+    def _safe_organic_request(self) -> OrganicCampaignRequest:
         if not self.media_ids:
             raise ValueError(
                 "At least one media asset is required for Meta organic promotion"
