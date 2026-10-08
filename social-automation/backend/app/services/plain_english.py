@@ -445,3 +445,182 @@ async def ensure_plain_english_carousel(
         allow_fallback=allow_fallback,
     )
     return cleaned_slides, cleaned_caption
+
+
+# ── Sofia Kakkava / "Marketing on Autopilot" copy rules ───────────────────────
+# Deterministic checks distilled from the linkedin-post-writer skill
+# (intent-driven.md): hook verification, forbidden AI phrases, zero em dashes,
+# P.S. discipline, sentence-rhythm variation, specificity signals.
+# These score *how the copy sells*, on top of the vocabulary checks above.
+
+# Forbidden AI phrases — Sofia's blacklist merged with common AI tells.
+_SOFIA_FORBIDDEN = re.compile(
+    r"\b("
+    r"it'?s no secret that|at the end of the day|moreover|furthermore|"
+    r"in today'?s (?:fast[- ]paced|digital|ever[- ]changing) \w+|"
+    r"delve|tapestry|landscape of|game[- ]?changer|elevate your|"
+    r"here'?s the thing|let'?s dive in|imagine a world|"
+    r"the truth is|here are \d+|in a world where|"
+    r"take your \w+ to the next level|dive into|embark on"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_HOOK_STARTERS = re.compile(r"^\s*(?:[“\"']|i\b|you\b|if\b|when\b|stop\b|we\b|my\b|the\b)", re.IGNORECASE)
+_GENERIC_HOOK_OPENERS = re.compile(r"^\s*(?:today\b|here are\b|did you know\b|have you ever\b)", re.IGNORECASE)
+_PS_LINE = re.compile(r"^p\.?s\.?[\s:—-]", re.IGNORECASE | re.MULTILINE)
+_CTA_SIGNAL = re.compile(
+    r"(?:\?\s*$|\b(?:comment|share|repost|save this|follow|dm me|link in bio|grab|join|sign up|check out|visit|click)\b)",
+    re.IGNORECASE,
+)
+_HAS_NUMBER = re.compile(r"\d")
+_HAS_NAME = re.compile(r"\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b")
+
+
+def _sentence_word_counts(text: str) -> list[int]:
+    sentences = [s.strip() for s in re.split(r"[.!?]+", text) if s.strip()]
+    return [len(s.split()) for s in sentences]
+
+
+def check_sofia_rules(text: str, field: str = "text") -> list[NlpIssue]:
+    """Score copy against the Kakkava / Marketing-on-Autopilot playbook.
+
+    Returns issues with ``reason`` in:
+      ``weak_hook``, ``generic_hook``, ``ai_tell_phrases``, ``em_dash``,
+      ``flat_rhythm``, ``no_specifics``, ``missing_cta``, ``missing_ps``.
+    Each check maps to an explicit rule from the intent-driven template.
+    """
+    issues: list[NlpIssue] = []
+    if not text or not text.strip():
+        return issues
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    hook = lines[0] if lines else ""
+    counts = _sentence_word_counts(text)
+
+    # ── Hook: under 12 words, starts I/You/If/When/quote/stop, not generic ──
+    hook_words = len(hook.split())
+    if hook_words > 12:
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="weak_hook",
+                snippet=hook[:160],
+                matches=[f"hook_words={hook_words} (max 12)"],
+            )
+        )
+    elif hook and not _HOOK_STARTERS.match(hook):
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="weak_hook",
+                snippet=hook[:160],
+                matches=["hook should start with I, You, If, When, a quote, or a command"],
+            )
+        )
+    if _GENERIC_HOOK_OPENERS.match(hook):
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="generic_hook",
+                snippet=hook[:160],
+                matches=["forbidden opener: 'today', 'here are X', 'did you know', 'have you ever'"],
+            )
+        )
+
+    # ── Forbidden AI phrases ──
+    tells = sorted({m.group(0).lower() for m in _SOFIA_FORBIDDEN.finditer(text)})
+    if tells:
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="ai_tell_phrases",
+                snippet=text[:160],
+                matches=tells,
+            )
+        )
+
+    # ── Zero em dashes (Sofia's voice rule) ──
+    if "—" in text or "--" in text:
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="em_dash",
+                snippet=text[:160],
+                matches=["em dash / double hyphen — rewrite as comma or period"],
+            )
+        )
+
+    # ── Sentence rhythm: flag only zero variation — all sentences in one band.
+    # Bands mirror the playbook: short ≤5, medium 6-19, long ≥20 words.
+    if len(counts) >= 4:
+        bands = {"short" if c <= 5 else "medium" if c <= 19 else "long" for c in counts}
+        if len(bands) == 1:
+            issues.append(
+                NlpIssue(
+                    field=field,
+                    reason="flat_rhythm",
+                    snippet=text[:160],
+                    matches=["mix ultra-short (1-5 word) punches with medium sentences"],
+                )
+            )
+
+    # ── Specificity: at least one number or named person ──
+    if not _HAS_NUMBER.search(text) and not _HAS_NAME.search(text):
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="no_specifics",
+                snippet=text[:160],
+                matches=["add a real number, name, or date — vague copy doesn't convert"],
+            )
+        )
+
+    # ── Close: question or CTA signal ──
+    tail = lines[-1] if lines else ""
+    if tail and not _CTA_SIGNAL.search(tail) and not _CTA_SIGNAL.search(text[-300:]):
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="missing_cta",
+                snippet=tail[:160],
+                matches=["end with a question or one clear CTA"],
+            )
+        )
+
+    # ── P.S. on long-form (LinkedIn template requires it) ──
+    if len(text) >= 900 and not _PS_LINE.search(text):
+        issues.append(
+            NlpIssue(
+                field=field,
+                reason="missing_ps",
+                snippet=text[:160],
+                matches=["long-form posts need a P.S. — one clear idea, 8-15 words"],
+            )
+        )
+
+    return issues
+
+
+def sofia_nlp_score(text: str) -> tuple[int, list[NlpIssue]]:
+    """0-100 score for Sofia-rule compliance. Weighted: hook & AI tells hit
+    hardest (they kill the scroll-stop), structure items are lighter."""
+    weights = {
+        "weak_hook": 15,
+        "generic_hook": 15,
+        "ai_tell_phrases": 15,
+        "em_dash": 8,
+        "flat_rhythm": 8,
+        "no_specifics": 12,
+        "missing_cta": 10,
+        "missing_ps": 7,
+        # vocabulary checks reuse the plain-English deduction
+        "jargon_or_buzzwords": 20,
+        "long_sentences": 20,
+        "long_uncommon_words": 12,
+    }
+    issues = check_plain_english(text) + check_sofia_rules(text)
+    score = 100
+    for i in issues:
+        score -= weights.get(i.reason, 10)
+    return max(0, score), issues
