@@ -53,6 +53,24 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   down the script falls back to old resurrect-all behavior (safe: nothing
   is sleeping then anyway). Managed containers that crash get re-woken by
   the proxy on next request instead of by this task.
+- **SocialAuto-Maintenance deleted sleeping containers (2026-10-08)**:
+  `socialauto/Maintain-SocialAuto.ps1` ran `docker container prune -f` at
+  04:00 and wiped ALL 16 idle-sleeping containers (ComfyUI, all sidecars,
+  LanguageTool, etc.) — stack-ops wake then fails with "No such container"
+  and the only recovery is `docker compose up -d <svc>` (containers are
+  recreated; browser-profile volumes survive so sessions persist).
+  The script now prunes with `--filter "label!=com.docker.compose.project=cu130-slim"
+  --filter "label!=com.docker.desktop.service=model-runner"` and counts
+  prunable containers by subtracting protected IDs (`docker ps` does NOT
+  support `label!=`; `container prune` does). The other three prune
+  scripts (`dev-cache-cleaner`, `dev-cleanup`, `wsl-deep-clean`) already
+  carry the DMR label exclusions but are not scheduled — watch for them
+  if they ever get a task.
+- **PowerShell gotcha**: `Maintain-SocialAuto.ps1` runs under Windows
+  PowerShell 5.1, which reads BOM-less UTF-8 as ANSI — a UTF-8 em-dash
+  (`—`) decodes to `â€”` where `”` IS a string terminator for the PS
+  parser → "Missing closing '}'" syntax errors. Keep these scripts pure
+  ASCII (no em-dashes/smart quotes).
 - **Resource Saver**: no `EnableResourceSaver` key in
   `%APPDATA%\Docker\settings-store.json` → default ON. Resource Saver + WSL
   `autoMemoryReclaim=gradual` is a documented freeze combo; the host runs

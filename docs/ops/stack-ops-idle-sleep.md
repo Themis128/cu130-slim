@@ -141,6 +141,7 @@ see `windows-host-ops` skill.
 |---|---|
 | `Exited` container | Probably asleep — `stackctl status`, don't restart manually |
 | Service won't sleep | `stackctl status` → conns/keepawake; `docker logs stack-ops` for streak resets; CPU from out-of-band work keeps it up by design |
+| Wake fails `No such container` | A prune deleted the *stopped* container (not just stopped it). `docker compose up -d <svc>` recreates it; volumes/profiles survive. Was mass-triggered by `SocialAuto-Maintenance`'s `docker container prune -f` (2026-10-08) — now label-excluded; keep prune commands away from the compose project and `com.docker.desktop.service=model-runner` |
 | Wake times out (120s) | `docker start <container>` manually, check healthcheck/logs; sleeper never stops `starting` services |
 | `compose up` woke everything | expected — full-stack up starts all; sleeper re-sleeps |
 | Sidecar session died | sessions persist in volumes (`browser_profile`, `linkedin_browser_data`, …) — sleep never drops them |
