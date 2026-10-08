@@ -197,6 +197,12 @@ Additional analytics endpoints:
   withdrawn stay spent → surfaces sent/accepted/pending/declined,
   acceptance %, `credits_left`, `monthly_cap`. Events export to the
   datalake via account-events.
+- `GET /api/v1/meta-growth/readiness` + `POST /api/v1/meta-growth/organic-campaign` —
+  free Meta organic-growth surface (app/api/meta_growth.py): readiness
+  reports connected facebook/instagram/threads accounts and which organic
+  actions are available; organic-campaign schedules owned-account posts.
+  Deliberately organic-only — Meta has no supported Page-invite API and
+  any paid/boost metadata keys are rejected, never silently substituted.
 
 ## Notebook-generated reports
 
@@ -252,6 +258,10 @@ Access-bypassed; auth stays JWT + Access.
 Sofia Kakkava's "Visibility Era" framework is encoded in the brand voice so every generated post follows it — no per-workflow prompt forks.
 
 - **DAY 1 — Creator Type**: the owner is an **Expert-led blend** (Expert + Storyteller + Energizer). Stored in `brand_voices.voice_signature` keys `creator_type` / `post_formula` / `style_notes`. `POST /api/v1/ai/generate-content` injects `voice_signature` into the system prompt via `build_brand_system_prompt` (`app/services/brand_compliance.py`) — every n8n workflow + the UI generator picks it up from one place.
+- **Live copy scoring**: `POST /api/v1/ai/nlp-check` runs the deterministic
+  Sofia-rule scorer (`sofia_nlp_score` in plain_english.py — hook, AI-tell
+  blacklist, em dashes, rhythm, specifics, CTA/P.S.) with no AI call; the
+  composer NlpPanel debounce-checks drafts against it.
 - **DAY 2 — 2-Platform Rule** (8-week commitment): `voice_signature.platform_focus` —
   - **MAIN = LinkedIn** — original content, carousels (Company Page `9c4451bb-…`), Educator posts.
   - **SECONDARY = Meta** — Instagram `38ddbd44-…`, Facebook Page, Threads `1071dcd5-…` — adapted/cross-posted versions.

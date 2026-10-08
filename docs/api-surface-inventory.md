@@ -61,6 +61,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ai/generate-image/{job_id}` — GET
 - `/api/v1/ai/generate-workflow` — POST
 - `/api/v1/ai/improve-content` — POST
+- `/api/v1/ai/nlp-check` — POST
 - `/api/v1/ai/post-draft` — POST
 - `/api/v1/ai/run-carousel-and-publish` — POST
 - `/api/v1/ai/save-draft` — POST
@@ -335,6 +336,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/messenger/{account_id}/setup` — POST
 - `/api/v1/messenger/{account_id}/unsubscribe` — POST
 - `/api/v1/messenger/{account_id}/user/{psid}` — GET
+
+## `meta-growth`
+
+- `/api/v1/meta-growth/organic-campaign` — POST
+- `/api/v1/meta-growth/readiness` — GET
 
 ## `ops`
 
