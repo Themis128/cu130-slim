@@ -29,13 +29,19 @@ DB_USER = os.environ.get("SOCIAL_DB_USER", "social_user")
 DB_NAME = os.environ.get("SOCIAL_DB_NAME", "social_automation")
 
 SIDECARS = {
-    # name: (url, session_key or None for health-only)
-    "browser-bridge": ("http://localhost:9223/session/status", "logged_in"),
-    "tiktok": ("http://localhost:9224/session", "logged_in"),
-    "linkedin": ("http://localhost:9225/session", "logged_in"),
-    "facebook": ("http://localhost:9226/session/validate", "logged_in"),
-    "messenger": ("http://localhost:9230/health", None),
+    # name: (url, session_key or None for health-only, stack-ops service key)
+    "browser-bridge": ("http://localhost:9223/session/status", "logged_in", "browser-novnc"),
+    "tiktok": ("http://localhost:9224/session", "logged_in", "tiktok-browser-sidecar"),
+    "linkedin": ("http://localhost:9225/session", "logged_in", "linkedin-browser-sidecar"),
+    "facebook": ("http://localhost:9226/session/validate", "logged_in", "facebook-browser-sidecar"),
+    "messenger": ("http://localhost:9230/health", None, "messenger-sidecar"),
 }
+
+# stack-ops control API — idle-managed sidecars show "missing"/"sleeping"
+# here while down. Probing their proxy port anyway would trigger a wake.
+STACK_OPS_STATUS_URL = os.environ.get(
+    "STACK_OPS_STATUS_URL", "http://localhost:8787/status"
+)
 
 # ---------------------------------------------------------------------------
 # Signature → classification table
@@ -109,6 +115,9 @@ SIGNATURES: list[tuple[str, str, str, str]] = [
      "Post removed on platform — informational only"),
     (r"member_stats_not_implemented|organization_lifetime", "info", "Informational sync note",
      "No action — informational marker"),
+    (r"member_postAnalytics_scope_missing", "platform-limit",
+     "LinkedIn member post-analytics scope missing",
+     "Personal-profile post analytics need r_member_postAnalytics — app lacks it; org page unaffected"),
     (r"stats HTTP 4", "app-bug", "Stats call rejected (4xx)",
      "Inspect the raw note — likely invalid metric/params for this API version"),
 ]
@@ -233,9 +242,32 @@ def section_accounts() -> list[str]:
     return out
 
 
+def _stack_ops_states() -> dict[str, str]:
+    """stack-ops service key/container name → state ('running', 'missing', ...).
+
+    Empty dict when stack-ops is down — in that case nothing is sleeping and
+    the probes below are the ground truth again.
+    """
+    raw = _http(STACK_OPS_STATUS_URL, timeout=5)
+    if not isinstance(raw, dict) or "error" in raw:
+        return {}
+    states: dict[str, str] = {}
+    for svc, info in raw.items():
+        state = str((info or {}).get("state") or "")
+        states[svc] = state
+        container = (info or {}).get("container")
+        if container:
+            states[container] = state
+    return states
+
+
 def section_sessions() -> list[str]:
     out = []
-    for name, (url, key) in SIDECARS.items():
+    ops_states = _stack_ops_states()
+    for name, (url, key, ops_key) in SIDECARS.items():
+        if ops_states and ops_states.get(ops_key, "running") != "running":
+            out.append(f"  {name:<15} asleep (stack-ops idle)")
+            continue
         d = _http(url)
         if "error" in d:
             out.append(f"  {name:<15} unreachable ({d['error'][:60]})")
