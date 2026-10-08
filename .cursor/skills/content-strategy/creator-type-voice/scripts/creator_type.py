@@ -14,6 +14,7 @@ Usage:
     creator_type.py quiz                    # interactive DAY 1 assessment
     creator_type.py apply <type>            # expert|storyteller|energizer|blend
     creator_type.py platforms               # DAY 2 platform tiers (live)
+    creator_type.py blueprint [apply]       # DAY 12 post blueprint (live)
     creator_type.py verify [platform]       # generate a sample post
 """
 
@@ -137,6 +138,34 @@ PLATFORM_FOCUS_TEXT = (
 )
 
 # ---------------------------------------------------------------------------
+# DAY 12 — The Post Blueprint (4-part structure every post follows)
+#
+# Written into voice_signature.post_blueprint. Orthogonal to post_formula:
+# the blueprint is the skeleton (hook → context → value → CTA), the creator
+# type formula is the flavor inside it.
+# ---------------------------------------------------------------------------
+
+DAY12_BLUEPRINT = (
+    "Post Blueprint (Visibility Era DAY 12) - structure every post in 4 "
+    "parts, in this order: 1) HOOK - the very first line stops the scroll: "
+    "a specific situation the reader recognizes themselves in, never reveal "
+    "the answer up front. 2) CONTEXT - 2-3 lines that make the reader feel "
+    "seen; show you understand their situation before teaching anything. "
+    "3) VALUE - ONE clear insight fully explained in 3-5 lines; never a "
+    "list of tips, one thing lands harder than five scattered. 4) CTA - one "
+    "specific question or direction, max 2 lines; invite conversation, "
+    "don't push. Every line must earn the next one - if a line would be "
+    "skipped, cut it."
+)
+
+DAY12_MISTAKES = (
+    "Blueprint mistakes to avoid: skipping the context (reader isn't ready "
+    "for value yet), more than one point in the value section, a vague CTA "
+    "like 'let me know what you think', burying the hook ('I've been "
+    "thinking...' openers), and writing for yourself instead of the reader."
+)
+
+# ---------------------------------------------------------------------------
 # API helpers (TOTP login — same flow as n8n workflows + socialauto MCP)
 # ---------------------------------------------------------------------------
 
@@ -157,15 +186,19 @@ async def main():
         u = (await db.execute(select(User).where(
             User.email==os.environ['SOCIAL_ADMIN_EMAIL']))).scalar_one()
         secret = u.two_factor_secret
-    key = base64.b32decode(secret)
-    msg = struct.pack('>Q', int(time.time()) // 30)
-    d = hmac.new(key, msg, hashlib.sha1).digest()
-    o = d[-1] & 0x0F
-    otp = str((struct.unpack('>I', d[o:o+4])[0] & 0x7FFFFFFF) % 10**6).zfill(6)
+    data = {'username': os.environ['SOCIAL_ADMIN_EMAIL'],
+            'password': os.environ['SOCIAL_ADMIN_PASSWORD']}
+    if secret:  # TOTP only when the account actually has it enabled
+        key = base64.b32decode(secret)
+        msg = struct.pack('>Q', int(time.time()) // 30)
+        d = hmac.new(key, msg, hashlib.sha1).digest()
+        o = d[-1] & 0x0F
+        data['otp'] = str(
+            (struct.unpack('>I', d[o:o+4])[0] & 0x7FFFFFFF) % 10**6
+        ).zfill(6)
     async with httpx.AsyncClient() as c:
-        r = await c.post('http://localhost:8000/api/v1/auth/login', data={
-            'username': os.environ['SOCIAL_ADMIN_EMAIL'],
-            'password': os.environ['SOCIAL_ADMIN_PASSWORD'], 'otp': otp})
+        r = await c.post('http://localhost:8000/api/v1/auth/login', data=data)
+        r.raise_for_status()
         print(r.json()['access_token'])
 asyncio.run(main())
 """
@@ -243,6 +276,27 @@ def cmd_platforms() -> None:
         print("\nNOTE: live text differs from PLATFORM_FOCUS_TEXT")
 
 
+def cmd_blueprint(apply: bool = False) -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    live = sig.get("post_blueprint", "")
+    print("voice_signature.post_blueprint:")
+    print(" ", live or "(not set — run 'creator_type.py blueprint apply')")
+    if not apply:
+        print("\nDAY 12 blueprint to apply:")
+        print(" ", DAY12_BLUEPRINT)
+        print(" ", DAY12_MISTAKES)
+        return
+    merged = {
+        **sig,
+        "post_blueprint": DAY12_BLUEPRINT,
+        "blueprint_mistakes": DAY12_MISTAKES,
+    }
+    _api("PUT", "/brand/voice", {"voice_signature": merged})
+    print("\nApplied post_blueprint + blueprint_mistakes.")
+    if live and live != DAY12_BLUEPRINT:
+        print("NOTE: replaced a previously set post_blueprint")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -266,6 +320,8 @@ def main() -> None:
         cmd_apply(sys.argv[2])
     elif cmd == "platforms":
         cmd_platforms()
+    elif cmd == "blueprint":
+        cmd_blueprint(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:
