@@ -1369,6 +1369,17 @@ async def _call_dmr_chat_internal(
     # (keep-alive expiry) and runner restart (docker/model-runner#726).
     await _ensure_model_configured(model)
 
+    # Cold-load aware timeout: a non-resident model pays the full
+    # GGUF→VRAM load (multi-minute for the 8B on WSL2), which the default
+    # 30s non-schema timeout can never span — the "cold-start retry" then
+    # burned both attempts and fell back. Stretch the timeout only when
+    # the target model isn't resident; warm calls keep the caller's
+    # tight timeout so a wedged runner still fails fast.
+    cold_timeout = float(getattr(settings, "DMR_COLD_TIMEOUT", 240.0))
+    if cold_timeout > timeout and not _is_resident(model, await _running_dmr_models()):
+        logger.info("DMR: %s not resident — cold-load timeout %.0fs", model, cold_timeout)
+        timeout = cold_timeout
+
     # Improvement #7: streaming support
     if stream:
         return {"stream": _stream_dmr_chat(payload, timeout)}
@@ -1438,7 +1449,9 @@ async def _call_dmr_chat_internal(
                         if schema:
                             return _parse_json_response(cli_result)
                         return {"text": cli_result}
-                raise ConnectionError(f"DMR failed after retry: {exc}") from exc
+                # repr(): httpx.TimeoutException stringifies to "" — the
+                # exception type is the only diagnostic the caller gets.
+                raise ConnectionError(f"DMR failed after retry: {exc!r}") from exc
             except Exception as exc:
                 last_exc = exc
                 raise

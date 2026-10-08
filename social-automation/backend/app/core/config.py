@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     DMR_VLLM_URL: str = "http://host.docker.internal:12435/engines/vllm/v1"
     # Max concurrent DMR requests — protects the 8GB card from KV-cache contention.
     DMR_MAX_CONCURRENCY: int = 4
+    DMR_COLD_TIMEOUT: float = 240.0  # per-request timeout when target model isn't resident
 
     # LanguageTool self-hosted spell/grammar checker
     LANGUAGETOOL_URL: str = "http://languagetool:8010"

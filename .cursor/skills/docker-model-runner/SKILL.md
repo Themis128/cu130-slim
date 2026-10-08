@@ -563,3 +563,56 @@ Notes:
   epoch-0 expiry in /api/ps means 'queued', not an admin pin
 - Admin keep-alive overrides persist in Redis hash dmr:config_overrides
 - ComfyUI /free is called by the heal path only when its queue is idle
+
+## Runner container gone — full reinstall (seen 2026-10-08)
+
+Symptom: `docker-model-runner` missing from `docker ps -a`, port 12435
+refused everywhere, watchdog logs "container gone — Docker Desktop restart
+required". Root cause: a `docker system prune` (DevOptimizer cache-cleaner /
+dev-cleanup / wsl-deep-clean scheduled tasks) deleted the runner while it
+was stopped. The `docker-model-runner-models` volume and the
+`docker/model-runner:*` images survive prune (named volume + tagged
+images), so no models are lost.
+
+Recovery:
+1. `docker desktop restart` from Windows PowerShell if the engine is
+   otherwise healthy but forwards are wedged (`/forwards/expose 500`).
+2. Reinstall:
+   `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1 docker model install-runner \
+     --backend vllm --gpu cuda --port 12435`
+   The env var is REQUIRED on this host: install-runner adds a second
+   port-binding on the bridge gateway IP (172.17.0.1) so containers can
+   reach the runner — Docker Desktop's `/forwards/expose` path wedges on
+   that bind ("ports are not available ... unexpected status: 500" even
+   though nothing listens). With the env var only 127.0.0.1:12435 is
+   bound; containers still reach DMR via host.docker.internal:12435 ->
+   Windows loopback -> localhostForwarding -> VM -> runner (verified).
+   Direct 172.17.0.1:12435 access from containers does NOT work — the
+   gateway bind is skipped.
+3. dmr-watchdog reapplies the canonical per-model configs on the next
+   tick (it keys off the runner's StartedAt) — no manual _configure needed.
+4. If install still fails with forwards/expose 500: stale winnat
+   reservation — `net stop winnat && net start winnat` in elevated
+   PowerShell (or `wsl --shutdown`), then retry.
+
+Prune protection (applied 2026-10-08): the three DevOptimizer prune call
+sites now pass
+`--filter "label!=com.docker.desktop.service=model-runner" --filter "label!=com.docker.model-runner.role=model-storage"`
+so the runner container/image and the models volume survive `docker
+system prune` even when stopped. Do NOT remove those filters, and never
+run a bare `docker system prune` manually on this host.
+
+## Cold-load timeouts (call_dmr_chat)
+
+- Non-schema calls use a 30s per-attempt timeout — fine for resident
+  models, but a cold GGUF->VRAM load takes 60-290s on this host.
+- `_call_dmr_chat_internal` checks `/api/ps` residency: when the target
+  model isn't loaded the timeout is stretched to `DMR_COLD_TIMEOUT`
+  (env, default 240s). Resident calls keep the caller's timeout so a
+  wedged runner still fails fast.
+- Chatbot/short-form calls stay responsive because the keep-warm task
+  keeps smollm3 + 4B resident; the 8B/vision models are expected cold —
+  keep_alive 2m/90s means most LinkedIn/schema calls pay a load.
+- `ConnectionError` messages include the exception repr — a bare
+  "DMR failed after retry:" with nothing after the colon means an httpx
+  timeout (empty str()).
