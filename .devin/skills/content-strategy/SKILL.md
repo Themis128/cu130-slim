@@ -221,6 +221,43 @@ Threads data fix (2026-09-21): `social_accounts.username` was stale
 `threads.com/@{username}` for reads/writes, and the wrong handle 302'd to
 a page with no Edit button.
 
+### DAY 12 — The Post Blueprint (adopted)
+
+Every post follows the 4-part structure, stored as
+`voice_signature.post_blueprint` (+ `blueprint_mistakes`) so it injects
+into `/api/v1/ai/generate-content` and all n8n workflows alongside the
+creator-type formula. The blueprint is the *skeleton*; `post_formula` is
+the *flavor* inside it.
+
+1. **HOOK** — the very first line stops the scroll: a specific situation
+   the reader recognizes; never reveal the answer up front.
+2. **CONTEXT** — 2–3 lines that make the reader feel seen; show
+   understanding before teaching anything.
+3. **VALUE** — ONE clear insight fully explained (3–5 lines); never a
+   list of tips — one thing lands harder than five scattered.
+4. **CTA** — one specific question or direction, ≤2 lines; invite
+   conversation, don't push.
+
+Checklist before publishing: does the first line stop the scroll? Does
+context make them feel seen? One clear insight, not a list? CTA invites,
+not pushes? Does every line earn the next (if you'd skip it, cut it)?
+
+Forbidden blueprint mistakes: skipping context (hook → value directly),
+multi-tip value sections, vague "let me know what you think" CTAs,
+burying the hook ("I've been thinking…" openers), writing for yourself
+instead of the reader.
+
+Apply/inspect live: `creator_type.py blueprint` (show) /
+`creator_type.py blueprint apply` (writes `post_blueprint` +
+`blueprint_mistakes` into voice_signature).
+
+DAY 11 source (hooks — blueprint part 1) also lives in
+`3 week/Day11/…pdf` (Hook Master Guide: pain / specific-number /
+effort-vs-result / curiosity / contrast / callout / hard-truth /
+competitor hook types; kill patterns: too generic, reveals the answer,
+vague questions, no specific situation, never testing, topic-hopping).
+
+
 ### Tool
 
 ```bash
@@ -235,6 +272,9 @@ creator_type.py apply expert|storyteller|energizer|blend
 
 ## Show the DAY 2 platform tiers + live platform_focus
 creator_type.py platforms
+
+## Show / apply the DAY 12 post blueprint
+creator_type.py blueprint [apply]
 
 ## Generate a sample post to check the style
 creator_type.py verify [platform]
@@ -270,4 +310,5 @@ the current applied state.
 - `socialauto-brand` — brand DNA, tone dimensions, messaging pillars
 - `social-profile-update` — DAY 4 checklist (profile completeness audit)
 - `publish-ops` — alert signature runbook
-- PDFs (source material): `OneDrive/Kakkava Sofia/DAY {1-5} *.pdf`
+- PDFs (source material): `OneDrive/Kakkava Sofia/DAY {1-5} *.pdf`,
+  `OneDrive/Kakkava Sofia/3 week/Day{11,12}/*.pdf`
