@@ -12,6 +12,7 @@ Consolidated skill — each section below was a standalone skill. Member scripts
 |---|---|
 | Content Scoring & Hashtag Strategy | `content-strategy` |
 | Creator Type voice (Visibility Era DAY 1) | `content-strategy` → `creator-type-voice/` |
+| VEC 2.0 challenge spaces (Skool + Telegram) | `content-strategy` |
 
 ## Content Scoring & Hashtag Strategy
 
@@ -256,6 +257,82 @@ DAY 11 source (hooks — blueprint part 1) also lives in
 effort-vs-result / curiosity / contrast / callout / hard-truth /
 competitor hook types; kill patterns: too generic, reveals the answer,
 vague questions, no specific situation, never testing, topic-hopping).
+
+### VEC 2.0 — where the challenge actually lives
+
+The Visibility Era Challenge 2.0 runs on **Skool + Telegram**, not on the
+PDFs alone. Mapped 2026-10-08.
+
+**Skool community** — `https://www.skool.com/sofia-kakkava-coaching`
+(free, ~216 members). Tabs: Community / Classroom / Calendar / Members /
+Leaderboards / About.
+
+- **Login**: email+password at `skool.com/login`. Driven successfully via
+  the browser-novnc bridge — `/session/fill` on `input[type=email]` +
+  `input[type=password]`, then `/session/click` `button[type=submit]`.
+  Session persists in the `browser_profile` volume, so later drops are
+  automated. Credentials are user-provided per session — not stored in
+  `.env` or the DB.
+- **Classroom**: course id `0322497b`. Module URL format
+  `/sofia-kakkava-coaching/classroom/0322497b?md=<module-id>`. Week
+  headers are collapsed `div`s — click to expand, then read
+  `a[href*=md=]` links.
+- **Community feed categories** (the full set — there is no Spotlight
+  category on Skool): Announcements, Member Intros, General discussion,
+  Wins & Breakthroughs, Ask Sofia, Free Resources.
+- **Search box is React-controlled** — programmatic fill + synthetic
+  Enter does not open results; needs real keystrokes or direct URL work.
+
+**Telegram spaces** — daily-task destinations live in a **private
+Telegram supergroup**, `t.me/c/3761067037` (chat_id `-1003761067037`),
+as forum topics:
+
+| Topic | t.me/c/3761067037/N | Purpose |
+|---|---|---|
+| main / ask | /1, /2 | general + "ask it here" Q&A |
+| Visibility HQ | /5 | command center; pinned post explains all spaces |
+| Journey Highlights | /7 | before/after screenshots (DAY-1 "before" → DAY-40 "after") |
+| Wins | /8 | wins & progress |
+
+- **Visibility Spotlight** = the topic where the daily "drop your post
+  link or screenshot" task lands (mentioned in nearly every DAY lesson,
+  never hyperlinked — exact thread_id still unmapped; candidates outside
+  the listed IDs, e.g. /3 /4 /6 /9).
+- **Visibility Hub** = the community-chat topic used for the daily
+  "COMMUNITY ACTION" step (comment on other members' links).
+- ⚠️ `Cloudless_newbot` is **NOT a member of this group** — the bot's
+  "Visibility Era 2.0" system prompt refers to a different group, and
+  `getChat`/`sendChatAction` on `-1003761067037` return `chat not
+  found`. Spotlight drops therefore need the **user's personal Telegram
+  session** (Telegram Web login in the bridge: phone + login code) or a
+  manual post. A bot-in-group workaround would require the user adding
+  `Cloudless_newbot` to Sofia's group — likely not possible (member
+  lists are admin-controlled).
+
+**Module map** (course `0322497b`, `md=` ids — saves a re-scrape):
+
+```
+welcome  97986fb3340d407f838f83ba4d4711e4   DAY 6   c3f328d185634615ae5ec90bc4e78161
+before   6437d4cde09e465ea55028a721492c5f   DAY 7   2086a89a5a8040ab885c2d3e954d95a9
+rhythm   c4167d13f3c34baab6dbbb6e4177bf3d   DAY 8   390a746485f64f6884c951538fc8ad77
+replays  f8bbdafef3464fe2885ab8601fdaa5da   DAY 9   a88ffeabc9a64435b30a03cf900c7858
+DAY 0    642c6d78798249819d9746c8eb23b787   DAY 10  38ace1e002d44f2caa1b1ca403f754f5
+DAY 1    09d8ddc89ff44866ac1176166b2e825a   DAY 11  7c99086a69694d7aa22424abff102a4f
+DAY 2    17098ecd5a3a4058904e548d9d232e99   DAY 12  f64a30f5b73a40959f0ed2ece2e10275
+DAY 3    4853277ef4af456ca516e8fd87aae71a   DAY 13  89ead892f3434570816548cf547bbab2
+DAY 4    cca671ce5b574749bed772252fb84239   DAY 14  b3a447579e244c6d9faf062c054f232d
+DAY 5    870b714863d44610b6caf4cf7ead3178   DAY 15  97bff638c86e499494af95c123e059c4
+                                          DAY 16  e0c68c17c0ab4efc8a3699e059e876f8
+                                          DAY 17  e2222267dbf746f4af10e46123e1b2ce
+                                          DAY 18  d8221e6d59014981a1cc9709dbc9f871
+                                          DAY 19  583c17f1901549ae831b1891aaa6551d
+                                          DAY 20  af7244bf9cd34ae2a4d9ed84dd0d72c9
+```
+
+**Daily task shape (Week 3+)**: read lesson → write + publish post with
+`#sofiakakkavacoach #visibilityerachallenge` → drop link/screenshot in
+**Visibility Spotlight** → community action in **Visibility Hub**
+(open other members' links, leave a real comment, like).
 
 
 ### Tool
