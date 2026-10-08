@@ -17,6 +17,11 @@ Model files on the ComfyUI models volume:
 - models/unet/ltx-video-2b-v0.9-Q8_0.gguf        (city96/LTX-Video-gguf)
 - models/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors
 - models/vae/LTX-Video-VAE-BF16.safetensors      (city96/LTX-Video-gguf)
+
+Wan2.2 TI2V-5B (quality tier, hybrid T2V+I2V, Apache-2.0):
+- models/unet/Wan2.2-TI2V-5B-Q4_K_M.gguf         (QuantStack/Wan2.2-TI2V-5B-GGUF)
+- models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+- models/vae/wan2.2_vae.safetensors              (Comfy-Org/Wan_2.2_ComfyUI_Repackaged)
 """
 
 from __future__ import annotations
