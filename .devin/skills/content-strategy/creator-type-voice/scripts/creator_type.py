@@ -250,10 +250,19 @@ FOUNDATIONS = {
     "week4_video": (
         "Video (TikTok/reels/shorts): default format is B-roll + overlay "
         "text (DAY 17) - script runs as text over footage, no "
-        "face-recording needed. Batch method (DAY 20): one focused hour "
-        "produces a week of video. Edit for clarity not perfection "
-        "(DAY 19). Reuse the content bank - pillars, hooks, scripts - "
-        "never start from scratch (DAY 18)."
+        "face-recording needed. When talking-head is required, prepare "
+        "with the 2-Line Method and record ONE take (DAY 16) - friction "
+        "before pressing record is perfectionism, not preparation. Batch "
+        "method (DAY 20): one focused hour produces a week of video. Edit "
+        "for clarity not perfection, under 30 minutes (DAY 19). Reuse the "
+        "content bank - pillars, hooks, scripts - never start from "
+        "scratch (DAY 18)."
+    ),
+    "content_bank": (
+        "DAY 18 rule: the content bank already has everything - Week-2 "
+        "pillars, Week-3 scripts, hooks, stories, frameworks. Every new "
+        "piece starts by pulling an existing idea and re-cutting it into "
+        "the target format; never invent a topic from zero."
     ),
 }
 
