@@ -4,21 +4,17 @@ TikTok access tokens expire in 24 hours, Twitter in 2 hours, and Meta/Threads
 in ~60 days. This task runs every hour and refreshes any token that will expire
 within the next 4 hours, so accounts never go offline unexpectedly.
 """
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import shared_task
 from sqlalchemy import and_, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.core.security import decrypt_token, encrypt_token
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -32,15 +28,7 @@ REFRESH_WINDOW = timedelta(hours=4)
 MIN_REFRESH_INTERVAL = timedelta(hours=1)
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 def _get_oauth_client(platform: str):
@@ -112,10 +100,10 @@ def _skip_for_recent_update(
 @shared_task(name="app.worker.tasks.token_refresh.refresh_expiring_tokens")
 def refresh_expiring_tokens() -> dict:
     """Refresh all social account tokens that will expire within 4 hours."""
-    result = asyncio.run(_refresh_expiring_tokens_async())
+    result = run_async(_refresh_expiring_tokens_async())
     # Push updated social_accounts to D1
     if result.get("refreshed", 0) > 0:
-        asyncio.run(sync_after_worker_task(["social_accounts"]))
+        run_async(sync_after_worker_task(["social_accounts"]))
     return result
 
 

@@ -4,13 +4,11 @@ import logging
 import uuid
 
 from celery import shared_task
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.services import comfyui_video, gpu_arbiter, media_ai
 from app.services.db_sync import sync_after_worker_task
 from app.services.media_storage import save_uploaded_media
+from app.worker._async import get_session_factory, run_async, task_session
 
 celery_app = __import__("app.worker.celery_app", fromlist=["celery_app"]).celery_app
 
@@ -31,19 +29,16 @@ def auto_tag_asset_task(asset_id: str) -> None:
         return
 
     async def _run() -> None:
-        # NullPool: asyncio.run() creates a fresh loop per task; pooled
+        # NullPool: run_async() creates a fresh loop per task; pooled
         # connections from the shared engine bind to the creating loop.
-        engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-        try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            await media_ai.auto_tag_asset(asset_uuid, session_factory=factory)
-        finally:
-            await engine.dispose()
+        await media_ai.auto_tag_asset(
+            asset_uuid, session_factory=get_session_factory()
+        )
 
     try:
-        asyncio.run(_run())
+        run_async(_run())
         # Push worker writes (media_assets) to D1 primary
-        asyncio.run(sync_after_worker_task(["media_assets"]))
+        run_async(sync_after_worker_task(["media_assets"]))
     except Exception as exc:
         logger.warning("auto_tag_asset_task failed for %s: %s", asset_id, exc)
 
@@ -61,10 +56,7 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
         # Expand the terse prompt into a detailed scene description BEFORE
         # the GPU lock — the call runs on the warm DMR mid model.
         expanded_prompt = await media_ai.expand_visual_prompt(prompt, media_type="video")
-        engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-        try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as db:
+        async with task_session() as db:
                 num_frames = int(options.get("num_frames") or 41)
                 frame_rate = int(options.get("frame_rate") or 25)
                 # Long-form path: explicit shot list, or duration_seconds split
@@ -197,9 +189,7 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                 asset.meta_data = meta_dict
                 await db.commit()
                 return str(asset.id)
-        finally:
-            await engine.dispose()
 
-    asset_id = asyncio.run(_run())
-    asyncio.run(sync_after_worker_task(["media_assets"]))
+    asset_id = run_async(_run())
+    run_async(sync_after_worker_task(["media_assets"]))
     return asset_id

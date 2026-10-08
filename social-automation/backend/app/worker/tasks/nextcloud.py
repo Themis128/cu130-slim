@@ -1,15 +1,12 @@
 """Celery task — mirror media assets to the omv Nextcloud workspace."""
 
-import asyncio
 import logging
 import uuid
 
 from celery import shared_task
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.services import nextcloud_export
+from app.worker._async import get_session_factory, run_async
 
 celery_app = __import__("app.worker.celery_app", fromlist=["celery_app"]).celery_app
 
@@ -31,16 +28,13 @@ def export_media_to_nextcloud(asset_id: str) -> None:
         return
 
     async def _run() -> None:
-        # NullPool: asyncio.run() creates a fresh loop per task; pooled
+        # NullPool: run_async() creates a fresh loop per task; pooled
         # connections from the shared engine bind to the creating loop.
-        engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-        try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            await nextcloud_export.export_media_asset(asset_uuid, factory)
-        finally:
-            await engine.dispose()
+        await nextcloud_export.export_media_asset(
+            asset_uuid, get_session_factory()
+        )
 
     try:
-        asyncio.run(_run())
+        run_async(_run())
     except Exception as exc:
         logger.warning("nextcloud export failed for %s: %s", asset_id, exc)

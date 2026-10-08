@@ -1,33 +1,30 @@
-import asyncio
 from datetime import UTC, datetime
 
 import httpx
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.models.workflow import GeneratedWorkflow
 from app.services.db_sync import sync_after_worker_task
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
 celery_app.set_current()
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
-async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def execute_workflow(self, workflow_id: str, input_data: dict) -> dict:  # type: ignore[no-untyped-def]
-    result = asyncio.run(_execute_workflow_async(workflow_id, input_data))
+    result = run_async(_execute_workflow_async(workflow_id, input_data))
     # Push worker writes (generated_workflows) to D1 primary
-    asyncio.run(sync_after_worker_task(["generated_workflows"]))
+    run_async(sync_after_worker_task(["generated_workflows"]))
     return result
 
 
 async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
-    async with async_session() as db:
+    async with task_session() as db:
         result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
         workflow = result.scalar_one_or_none()
         if not workflow:
@@ -57,14 +54,14 @@ async def _execute_workflow_async(workflow_id: str, input_data: dict) -> dict:
 
 @shared_task
 def deploy_workflow(workflow_id: str) -> dict:
-    result = asyncio.run(_deploy_workflow_async(workflow_id))
+    result = run_async(_deploy_workflow_async(workflow_id))
     # Push worker writes (generated_workflows) to D1 primary
-    asyncio.run(sync_after_worker_task(["generated_workflows"]))
+    run_async(sync_after_worker_task(["generated_workflows"]))
     return result
 
 
 async def _deploy_workflow_async(workflow_id: str) -> dict:
-    async with async_session() as db:
+    async with task_session() as db:
         result = await db.execute(select(GeneratedWorkflow).where(GeneratedWorkflow.id == workflow_id))
         workflow = result.scalar_one_or_none()
         if not workflow:

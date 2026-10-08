@@ -25,11 +25,8 @@ class TestSendAlertCooldown:
         mock_factory.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "app.worker.tasks.linkedin_session_check.async_sessionmaker",
+            "app.worker.tasks.linkedin_session_check.task_session",
             return_value=mock_factory,
-        ), patch(
-            "app.worker.tasks.linkedin_session_check.create_async_engine",
-            return_value=MagicMock(),
         ), patch(
             "app.services.email_templates.send_linkedin_session_alert_email",
             new_callable=AsyncMock,
@@ -61,11 +58,8 @@ class TestSendAlertCooldown:
         mock_factory.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "app.worker.tasks.linkedin_session_check.async_sessionmaker",
+            "app.worker.tasks.linkedin_session_check.task_session",
             return_value=mock_factory,
-        ), patch(
-            "app.worker.tasks.linkedin_session_check.create_async_engine",
-            return_value=MagicMock(),
         ), patch(
             "app.services.email_templates.send_linkedin_session_alert_email",
             new_callable=AsyncMock,

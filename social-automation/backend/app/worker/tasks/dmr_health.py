@@ -17,6 +17,7 @@ import json
 import logging
 import time
 
+from app.worker._async import run_async
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -29,11 +30,11 @@ def _run_async(coro):
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        return run_async(coro)
     # Already inside a loop (unlikely for celery) — run in a new thread
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(run_async, coro).result()
 
 
 async def _check() -> dict:

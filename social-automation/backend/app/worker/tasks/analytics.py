@@ -1,30 +1,18 @@
 """Celery analytics sync — pull LinkedIn (etc.) post metrics into Postgres."""
-import asyncio
-from contextlib import asynccontextmanager
 
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.models.user import Team
 from app.services.analytics_sync import sync_team_analytics
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
 celery_app.set_current()
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 @shared_task
@@ -35,7 +23,7 @@ def sync_all_analytics() -> dict:
     Postgres-primary — they are NOT synced to D1 to stay within the free
     tier write limit (100K rows/day).
     """
-    return asyncio.run(_sync_all_analytics_async())
+    return run_async(_sync_all_analytics_async())
 
 
 async def _sync_all_analytics_async() -> dict:
@@ -59,7 +47,7 @@ async def _sync_all_analytics_async() -> dict:
 @shared_task
 def sync_team_analytics_task(team_id: str, days: int = 365) -> dict:
     """Fetch analytics for a single team. Postgres-primary (no D1 sync)."""
-    return asyncio.run(_sync_team_async(team_id, days))
+    return run_async(_sync_team_async(team_id, days))
 
 
 async def _sync_team_async(team_id: str, days: int) -> dict:
