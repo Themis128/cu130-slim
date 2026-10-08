@@ -15,6 +15,7 @@ from app.services.cf_models import CF_TEXT_FREE
 from app.services.inference import call_inference
 from app.services.plain_english import (
     PLAIN_ENGLISH_RULES,
+    SOFIA_POST_SPEC,
     build_linkedin_caption,
     extract_rewritten_only,
     rewrite_plain_english,
@@ -86,6 +87,7 @@ Length: {length} (short = 100-150 words, medium = 150-250 words, long = 250-300 
 Include hashtags: {include_hashtags}
 
 {PLAIN_ENGLISH_RULES}
+{SOFIA_POST_SPEC}
 
 Return JSON with:
 - content: the post body (no hashtags, plain English)
@@ -163,6 +165,7 @@ Structure: exactly {sections} short sections with clear headings.
 {"End with a short call-to-action." if include_cta else ""}
 
 {PLAIN_ENGLISH_RULES}
+{SOFIA_POST_SPEC}
 
 Return JSON with:
 - title: article title (plain English, no jargon)
@@ -422,6 +425,7 @@ Tone: {tone}
 {_LINKEDIN_GUIDE}
 
 {PLAIN_ENGLISH_RULES}
+{SOFIA_POST_SPEC}
 
 Return JSON with:
 - improved_content: the improved post body (no hashtags)
@@ -480,6 +484,7 @@ async def generate_linkedin_comment(
 Tone: {tone}
 
 {PLAIN_ENGLISH_RULES}
+{SOFIA_POST_SPEC}
 
 Return JSON with:
 - comment: the comment text only (no hashtags, 1-3 sentences)"""
