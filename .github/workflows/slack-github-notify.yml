@@ -1,0 +1,79 @@
+name: slack-github-notify
+
+# Routes repo events to Slack #github-activity without consuming a Slack app
+# slot (free plan caps at 10 apps). cu130-slim has no Slack bot token, so this
+# relays through a repository_dispatch to cloudless.gr, which posts via the
+# existing Cloudless Slack app. Requires GH_PAT (classic PAT, `repo` scope).
+
+on:
+  pull_request:
+    types: [opened, closed]
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: Text to send to #github-activity
+        required: false
+        default: ""
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose Slack message
+        id: msg
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_URL: ${{ github.event.release.html_url }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          WF_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WF_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WF_URL: ${{ github.event.workflow_run.html_url }}
+          TEST_TEXT: ${{ github.event.inputs.test_message }}
+        run: python3 .github/scripts/slack_github_notify.py
+
+      - name: Relay to cloudless.gr Slack bridge
+        if: steps.msg.outputs.text != ''
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          MSG_TEXT: ${{ steps.msg.outputs.text }}
+        run: |
+          python3 -c "
+          import json, os, sys, urllib.request
+          req = urllib.request.Request(
+              'https://api.github.com/repos/Themis128/cloudless.gr/dispatches',
+              data=json.dumps({
+                  'event_type': 'github-notify',
+                  'client_payload': {
+                      'text': os.environ['MSG_TEXT'],
+                      'repo': 'Themis128/cu130-slim',
+                  },
+              }).encode(),
+              headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_PAT'],
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+              },
+          )
+          try:
+              code = urllib.request.urlopen(req).status
+          except urllib.error.HTTPError as e:
+              print(f'::error::dispatch failed {e.code} — check GH_PAT repo scope, '
+                    'or set a real SLACK_BOT_TOKEN secret on this repo')
+              sys.exit(1)
+          print('dispatch:', code)
+          "

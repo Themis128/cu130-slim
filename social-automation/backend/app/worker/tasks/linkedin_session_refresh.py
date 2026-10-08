@@ -11,6 +11,7 @@ The task runs weekly via Celery beat.
 """
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -29,7 +30,7 @@ celery_app.set_current()
 
 logger = logging.getLogger(__name__)
 
-LINKEDIN_SIDECAR_URL = "http://linkedin-browser-sidecar:9225"
+LINKEDIN_SIDECAR_URL = os.getenv("LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225")
 
 
 @asynccontextmanager

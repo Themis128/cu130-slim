@@ -425,6 +425,8 @@ async def _queued_load_vram(model: str) -> int:
 
 async def _has_vram_for_model(model: str) -> bool:
     """Check if there's enough VRAM for the given model.  Conservative estimates."""
+    if _model_is_cpu_pinned(model):
+        return True  # CPU-pinned models don't need VRAM — never gate/heal
     queued = await _queued_load_vram(model)
     if queued < 0:
         return True  # already resident — no load needed regardless of pressure
@@ -1103,7 +1105,14 @@ async def keep_warm_models() -> dict[str, Any]:
 #
 # Key decisions (based on llama.cpp + Qwen3 best practices):
 # - Context size 8192: enough for bot conversations with memory + brand RAG
-# - n-gpu-layers 99: offload all layers to GPU (model fits in 8GB VRAM)
+# - n-gpu-layers 0 on EVERY model — the whole fleet runs CPU. Rationale
+#   (2026-10-08): DMR's llama.cpp backend hardcodes "-ngl 999" (see
+#   NewDefaultLlamaCppConfig in docker/model-runner) which disables
+#   llama.cpp's --fit auto-spill, so every GPU load races the Windows
+#   desktop for the shared 8GB card — the all-day 502/timeout storm.
+#   CPU inference is slower but deterministic: 4B ~15-25 tok/s means a
+#   generation completes in ~30-60s instead of never. Revisit if the
+#   GPU ever becomes dedicated (e.g. desktop idle hours or a second card).
 # - threads 8: match physical CPU cores
 # - batch-size 1024: faster prompt processing
 # - flash-attn on: reduces KV cache memory, speeds long contexts
@@ -1121,7 +1130,7 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "context_size": 6144,
         "keep_alive": "2m",
         "think": True,
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # 4B non-thinking instruct — short-form platform copy + ALL chatbots.
     # Pinned warm (30m): chatbot replies are latency-critical and arrive at
@@ -1132,16 +1141,26 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M": {
         "context_size": 4096,
         "keep_alive": "30m",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        # n-gpu-layers 0 — CPU-pinned like the rest of the fleet. DMR's
+        # llama.cpp backend injects "-ngl 999" unconditionally (hardcoded
+        # in NewDefaultLlamaCppConfig) which both disables llama.cpp's
+        # --fit auto-spill AND makes GPU residency race the Windows
+        # desktop for the shared 8GB card — the observed 502/timeout
+        # storm of 2026-10-08. CPU inference on a 4B is ~15-25 tok/s:
+        # slower, but a chatbot/post reply always completes.
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # Carousel copy + NLP checker — ~2.2GB, co-resides with the pinned 4B.
     # ctx 4096 (was 8192): slide copy and plain-English rewrites are short
     # prompts; llama.cpp KV sizing (~100-500MB per 1K tokens) made 8192
     # waste ~0.5-1GB that pushed co-residency over the edge.
+    # n-gpu-layers 0 + batch 512: CPU-pinned like the rest of the fleet —
+    # synced with the watchdog canonical config 2026-10-08 (code config had
+    # drifted: it was the only model still requesting GPU + batch 1024).
     "ai/llama3.2": {
         "context_size": 4096,
         "keep_alive": "2m",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
     # Vision QA — ~5GB, the largest co-residency offender on the card.
     # Media QA runs in short bursts (caption-match checks after image
@@ -1150,7 +1169,7 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "ai/qwen3-vl": {
         "context_size": 4096,
         "keep_alive": "90s",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
     # Qwen3-Embedding-0.6B — same family + 1024 dims as the 8B it replaced,
     # but ~0.7GB instead of ~4.7GB: the 8B was the single largest storm
@@ -1158,17 +1177,27 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # admission control — concurrent spawns OOM each other). Calls arrive
     # in bursts (similarity search, dedupe checks); unload quickly so it
     # never lingers through the next media job or model switch.
+    # n-gpu-layers 0: a 0.6B embedding model is CPU-fast for short texts —
+    # keeping it off the card removes ~0.7GB of fleet churn and one whole
+    # load/evict cycle per content pipeline call (observed 2026-10-08: the
+    # keep-warm+pipeline mix wedged the scheduler at 8/8GB used).
     "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {
         "keep_alive": "60s",
         "mode": "embedding",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8"],
     },
-    # Tiny model — sub-200-char prompts. ctx 2048 (was 4096): routed
-    # prompts are tiny by definition; the smaller KV saves ~0.25-0.5GB.
+    # Tiny model — sub-200-char prompts + last-resort generation fallback.
+    # ctx 4096 on CPU (was 2048 on GPU): the VRAM fail-over path routes
+    # full-size prompts here — 2048 overflowed them (observed 502:
+    # "request 4047 tokens exceeds context size 2048"). On CPU the KV
+    # cost is RAM, not VRAM, so the larger context is free.
+    # n-gpu-layers 0: prompts routed here are trivially small — CPU
+    # latency is identical in practice and ~2GB of VRAM contention
+    # disappears from the load/evict cycle.
     "ai/smollm3": {
-        "context_size": 2048,
+        "context_size": 4096,
         "keep_alive": "60s",
-        "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
+        "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "0", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
 }
 
@@ -1207,6 +1236,29 @@ def _configure_payload(model: str) -> dict[str, Any] | None:
     if cfg.get("runtime_flags"):
         body["runtime-flags"] = cfg["runtime_flags"]
     return body
+
+
+def _model_is_cpu_pinned(model: str) -> bool:
+    """True when the model's canonical config requests n-gpu-layers 0.
+
+    CPU-pinned models never touch VRAM — the entire insufficient-VRAM gate
+    and GPU-heal path (unload all runners, free ComfyUI caches) is not just
+    useless for them but actively harmful: it evicts the very runner mid
+    CPU load and frees ComfyUI caches for zero benefit (observed 2026-10-08:
+    the heal fired while an 8B draft was loading and restarted it twice).
+    """
+    cfg = _BEST_PRACTICE_CONFIGS.get(model)
+    if cfg is None:
+        norm = model.lower().removeprefix("docker.io/").removeprefix("huggingface.co/")
+        cfg = next(
+            (c for k, c in _BEST_PRACTICE_CONFIGS.items() if k.lower() in norm or norm in k.lower()),
+            None,
+        )
+    flags = cfg.get("runtime_flags") if cfg else None
+    if not flags:
+        return False
+    joined = " ".join(str(f) for f in flags)
+    return "--n-gpu-layers 0" in joined or "--n-gpu-layers=0" in joined or "-ngl 0" in joined or "-ngl=0" in joined
 
 
 def _merge_overrides(body: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -1407,8 +1459,12 @@ async def _call_dmr_chat_internal(
                         # Runner failed to start (typically CUDA OOM while DMR
                         # held another model resident or the in-memory config
                         # was wiped) — free VRAM, re-push config, then retry.
+                        # Skipped for CPU-pinned models: their loads don't
+                        # need VRAM, and unload-all would abort the in-flight
+                        # CPU load we're about to retry.
                         logger.warning("DMR runner load failed for %s — healing GPU state", model)
-                        await _free_gpu_memory()
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                         await _ensure_model_configured(model, force=True)
                     raise ConnectionError(f"DMR error {resp.status_code}: {body}")
 
@@ -1437,7 +1493,10 @@ async def _call_dmr_chat_internal(
                     # attempt isn't doomed to the same hang.
                     logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
                     if isinstance(exc, httpx.TimeoutException | httpx.RemoteProtocolError):
-                        await _free_gpu_memory()
+                        # CPU-pinned loads time out from slow CPU, not VRAM —
+                        # freeing GPU here only kills the in-flight load.
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                     await asyncio.sleep(2.0)
                     continue
                 _invalidate_health_cache()
@@ -1754,7 +1813,8 @@ async def call_dmr_vision(
                     # Heal + retry once, same as the chat path's cold-start retry.
                     if attempt == 0:
                         logger.warning("DMR vision: timeout — healing GPU state and retrying")
-                        await _free_gpu_memory()
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                         await _ensure_model_configured(model, force=True)
                         continue
                     raise
@@ -1766,7 +1826,8 @@ async def call_dmr_vision(
                     # Runner mid-(re)load or OOM while other models were queued —
                     # free VRAM, re-push config, retry once.
                     logger.warning("DMR vision: %s — healing GPU state and retrying", resp.status_code)
-                    await _free_gpu_memory()
+                    if not _model_is_cpu_pinned(model):
+                        await _free_gpu_memory()
                     await _ensure_model_configured(model, force=True)
                     continue
                 break

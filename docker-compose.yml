@@ -36,6 +36,19 @@ x-worker-env: &worker-env
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
   - LANGUAGETOOL_URL=http://stack-ops:8010
+  # Browser surfaces go through the stack-ops wake proxy (same as social-api):
+  # idle-sleep stops these containers after 20min, and direct hostnames have
+  # no DNS entry while stopped — every worker-side browser call (session
+  # healer, Skool watcher, publish fallbacks) died with ConnectError
+  # '[Errno -2] Name or service not known' until these were proxied.
+  - BROWSER_BRIDGE_URL=http://stack-ops:9223
+  - TIKTOK_BROWSER_SIDECAR_URL=http://stack-ops:9224
+  - LINKEDIN_BROWSER_SIDECAR_URL=http://stack-ops:9225
+  - LINKEDIN_MCP_SERVER_URL=http://stack-ops:9227/mcp
+  - FACEBOOK_BROWSER_SIDECAR_URL=http://stack-ops:9226
+  - MESSENGER_SIDECAR_URL=http://stack-ops:9230
+  - INSTAGRAM_PRIVATE_API_URL=http://stack-ops:8000
+  - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://stack-ops:1080}
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
   - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
   - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
@@ -1597,12 +1610,12 @@ services:
         apply_configs() {
           echo "[dmr-watchdog] applying canonical model configs"
           ok=0
-          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
-          configure '{"model":"ai/smollm3","context-size":2048,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}' || ok=1
+          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
           return $$ok
         }

@@ -122,6 +122,18 @@ SITES = {
         "success_patterns": ["medium.com/me", "medium.com/?source"],
         "cookies": ["sid", "uid", "sess", "__cf_bm"],
     },
+    "skool": {
+        "url": "https://www.skool.com/login",
+        "success_patterns": [
+            "skool.com/discovery",
+            "skool.com/chats",
+            "skool.com/feed",
+            "skool.com/sofia",
+        ],
+        # No cookies needed — the session lives in the persistent
+        # browser_profile volume; nothing downstream consumes extracts.
+        "cookies": [],
+    },
     "discord": {
         "url": "https://discord.com/login",
         "success_patterns": ["discord.com/channels", "discord.com/app"],

@@ -14,17 +14,29 @@ fallback.
 
 ## Architecture
 
+> **2026-10-08 — THE WHOLE FLEET RUNS CPU (`--n-gpu-layers 0`).** DMR's
+> llama.cpp backend hardcodes `-ngl 999` in `NewDefaultLlamaCppConfig`
+> (docker/model-runner source) which disables llama.cpp's `--fit`
+> auto-spill — so every model load raced the Windows desktop for the
+> shared 8GB card and produced an all-day 502/timeout storm. CPU is
+> slower but deterministic (4B ~15-55 tok/s, a generate-content round
+> ≈5min). Do NOT re-add `--n-gpu-layers 99` thinking it speeds things
+> up — it reintroduces the VRAM race. Revisit only if the GPU becomes
+> dedicated (second card, or media jobs moved off the box).
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Host (RTX 3070 8GB VRAM)                                  │
+│  Host (RTX 3070 8GB VRAM — shared with Windows desktop)    │
 │                                                             │
 │  Docker Model Runner (port 12435)                          │
 │  ├── llama.cpp engine (default, GGUF quantized)            │
-│  │   ├── ai/qwen3:8b-q4_K_M   (long-form + schema, ~5.1GB)│
-│  │   ├── Qwen3-4B-Instruct    (short-form + chatbots, ~2.7GB)│
-│  │   ├── ai/qwen3-vl          (vision, ~5GB VRAM)          │
+│  │   └── ALL MODELS CPU-PINNED (n-gpu-layers 0)            │
+│  │   ├── ai/qwen3:8b-q4_K_M   (long-form + schema)         │
+│  │   ├── Qwen3-4B-Instruct    (short-form + chatbots)      │
+│  │   ├── ai/qwen3-vl          (vision)                    │
+│  │   ├── ai/llama3.2          (carousel copy + NLP)        │
 │  │   ├── Qwen3-Embedding-0.6B (embeddings, hf.co)         │
-│  │   └── ai/smollm3           (tiny/fast, 3.1B)            │
+│  │   └── ai/smollm3           (tiny/fast, ctx 4096)        │
 │  └── Diffusers engine (NOT AVAILABLE on WSL2/Docker Desktop)│
 │      └── ai/stable-diffusion (SDXL, 6.94GB DDUF, pulled)   │
 │      └── Requires native Linux x86_64 + NVIDIA CUDA        │
@@ -304,7 +316,12 @@ Manual reapply: `scripts/dmr-configure.py`. Verify: `scripts/dmr-configure.py sh
 
 ## VRAM management
 
-The RTX 3070 has 8GB VRAM. DMR models auto-load on request and unload when idle.
+**All models now run CPU (`n-gpu-layers 0`) — see the banner at the top.
+The table below documents pre-CPU-pin GPU footprints for reference only.**
+
+The RTX 3070 has 8GB VRAM, shared with the Windows desktop (browsers,
+Widgets, Docker Desktop GUI routinely hold 2-8GB). DMR models auto-load
+on request and unload when idle.
 
 | Model | VRAM when loaded |
 |-------|-----------------|

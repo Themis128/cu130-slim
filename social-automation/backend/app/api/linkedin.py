@@ -584,7 +584,7 @@ async def list_linkedin_dm_conversations(
     await _load_linkedin_account(db, account_id, current_user)
     from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 
-    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    sidecar = LinkedInSidecarClient()
     try:
         result = await sidecar.get_conversations()
         return result
@@ -603,7 +603,7 @@ async def read_linkedin_dm_thread(
     await _load_linkedin_account(db, account_id, current_user)
     from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 
-    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    sidecar = LinkedInSidecarClient()
     try:
         result = await sidecar.get_thread_messages(thread_id)
         return result
@@ -626,7 +626,7 @@ async def send_linkedin_dm(
         raise HTTPException(status_code=400, detail="text is required")
     from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 
-    sidecar = LinkedInSidecarClient("http://linkedin-browser-sidecar:9225")
+    sidecar = LinkedInSidecarClient()
     try:
         result = await sidecar.send_message(thread_id, text)
         return result

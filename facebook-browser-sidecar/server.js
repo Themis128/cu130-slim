@@ -3104,6 +3104,35 @@ app.post("/debug/eval", async (req, res) => {
   }
 });
 
+// Trusted click via CDP input — synthetic JS clicks are ignored by
+// Facebook's profile picker, but real Playwright clicks are trusted.
+app.post("/debug/click", async (req, res) => {
+  try {
+    const { selector, text, x, y } = req.body;
+    await ensureBrowser();
+    if (typeof x === "number" && typeof y === "number") {
+      await page.mouse.click(x, y);
+    } else if (selector) {
+      const loc = text
+        ? page.locator(selector).filter({ hasText: text })
+        : page.locator(selector);
+      await loc.first().click({ timeout: 10000 });
+    } else if (text) {
+      await page
+        .getByText(text, { exact: false })
+        .first()
+        .click({ timeout: 10000 });
+    } else {
+      return res
+        .status(400)
+        .json({ error: "selector, text, or x/y required" });
+    }
+    res.json({ status: "ok", url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   await closeBrowser();

@@ -4,6 +4,7 @@ Fetches the website HTML, parses colors/fonts/logo/copy, then uses
 Cloudflare Workers AI to analyze tone and generate a structured brand kit draft.
 """
 
+import asyncio
 import logging
 import re
 from urllib.parse import urljoin, urlparse
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 30.0
 MAX_CONTENT_CHARS = 8000
 MAX_REDIRECTS = 5
+MAX_STYLESHEETS = 3
 _BOT_HEADERS = {"User-Agent": "CloudlessBrandBot/1.0"}
 
 
@@ -51,28 +53,21 @@ async def extract_brand_from_url(url: str) -> dict:
     parsed = urlparse(safe_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Fetch homepage and about pages (redirects re-validated per hop)
+    # Fetch homepage, about pages, and stylesheets (redirects re-validated per hop)
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=False) as client:
         homepage_resp = await _safe_get(client, safe_url)
+        if homepage_resp.status_code >= 400:
+            raise UnsafeUrlError(f"Homepage returned HTTP {homepage_resp.status_code}")
         homepage_html = homepage_resp.text
-
-        about_html = ""
-        about_urls = [
-            validate_public_http_url(urljoin(base_url, "/about")),
-            validate_public_http_url(urljoin(base_url, "/about-us")),
-            validate_public_http_url(urljoin(base_url, "/en/about")),
-        ]
-        for about_url in about_urls:
-            try:
-                resp = await _safe_get(client, about_url)
-                if resp.status_code == 200 and len(resp.text) > 500:
-                    about_html = resp.text
-                    break
-            except Exception:
-                continue
-
-    # Parse homepage
-    soup = BeautifulSoup(homepage_html, "html.parser")
+        soup = BeautifulSoup(homepage_html, "html.parser")
+        # Concurrent: about pages + same-origin stylesheets. Modern stacks
+        # (Tailwind @theme, CSS vars) keep fonts/colors in external CSS —
+        # inline-only scanning misses nearly all design tokens.
+        about_html, css_texts = await asyncio.gather(
+            _first_about_page(client, base_url),
+            _fetch_stylesheets(client, soup, base_url),
+        )
+    scan_html = homepage_html + "\n" + "\n".join(css_texts)
 
     # Extract basic info
     name = _extract_brand_name(soup, parsed.netloc)
@@ -80,10 +75,10 @@ async def extract_brand_from_url(url: str) -> dict:
     meta_description = _extract_meta_description(soup)
 
     # Extract colors
-    colors = _extract_colors(soup, homepage_html)
+    colors = _extract_colors(soup, scan_html)
 
     # Extract fonts
-    fonts = _extract_fonts(soup, homepage_html)
+    fonts = _extract_fonts(soup, scan_html)
 
     # Extract logo
     logo_url = _extract_logo(soup, base_url)
@@ -137,6 +132,47 @@ async def extract_brand_from_url(url: str) -> dict:
     }
 
     return result
+
+
+async def _fetch_stylesheets(client: httpx.AsyncClient, soup: BeautifulSoup, base_url: str) -> list[str]:
+    """Fetch same-origin linked stylesheets (capped) for token scanning."""
+    base_host = urlparse(base_url).netloc
+    hrefs: list[str] = []
+    for link in soup.find_all("link", rel=lambda v: v and "stylesheet" in v):
+        href = _get_attr(link, "href")
+        if not href:
+            continue
+        u = urljoin(base_url, href)
+        if urlparse(u).netloc == base_host and u not in hrefs:
+            hrefs.append(u)
+
+    async def fetch(u: str) -> str:
+        try:
+            resp = await _safe_get(client, validate_public_http_url(u))
+            return resp.text if resp.status_code == 200 else ""
+        except Exception:
+            return ""
+
+    results = await asyncio.gather(*(fetch(u) for u in hrefs[:MAX_STYLESHEETS]))
+    return [t for t in results if t]
+
+
+async def _first_about_page(client: httpx.AsyncClient, base_url: str) -> str:
+    """Probe the common about-page paths concurrently — first good page wins.
+
+    Sequential probing cost up to 3x the per-request timeout before the AI
+    analysis even started.
+    """
+
+    async def probe(path: str) -> str:
+        try:
+            resp = await _safe_get(client, validate_public_http_url(urljoin(base_url, path)))
+            return resp.text if resp.status_code == 200 and len(resp.text) > 500 else ""
+        except Exception:
+            return ""
+
+    results = await asyncio.gather(*(probe(p) for p in ("/about", "/about-us", "/en/about")))
+    return next((t for t in results if t), "")
 
 
 def _extract_brand_name(soup: BeautifulSoup, domain: str) -> str:
@@ -248,18 +284,28 @@ def _extract_colors(soup: BeautifulSoup, html: str) -> list[str]:
 
 
 def _extract_fonts(soup: BeautifulSoup, html: str) -> list[str]:
-    """Extract font families from CSS."""
+    """Extract font families from CSS, resolving --font-* custom properties."""
     fonts: list[str] = []
-    font_pattern = re.compile(r"font-family\s*:\s*([^;}{]+)", re.IGNORECASE)
     seen: set[str] = set()
+    skip = ("inherit", "initial", "system-ui", "sans-serif", "serif", "monospace")
 
-    for match in font_pattern.finditer(html):
-        raw = match.group(1).strip()
-        # Take the first font name (before any comma)
+    def add(raw: str) -> None:
         first = raw.split(",")[0].strip().strip("'\"")
-        if first and first.lower() not in seen and first.lower() not in ("inherit", "initial", "system-ui", "sans-serif", "serif", "monospace"):
+        if not first or first.startswith("var(") or "(" in first:
+            return
+        if first.lower() not in seen and first.lower() not in skip:
             seen.add(first.lower())
             fonts.append(first)
+
+    # Custom properties first — modern stacks (Tailwind @theme, CSS vars)
+    # declare real names there while font-family sites only reference var(--*)
+    var_pattern = re.compile(r"--font-[a-z0-9-]+\s*:\s*([^;}{]+)", re.IGNORECASE)
+    for match in var_pattern.finditer(html):
+        add(match.group(1).strip())
+
+    font_pattern = re.compile(r"font-family\s*:\s*([^;}{]+)", re.IGNORECASE)
+    for match in font_pattern.finditer(html):
+        add(match.group(1).strip())
 
     return fonts[:4]
 
@@ -342,30 +388,45 @@ Return a JSON object with these fields:
 
 Return ONLY the JSON object, no other text."""
 
+    schema = {
+        "type": "object",
+        "properties": {
+            "industry": {"type": "string"},
+            "positioning_statement": {"type": "string"},
+            "mission": {"type": "string"},
+            "values": {"type": "array", "items": {"type": "string"}},
+            "competitor_names": {"type": "array", "items": {"type": "string"}},
+            "target_audience": {"type": "object"},
+            "tone_dimensions": {"type": "object"},
+            "messaging_pillars": {"type": "array", "items": {"type": "object"}},
+            "banned_phrases": {"type": "array", "items": {"type": "string"}},
+            "preferred_phrases": {"type": "array", "items": {"type": "string"}},
+            "voice_signature": {"type": "object"},
+            "image_style": {"type": "string"},
+            "photography_direction": {"type": "string"},
+        },
+    }
+
+    # Cloudflare Workers AI first — free-tier remote GPU answers schema'd JSON
+    # in seconds. The local DMR fleet is CPU-pinned (shared GPU reserved for
+    # ComfyUI), so a schema'd call on the default 8B exceeds request timeouts
+    # (observed 2026-10-08); the warm-pinned 4B instruct is the local fallback.
+    attempts: list[tuple[str, dict]] = [("cloudflare", {})]
     try:
-        result = await call_inference(
-            prompt=prompt,
-            provider_name="dmr",
-            schema={
-                "type": "object",
-                "properties": {
-                    "industry": {"type": "string"},
-                    "positioning_statement": {"type": "string"},
-                    "mission": {"type": "string"},
-                    "values": {"type": "array", "items": {"type": "string"}},
-                    "competitor_names": {"type": "array", "items": {"type": "string"}},
-                    "target_audience": {"type": "object"},
-                    "tone_dimensions": {"type": "object"},
-                    "messaging_pillars": {"type": "array", "items": {"type": "object"}},
-                    "banned_phrases": {"type": "array", "items": {"type": "string"}},
-                    "preferred_phrases": {"type": "array", "items": {"type": "string"}},
-                    "voice_signature": {"type": "object"},
-                    "image_style": {"type": "string"},
-                    "photography_direction": {"type": "string"},
-                },
-            },
-        )
-        return result.get("response", result)
-    except Exception as e:
-        logger.warning("AI brand analysis failed for %s: %s", brand_name, e)
-        return {}
+        from app.core.config import get_settings
+
+        attempts.append(("dmr", {"model_override": get_settings().DMR_MID_MODEL}))
+    except Exception:
+        attempts.append(("dmr", {}))
+
+    for provider, kwargs in attempts:
+        try:
+            result = await call_inference(prompt=prompt, provider_name=provider, schema=schema, **kwargs)
+        except Exception as e:
+            logger.warning("brand extract: %s analysis failed for %s: %s", provider, brand_name, e)
+            continue
+        analysis = result.get("response") if isinstance(result.get("response"), dict) else result
+        if isinstance(analysis, dict) and analysis:
+            return analysis
+    logger.warning("AI brand analysis failed for %s: all providers exhausted", brand_name)
+    return {}
