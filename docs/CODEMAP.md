@@ -115,11 +115,20 @@ services/          platform clients + infra — facebook_api, instagram_api
 models/            SQLAlchemy — social_account (access_token_enc, scopes, meta_data),
                    social_secret, user, content, media, lead, billing,
                    whatsapp_message (unified-inbox persistence)…
-worker/celery_app.py   queues + beat_schedule
+worker/celery_app.py   queues + beat_schedule; worker_process_init/shutdown
+                   wire the per-child asyncio loop lifecycle
+worker/_async.py     persistent asyncio loop per prefork child (daemon thread):
+                   run_async() submits coroutines via run_coroutine_threadsafe;
+                   task_session()/get_session_factory() yield sessions from a
+                   real pooled engine bound to that loop — NEVER combine
+                   asyncio.run() + async_session_maker() in a task (the
+                   'Future attached to a different loop' crash class)
 worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
                    analytics, digest, recurring, media, workflows, dmr_health,
                    datalake_export (→ cloudless.gr R2 datalake),
                    linkedin_ads_{report,control}, linkedin_invites,
+                   nextcloud (omv WebDAV export), lead_emails (drip),
+                   skool_watch (VEC Skool scrape → LinkedIn drafts),
                    notebook_reports (papermill report runner)
 notebooks/         report templates (reports/) executed by the worker via
                    papermill; rendered artifacts land in output/ (same dir
