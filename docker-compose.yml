@@ -173,8 +173,9 @@ x-worker-depends: &worker-depends
     condition: service_healthy
   n8n:
     condition: service_healthy
-  comfyui:
-    condition: service_healthy
+  # comfyui intentionally absent: workers reach it through the stack-ops
+  # wake proxy (COMFYUI_URL=http://stack-ops:8199); a depends_on here would
+  # force-start the GPU container on every worker recreate.
   chroma:
     condition: service_healthy
   minio:
@@ -247,8 +248,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      n8n-sandbox:
-        condition: service_healthy
+      # n8n-sandbox intentionally absent: it is idle-slept and wake-proxied
+      # via stack-ops (N8N_*_SANDBOX_URL=http://stack-ops:8081); a depends_on
+      # would force-start it on every `compose up n8n`.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
       interval: 15s
@@ -889,13 +891,12 @@ services:
         condition: service_healthy
       n8n:
         condition: service_healthy
-      comfyui:
-        condition: service_healthy
+      # comfyui + instagram-private-api intentionally absent: both are
+      # idle-slept and wake-proxied via stack-ops; depending on them would
+      # force-start the heaviest containers on every api recreate.
       chroma:
         condition: service_healthy
       minio:
-        condition: service_healthy
-      instagram-private-api:
         condition: service_healthy
     dns:
       - 1.1.1.1
@@ -1722,6 +1723,12 @@ services:
     build:
       context: ./stack-ops
     container_name: stack-ops
+    environment:
+      - STACK_OPS_POLL_SECONDS=${STACK_OPS_POLL_SECONDS:-60}
+      - STACK_OPS_CPU_MAX=${STACK_OPS_CPU_MAX:-3.0}
+      - STACK_OPS_WAKE_TIMEOUT=${STACK_OPS_WAKE_TIMEOUT:-120}
+      - STACK_OPS_CONN_STREAK=${STACK_OPS_CONN_STREAK:-4}
+      - STACK_OPS_SLEEPER=${STACK_OPS_SLEEPER:-1}
     networks:
       - backend
     ports:

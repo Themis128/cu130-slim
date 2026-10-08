@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [stack-ops] %(message)s")
@@ -32,9 +33,11 @@ log = logging.getLogger("stack-ops")
 API_PORT = int(os.environ.get("STACK_OPS_API_PORT", "8787"))
 POLL_SECONDS = int(os.environ.get("STACK_OPS_POLL_SECONDS", "60"))
 CPU_PCT_MAX = float(os.environ.get("STACK_OPS_CPU_MAX", "3.0"))
-MIN_UPTIME_S = int(os.environ.get("STACK_OPS_MIN_UPTIME", "300"))
 WAKE_TIMEOUT_S = int(os.environ.get("STACK_OPS_WAKE_TIMEOUT", "120"))
 SLEEPER_ENABLED = os.environ.get("STACK_OPS_SLEEPER", "1") == "1"
+# Extra low-CPU polls required before sleeping a service that still has open
+# proxied connections (idle SSE/MCP streams, abandoned noVNC tabs).
+CONN_STREAK = int(os.environ.get("STACK_OPS_CONN_STREAK", "4"))
 
 CONF = json.loads((Path(__file__).parent / "services.json").read_text())
 # name -> {"target": host:port, "idle_min": int, "wait_page": bool, "group": [names]}
@@ -46,7 +49,20 @@ active_conns: dict[str, int] = {}
 wake_locks: dict[str, asyncio.Lock] = {}
 keepawake: dict[str, float] = {}
 low_cpu_streak: dict[str, int] = {}
-started_at: dict[str, float] = {}
+
+
+def resolve_container(name: str) -> str:
+    """Service key -> docker container name (alias-aware)."""
+    return SERVICES.get(name, {}).get("container", name)
+
+
+def is_secondary_alias(name: str) -> bool:
+    """True when `name` is an alias whose container is managed under another
+    service key (e.g. browser-novnc-ui -> browser-novnc). A key like `comfyui`
+    whose container name isn't itself a service key is NOT an alias — it is
+    the canonical owner of its container."""
+    docker_name = resolve_container(name)
+    return docker_name != name and docker_name in SERVICES
 
 
 async def docker(*args: str) -> tuple[int, str]:
@@ -87,7 +103,7 @@ async def cpu_pct(name: str) -> float:
 async def wake(name: str) -> bool:
     """Start + wait healthy. Idempotent, deduped per service."""
     svc = SERVICES.get(name, {})
-    docker_name = svc.get("container", name)
+    docker_name = resolve_container(name)
     for dep in svc.get("group", []):
         await wake(dep)
     lock = wake_locks.setdefault(docker_name, asyncio.Lock())
@@ -114,7 +130,7 @@ async def wake(name: str) -> bool:
 
 
 async def sleep_service(name: str) -> bool:
-    docker_name = SERVICES.get(name, {}).get("container", name)
+    docker_name = resolve_container(name)
     rc, out = await docker("stop", "-t", "30", docker_name)
     if rc == 0:
         log.info("slept %s", docker_name)
@@ -154,30 +170,48 @@ async def pipe(a: asyncio.StreamReader, b: asyncio.StreamWriter) -> None:
         b.close()
 
 
+HTTP_503 = (
+    b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+    b"Retry-After: 15\r\nConnection: close\r\n\r\n"
+)
+
+
 async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                       name: str) -> None:
     svc = SERVICES.get(name)
     if svc is None:
         writer.close()
         return
-    docker_name = svc.get("container", name)
+    docker_name = resolve_container(name)
     active_conns[docker_name] = active_conns.get(docker_name, 0) + 1
     first = b""
     try:
         st = await container_state(docker_name)
         if st != "running":
-            # Peek at first bytes: an HTTP verb to a UI port gets a waiting
-            # page + auto-refresh; everything else just waits for the wake.
+            # Peek at the first bytes (up to one segment covers typical HTTP
+            # headers): a *browser* navigation (GET + Accept: text/html) to a
+            # UI port gets the waiting page + auto-refresh. Everything else —
+            # API GETs (Accept: */*), POST bodies, SOCKS5/VNC — blocks until
+            # the service is awake. An HTML page in reply to an API call
+            # would just fail the caller.
             try:
-                first = await asyncio.wait_for(reader.read(6), timeout=3)
+                first = await asyncio.wait_for(reader.read(8192), timeout=3)
             except TimeoutError:
                 first = b""
-            if svc.get("wait_page") and first[:4] in HTTP_VERBS:
+            browser_nav = (
+                first[:4] == b"GET " and b"text/html" in first.lower())
+            if svc.get("wait_page") and browser_nav:
                 asyncio.ensure_future(wake(name))
                 writer.write(WAIT_PAGE)
                 await writer.drain()
                 return
             if not await wake(name):
+                if first[:4] in HTTP_VERBS:
+                    writer.write(
+                        HTTP_503 + json.dumps(
+                            {"error": f"{docker_name} failed to wake"}
+                        ).encode())
+                    await writer.drain()
                 return
         touch(docker_name)
         host, port = svc["target"].rsplit(":", 1)
@@ -202,29 +236,35 @@ async def sleeper_loop() -> None:
     await asyncio.sleep(30)  # let the stack settle after boot
     while True:
         for name, svc in SERVICES.items():
-            if svc.get("container", name) != name:
-                continue  # alias of another managed container
+            if is_secondary_alias(name):
+                continue
+            docker_name = resolve_container(name)
             try:
-                st = await container_state(name)
-                if st == "stopped":
+                st = await container_state(docker_name)
+                if st in ("stopped", "missing"):
                     continue
-                if st == "starting" or active_conns.get(name, 0) > 0:
-                    low_cpu_streak[name] = 0
+                if st == "starting":
+                    low_cpu_streak[docker_name] = 0
                     continue
-                if time.monotonic() < keepawake.get(name, 0):
+                if time.monotonic() < keepawake.get(docker_name, 0):
                     continue
-                idle_for = time.monotonic() - last_active.get(
-                    name, started_at.get(name, 0))
+                idle_for = time.monotonic() - last_active.get(docker_name, 0)
                 if idle_for < svc["idle_min"] * 60:
-                    low_cpu_streak[name] = 0
+                    low_cpu_streak[docker_name] = 0
                     continue
-                if await cpu_pct(name) < CPU_PCT_MAX:
-                    low_cpu_streak[name] = low_cpu_streak.get(name, 0) + 1
-                    if low_cpu_streak[name] >= 2:
+                # Open proxied conns (SSE, idle noVNC tabs, forgotten MCP
+                # streams) don't block sleep, but earn extra low-CPU polls so
+                # a genuinely busy session keeps the service up via CPU.
+                need_streak = CONN_STREAK if active_conns.get(
+                    docker_name, 0) > 0 else 2
+                if await cpu_pct(docker_name) < CPU_PCT_MAX:
+                    low_cpu_streak[docker_name] = low_cpu_streak.get(
+                        docker_name, 0) + 1
+                    if low_cpu_streak[docker_name] >= need_streak:
                         await sleep_service(name)
                 else:
-                    low_cpu_streak[name] = 0
-                    touch(name)  # busy outside the proxy — stays awake
+                    low_cpu_streak[docker_name] = 0
+                    touch(docker_name)  # busy outside the proxy — stays awake
             except Exception as e:
                 log.error("sleeper check %s: %s", name, e)
         await asyncio.sleep(POLL_SECONDS)
@@ -254,17 +294,33 @@ async def api_handler(reader: asyncio.StreamReader,
         if segs == ["healthz"]:
             code, body = 200, {"ok": True}
         elif segs == ["status"]:
-            body, code = {n: await _status_of(n) for n in SERVICES}, 200
+            names = list(SERVICES)
+            res = await asyncio.gather(*(_status_of(n) for n in names))
+            body, code = dict(zip(names, res)), 200
         elif len(segs) == 2 and segs[0] == "status":
-            body, code = await _status_of(segs[1]), 200
+            if segs[1] not in SERVICES:
+                code, body = 404, {"error": "unknown service"}
+            else:
+                body, code = await _status_of(segs[1]), 200
         elif len(segs) == 2 and segs[0] == "wake" and method == "POST":
-            ok = await wake(segs[1])
-            code, body = (200, {"woke": segs[1]}) if ok else (500, {"error": segs[1]})
+            if segs[1] not in SERVICES:
+                code, body = 404, {"error": "unknown service"}
+            else:
+                ok = await wake(segs[1])
+                code, body = (200, {"woke": segs[1]}) if ok else (500, {"error": segs[1]})
         elif len(segs) == 2 and segs[0] == "sleep" and method == "POST":
-            code, body = 200, {"slept": segs[1]}
-            await sleep_service(segs[1])
+            if segs[1] not in SERVICES:
+                code, body = 404, {"error": "unknown service"}
+            else:
+                ok = await sleep_service(segs[1])
+                code, body = (200, {"slept": segs[1]}) if ok else (500, {"error": segs[1]})
+        elif segs == ["sleep-all"] and method == "POST":
+            canonical = [n for n in SERVICES if not is_secondary_alias(n)]
+            res = await asyncio.gather(*(sleep_service(n) for n in canonical))
+            code, body = 200, {"slept": dict(zip(canonical, res))}
         elif len(segs) == 2 and segs[0] == "keepawake" and method == "POST":
-            keepawake[segs[1]] = time.monotonic() + (ttl or 7200)
+            docker_name = resolve_container(segs[1])
+            keepawake[docker_name] = time.monotonic() + (ttl or 7200)
             code, body = 200, {"keepawake": segs[1], "ttl_s": ttl or 7200}
         payload = json.dumps(body).encode()
         writer.write(
@@ -279,8 +335,9 @@ async def api_handler(reader: asyncio.StreamReader,
 
 
 async def _status_of(name: str) -> dict:
-    docker_name = SERVICES.get(name, {}).get("container", name)
+    docker_name = resolve_container(name)
     return {
+        "container": docker_name,
         "state": await container_state(docker_name),
         "last_active_ago_s": int(time.monotonic() - last_active[docker_name])
         if docker_name in last_active else None,
@@ -289,13 +346,30 @@ async def _status_of(name: str) -> dict:
     }
 
 
+def _docker_ts_to_monotonic(ts: str, now_wall: float, now_mono: float) -> float:
+    """Convert a docker RFC3339 StartedAt into monotonic-clock time."""
+    try:
+        epoch = datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=timezone.utc).timestamp()
+        return now_mono - max(0.0, now_wall - epoch)
+    except ValueError:
+        return now_mono
+
+
 async def main() -> None:
-    now = time.monotonic()
-    for name in SERVICES:
-        last_active.setdefault(name, now)
-        rc, out = await docker("inspect", "-f", "{{.State.StartedAt}}", name)
-        if rc == 0 and out and out != "<nil>":
-            started_at[name] = now  # conservative: treat boot time as now
+    now_mono, now_wall = time.monotonic(), time.time()
+    for name, svc in SERVICES.items():
+        docker_name = svc.get("container", name)
+        if docker_name in last_active:
+            continue
+        # Seed idle clock from the container's real StartedAt so containers
+        # started outside the proxy (compose up, session healer) get a full
+        # idle window, and long-running-but-untouched ones can sleep promptly.
+        rc, out = await docker(
+            "inspect", "-f", "{{.State.StartedAt}}", docker_name)
+        last_active[docker_name] = (
+            _docker_ts_to_monotonic(out, now_wall, now_mono)
+            if rc == 0 and out and out != "<nil>" else now_mono)
     servers = []
     for port, name in LISTENERS.items():
         servers.append(await asyncio.start_server(

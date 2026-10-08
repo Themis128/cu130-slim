@@ -164,13 +164,24 @@ def _stack_ops_states() -> dict:
 
 def _service_health(_a: dict) -> dict[str, Any]:
     states = _stack_ops_states()
+
+    def _state_of(container: str | None) -> str | None:
+        if not container:
+            return None
+        if container in states:
+            return states[container].get("state")
+        # status is keyed by service name; match by container too
+        for info in states.values():
+            if info.get("container") == container:
+                return info.get("state")
+        return None
+
     out = {}
     for name, url in _PROBES.items():
-        container = _STACKOPS_PROXIED.get(name)
-        state = (states.get(container) or {}).get("state") if container else None
+        state = _state_of(_STACKOPS_PROXIED.get(name))
         if state in ("stopped", "missing"):
             out[name] = {"up": True, "http": None,
-                         "detail": f"sleeping (stack-ops wakes on demand)"}
+                         "detail": "sleeping (stack-ops wakes on demand)"}
             continue
         code, body = _http(url, timeout=5)
         up = code is not None  # any HTTP response (even 401/405) = listening
