@@ -1158,17 +1158,24 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # admission control — concurrent spawns OOM each other). Calls arrive
     # in bursts (similarity search, dedupe checks); unload quickly so it
     # never lingers through the next media job or model switch.
+    # n-gpu-layers 0: a 0.6B embedding model is CPU-fast for short texts —
+    # keeping it off the card removes ~0.7GB of fleet churn and one whole
+    # load/evict cycle per content pipeline call (observed 2026-10-08: the
+    # keep-warm+pipeline mix wedged the scheduler at 8/8GB used).
     "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {
         "keep_alive": "60s",
         "mode": "embedding",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8"],
     },
     # Tiny model — sub-200-char prompts. ctx 2048 (was 4096): routed
     # prompts are tiny by definition; the smaller KV saves ~0.25-0.5GB.
+    # n-gpu-layers 0: prompts routed here are trivially small — CPU
+    # latency is identical in practice and ~2GB of VRAM contention
+    # disappears from the load/evict cycle.
     "ai/smollm3": {
         "context_size": 2048,
         "keep_alive": "60s",
-        "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "99", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
+        "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "0", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
 }
 
