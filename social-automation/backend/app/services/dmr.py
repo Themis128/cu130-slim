@@ -425,6 +425,8 @@ async def _queued_load_vram(model: str) -> int:
 
 async def _has_vram_for_model(model: str) -> bool:
     """Check if there's enough VRAM for the given model.  Conservative estimates."""
+    if _model_is_cpu_pinned(model):
+        return True  # CPU-pinned models don't need VRAM — never gate/heal
     queued = await _queued_load_vram(model)
     if queued < 0:
         return True  # already resident — no load needed regardless of pressure
@@ -1152,10 +1154,13 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # ctx 4096 (was 8192): slide copy and plain-English rewrites are short
     # prompts; llama.cpp KV sizing (~100-500MB per 1K tokens) made 8192
     # waste ~0.5-1GB that pushed co-residency over the edge.
+    # n-gpu-layers 0 + batch 512: CPU-pinned like the rest of the fleet —
+    # synced with the watchdog canonical config 2026-10-08 (code config had
+    # drifted: it was the only model still requesting GPU + batch 1024).
     "ai/llama3.2": {
         "context_size": 4096,
         "keep_alive": "2m",
-        "runtime_flags": ["--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
     # Vision QA — ~5GB, the largest co-residency offender on the card.
     # Media QA runs in short bursts (caption-match checks after image
@@ -1231,6 +1236,29 @@ def _configure_payload(model: str) -> dict[str, Any] | None:
     if cfg.get("runtime_flags"):
         body["runtime-flags"] = cfg["runtime_flags"]
     return body
+
+
+def _model_is_cpu_pinned(model: str) -> bool:
+    """True when the model's canonical config requests n-gpu-layers 0.
+
+    CPU-pinned models never touch VRAM — the entire insufficient-VRAM gate
+    and GPU-heal path (unload all runners, free ComfyUI caches) is not just
+    useless for them but actively harmful: it evicts the very runner mid
+    CPU load and frees ComfyUI caches for zero benefit (observed 2026-10-08:
+    the heal fired while an 8B draft was loading and restarted it twice).
+    """
+    cfg = _BEST_PRACTICE_CONFIGS.get(model)
+    if cfg is None:
+        norm = model.lower().removeprefix("docker.io/").removeprefix("huggingface.co/")
+        cfg = next(
+            (c for k, c in _BEST_PRACTICE_CONFIGS.items() if k.lower() in norm or norm in k.lower()),
+            None,
+        )
+    flags = cfg.get("runtime_flags") if cfg else None
+    if not flags:
+        return False
+    joined = " ".join(str(f) for f in flags)
+    return "--n-gpu-layers 0" in joined or "--n-gpu-layers=0" in joined or "-ngl 0" in joined or "-ngl=0" in joined
 
 
 def _merge_overrides(body: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -1431,8 +1459,12 @@ async def _call_dmr_chat_internal(
                         # Runner failed to start (typically CUDA OOM while DMR
                         # held another model resident or the in-memory config
                         # was wiped) — free VRAM, re-push config, then retry.
+                        # Skipped for CPU-pinned models: their loads don't
+                        # need VRAM, and unload-all would abort the in-flight
+                        # CPU load we're about to retry.
                         logger.warning("DMR runner load failed for %s — healing GPU state", model)
-                        await _free_gpu_memory()
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                         await _ensure_model_configured(model, force=True)
                     raise ConnectionError(f"DMR error {resp.status_code}: {body}")
 
@@ -1461,7 +1493,10 @@ async def _call_dmr_chat_internal(
                     # attempt isn't doomed to the same hang.
                     logger.info("DMR cold-start retry (attempt %s)", attempt + 1)
                     if isinstance(exc, httpx.TimeoutException | httpx.RemoteProtocolError):
-                        await _free_gpu_memory()
+                        # CPU-pinned loads time out from slow CPU, not VRAM —
+                        # freeing GPU here only kills the in-flight load.
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                     await asyncio.sleep(2.0)
                     continue
                 _invalidate_health_cache()
@@ -1778,7 +1813,8 @@ async def call_dmr_vision(
                     # Heal + retry once, same as the chat path's cold-start retry.
                     if attempt == 0:
                         logger.warning("DMR vision: timeout — healing GPU state and retrying")
-                        await _free_gpu_memory()
+                        if not _model_is_cpu_pinned(model):
+                            await _free_gpu_memory()
                         await _ensure_model_configured(model, force=True)
                         continue
                     raise
@@ -1790,7 +1826,8 @@ async def call_dmr_vision(
                     # Runner mid-(re)load or OOM while other models were queued —
                     # free VRAM, re-push config, retry once.
                     logger.warning("DMR vision: %s — healing GPU state and retrying", resp.status_code)
-                    await _free_gpu_memory()
+                    if not _model_is_cpu_pinned(model):
+                        await _free_gpu_memory()
                     await _ensure_model_configured(model, force=True)
                     continue
                 break

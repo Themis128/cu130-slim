@@ -301,7 +301,7 @@ class TestOomHealRetry:
         )
 
         result = await dmr._call_dmr_chat_internal(
-            "hi", model_override="ai/smollm3", max_tokens=5, _skip_health_check=False,
+            "hi", model_override="ai/gpu-resident-model", max_tokens=5, _skip_health_check=False,
         )
         assert result == {"text": "recovered"}
         heal.assert_awaited_once()
@@ -310,6 +310,30 @@ class TestOomHealRetry:
         assert ensure.await_args_list[1].kwargs.get("force") is True
         chat_posts = [c for c in fake_client.calls if "chat/completions" in c[1]]
         assert len(chat_posts) == 2
+
+    @pytest.mark.asyncio
+    async def test_runner_load_500_cpu_pinned_skips_gpu_heal(self, fake_client, monkeypatch):
+        """CPU-pinned models must NOT trigger the GPU heal — their loads don't
+        need VRAM, and unload-all would abort the in-flight CPU load."""
+        monkeypatch.setattr(dmr.settings, "DMR_URL", "http://dmr/engines/llama.cpp/v1")
+        monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
+        monkeypatch.setattr(dmr, "_has_vram_for_model", AsyncMock(return_value=True))
+
+        heal = AsyncMock()
+        monkeypatch.setattr(dmr, "_free_gpu_memory", heal)
+        monkeypatch.setattr(dmr, "_ensure_model_configured", AsyncMock())
+
+        fake_client.queue_post(
+            "chat/completions",
+            _Resp(500, text="unable to load runner: not enough GPU memory to load the model (CUDA)"),
+            _Resp(200, {"choices": [{"message": {"content": "recovered"}}]}),
+        )
+
+        result = await dmr._call_dmr_chat_internal(
+            "hi", model_override="ai/smollm3", max_tokens=5, _skip_health_check=False,
+        )
+        assert result == {"text": "recovered"}
+        heal.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_non_oom_500_does_not_heal(self, fake_client, monkeypatch):
