@@ -135,6 +135,8 @@ mcp/server.py      MCP server exposing social tools
 
 Session healing: `.devin/skills/session-ops/session-transplant/` + `scripts/session_transplant.py` — export cookies from sidecar/MCP browser → inject into bridge → verify → persist.
 
+**Idle-sleep layer:** the sidecars/bridge above (plus comfyui, warp-proxy, languagetool, metabase, jupyter, flower, portainer, env-manager, MCP servers, n8n-sandbox, instagram-private-api) are fronted by `stack-ops` — a TCP wake-proxy + idle sleeper. Callers hit `http://stack-ops:<orig-port>`; `Exited` = asleep-not-broken. Full architecture, compose rules, and host-watchdog interplay: [`docs/ops/stack-ops-idle-sleep.md`](ops/stack-ops-idle-sleep.md).
+
 ## Messenger/DM data flow
 
 | Platform | Read/send path |

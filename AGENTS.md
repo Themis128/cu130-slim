@@ -67,6 +67,13 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - Only consider paid residential proxies (SOAX, BrightData, IPRoyal, WebShare) if WARP IPs are also blocked by the target service.
 - The Instagram sidecar (`INSTAGRAM_PROXY` env var) defaults to `socks5://warp-proxy:1080`.
 - The `socksio` package must be installed in any container that uses SOCKS5 with httpx (`pip install httpx[socks]`).
+- `warp-proxy` is sleep-managed by stack-ops (wake-group dep of linkedin-sidecar + instagram-private-api) — `socks5://stack-ops:1080` inside the stack wakes it on connect.
+
+## Idle-sleep (stack-ops)
+
+- Expensive/infrequent containers (sidecars, browser-novnc, comfyui, warp-proxy, languagetool, metabase, jupyter, flower, portainer, env-manager, MCP servers, n8n-sandbox, instagram-private-api) auto-sleep when idle and wake on connect through the `stack-ops` proxy — **an `Exited` container is likely asleep, not broken**: check `python3 scripts/stackctl.py status` first.
+- Never add `depends_on` on a managed service (it force-starts them on `compose up`), and never probe a managed port for health checks (a probe is a wake) — use `GET 127.0.0.1:8787/status`.
+- Architecture, config schema, control API, and host-watchdog interplay: `docs/ops/stack-ops-idle-sleep.md`.
 
 ## Container restart rules
 
