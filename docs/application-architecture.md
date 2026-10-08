@@ -735,6 +735,13 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ GPU image   │  │ retired     │  │ WARP SOCKS5 │  │ cloudless  │ │
 │  │ workflows   │  │ (SD 1.5)    │  │ free proxy  │  │ tunnel     │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ stack-ops (:8787 ctl) — idle-sleep + wake-on-connect proxy    │   │
+│  │ fronts all idle-tolerant services; sleeps them after an idle │   │
+│  │ TTL, `docker start`s on connect, publishes their host ports. │   │
+│  │ See docs/ops/stack-ops-idle-sleep.md                         │   │
+│  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
 Two Cloudflare Tunnels, one per node (split 2026-10-05): `social-cloudless`
