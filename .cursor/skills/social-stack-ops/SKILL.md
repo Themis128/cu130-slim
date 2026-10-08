@@ -128,11 +128,21 @@ it after an idle timeout. **A container showing `Exited` may be asleep by
 design — check `curl http://127.0.0.1:8787/status` before calling it down.**
 
 - Wake: `POST http://127.0.0.1:8787/wake/<name>` (or `python3 scripts/stackctl.py wake <name>`)
-- Sleep now: `POST /sleep/<name>` · Status: `GET /status` · Keep awake: `POST /keepawake/<name>?ttl=<s>`
-- Managed set + timeouts live in `stack-ops/services.json` — sidecars 20min, UIs 45-90min.
+- Sleep now: `POST /sleep/<name>` · All: `POST /sleep-all` · Status: `GET /status`
+  · Keep awake: `POST /keepawake/<name>?ttl=<s>`
+- Managed set + timeouts live in `stack-ops/services.json` (mounted — edit +
+  `docker compose up -d --force-recreate stack-ops`) — sidecars 20min, UIs 45-90min.
 - Backends reach managed services via `http://stack-ops:<orig-port>` (env URLs in compose).
 - Host ports for managed services publish on stack-ops, so `localhost:PORT` tools work unchanged.
 - Probing a managed port wakes it — use `/status` for health checks instead of hitting `/health`.
+  `/status` is keyed by *service* name; each entry also carries `container` for docker-name lookups.
+- `wait_page` services (comfyui, metabase, jupyter, flower, portainer, env-manager-ui,
+  noVNC) serve an auto-reloading 503 splash only to *browser* GETs (Accept: text/html);
+  API calls block through the wake and get the real response (~5-30s cold start).
+- No `depends_on` on managed services — it force-starts them on every `compose up`.
+- Open-but-idle proxy connections don't pin a service awake (4 extra low-CPU polls).
+- Tunables via `.env`: STACK_OPS_POLL_SECONDS, _CPU_MAX, _WAKE_TIMEOUT, _CONN_STREAK, _SLEEPER.
 - Never-sleep core: social-api, social-frontend, api-gateway, workers, celery-beat,
   redis, postgres ×2, minio, chroma, n8n, cloudflared, social-metrics, dmr-watchdog, stack-ops.
-- ComfyUI stays manual/GPU-arbitrated — `restart: no`, start via `docker compose up -d <service>`.
+- ComfyUI IS sleep-managed now (30min idle, `localhost:8000` wait-page for browsers);
+  `restart: no` still applies — compose up doesn't force it, proxy wakes it.

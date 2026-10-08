@@ -282,7 +282,7 @@ async def _probe_service(
 
 async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
     # Fronted by stack-ops — don't wake a sleeping GPU service just to probe it.
-    if await stack_ops.is_asleep("social-media-comfyui-gpu"):
+    if await stack_ops.is_asleep("comfyui"):
         return (
             ServiceStatus(name="comfyui", online=True, detail="sleeping"),
             {},

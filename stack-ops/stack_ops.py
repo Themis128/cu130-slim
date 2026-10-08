@@ -188,15 +188,19 @@ async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     try:
         st = await container_state(docker_name)
         if st != "running":
-            # Peek at first bytes: a browser GET to a UI port gets a waiting
-            # page + auto-refresh; API verbs (POST/PUT/...) and non-HTTP
-            # protocols block until the service is awake — an HTML page in
-            # reply to a JSON POST would just fail the caller.
+            # Peek at the first bytes (up to one segment covers typical HTTP
+            # headers): a *browser* navigation (GET + Accept: text/html) to a
+            # UI port gets the waiting page + auto-refresh. Everything else —
+            # API GETs (Accept: */*), POST bodies, SOCKS5/VNC — blocks until
+            # the service is awake. An HTML page in reply to an API call
+            # would just fail the caller.
             try:
-                first = await asyncio.wait_for(reader.read(6), timeout=3)
+                first = await asyncio.wait_for(reader.read(8192), timeout=3)
             except TimeoutError:
                 first = b""
-            if svc.get("wait_page") and first[:4] == b"GET ":
+            browser_nav = (
+                first[:4] == b"GET " and b"text/html" in first.lower())
+            if svc.get("wait_page") and browser_nav:
                 asyncio.ensure_future(wake(name))
                 writer.write(WAIT_PAGE)
                 await writer.drain()
@@ -333,6 +337,7 @@ async def api_handler(reader: asyncio.StreamReader,
 async def _status_of(name: str) -> dict:
     docker_name = resolve_container(name)
     return {
+        "container": docker_name,
         "state": await container_state(docker_name),
         "last_active_ago_s": int(time.monotonic() - last_active[docker_name])
         if docker_name in last_active else None,

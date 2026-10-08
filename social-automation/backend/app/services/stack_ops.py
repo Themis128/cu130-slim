@@ -46,11 +46,21 @@ async def statuses() -> dict[str, dict[str, Any]]:
 
 
 async def service_state(container_name: str) -> str | None:
-    """running | starting | stopped | missing | None (stack-ops absent)."""
+    """running | starting | stopped | missing | None (stack-ops absent).
+
+    Accepts either a stack-ops service key (``comfyui``) or a docker
+    container name (``social-media-comfyui-gpu``) — status entries carry
+    their container name so both resolve.
+    """
     data = await statuses()
     if not data:
         return None
-    return data.get(container_name, {}).get("state")
+    if container_name in data:
+        return data[container_name].get("state")
+    for info in data.values():
+        if info.get("container") == container_name:
+            return info.get("state")
+    return None
 
 
 async def is_asleep(container_name: str) -> bool:

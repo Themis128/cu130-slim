@@ -264,11 +264,21 @@ class TestWaitPageFlow(ProxyTestBase):
 
     async def test_get_serves_wait_page_and_kicks_wake(self):
         port = await self._proxy_to(wait_page=True)
-        data = await self._roundtrip(port, b"GET / HTTP/1.1\r\n\r\n")
+        data = await self._roundtrip(
+            port,
+            b"GET / HTTP/1.1\r\nHost: x\r\nAccept: text/html,*/*\r\n\r\n")
         self.assertIn(b"503", data.split(b"\r\n", 1)[0])
         self.assertIn(b"Waking up", data)
         await asyncio.sleep(0.1)
         self.assertTrue(self.wake_calls)
+
+    async def test_api_get_does_not_get_wait_page(self):
+        # httpx/curl-style probes (Accept: */*) must NOT be served the HTML
+        # wait page — they block through the wake like any other request.
+        port = await self._proxy_to(wait_page=True)
+        data = await self._roundtrip(
+            port, b"GET /health HTTP/1.1\r\nAccept: */*\r\n\r\n")
+        self.assertNotIn(b"Waking up", data)
 
     async def test_post_blocks_and_gets_503_json_on_wake_failure(self):
         # regression: POST used to receive the HTML wait page, breaking API
