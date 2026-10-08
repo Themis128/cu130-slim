@@ -45,7 +45,16 @@ WAN21_UNET = "wan2.1_t2v_1.3B_fp16.safetensors"
 WAN21_CLIP = "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
 WAN21_VAE = "wan_2.1_vae.safetensors"
 
-VIDEO_MODELS = ("ltxv", "wan21")
+# Wan2.2 TI2V-5B GGUF Q4_K_M — new quality tier. ~4x the params of Wan2.1
+# 1.3B, native hybrid T2V+I2V (start_image on Wan22ImageToVideoLatent), and
+# the official ComfyUI docs target 8GB VRAM with native offloading. Graph
+# per the official video_wan2_2_5B_ti2v template: uni_pc/simple, cfg 5,
+# 20 steps, 24fps, Wan2.2 high-compression VAE.
+WAN22_UNET = "Wan2.2-TI2V-5B-Q4_K_M.gguf"
+WAN22_CLIP = "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+WAN22_VAE = "wan2.2_vae.safetensors"
+
+VIDEO_MODELS = ("ltxv", "wan21", "wan22")
 
 DEFAULT_NEGATIVE = (
     "worst quality, inconsistent motion, blurry, jittery, distorted, "
@@ -264,6 +273,116 @@ def build_wan21_prompt(
     }
 
 
+def build_wan22_prompt(
+    *,
+    prompt: str,
+    image_name: str | None = None,
+    negative_prompt: str | None = None,
+    width: int = 480,
+    height: int = 832,
+    num_frames: int = 81,
+    frame_rate: int = 24,
+    steps: int = 20,
+    cfg: float = 5.0,
+    seed: int | None = None,
+    filename_prefix: str = "socialauto",
+) -> dict:
+    """Build the ComfyUI API-format prompt for Wan2.2 TI2V-5B GGUF.
+
+    Hybrid model: T2V when ``image_name`` is omitted, I2V when a
+    ``LoadImage`` node feeds ``start_image`` on Wan22ImageToVideoLatent.
+    Wan2.2-5B constraints (official template video_wan2_2_5B_ti2v):
+    dims multiple of 16, frames 4n+1, uni_pc/simple @ cfg 5, 24fps.
+    """
+    if width % 16 or height % 16:
+        raise ValueError("Wan2.2 dimensions must be multiples of 16")
+    for name, dim in (("width", width), ("height", height)):
+        if not 128 <= dim <= 1280:
+            raise ValueError(f"{name} must be 128..1280 (Wan2.2 5B range)")
+    if num_frames % 4 != 1:
+        raise ValueError("Wan2.2 frame count must be 4n+1 (e.g. 49, 81, 121)")
+    if not 17 <= num_frames <= 161:
+        raise ValueError("num_frames must be 17..161 (~0.7-6.7s at 24fps)")
+    if not 1 <= steps <= 60:
+        raise ValueError("steps must be 1..60")
+    if not 16 <= frame_rate <= 60:
+        raise ValueError("frame_rate must be 16..60 for Wan2.2 output")
+
+    nodes: dict[str, dict] = {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": WAN22_UNET},
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": WAN22_CLIP, "type": "wan"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": WAN22_VAE},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt, "clip": ["2", 0]},
+        },
+        "5": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": negative_prompt or DEFAULT_NEGATIVE, "clip": ["2", 0]},
+        },
+        "14": {
+            "class_type": "Wan22ImageToVideoLatent",
+            "inputs": {
+                "vae": ["3", 0],
+                "width": width,
+                "height": height,
+                "length": num_frames,
+                "batch_size": 1,
+            },
+        },
+        "15": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["4", 0],
+                "negative": ["5", 0],
+                "latent_image": ["14", 0],
+                "seed": seed if seed is not None else secrets.randbits(63),
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "uni_pc",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        "13": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["15", 0], "vae": ["3", 0]},
+        },
+        "12": {
+            "class_type": "VHS_VideoCombine",
+            "inputs": {
+                "frame_rate": frame_rate,
+                "loop_count": 0,
+                "filename_prefix": filename_prefix,
+                "format": "video/h264-mp4",
+                "pix_fmt": "yuv420p",
+                "crf": 19,
+                "save_metadata": False,
+                "pingpong": False,
+                "save_output": True,
+                "images": ["13", 0],
+            },
+        },
+    }
+    if image_name:
+        nodes["20"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": image_name},
+        }
+        nodes["14"]["inputs"]["start_image"] = ["20", 0]
+    return {"prompt": nodes}
+
+
 def build_i2v_prompt(
     *,
     prompt: str,
@@ -370,11 +489,12 @@ async def generate_video(
 ) -> tuple[bytes, dict]:
     """Submit a T2V/I2V job to ComfyUI, poll until done, return (mp4_bytes, meta).
 
-    ``model``: "ltxv" (fast tier, default) or "wan21" (quality tier — slower,
-    different frame/latent constraints; callers passing LTXV defaults are
-    normalized to Wan-friendly values).
-    ``image_bytes``: when set (LTXV only), runs image-to-video — the first
-    frame is conditioned on the image at ``i2v_strength``.
+    ``model``: "ltxv" (fast tier, default), "wan21" (mid quality tier —
+    slower, different frame/latent constraints; callers passing LTXV
+    defaults are normalized to Wan-friendly values), or "wan22" (top
+    quality tier — Wan2.2 TI2V-5B GGUF, T2V + native I2V).
+    ``image_bytes``: when set (LTXV or Wan2.2), runs image-to-video — the
+    first frame is conditioned on the image at ``i2v_strength``.
 
     meta: {"prompt_id", "filename", "subfolder", "width", "height",
            "frame_rate", "num_frames", "duration_seconds", "model"}
@@ -382,7 +502,7 @@ async def generate_video(
     if model not in VIDEO_MODELS:
         raise ValueError(f"model must be one of {VIDEO_MODELS}")
     if model == "wan21" and image_bytes is not None:
-        raise ValueError("image-to-video is only supported on the ltxv model")
+        raise ValueError("image-to-video is only supported on the ltxv and wan22 models")
     if model == "wan21":
         # Normalize LTXV-shaped defaults to Wan2.1 constraints (4n+1 frames,
         # 16fps-trained model, uni_pc @ cfg 6, ~8 steps is its sweet spot).
@@ -394,11 +514,33 @@ async def generate_video(
             steps = 8
         if cfg == 3.0:
             cfg = 6.0
+    if model == "wan22":
+        # Normalize to Wan2.2-5B constraints (4n+1 frames, 24fps-trained,
+        # uni_pc/simple @ cfg 5, 20 steps per the official template).
+        if num_frames % 4 != 1:
+            num_frames = 81
+        if frame_rate == 25:
+            frame_rate = 24
+        if steps == 25:
+            steps = 20
+        if cfg == 3.0:
+            cfg = 5.0
 
     base = get_settings().COMFYUI_URL.rstrip("/")
+    image_name: str | None = None
     if image_bytes is not None:
         async with httpx.AsyncClient(base_url=base, timeout=60.0) as up:
             image_name = await upload_image(up, image_bytes, f"i2v-{secrets.token_hex(6)}.png")
+    if image_name is not None and model == "wan22":
+        graph = build_wan22_prompt(
+            prompt=prompt,
+            image_name=image_name,
+            negative_prompt=negative_prompt,
+            width=width, height=height, num_frames=num_frames,
+            frame_rate=frame_rate, steps=steps, cfg=cfg,
+            seed=seed, filename_prefix=filename_prefix,
+        )
+    elif image_name is not None:
         graph = build_i2v_prompt(
             prompt=prompt,
             image_name=image_name,
@@ -406,6 +548,14 @@ async def generate_video(
             width=width, height=height, num_frames=num_frames,
             frame_rate=frame_rate, steps=steps, cfg=cfg,
             strength=i2v_strength, seed=seed, filename_prefix=filename_prefix,
+        )
+    elif model == "wan22":
+        graph = build_wan22_prompt(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width, height=height, num_frames=num_frames,
+            frame_rate=frame_rate, steps=steps, cfg=cfg,
+            seed=seed, filename_prefix=filename_prefix,
         )
     elif model == "wan21":
         graph = build_wan21_prompt(

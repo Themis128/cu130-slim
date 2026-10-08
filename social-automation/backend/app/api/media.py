@@ -760,7 +760,7 @@ class MediaGenerateVideoOptions(BaseModel):
     negative_prompt: str = ""
     duration_seconds: int | None = None  # >0 → multi-segment long-form (max 60)
     scene_prompts: list[str] | None = None  # explicit per-segment shot list
-    model: str = "ltxv"         # ltxv (fast) | wan21 (quality, slower)
+    model: str = "ltxv"         # ltxv (fast) | wan21 | wan22 (best quality, Wan2.2-5B)
     image_asset_id: str | None = None    # set → LTXV image-to-video on this asset
     i2v_strength: float = 1.0            # first-frame conditioning strength
     tags: list[str] | None = None
@@ -798,10 +798,10 @@ async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
         raise HTTPException(status_code=400, detail="prompt is required")
 
     opts = (body.options or MediaGenerateVideoOptions()).model_dump()
-    if opts["model"] not in ("ltxv", "wan21"):
-        raise HTTPException(status_code=400, detail="model must be 'ltxv' or 'wan21'")
-    if opts["image_asset_id"] and opts["model"] != "ltxv":
-        raise HTTPException(status_code=400, detail="image-to-video is only supported on the ltxv model")
+    if opts["model"] not in ("ltxv", "wan21", "wan22"):
+        raise HTTPException(status_code=400, detail="model must be 'ltxv', 'wan21', or 'wan22'")
+    if opts["image_asset_id"] and opts["model"] == "wan21":
+        raise HTTPException(status_code=400, detail="image-to-video is only supported on the ltxv and wan22 models")
     if opts["model"] == "wan21":
         # Normalize LTXV-shaped defaults to Wan constraints before validation.
         if opts["num_frames"] % 4 != 1:
@@ -812,13 +812,29 @@ async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
             opts["steps"] = 8
         if opts["cfg_scale"] == 3.0:
             opts["cfg_scale"] = 6.0
+    if opts["model"] == "wan22":
+        # Normalize to Wan2.2-5B constraints (4n+1, 24fps, uni_pc @ cfg 5).
+        if opts["num_frames"] % 4 != 1:
+            opts["num_frames"] = 81
+        if opts["frame_rate"] == 25:
+            opts["frame_rate"] = 24
+        if opts["steps"] == 25:
+            opts["steps"] = 20
+        if opts["cfg_scale"] == 3.0:
+            opts["cfg_scale"] = 5.0
     try:
         # Validate the graph constraints before queueing a doomed task.
         from collections.abc import Callable
 
-        from app.services.comfyui_video import build_i2v_prompt, build_t2v_prompt, build_wan21_prompt
+        from app.services.comfyui_video import (
+            build_i2v_prompt,
+            build_t2v_prompt,
+            build_wan21_prompt,
+            build_wan22_prompt,
+        )
         builder: Callable[..., dict] = (
-            build_i2v_prompt if opts["image_asset_id"]
+            build_wan22_prompt if (opts["model"] == "wan22" or (opts["image_asset_id"] and opts["model"] != "ltxv"))
+            else build_i2v_prompt if opts["image_asset_id"]
             else build_wan21_prompt if opts["model"] == "wan21"
             else build_t2v_prompt
         )
