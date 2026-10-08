@@ -12,17 +12,14 @@ The task runs weekly via Celery beat.
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.models.social_account import SocialAccount
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -33,15 +30,7 @@ logger = logging.getLogger(__name__)
 LINKEDIN_SIDECAR_URL = os.getenv("LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225")
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 def _run_async(coro):
@@ -68,7 +57,7 @@ def _run_async(coro):
             return result.get("value")
     except RuntimeError:
         pass
-    return asyncio.run(coro)
+    return run_async(coro)
 
 
 @celery_app.task(name="app.worker.tasks.linkedin_session_refresh.refresh_linkedin_sessions")

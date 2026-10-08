@@ -18,21 +18,18 @@ Related:
 - Scripts: .devin/skills/whatsapp-phone-verify/scripts/
 - Docs: docs/meta-services-status.md (Issue 4)
 """
-import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -42,19 +39,7 @@ GRAPH_API_VERSION = "v26.0"
 GRAPH_BASE = "https://graph.facebook.com"
 
 
-@asynccontextmanager
-async def _get_db():
-    """Yield an async DB session."""
-    engine = create_async_engine(
-        _settings.DATABASE_URL,
-        poolclass=NullPool,
-    )
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        try:
-            yield session
-        finally:
-            await engine.dispose()
+_get_db = task_session
 
 
 async def _check_phone_status(phone_id: str, token: str) -> dict:
@@ -263,7 +248,7 @@ def check_whatsapp_verification() -> dict:
     """
     logger.info("Running WhatsApp phone verification check...")
     try:
-        stats = asyncio.run(_check_and_request())
+        stats = run_async(_check_and_request())
         logger.info("WhatsApp verification check complete: %s", stats)
         return stats
     except Exception as e:

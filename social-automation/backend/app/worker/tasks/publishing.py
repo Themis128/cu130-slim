@@ -1,17 +1,14 @@
-import asyncio
 import dataclasses
 import hashlib
 import logging
 import os
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import shared_task
 from sqlalchemy import and_, delete, func, or_, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
@@ -33,6 +30,7 @@ from app.services.slack_notifications import (
     publish_failure_buttons,
 )
 from app.services.spellcheck import auto_correct
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -289,9 +287,7 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
         from app.models.user import User
         from app.services.email_templates import send_post_published_email
 
-        settings = get_settings()
-        engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
-        async with async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)() as db:
+        async with task_session() as db:
             if post.user_id:
                 result = await db.execute(select(User).where(User.id == post.user_id))
                 author = result.scalar_one_or_none()
@@ -299,7 +295,6 @@ async def _notify_publish_success(post: Post, account: SocialAccount, platform_u
                     prefs = author.notification_preferences or {}
                     if prefs.get("email_new_post", True):
                         await send_post_published_email(author, post, platform=account.platform)
-        await engine.dispose()
     except Exception:
         logger.warning("Failed to send post-published email for post %s", post.id)
 
@@ -433,16 +428,7 @@ celery_app.set_default()
 celery_app.set_current()
 
 
-@asynccontextmanager
-async def _worker_db():
-    """Fresh connection per task invocation — NullPool avoids event-loop conflicts in Celery."""
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -1011,23 +997,23 @@ async def _cleanup_publish_queue_async(days: int = 3) -> dict:
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_publish_queue(self) -> None:
-    asyncio.run(_process_publish_queue_async())
+    run_async(_process_publish_queue_async())
     # Push worker writes (publish_queue, posts, post_targets) to D1 primary
-    asyncio.run(sync_after_worker_task(["publish_queue", "posts", "post_targets"]))
+    run_async(sync_after_worker_task(["publish_queue", "posts", "post_targets"]))
 
 
 @shared_task
 def check_scheduled_posts() -> None:
-    asyncio.run(_check_scheduled_posts_async())
+    run_async(_check_scheduled_posts_async())
     # Push worker writes (posts, publish_queue) to D1 primary
-    asyncio.run(sync_after_worker_task(["posts", "publish_queue"]))
+    run_async(sync_after_worker_task(["posts", "publish_queue"]))
 
 
 @shared_task
 def publish_post_now(post_id: str, account_ids: list[str]) -> dict:
-    result = asyncio.run(_publish_post_now_async(post_id, account_ids))
+    result = run_async(_publish_post_now_async(post_id, account_ids))
     # Push worker writes (posts, post_targets, publish_queue) to D1 primary
-    asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+    run_async(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
     return result
 
 
@@ -1036,17 +1022,17 @@ def requeue_capacity_stuck_x_targets() -> dict:
     if not getattr(get_settings(), "X_CAPACITY_SWEEP_ENABLED", True):
         return {"requeued": [], "disabled": True}
     hours = float(getattr(get_settings(), "PUBLISH_DEFER_MAX_HOURS", 72.0))
-    result = asyncio.run(_requeue_capacity_stuck_x_async(hours=hours))
+    result = run_async(_requeue_capacity_stuck_x_async(hours=hours))
     if result["requeued"]:
-        asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+        run_async(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
     return result
 
 
 @shared_task
 def cleanup_publish_queue(days: int = 3) -> dict:
-    result = asyncio.run(_cleanup_publish_queue_async(days))
+    result = run_async(_cleanup_publish_queue_async(days))
     if result["deleted"]:
-        asyncio.run(sync_after_worker_task(["publish_queue"]))
+        run_async(sync_after_worker_task(["publish_queue"]))
     return result
 
 
@@ -1060,9 +1046,9 @@ def reconcile_instagram_publish(self, post_id: str, social_account_id: str) -> d
     recent caption is found the target (and post) are reconciled to
     published with the real media id instead of staying failed.
     """
-    outcome = asyncio.run(_reconcile_instagram_publish_async(post_id, social_account_id))
+    outcome = run_async(_reconcile_instagram_publish_async(post_id, social_account_id))
     if outcome.get("recovered"):
-        asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+        run_async(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
         return outcome
     if outcome.get("retry"):
         raise self.retry(countdown=300)

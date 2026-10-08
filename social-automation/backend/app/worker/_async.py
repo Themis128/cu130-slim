@@ -57,9 +57,17 @@ def start_worker_loop() -> None:
     with _lock:
         if _loop is not None and _loop.is_running():
             return
-        _loop = asyncio.new_event_loop()
+        loop = asyncio.new_event_loop()
+        _loop = loop
+
+        def _run() -> None:
+            # set_event_loop so legacy library calls to asyncio.get_event_loop()
+            # inside the thread resolve to this loop.
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
         _thread = threading.Thread(
-            target=_loop.run_forever,
+            target=_run,
             name="celery-asyncio-loop",
             daemon=True,
         )
@@ -113,6 +121,35 @@ def run_async(coro: Coroutine[Any, Any, Any], timeout: float | None = None) -> A
         raise
 
 
+def get_session_factory():
+    """Return the per-worker ``async_sessionmaker``, creating the engine lazily.
+
+    The engine object is thread-safe (SQLAlchemy docs: only the pooled
+    *connections* are loop-bound, and those are created inside the
+    persistent loop on first checkout). Safe to call from the task body
+    or inside a coroutine — connections always open on the worker loop.
+    """
+    global _engine, _session_factory
+    if _session_factory is None:
+        with _lock:
+            if _session_factory is None:
+                from sqlalchemy.ext.asyncio import (
+                    AsyncSession,
+                    async_sessionmaker,
+                    create_async_engine,
+                )
+
+                from app.core.config import get_settings
+
+                _engine = create_async_engine(
+                    get_settings().DATABASE_URL, pool_size=4, max_overflow=4
+                )
+                _session_factory = async_sessionmaker(
+                    _engine, class_=AsyncSession, expire_on_commit=False
+                )
+    return _session_factory
+
+
 @asynccontextmanager
 async def task_session():
     """AsyncSession on the per-worker engine.
@@ -121,21 +158,5 @@ async def task_session():
     persistent loop, so pooled connections stay bound to the loop that
     created them for the whole child-process lifetime.
     """
-    global _engine, _session_factory
-    if _session_factory is None:
-        from sqlalchemy.ext.asyncio import (
-            AsyncSession,
-            async_sessionmaker,
-            create_async_engine,
-        )
-
-        from app.core.config import get_settings
-
-        _engine = create_async_engine(
-            get_settings().DATABASE_URL, pool_size=4, max_overflow=4
-        )
-        _session_factory = async_sessionmaker(
-            _engine, class_=AsyncSession, expire_on_commit=False
-        )
-    async with _session_factory() as session:
+    async with get_session_factory()() as session:
         yield session

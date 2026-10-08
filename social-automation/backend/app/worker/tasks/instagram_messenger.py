@@ -30,12 +30,10 @@ The task runs every 3 minutes via Celery beat.
 import asyncio
 import logging
 import re
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
@@ -57,6 +55,7 @@ from app.services.messenger_chatbot import (
     set_instagram_app_rate_limited,
     store_message_memory,
 )
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -77,15 +76,7 @@ def _is_app_rate_limit(exc: InstagramAPIError) -> bool:
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 def _run_async(coro):
@@ -112,7 +103,7 @@ def _run_async(coro):
             return result.get("value")
     except RuntimeError:
         pass
-    return asyncio.run(coro)
+    return run_async(coro)
 
 
 @celery_app.task(name="app.worker.tasks.instagram_messenger.poll_instagram_messenger")

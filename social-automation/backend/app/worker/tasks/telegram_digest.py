@@ -2,35 +2,23 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.services.telegram_api import TelegramAPIClient
 from app.services.telegram_group_watch import (
     get_group_watch_from_meta,
     send_digest_for_account,
 )
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 async def _run_digests() -> dict:
@@ -90,4 +78,4 @@ async def _run_digests() -> dict:
 @celery_app.task(name="app.worker.tasks.telegram_digest.send_telegram_group_digests")
 def send_telegram_group_digests() -> dict:
     """Hourly beat: send daily digests when local hour matches digest_hour."""
-    return asyncio.run(_run_digests())
+    return run_async(_run_digests())

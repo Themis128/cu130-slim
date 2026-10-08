@@ -6,11 +6,11 @@ browser-novnc bridge, attempts the cheapest recovery path per platform
 fresh session material to Postgres, and Slack-alerts only when human
 action is required. See ``app.services.session_healer`` for the ladder.
 """
-import asyncio
 import logging
 
 from celery import shared_task
 
+from app.worker._async import run_async
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -28,4 +28,4 @@ def heal_sessions() -> dict:
     """Periodic task — probe and heal all browser sessions (hourly)."""
     from app.services.session_healer import heal_all_sessions
 
-    return asyncio.run(heal_all_sessions())
+    return run_async(heal_all_sessions())

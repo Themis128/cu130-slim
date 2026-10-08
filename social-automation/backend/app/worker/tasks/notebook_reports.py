@@ -8,12 +8,13 @@ brief is never silently skipped.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
 
 from celery import shared_task
+
+from app.worker._async import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def run_notebook_report(
             raise
         from app.worker.tasks.digest import _send_strategy_async
 
-        fallback = asyncio.run(
+        fallback = run_async(
             _send_strategy_async(insight_days=(parameters or {}).get("insight_days", 30), send=send)
         )
         return {
@@ -60,7 +61,7 @@ def run_notebook_report(
     email_errors: list[str] = []
     if send:
         for rep in reports:
-            ok, err = asyncio.run(_deliver_manifest(rep, base_dir))
+            ok, err = run_async(_deliver_manifest(rep, base_dir))
             emailed += int(ok)
             if err:
                 email_errors.append(err)

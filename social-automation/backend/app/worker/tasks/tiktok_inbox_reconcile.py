@@ -13,21 +13,17 @@ This task re-polls ``status/fetch`` on stored publish_ids:
 - SEND_TO_USER_INBOX older than 24h → flag the target with an actionable
   error_message (serialized to the UI) instead of pretending it is live.
 """
-import asyncio
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.content import Post, PostTarget
 from app.models.social_account import SocialAccount
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -40,21 +36,13 @@ INBOX_PENDING_MESSAGE = (
 )
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 @shared_task
 def reconcile_tiktok_inbox() -> dict:
     """Re-poll publish_id targets; upgrade finished drafts, flag stale ones."""
-    return asyncio.run(_reconcile_async())
+    return run_async(_reconcile_async())
 
 
 async def _reconcile_async() -> dict:

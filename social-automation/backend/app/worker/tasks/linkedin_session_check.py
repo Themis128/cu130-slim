@@ -8,21 +8,18 @@ account as ``expired`` and sends an alert email to the team owner.
 
 The task is non-fatal — failures are logged but do not abort the loop.
 """
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models.social_account import SocialAccount
 from app.models.user import Team, User
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.slack_notifications import post_alert_to_slack, session_heal_buttons
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -33,15 +30,7 @@ logger = logging.getLogger(__name__)
 _ALERT_COOLDOWN_HOURS = 24
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 async def _send_alert(owner: User, reason: str) -> None:
@@ -53,11 +42,7 @@ async def _send_alert(owner: User, reason: str) -> None:
 
         from app.models.email_log import EmailLog
 
-        async with async_sessionmaker(
-            create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool),
-            class_=AsyncSession,
-            expire_on_commit=False,
-        ) as db:
+        async with task_session() as db:
             cutoff = datetime.now(UTC) - timedelta(hours=_ALERT_COOLDOWN_HOURS)
             recent = await db.execute(
                 select(func.count(EmailLog.id)).where(
@@ -189,4 +174,4 @@ async def _run_check() -> dict:
 @shared_task(name="app.worker.tasks.linkedin_session_check.check_linkedin_sessions")
 def check_linkedin_sessions() -> dict:
     """Periodic task — check and refresh LinkedIn sidecar session (every 12h)."""
-    return asyncio.run(_run_check())
+    return run_async(_run_check())

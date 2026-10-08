@@ -21,10 +21,8 @@ only a sha256 email hash + domain; web events drop client_ip/user_agent.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -32,8 +30,7 @@ from typing import Any
 import httpx
 from celery import shared_task
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
@@ -49,6 +46,7 @@ from app.models.user import Team
 from app.models.web_analytics import WebAnalyticsEvent
 from app.services import r2_storage
 from app.services.insights_engine import build_team_insights
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -59,15 +57,7 @@ settings = get_settings()
 _WEB_EVENTS_DAYS = 90
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -552,7 +542,7 @@ async def _export_ops_health(db: AsyncSession) -> dict:
 @shared_task
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
-    return asyncio.run(_export_async())
+    return run_async(_export_async())
 
 
 async def _export_async() -> dict:

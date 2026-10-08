@@ -9,21 +9,17 @@ Inspired by Postiz's recurring-post feature: best-performing content is
 re-posted on a configurable cadence (daily/weekly/monthly) so the social
 calendar stays full without manual copy-paste.
 """
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import shared_task
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
 from app.models.content import Post, PostStatus, PostTarget, RecurrencePattern
 from app.models.queue import PublishQueue, QueueStatus
 from app.services.db_sync import sync_after_worker_task
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -32,15 +28,7 @@ celery_app.set_current()
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def _worker_db():
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+_worker_db = task_session
 
 
 def _next_recurrence_dt(pattern: RecurrencePattern, interval: int, base: datetime) -> datetime:
@@ -145,6 +133,6 @@ async def _process_recurring_posts_async() -> dict[str, Any]:
 @shared_task
 def process_recurring_posts() -> dict:
     """Clone and reschedule any due recurring posts."""
-    result = asyncio.run(_process_recurring_posts_async())
-    asyncio.run(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
+    result = run_async(_process_recurring_posts_async())
+    run_async(sync_after_worker_task(["posts", "post_targets", "publish_queue"]))
     return result
