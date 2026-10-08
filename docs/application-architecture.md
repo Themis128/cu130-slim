@@ -253,7 +253,7 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (498 endpoints across 37 route files)
+### API Modules (501 endpoints across 38 route files)
 
 ```
 app/api/
@@ -510,7 +510,7 @@ app/mcp/server.py
     └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
-### Celery Tasks (29 task modules, 27 beat schedules)
+### Celery Tasks (32 task modules, 33 beat schedules)
 
 ```
 app/worker/tasks/
@@ -558,7 +558,12 @@ app/worker/tasks/
 ├── dodo_live_check.py      — check_dodo_live (billing live-check)
 ├── whatsapp_verify.py      — check_whatsapp_verification
 ├── tiktok_inbox_reconcile.py — reconcile_tiktok_inbox
-├── dmr_health.py           — check_dmr_health
+├── nextcloud.py            — export_media_to_nextcloud (WebDAV PUT → omv)
+├── lead_emails.py          — send_playbook_email (lead-magnet drip)
+├── skool_watch.py          — watch_skool_vec: Sofia Kakkava Skool community
+│                             scrape via browser bridge → new DAY lessons
+│                             auto-draft LinkedIn posts + Slack alert
+├── dmr_health.py           — check_dmr_health, keep_warm_dmr_models
 ├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
 ├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator,
 │                               Redis breaker on Meta app-level rate limits: Graph code 4/32/613
@@ -568,6 +573,17 @@ app/worker/tasks/
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
 ├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
 └── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
+
+Worker async model (`app/worker/_async.py`): each prefork child runs ONE
+asyncio event loop on a daemon thread, started by `worker_process_init`
+in celery_app.py (after the fork — never shared across it). Tasks submit
+coroutines via `run_async()` and get DB sessions from `task_session()`
+(or `get_session_factory()` when a factory is needed) on a real pooled
+engine created inside that loop. This replaced the per-task
+`asyncio.run()` + NullPool pattern — the old model crashed with "Future
+attached to a different loop" whenever a second task reused a pooled
+connection bound to a dead loop, and paid a full reconnect per task.
+Never combine `asyncio.run()` with `async_session_maker()` in a task.
 
 Beat Schedule:
 ┌──────────────────────────┬────────────────────────────────┬──────────┐
@@ -612,9 +628,13 @@ Beat Schedule:
 │ refresh-instagram-tokens │ instagram_token_refresh        │ weekly   │
 │ check-linkedin-sessions  │ linkedin_session_check          │ 12h :45  │
 │ refresh-linkedin-sessions│ linkedin_session_refresh        │ weekly   │
-│ check-whatsapp-verify    │ whatsapp_verify                 │ 30min    │
+│ check-whatsapp-          │ whatsapp_verify                 │ 30min    │
+│  verification            │                                 │          │
 │ telegram-group-digests   │ telegram_digest                 │ hrly :05 │
-│ dmr-health               │ dmr_health.check_dmr_health     │ 300s     │
+│ dmr-health-check         │ dmr_health.check_dmr_health     │ 300s     │
+│ keep-warm-dmr-models     │ dmr_health.keep_warm_dmr_models │ 90s      │
+│                          │  (keep_alive refresh on warm    │          │
+│                          │   tier; skips while GPU busy)   │          │
 │ dodo-live-check          │ dodo_live_check                 │ 1800s    │
 │ heal-sessions            │ session_healer.heal_sessions    │ hourly   │
 │                          │  (:20 — all browser transports, │          │
@@ -623,6 +643,9 @@ Beat Schedule:
 │ monthly-slack-rollup     │ digest.send_weekly_slack_digest │ 1st 9am  │
 │                          │   (days=30 → MoM + forecast +   │          │
 │                          │    funnel, Slack + email)       │          │
+│ requeue-capacity-stuck-x │ publishing.requeue_capacity_    │ 30min    │
+│                          │  stuck_x_targets                │          │
+│ skool-vec-watch          │ skool_watch.watch_skool_vec     │ 3h       │
 └──────────────────────────┴────────────────────────────────┴──────────┘
 
 > The **daily Slack digest is NOT a beat entry** — the n8n workflow

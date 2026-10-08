@@ -80,6 +80,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
 - `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
+- **Worker async model** — every Celery task runs its coroutines on ONE persistent asyncio loop per prefork child (`app/worker/_async.py`, started by `worker_process_init`). Use `run_async(coro)` instead of `asyncio.run()` and `task_session()` / `get_session_factory()` instead of `async_session_maker()` or a per-task engine. Combining `asyncio.run()` with the shared session pool is the 'Future attached to a different loop' crash — eliminated by construction here. `docker cp` does NOT reload modules in a running worker — always restart after hot-syncing.
 - `comfyui` — restart after CLI args or env changes.
 - **Docker Model Runner (DMR)** — not a Compose container; it's a host-level Docker engine (`docker model *` CLI). No restart needed after app code changes. After `docker model configure --context-size N` or runtime flag changes, the model reloads on the next request. Use `docker model status` to verify the engine is running.
 - `n8n` — restart and re-import workflows after any `n8n-workflows/` or webhook change.
@@ -428,7 +429,10 @@ All content-generating endpoints enforce a three-step quality pipeline before re
 All content-generating endpoints now return additional quality metadata:
 - `seo_score` — the full SEO score breakdown (overall, readability, keywords, hashtags, links, plain_english, length, recommendations).
 - `nlp_report` — the NLP plain-English check report (issues found, fields rewritten).
+- `sofia_score` — 0-100 Sofia copy-spec score (hook ≤12 words + approved openers, AI-tell blacklist, zero em dashes, rhythm variation, real specifics, CTA/P.S. close) computed on the final text.
 - `quality` — full quality pipeline result (only present if auto-improvement ran).
+
+Live draft scoring is also exposed as `POST /api/v1/ai/nlp-check` (deterministic, no AI call — the composer NlpPanel debounce-checks against it) and generation prompts inject `SOFIA_POST_SPEC` from `app/services/plain_english.py` so generated copy follows the same spec the scorer measures.
 
 ### Decorator
 
