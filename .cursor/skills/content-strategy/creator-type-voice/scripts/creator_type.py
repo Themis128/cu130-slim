@@ -166,6 +166,98 @@ DAY12_MISTAKES = (
 )
 
 # ---------------------------------------------------------------------------
+# Full Visibility Era foundation — the remaining days beyond DAY 1/2/6/8/12
+# plus the Messaging House / ICP from the Purely Personal content-foundation
+# report (Back 2 business/content-foundation-themis.html). `foundations`
+# merges all of these into voice_signature.
+# ---------------------------------------------------------------------------
+
+FOUNDATIONS = {
+    "execution_rules": (
+        "DAY 0 rules: Done beats perfect - always. Results come from "
+        "posting, not planning. Ship the post, then improve the next one. "
+        "A missed day breaks the streak - the system exists to make "
+        "skipping harder than posting."
+    ),
+    "audience_mirror": (
+        "DAY 7 - write for ONE person: a small-business founder or "
+        "small-team owner (5-20 people) who has been burned before - a "
+        "freelancer who vanished, an agency that overpromised, an invoice "
+        "they could not explain. They feel cautious, tired of jargon, "
+        "suspicious of AI hype. They want: something that actually gets "
+        "delivered, in plain language, without chasing the vendor. They "
+        "keep thinking 'maybe this won't work because I've already tried "
+        "and got burned.' Advice they distrust: 'just post more', 'just "
+        "use AI', 'just move to the cloud'."
+    ),
+    "messaging_house": (
+        "UVP: Cloudless builds websites, hosting infrastructure and AI "
+        "automations for small businesses that have been let down before "
+        "- fixed scope, one point of contact from brief to go-live, "
+        "technology that quietly works. Pillars: (1) People Before AI - "
+        "understand the business first, add tech only where it removes "
+        "friction; (2) Fixed Scope, No Surprises - written fixed price, "
+        "no scope-creep invoices; (3) AI Is Not the Enemy - small concrete "
+        "automations (booking bot, auto-reply, weekly report) that save "
+        "hours without replacing people. Tagline: 'websites and AI that "
+        "finally do what they promised.' POD: we serve the post-bad-vendor "
+        "client and name what went wrong last time. POP: maintain visible "
+        "technical credibility (portfolio, certifications, real numbers)."
+    ),
+    "hook_system": (
+        "DAY 11 Hook Master. A hook must: stop the scroll completely, "
+        "open a gap the reader needs closed, make them want the next "
+        "line, and show a situation they instantly recognize. Killers: "
+        "generic openers, vague questions, revealing the answer, no "
+        "specific situation, cleverness over clarity. Rotate types: pain, "
+        "specific-number, effort-vs-result, curiosity (open loop), "
+        "contrast, callout, hard truth, competitor, confession, "
+        "micro-story, pattern interrupt, insider, future-risk, receipt. "
+        "Lens endings: lock the base hook, rotate the ending - "
+        "cause/pattern for awareness, consequence/breakpoint for urgency, "
+        "blunt/internal-issue for authority, question for engagement, "
+        "emotional for relatability."
+    ),
+    "authority_formats": (
+        "DAY 10 Authority Vault - rotate three formats: CLEAR TAKE "
+        "(common situation > your take > simple explanation); WHAT "
+        "ACTUALLY WORKS (what people usually do > what actually works > "
+        "why); SIMPLE BREAKDOWN (problem > 1-2 steps > short explanation). "
+        "Goal: be clear enough to be remembered, not smart enough to "
+        "impress."
+    ),
+    "show_dont_tell": (
+        "DAY 14 - never claim expertise ('10 years experience', 'hundreds "
+        "of clients'). Show it: a specific moment, a real number, a client "
+        "detail, a before/after. If a sentence could come from any "
+        "competitor, replace it with a moment only we could describe."
+    ),
+    "content_that_leads": (
+        "DAY 13 - a post moves the reader from their current state to a "
+        "better one; by the end they should feel like they already moved. "
+        "Script the journey: where they are > the shift > where they "
+        "land. Information alone doesn't convert; movement does."
+    ),
+    "pre_publish_checklist": (
+        "DAY 9 - before any post ships: (1) first line earns the second; "
+        "one clear point only; sounds like a person not a template; "
+        "would we stop scrolling for it. (2) short sentences; no "
+        "smart-sounding words; post survives removing the first line; "
+        "reads clean out loud. (3) exactly one CTA that matches the post "
+        "and feels like a natural next step. Fix the one broken thing - "
+        "never rewrite the whole post."
+    ),
+    "week4_video": (
+        "Video (TikTok/reels/shorts): default format is B-roll + overlay "
+        "text (DAY 17) - script runs as text over footage, no "
+        "face-recording needed. Batch method (DAY 20): one focused hour "
+        "produces a week of video. Edit for clarity not perfection "
+        "(DAY 19). Reuse the content bank - pillars, hooks, scripts - "
+        "never start from scratch (DAY 18)."
+    ),
+}
+
+# ---------------------------------------------------------------------------
 # API helpers (TOTP login — same flow as n8n workflows + socialauto MCP)
 # ---------------------------------------------------------------------------
 
@@ -297,6 +389,22 @@ def cmd_blueprint(apply: bool = False) -> None:
         print("NOTE: replaced a previously set post_blueprint")
 
 
+def cmd_foundations(apply: bool = False) -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    missing = [k for k in FOUNDATIONS if not sig.get(k)]
+    drifted = [k for k in FOUNDATIONS if sig.get(k) and sig[k] != FOUNDATIONS[k]]
+    print("FOUNDATIONS keys:", ", ".join(FOUNDATIONS))
+    print(f"live: {len(FOUNDATIONS) - len(missing) - len(drifted)} exact, "
+          f"{len(drifted)} drifted, {len(missing)} missing")
+    if drifted:
+        print("drifted:", ", ".join(drifted))
+    if not apply:
+        print("\nrun 'creator_type.py foundations apply' to write all keys")
+        return
+    _api("PUT", "/brand/voice", {"voice_signature": {**sig, **FOUNDATIONS}})
+    print("applied.")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -322,6 +430,8 @@ def main() -> None:
         cmd_platforms()
     elif cmd == "blueprint":
         cmd_blueprint(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
+    elif cmd == "foundations":
+        cmd_foundations(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:

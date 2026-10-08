@@ -1641,6 +1641,18 @@ async def generate_content(
 
     # Build prompt — use saved template if available, otherwise default
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
+    # Small local models summarize a signature blob instead of applying it —
+    # when the voice carries the VEC blueprint, name the required structure.
+    signature_keys = set((voice_dict or {}).get("voice_signature") or {})
+    structure_hint = (
+        "\nStructure (mandatory): apply the post_blueprint and hook_system from "
+        "BRAND CONTEXT — a hook first line showing a situation the reader "
+        "recognizes, 2-3 lines of context, ONE insight fully explained, then "
+        "one specific CTA question. Write for the audience_mirror person. "
+        "Never list features or brand rules in the post itself.\n"
+        if "post_blueprint" in signature_keys
+        else ""
+    )
     if saved_template:
         # Replace variables in the user prompt template
         user_prompt = saved_template.user_prompt_template
@@ -1664,7 +1676,7 @@ async def generate_content(
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}{pillar_section}{web_section}
+{brand_section}{structure_hint}{pillar_section}{web_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
