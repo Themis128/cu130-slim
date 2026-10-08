@@ -1103,7 +1103,14 @@ async def keep_warm_models() -> dict[str, Any]:
 #
 # Key decisions (based on llama.cpp + Qwen3 best practices):
 # - Context size 8192: enough for bot conversations with memory + brand RAG
-# - n-gpu-layers 99: offload all layers to GPU (model fits in 8GB VRAM)
+# - n-gpu-layers 0 on EVERY model — the whole fleet runs CPU. Rationale
+#   (2026-10-08): DMR's llama.cpp backend hardcodes "-ngl 999" (see
+#   NewDefaultLlamaCppConfig in docker/model-runner) which disables
+#   llama.cpp's --fit auto-spill, so every GPU load races the Windows
+#   desktop for the shared 8GB card — the all-day 502/timeout storm.
+#   CPU inference is slower but deterministic: 4B ~15-25 tok/s means a
+#   generation completes in ~30-60s instead of never. Revisit if the
+#   GPU ever becomes dedicated (e.g. desktop idle hours or a second card).
 # - threads 8: match physical CPU cores
 # - batch-size 1024: faster prompt processing
 # - flash-attn on: reduces KV cache memory, speeds long contexts
@@ -1121,7 +1128,7 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "context_size": 6144,
         "keep_alive": "2m",
         "think": True,
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # 4B non-thinking instruct — short-form platform copy + ALL chatbots.
     # Pinned warm (30m): chatbot replies are latency-critical and arrive at
@@ -1132,7 +1139,14 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M": {
         "context_size": 4096,
         "keep_alive": "30m",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        # n-gpu-layers 0 — CPU-pinned like the rest of the fleet. DMR's
+        # llama.cpp backend injects "-ngl 999" unconditionally (hardcoded
+        # in NewDefaultLlamaCppConfig) which both disables llama.cpp's
+        # --fit auto-spill AND makes GPU residency race the Windows
+        # desktop for the shared 8GB card — the observed 502/timeout
+        # storm of 2026-10-08. CPU inference on a 4B is ~15-25 tok/s:
+        # slower, but a chatbot/post reply always completes.
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # Carousel copy + NLP checker — ~2.2GB, co-resides with the pinned 4B.
     # ctx 4096 (was 8192): slide copy and plain-English rewrites are short
@@ -1141,7 +1155,7 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "ai/llama3.2": {
         "context_size": 4096,
         "keep_alive": "2m",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
+        "runtime_flags": ["--threads", "8", "--batch-size", "1024", "--flash-attn", "on"],
     },
     # Vision QA — ~5GB, the largest co-residency offender on the card.
     # Media QA runs in short bursts (caption-match checks after image
@@ -1150,7 +1164,7 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     "ai/qwen3-vl": {
         "context_size": 4096,
         "keep_alive": "90s",
-        "runtime_flags": ["--n-gpu-layers", "99", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
     },
     # Qwen3-Embedding-0.6B — same family + 1024 dims as the 8B it replaced,
     # but ~0.7GB instead of ~4.7GB: the 8B was the single largest storm
