@@ -113,7 +113,7 @@ class TestEnsureModelConfigured:
         posts = [c for c in fake_client.calls if c[0] == "post" and "_configure" in c[1]]
         assert len(posts) == 1
         assert posts[0][2]["model"] == "ai/smollm3"
-        assert posts[0][2]["context-size"] == 2048
+        assert posts[0][2]["context-size"] == 4096
 
     @pytest.mark.asyncio
     async def test_ttl_skips_second_call(self, fake_client, monkeypatch):

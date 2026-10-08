@@ -1645,11 +1645,13 @@ async def generate_content(
     # when the voice carries the VEC blueprint, name the required structure.
     signature_keys = set((voice_dict or {}).get("voice_signature") or {})
     structure_hint = (
-        "\nStructure (mandatory): apply the post_blueprint and hook_system from "
-        "BRAND CONTEXT — a hook first line showing a situation the reader "
-        "recognizes, 2-3 lines of context, ONE insight fully explained, then "
-        "one specific CTA question. Write for the audience_mirror person. "
-        "Never list features or brand rules in the post itself.\n"
+        "\nStructure (mandatory — Visibility Era blueprint): first line is a "
+        "hook naming a situation the reader recognizes, then 2-3 lines of "
+        "context, then ONE insight fully explained, then one specific CTA "
+        "question. Write for a small-business owner who has been burned by "
+        "agencies or DIY tech. Use only facts and numbers from the brief — "
+        "never invent statistics or outcomes. Never list features or "
+        "framework names in the post itself.\n"
         if "post_blueprint" in signature_keys
         else ""
     )
@@ -1670,7 +1672,7 @@ async def generate_content(
                 user_prompt = user_prompt.replace(placeholder, request.length)
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
-            f"{pillar_section}{web_section}"
+            f"{structure_hint}{pillar_section}{web_section}"
             "\n\nReturn JSON with: content, hashtags (array), "
             "suggested_media (string or null)"
         )
