@@ -67,6 +67,10 @@ _JARGON_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Tokens that are not vocabulary: hashtags, URLs, @-mentions, urn:li: markup.
+# They must not count toward the long-word jargon check.
+_NON_VOCABULARY_TOKENS = re.compile(r"(?:https?://\S+|www\.\S+|urn:li:\S+|#\w+|@\w+)")
+
 
 @dataclass
 class NlpIssue:
@@ -129,8 +133,10 @@ def check_plain_english(text: str, field: str = "text") -> list[NlpIssue]:
             )
         )
 
-    # Very long words often signal jargon.
-    long_words = sorted({w.strip(".,;:()[]\"'").lower() for w in text.split() if len(w.strip(".,;:()[]\"'")) >= 14})
+    # Very long words often signal jargon. Hashtags, URLs, mentions, and
+    # urn:li: markup are not vocabulary — strip them before scanning.
+    prose = _NON_VOCABULARY_TOKENS.sub(" ", text)
+    long_words = sorted({w.strip(".,;:()[]\"'").lower() for w in prose.split() if len(w.strip(".,;:()[]\"'")) >= 14})
     if len(long_words) >= 2:
         issues.append(
             NlpIssue(
