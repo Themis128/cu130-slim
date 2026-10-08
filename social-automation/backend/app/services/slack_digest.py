@@ -21,7 +21,7 @@ from app.models.analytics import (
     FollowerSnapshot,
     PostAnalyticsSnapshot,
 )
-from app.models.content import Post, PostStatus
+from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.models.user import Team
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DigestIssue:
-    severity: str  # error | warning
+    severity: str  # error | warning | info
     title: str
     detail: str = ""
 
@@ -178,17 +178,19 @@ class DigestReport:
             for issue in errors[:8]:
                 detail = f" — {issue.detail}" if issue.detail else ""
                 lines.append(f"• *{issue.title}*{detail}")
-        if warnings and not errors:
-            lines.append(f"*Heads up ({len(warnings)})*")
-            for issue in warnings[:8]:
-                detail = f" — {issue.detail}" if issue.detail else ""
-                lines.append(f"• *{issue.title}*{detail}")
-        if warnings and errors:
+        if warnings:
             lines.append("")
             lines.append(f"*Heads up ({len(warnings)})*")
             for issue in warnings[:8]:
                 detail = f" — {issue.detail}" if issue.detail else ""
                 lines.append(f"• *{issue.title}*{detail}")
+        infos = [i for i in self.issues if i.severity == "info"]
+        if infos:
+            lines.append("")
+            lines.append(f"_Skipped by policy ({len(infos)}) — intentional, no action needed_")
+            for issue in infos[:5]:
+                detail = f" — {issue.detail}" if issue.detail else ""
+                lines.append(f"• {issue.title}{detail}")
         if not errors and not warnings:
             lines.append("*All clear.*")
 
@@ -203,6 +205,31 @@ _GROWTH_EVENT_TYPES = (
     "audience_activity",
     "follower_insights",
 )
+
+# A FAILED post whose targets were all skipped for an intentional owner
+# policy (dedup window, media-required rule, platform that can't publish)
+# enforced the rules — it is informational, not an actionable error.
+# (Alert-fatigue practice: only actionable items earn "Needs attention".)
+_POLICY_SKIP_MARKERS = (
+    "duplicate content",
+    "has no media",
+    "never post without media",
+    "unsupported for publishing",
+    "not supported for publishing",
+)
+
+
+def _is_policy_skip(targets: list[PostTarget]) -> bool:
+    """True when every target skipped with a known policy reason."""
+    if not targets:
+        return False
+    for t in targets:
+        if t.status != "skipped":
+            return False
+        msg = (t.error_message or "").lower()
+        if not any(m in msg for m in _POLICY_SKIP_MARKERS):
+            return False
+    return True
 
 
 async def _growth_stats(
@@ -549,9 +576,34 @@ async def build_daily_digest(
         .order_by(Post.updated_at.desc())
         .limit(10)
     )
-    for post in failed_posts.scalars().all():
+    failed_list = failed_posts.scalars().all()
+    # Batched target lookup: an all-skipped post with policy reasons only
+    # (dedup, media-required, unsupported platform) is informational.
+    policy_skipped = 0
+    targets_by_post: dict[Any, list[PostTarget]] = {}
+    if failed_list:
+        tgt_rows = await db.execute(
+            select(PostTarget).where(
+                PostTarget.post_id.in_([p.id for p in failed_list])
+            )
+        )
+        for t in tgt_rows.scalars().all():
+            targets_by_post.setdefault(t.post_id, []).append(t)
+    for post in failed_list:
         post_short = str(post.id)[:8]
         detail_src = (post.failure_reason or (post.content_text or "")[:100]).replace("\n", " ").strip()
+        ptargets = targets_by_post.get(post.id, [])
+        if _is_policy_skip(ptargets):
+            policy_skipped += 1
+            reason = (ptargets[0].error_message or "").strip()
+            issues.append(
+                DigestIssue(
+                    severity="info",
+                    title=f"A post was skipped by policy ({post_short})",
+                    detail=reason[:180],
+                )
+            )
+            continue
         issues.append(
             DigestIssue(
                 severity="error",
@@ -697,9 +749,11 @@ async def build_daily_digest(
             )
         )
 
-    # High failed rate
-    if overview["failed_posts"] and overview["total_posts"]:
-        rate = overview["failed_posts"] / max(overview["total_posts"], 1)
+    # High failed rate — policy-skipped posts don't count toward this:
+    # intentional guardrail enforcement is not a failure signal.
+    effective_failed = max(0, (overview["failed_posts"] or 0) - policy_skipped)
+    if effective_failed and overview["total_posts"]:
+        rate = effective_failed / max(overview["total_posts"], 1)
         if rate >= 0.2:
             issues.append(
                 DigestIssue(
@@ -707,7 +761,7 @@ async def build_daily_digest(
                     title="More posts failed than usual",
                     detail=(
                         "Next: check Accounts status, then retry failed posts. "
-                        f"Details: {overview['failed_posts']}/{overview['total_posts']} failed in this window."
+                        f"Details: {effective_failed}/{overview['total_posts']} failed in this window."
                     ),
                 )
             )
