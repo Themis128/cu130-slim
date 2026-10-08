@@ -4,6 +4,7 @@ Checks banned phrases, preferred phrases, and uses AI to score
 tone/voice match. Returns a 1-5 score with issues and suggested fixes.
 """
 
+import json
 import logging
 
 from app.services.inference import call_inference
@@ -245,7 +246,21 @@ def build_brand_system_prompt(brand: dict, voice: dict | None = None, visual: di
         tone_desc = ", ".join(f"{k}: {v}/5" for k, v in tone_dims.items())
         parts.append(f"Voice & tone dimensions: {tone_desc}")
     if signature:
-        parts.append(f"Voice signature: {signature}")
+        # Cap signature size — local models have 2-4K context and the full
+        # dict exceeds it (502s on the tiny-model fallback). Per-value cap
+        # first, then shrink values further until the section fits.
+        sig_items = []
+        budget = 3200
+        for cap in (380, 200, 100, 60):
+            sig_items = []
+            for key, val in signature.items():
+                text = val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+                if len(text) > cap:
+                    text = text[:cap] + "…"
+                sig_items.append(f"{key}={text}")
+            if sum(len(i) for i in sig_items) <= budget:
+                break
+        parts.append(f"Voice signature: {'; '.join(sig_items)}")
     if pillars:
         pillar_names = [p.get("pillar", p.get("title", "")) for p in pillars if isinstance(p, dict)]
         parts.append(f"Messaging pillars: {', '.join(pillar_names)}")
