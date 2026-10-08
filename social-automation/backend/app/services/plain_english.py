@@ -23,6 +23,36 @@ PLAIN ENGLISH RULES (must follow):
 - Bodies: say what you do and why it helps — no fluff.
 """.strip()
 
+# Sofia Kakkava / "Marketing on Autopilot" writing standards — the full copy
+# spec distilled from the linkedin-post-writer skill (intent-driven,
+# framework-heavy, story-flow templates). Injected into post-generation
+# prompts alongside PLAIN_ENGLISH_RULES; the deterministic checker below
+# scores drafts against the same rules.
+SOFIA_POST_SPEC = """
+SOFIA POST SPEC (must follow):
+- Hook: first line under 12 words; start with I, You, If, When, Here's, Stop,
+  Want, a number, or a quoted statement. Never open with "today", "here are X",
+  "did you know", or a generic statement. Create curiosity, FOMO, or immediate
+  value — never a headline, always a conversation opener.
+- Sentences: mix ultra-short (1-5 words) punches with medium (8-15 words).
+  Paragraphs: 1-3 sentences max, frequent line breaks.
+- Voice: contractions always ("I'd", "you'll" — never "I would", "you will").
+  Grade 3-4 vocabulary. Zero em dashes — use commas or periods instead.
+- Specifics: at least one real number, name, or date in the first half.
+  Never invent a story, metric, or credential — use generic authority
+  ("I've seen this pattern") only when no real detail exists.
+- No hedging ("it might be worth", "let's talk about"), no vague quantifiers
+  ("many people", "lots of"), no manufactured emotion ("my heart was racing"),
+  no AI phrases ("it's no secret that", "at the end of the day", "moreover",
+  "furthermore", "delve", "in today's fast-paced world").
+- Structure: pick ONE intent — educating (framework/numbered list),
+  nurturing (story: setup→turning point→lesson), soft selling (achievement→
+  two choices), hard selling (offer→benefits→CTA), or engagement (contrarian
+  opinion→question). Commit fully to it.
+- Close: end with a direct question or one clear CTA. Long posts (>900 chars)
+  get exactly one P.S. — one idea, 8-15 words.
+""".strip()
+
 _JARGON_PATTERN = re.compile(
     r"\b("
     r"leverage|synerg(?:y|ies)|robust|seamless|cutting[- ]edge|enterprise[- ]grade|"
@@ -459,14 +489,22 @@ _SOFIA_FORBIDDEN = re.compile(
     r"it'?s no secret that|at the end of the day|moreover|furthermore|"
     r"in today'?s (?:fast[- ]paced|digital|ever[- ]changing) \w+|"
     r"delve|tapestry|landscape of|game[- ]?changer|elevate your|"
-    r"here'?s the thing|let'?s dive in|imagine a world|"
+    r"let'?s dive in|imagine a world|"
     r"the truth is|here are \d+|in a world where|"
-    r"take your \w+ to the next level|dive into|embark on"
+    r"take your \w+ to the next level|dive into|embark on|"
+    # Hedging openers + vague quantifiers + manufactured emotion +
+    # generic lesson clichés (intent-driven / story-flow specs).
+    r"it might be worth|let'?s talk about|many people|lots of|"
+    r"some people|my heart was racing|life lessons|in the end|at its core"
     r")\b",
     re.IGNORECASE,
 )
 
-_HOOK_STARTERS = re.compile(r"^\s*(?:[“\"']|i\b|you\b|if\b|when\b|stop\b|we\b|my\b|the\b)", re.IGNORECASE)
+_HOOK_STARTERS = re.compile(
+    r"^\s*(?:[“\"']|\d|i\b|you\b|if\b|when\b|here'?s\b|stop\b|want\b|"
+    r"we\b|my\b|the\b|no\b|nobody\b|everyone\b)",
+    re.IGNORECASE,
+)
 _GENERIC_HOOK_OPENERS = re.compile(r"^\s*(?:today\b|here are\b|did you know\b|have you ever\b)", re.IGNORECASE)
 _PS_LINE = re.compile(r"^p\.?s\.?[\s:—-]", re.IGNORECASE | re.MULTILINE)
 _CTA_SIGNAL = re.compile(
@@ -576,9 +614,16 @@ def check_sofia_rules(text: str, field: str = "text") -> list[NlpIssue]:
             )
         )
 
-    # ── Close: question or CTA signal ──
+    # ── Close: question or CTA signal anywhere in the last ~300 chars
+    # (a question followed by a P.S. still counts as closing engagement).
     tail = lines[-1] if lines else ""
-    if tail and not _CTA_SIGNAL.search(tail) and not _CTA_SIGNAL.search(text[-300:]):
+    close_zone = text[-300:]
+    has_cta = (
+        _CTA_SIGNAL.search(tail)
+        or "?" in close_zone
+        or _CTA_SIGNAL.search(close_zone)
+    )
+    if tail and not has_cta:
         issues.append(
             NlpIssue(
                 field=field,

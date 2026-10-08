@@ -35,6 +35,7 @@ class QualityResult:
     hashtags: list[str]
     seo_score: dict[str, Any] = field(default_factory=dict)
     nlp_report: dict[str, Any] = field(default_factory=dict)
+    sofia_score: int = 0
     spellcheck_applied: bool = False
     iterations: int = 0
     improved: bool = False
@@ -45,6 +46,7 @@ class QualityResult:
             "hashtags": self.hashtags,
             "seo_score": self.seo_score,
             "nlp_report": self.nlp_report,
+            "sofia_score": self.sofia_score,
             "spellcheck_applied": self.spellcheck_applied,
             "iterations": self.iterations,
             "improved": self.improved,
@@ -95,7 +97,7 @@ async def apply_quality_pipeline(
         The final content, hashtags, SEO score, NLP report, and metadata.
     """
     from app.services import seo as seo_service
-    from app.services.plain_english import run_nlp_check_and_fix
+    from app.services.plain_english import run_nlp_check_and_fix, sofia_nlp_score
 
     hashtags = hashtags or []
     result = QualityResult(content=content, hashtags=hashtags)
@@ -220,6 +222,13 @@ Return JSON with: content (string), hashtags (array of strings without #)"""
             except Exception as exc:
                 logger.warning("SEO scoring iteration %d failed (non-fatal): %s", iteration, exc)
                 break
+
+    # ── Final: Sofia copy-spec score on the finished text ────────────────
+    if result.content:
+        try:
+            result.sofia_score, _issues = sofia_nlp_score(result.content)
+        except Exception as exc:
+            logger.warning("Sofia score failed (non-fatal): %s", exc)
 
     return result
 

@@ -1682,7 +1682,11 @@ async def generate_content(
                 "focus and goal. Use the pillar's opening style.\n"
             )
 
-    from app.services.plain_english import PLAIN_ENGLISH_RULES, rewrite_plain_english
+    from app.services.plain_english import (
+        PLAIN_ENGLISH_RULES,
+        SOFIA_POST_SPEC,
+        rewrite_plain_english,
+    )
 
     # Optional web grounding — live SearXNG results so the model can write
     # about current events instead of relying on its knowledge cutoff.
@@ -1741,6 +1745,7 @@ Include hashtags: {request.include_hashtags}
 Include emojis: {request.include_emojis}
 
 {PLAIN_ENGLISH_RULES}
+{SOFIA_POST_SPEC}
 
 HASHTAG RULES (critical for 2026 platform algorithms):
 - Choose hashtags that are semantically relevant to the post content. A disconnect between
