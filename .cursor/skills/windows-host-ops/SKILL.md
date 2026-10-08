@@ -47,6 +47,12 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   Persistent breakage → `wsl --shutdown` (kills Docker Desktop + all sessions — plan it).
 - **Docker Desktop bounces** under memory pressure: WSL capped at ~19–20GB,
   dropcache reclaim, 16GB swap — watch `WSL-Memory-Watchdog` results.
+- **Docker-WSL-Sync resurrects sleepers**: the task starts every Exited
+  `unless-stopped` container every 30min — it now queries stack-ops
+  `/status` (localhost:8787) and skips managed containers. If stack-ops is
+  down the script falls back to old resurrect-all behavior (safe: nothing
+  is sleeping then anyway). Managed containers that crash get re-woken by
+  the proxy on next request instead of by this task.
 - **Resource Saver**: no `EnableResourceSaver` key in
   `%APPDATA%\Docker\settings-store.json` → default ON. Resource Saver + WSL
   `autoMemoryReclaim=gradual` is a documented freeze combo; the host runs
