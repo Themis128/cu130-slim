@@ -1,5 +1,4 @@
 """Celery tasks for batch media AI enhancement."""
-import asyncio
 import logging
 import uuid
 
@@ -7,6 +6,7 @@ from celery import shared_task
 
 from app.services import image_enhance, image_transform, minio_storage, r2_storage
 from app.services.db_sync import sync_after_worker_task
+from app.worker._async import run_async, task_session
 
 celery_app = __import__("app.worker.celery_app", fromlist=["celery_app"]).celery_app
 
@@ -32,10 +32,9 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
     """Execute batch enhancement operation on multiple assets."""
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.content import MediaAsset
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         for asset_id_str in asset_ids:
             try:
                 asset_id = uuid.UUID(asset_id_str)
@@ -116,6 +115,6 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
 def batch_enhance_task(asset_ids: list[str], operation: str, params: dict) -> None:
     """Run a batch enhancement operation on multiple media assets."""
     try:
-        asyncio.run(_run_batch(asset_ids, operation, params))
+        run_async(_run_batch(asset_ids, operation, params))
     except Exception as exc:
         logger.warning("batch_enhance_task failed: %s", exc)

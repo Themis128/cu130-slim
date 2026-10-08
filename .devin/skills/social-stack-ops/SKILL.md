@@ -62,6 +62,19 @@ HTTP MCPs use native `url` config (Devin CLI + Cursor support Streamable HTTP di
 ## Common ops
 
 ```bash
+# docker cp does NOT reload modules in a running Celery worker — always
+# restart the affected workers + beat after hot-syncing worker/task code:
+docker compose restart social-worker-publishing social-worker-media social-worker-default celery-beat
+
+# Worker async model (2026-10-09): each prefork child runs ONE asyncio loop
+# on a daemon thread (started by worker_process_init in celery_app.py).
+# Tasks submit coroutines via app.worker._async.run_async and get DB
+# sessions from task_session() — a real pooled engine bound to that loop.
+# Never call asyncio.run() + async_session_maker() together in a task —
+# that is the 'Future attached to a different loop' crash.
+```
+
+```bash
 docker compose ps
 docker compose restart social-worker-publishing social-worker-media social-worker-default celery-beat
 docker compose logs -f social-api social-worker-publishing social-worker-media social-worker-default n8n --tail=100
