@@ -133,6 +133,7 @@ POST /session/upload
 | pinterest | https://www.pinterest.com/login/ |
 | tumblr | https://www.tumblr.com/login |
 | medium | https://medium.com/m/signin |
+| skool | https://www.skool.com/login (persistent session — used by the VEC classroom watcher, no cookie extraction) |
 | discord | https://discord.com/login |
 | telegram | https://web.telegram.org/a/ |
 | whatsapp | https://web.whatsapp.com/ |

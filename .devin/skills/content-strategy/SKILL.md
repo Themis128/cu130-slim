@@ -334,6 +334,18 @@ DAY 5    870b714863d44610b6caf4cf7ead3178   DAY 15  97bff638c86e499494af95c123e0
 **Visibility Spotlight** → community action in **Visibility Hub**
 (open other members' links, leave a real comment, like).
 
+**Automated watcher** — `app.worker.tasks.skool_watch.watch_skool_vec`
+(beat every 3h, default queue): scrapes the classroom module map +
+community feed via the bridge (platform tag `skool` — a native SITES
+entry, no cookie extraction), seeds silently on first run, then for each
+new DAY lesson generates a LinkedIn-personal **draft** through the
+brand-voice inference path (`post_blueprint` + creator type apply
+automatically) and Slack-alerts. State in Redis (`skool:vec:*`); kill
+switch `SET skool:vec:disabled 1`. Browser acquisition is status-gated:
+force-preempts only `done`/`idle`/`error` owners, skips the sweep when
+an `active`/`waiting`/`extracting` session is mid-work. Drafts carry
+`meta_data.needs_media` — attach media before publishing (media rule).
+
 
 ### Tool
 

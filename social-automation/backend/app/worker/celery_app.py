@@ -40,6 +40,7 @@ celery_app = Celery(
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
         "app.worker.tasks.lead_emails",
+        "app.worker.tasks.skool_watch",
     ],
 )
 
@@ -181,6 +182,7 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
+        "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
@@ -230,9 +232,7 @@ celery_app.conf.update(
         # and the impressions→engagement→clicks funnel per platform.
         "monthly-slack-rollup": {
             "task": "app.worker.tasks.digest.send_weekly_slack_digest",
-            "schedule": crontab(
-                hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_month=1
-            ),
+            "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_month=1),
             "kwargs": {"days": 30, "post_to_slack": True, "post_to_email": True},
         },
         # Morning strategy brief → email. Notebook-generated (papermill in
@@ -271,9 +271,7 @@ celery_app.conf.update(
         "daily-paddle-digest": {
             "task": "app.worker.tasks.paddle_digest.send_paddle_slack_digest",
             "schedule": crontab(
-                hour=settings.SLACK_BILLING_DIGEST_HOUR
-                if settings.SLACK_BILLING_DIGEST_HOUR is not None
-                else settings.SLACK_PADDLE_DIGEST_HOUR,
+                hour=settings.SLACK_BILLING_DIGEST_HOUR if settings.SLACK_BILLING_DIGEST_HOUR is not None else settings.SLACK_PADDLE_DIGEST_HOUR,
                 minute=0,
             ),
             "kwargs": {"post_to_slack": True},
@@ -452,6 +450,14 @@ celery_app.conf.update(
         "dodo-live-check": {
             "task": "app.worker.tasks.dodo_live_check.check_dodo_live",
             "schedule": 1800.0,  # every 30 minutes
+            "options": {"queue": "default"},
+        },
+        # Watch the Sofia Kakkava VEC Skool community (classroom + feed)
+        # through the browser bridge; new DAY lessons auto-draft a LinkedIn
+        # post and Slack-alert, other changes post to the digest channel.
+        "skool-vec-watch": {
+            "task": "app.worker.tasks.skool_watch.watch_skool_vec",
+            "schedule": 10800.0,  # every 3 hours
             "options": {"queue": "default"},
         },
     },
