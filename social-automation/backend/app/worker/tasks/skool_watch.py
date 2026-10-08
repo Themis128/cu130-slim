@@ -24,8 +24,10 @@ import json
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.worker.celery_app import celery_app
 
@@ -92,6 +94,26 @@ def _run_async(coro):
         return pool.submit(asyncio.run, coro).result()
 
 
+@asynccontextmanager
+async def _worker_db():
+    """Per-task engine with NullPool — the shared async_session_maker's pool
+    binds to the first asyncio.run loop that uses it, and celery prefork
+    tasks each run in a fresh loop (observed 2026-10-08: 'Future attached to
+    a different loop' when a second DB task reused the stale pool)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.core.config import get_settings
+
+    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 async def _redis():
     import redis.asyncio as aioredis
 
@@ -151,6 +173,7 @@ async def _acquire_browser(client) -> bool:
 
 async def _create_draft(db, team_id, user_id, account_id, md, title, lesson_text, task):
     """Generate the day's post via the brand-voice path and store a draft."""
+    from app.core.config import get_settings
     from app.models.content import Post, PostStatus, PostTarget
     from app.services.brand_compliance import load_brand_context
     from app.services.inference import call_inference
@@ -189,11 +212,28 @@ Return only the post text, no preamble."""
         brand_context=brand_ctx,
         platform="linkedin",
         max_tokens=700,
+        # Warm-pinned 4B, not the 8B: the fleet is CPU-pinned, and an 8B
+        # cold-load + generate exceeds the request timeout on CPU
+        # (observed ReadTimeout 2026-10-08). The 4B instruct is resident
+        # 30m and sized exactly for short structured copy like this.
+        model_override=get_settings().DMR_MID_MODEL,
     )
-    text = (result.get("response") or "").strip()
-    if isinstance(result.get("response"), list):
-        text = "\n".join(str(p) for p in result["response"]).strip()
+    # call_inference returns {"text": raw} for non-schema calls — reading
+    # only "response" silently produced empty drafts and burned attempts.
+    text = result.get("response") or result.get("text") or ""
+    if isinstance(text, list):
+        text = "\n".join(str(p) for p in text)
+    text = str(text).strip()
+    if text.startswith("{"):
+        # Small DMR models sometimes wrap prose in a JSON envelope anyway.
+        try:
+            env = json.loads(text)
+            if isinstance(env, dict):
+                text = str(env.get("response") or env.get("text") or env.get("post") or "").strip()
+        except (TypeError, json.JSONDecodeError):
+            pass
     if not text:
+        logger.warning("skool_watch: empty draft text for %s (keys=%s)", md, list(result.keys()))
         return None
 
     post = Post(
@@ -219,7 +259,6 @@ Return only the post text, no preamble."""
 async def _watch() -> dict:
     import redis.asyncio  # noqa: F401  (ensures driver is present)
 
-    from app.db.session import async_session_maker
     from app.models.content import Post  # noqa: F401
     from app.models.social_account import SocialAccount
     from app.models.user import Team, User
@@ -310,7 +349,7 @@ async def _watch() -> dict:
         }
 
         # ── Resolve team/user/target account once ─────────────────────────
-        async with async_session_maker() as db:
+        async with _worker_db() as db:
             team = (await db.execute(select(Team).limit(1))).scalars().first()
             user = None
             if team and team.owner_id:
@@ -416,6 +455,7 @@ async def _watch() -> dict:
                         continue
                     if int(h.get("draft_attempts") or 0) >= 3:
                         continue
+                    logger.info("skool_watch: retrying stranded draft for %s (%s)", key, h.get("title", "")[:60])
                     md = key.rsplit(":", 1)[-1]
                     try:
                         did = await _create_draft(db, team.id, user.id, acct.id, md, h["title"], h.get("text", ""), h.get("task", ""))
@@ -432,6 +472,14 @@ async def _watch() -> dict:
                     else:
                         await r.hincrby(key, "draft_attempts", 1)
                     retried += 1
+                logger.info("skool_watch: draft retry pass done — retried=%d", retried)
+            else:
+                logger.warning(
+                    "skool_watch: draft retry skipped — team=%s user=%s acct=%s",
+                    bool(team),
+                    bool(user),
+                    bool(acct),
+                )
 
             # ── Handle new community posts ────────────────────────────────
             for p in new_posts:

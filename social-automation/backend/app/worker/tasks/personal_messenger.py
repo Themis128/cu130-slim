@@ -124,7 +124,7 @@ async def _poll_personal_messenger_async() -> dict:
     cf_token = settings.CLOUDFLARE_API_TOKEN if hasattr(settings, "CLOUDFLARE_API_TOKEN") else ""
     cf_account = settings.CLOUDFLARE_ACCOUNT_ID if hasattr(settings, "CLOUDFLARE_ACCOUNT_ID") else ""
     dmr_url = getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12435")
-    browser_bridge_url = "http://browser-novnc:9223"
+    browser_bridge_url = settings.BROWSER_BRIDGE_URL
 
     async with _worker_db() as db:
         # Find Facebook personal accounts with auto-reply enabled

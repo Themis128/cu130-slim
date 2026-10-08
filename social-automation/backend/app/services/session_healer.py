@@ -63,9 +63,12 @@ from app.models.social_account import SocialAccount
 
 logger = logging.getLogger(__name__)
 
-LINKEDIN_SIDECAR_URL = "http://linkedin-browser-sidecar:9225"
-FACEBOOK_SIDECAR_URL = "http://facebook-browser-sidecar:9226"
-BRIDGE_URL = "http://browser-novnc:9223"
+# Wake-proxy aware: env vars point at stack-ops in compose so the hourly
+# sweep wakes idle-slept containers on connect; direct hostnames have no
+# DNS entry while a container is slept.
+LINKEDIN_SIDECAR_URL = os.getenv("LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225")
+FACEBOOK_SIDECAR_URL = os.getenv("FACEBOOK_BROWSER_SIDECAR_URL", "http://facebook-browser-sidecar:9226")
+BRIDGE_URL = os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
 
 _ALERT_TTL = 24 * 3600          # Slack cooldown per platform
 _LI_PENDING_KEY = "session_healer:linkedin_pending_2fa"
