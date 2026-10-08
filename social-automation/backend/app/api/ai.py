@@ -1649,8 +1649,9 @@ async def generate_content(
         "hook naming a situation the reader recognizes, then 2-3 lines of "
         "context, then ONE insight fully explained, then one specific CTA "
         "question. Write for a small-business owner who has been burned by "
-        "agencies or DIY tech. Never list features or framework names in "
-        "the post itself.\n"
+        "agencies or DIY tech. Use only facts and numbers from the brief — "
+        "never invent statistics or outcomes. Never list features or "
+        "framework names in the post itself.\n"
         if "post_blueprint" in signature_keys
         else ""
     )
