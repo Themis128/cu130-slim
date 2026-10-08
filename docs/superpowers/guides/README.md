@@ -23,6 +23,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 17. [X free web fallback](17-x-web-fallback.md) — cookie-auth tweety/twscrape fallback when the X API is out of credits: cookie export, safety limits, circuit breaker, ToS risk.
 18. [Monthly checklist update](18-monthly-checklist.md) — refresh the 12-Automation Checklist PDF on cloudless.gr/links and announce it across all social channels (1st of each month).
 19. [Nextcloud client portals + Talk](19-nextcloud-client-portals.md) — per-client portal folders on cloud.cloudless.gr, share-link rules, public Talk consult room, CGNAT limits, retention.
+20. [Meta organic growth](20-meta-organic-growth.md) — free, media-backed cross-publishing to connected Facebook, Instagram, and Threads accounts.
 
 ## Product plans
 
