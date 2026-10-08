@@ -24,10 +24,8 @@ import json
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.worker.celery_app import celery_app
 
@@ -84,34 +82,23 @@ _TASK_RE = re.compile(r"YOUR TASK(.+?)(?:COMMUNITY ACTION|Resources|🔁|$)", re
 
 
 def _run_async(coro):
+    """Submit to the persistent per-worker loop; fall back to a thread-local
+    loop only when a caller already runs an event loop (e.g. tests)."""
+    from app.worker._async import run_async
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        return run_async(coro)
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(run_async, coro).result()
 
 
-@asynccontextmanager
-async def _worker_db():
-    """Per-task engine with NullPool — the shared async_session_maker's pool
-    binds to the first asyncio.run loop that uses it, and celery prefork
-    tasks each run in a fresh loop (observed 2026-10-08: 'Future attached to
-    a different loop' when a second DB task reused the stale pool)."""
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from sqlalchemy.pool import NullPool
-
-    from app.core.config import get_settings
-
-    engine = create_async_engine(get_settings().DATABASE_URL, poolclass=NullPool)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with factory() as session:
-            yield session
-    finally:
-        await engine.dispose()
+# Shared per-worker engine on the persistent loop — replaces the per-task
+# NullPool engine (see app.worker._async for why the pool is now safe).
+from app.worker._async import task_session as _worker_db  # noqa: E402
 
 
 async def _redis():

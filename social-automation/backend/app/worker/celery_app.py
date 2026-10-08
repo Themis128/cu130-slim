@@ -462,3 +462,25 @@ celery_app.conf.update(
         },
     },
 )
+
+# ── Worker-process async loop ────────────────────────────────────────────────
+# One asyncio loop per prefork child, created AFTER the fork. Tasks submit
+# coroutines via app.worker._async.run_async; the pooled DB engine lives as
+# long as the child. Building it here (not at import time) is what prevents
+# forked parents from sharing connections into children.
+
+from celery.signals import worker_process_init, worker_process_shutdown  # noqa: E402
+
+
+@worker_process_init.connect
+def _start_worker_async_loop(**_kwargs):
+    from app.worker._async import start_worker_loop
+
+    start_worker_loop()
+
+
+@worker_process_shutdown.connect
+def _stop_worker_async_loop(**_kwargs):
+    from app.worker._async import stop_worker_loop
+
+    stop_worker_loop()

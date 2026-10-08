@@ -1,14 +1,13 @@
 """Celery task: LinkedIn ads pause/resume/status, triggered from Slack."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from celery import shared_task
 
-from app.db.session import async_session_maker
 from app.services.linkedin_ads_control import notify_slack, set_campaign_status
 from app.services.linkedin_ads_report import collect_metrics
+from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 celery_app.set_default()
@@ -17,7 +16,7 @@ celery_app.set_current()
 
 async def _run(action: str, response_url: str | None, user: str) -> dict[str, Any]:
     if action == "status":
-        async with async_session_maker() as db:
+        async with task_session() as db:
             metrics = await collect_metrics(db)
         text = (
             f"LinkedIn campaign *{metrics.campaign_name or metrics.campaign_id}*: "
@@ -45,4 +44,4 @@ async def _run(action: str, response_url: str | None, user: str) -> dict[str, An
 def linkedin_ads_control(
     action: str, response_url: str | None = None, user: str = "someone"
 ) -> dict[str, Any]:
-    return asyncio.run(_run(action, response_url, user))
+    return run_async(_run(action, response_url, user))
