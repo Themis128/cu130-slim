@@ -270,6 +270,7 @@ app/api/
 ├── brand.py         (28) — brand, voice, visual, guidelines, assets, health
 ├── digital_cards.py (10) — digital card CRUD, public share view
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
+├── meta_growth.py   (2)  — free Meta readiness and media-backed organic campaigns
 ├── messenger.py     (34) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
 ├── inbox.py         (1)  — unified inbox across platforms

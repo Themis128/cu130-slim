@@ -466,6 +466,21 @@ export const accountsApi = {
     api.post(`/accounts/${id}/page-profile/assign-manage-task`, { business_id: businessId, business_user_id: businessUserId }),
 }
 
+// Free Meta organic-growth endpoints. Paid promotion is intentionally not
+// represented here; these calls only schedule owned-account publishing.
+export const metaGrowthApi = {
+  readiness: () => api.get('/meta-growth/readiness'),
+  createOrganicCampaign: (data: {
+    content_text: string
+    media_ids: string[]
+    link_url?: string
+    target_account_ids?: string[]
+    scheduled_at?: string
+    hashtags?: string[]
+    metadata?: Record<string, unknown>
+  }) => api.post('/meta-growth/organic-campaign', data),
+}
+
 // Unified profile management endpoints
 export const profileApi = {
   getProfile: (id: string) => api.get(`/profile/${id}`),

@@ -20,6 +20,7 @@ from app.api import (
     media,
     media_enhance,
     messenger,
+    meta_growth,
     ops,
     profile,
     publishing,
@@ -45,6 +46,7 @@ api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(content.router, prefix="/content", tags=["content"])
 api_router.include_router(media.router, prefix="/media", tags=["media"])
 api_router.include_router(media_enhance.router, prefix="/media/enhance", tags=["media-enhance"])
+api_router.include_router(meta_growth.router, prefix="/meta-growth", tags=["meta-growth"])
 api_router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 api_router.include_router(linkedin.router, prefix="/linkedin", tags=["linkedin"])
