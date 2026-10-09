@@ -138,6 +138,12 @@
         "--static-oauth-client-info",
         "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
       ]
+    },
+    "metabase": {
+      "command": "/home/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
+    },
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp"
     }
   }
 }
