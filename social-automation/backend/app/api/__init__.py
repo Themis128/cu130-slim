@@ -33,6 +33,7 @@ from app.api import (
     tiktok,
     twitter_tiktok,
     usage,
+    viber,
     web_analytics,
     whatsapp,
     whatsapp_flows,
@@ -68,6 +69,7 @@ api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
 api_router.include_router(whatsapp_flows.router, prefix="/whatsapp", tags=["whatsapp-flows"])
 api_router.include_router(telegram.router, prefix="/telegram", tags=["telegram"])
+api_router.include_router(viber.router, prefix="/viber", tags=["viber"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])

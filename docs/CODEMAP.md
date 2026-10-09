@@ -102,12 +102,12 @@ Measured on this machine (do not invent different HW — re-measure if the host 
 ```
 main.py            FastAPI app, mounts api_router at /api/v1, init_db() on startup
 api/               37 routers — auth (OAuth + data-deletion), accounts, publishing,
-                   messenger, whatsapp, telegram, instagram, inbox, media, ai,
+                   messenger, whatsapp, telegram, viber, instagram, inbox, media, ai,
                    ai_providers, brand, billing, leads, secrets, teams, cf_db, mcp…
 services/          platform clients + infra — facebook_api, instagram_api
                    (InstagramAPIClient + InstagramWebDMClient), threads_api,
                    tiktok_api, twitter_api, linkedin_api, messenger_api,
-                   whatsapp_cloud_client, telegram_api, browser_bridge
+                   whatsapp_api, telegram_api, viber_api, browser_bridge
                    (BrowserBridgeClient), browser_orchestrator, *_sidecar clients,
                    dmr (DMR client), inference (provider routing), media_*,
                    db_router (D1→Postgres dual-write), d1/kv/vectorize/chroma/minio
@@ -156,7 +156,9 @@ Session healing: `.devin/skills/session-ops/session-transplant/` + `scripts/sess
 | LinkedIn | linkedin-sidecar (9225), polled 6h (rate limits) |
 | Threads / X / TikTok | bridge (9223) sessions |
 
-Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET verify + POST events → chatbot auto-reply via DMR→CF AI→static chain).
+Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET verify + POST events → chatbot auto-reply via DMR→CF AI→static chain) + `/api/v1/telegram/webhook/{account_id}` (secret-token header) + `/api/v1/viber/webhook/{account_id}` (HMAC-SHA256 `X-Viber-Content-Signature`).
+
+Messaging channels (`whatsapp`, `telegram`, `viber`) are skipped by `publish_to_platform` — sends go through each router's `/send` endpoints; auto-reply bots run DMR-first inference via the shared `*_chatbot` helpers.
 
 ## Unified inbox (`GET /api/v1/inbox/inbox`)
 
