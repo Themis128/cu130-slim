@@ -19,7 +19,7 @@ POST /api/v1/media/upload         │        ↓ fallback            │    tran
 POST /api/v1/media/generate-video │   Cloudflare Workers AI      ┘    carousels)                   │
     (+ /{task_id} poll)           │                                4. matching extension + MIME
 worker task media_enhance         ┘   video:  ComfyUI :8000          5. storage backend write
-                                      (LTX-Video 2B GGUF, GPU)       6. media_assets row
+                                      (Wan2.2 TI2V-5B GGUF, GPU)     6. media_assets row
                                            ↓ multi-segment
                                       ffmpeg concat (60s+ clips)
 ```
@@ -33,14 +33,16 @@ worker task media_enhance         ┘   video:  ComfyUI :8000          5. storag
 | Brand logo / favicon | `POST /brand/logo`, `POST /brand/favicon` | Pass `extension=".png"` explicitly to preserve alpha. |
 | LinkedIn carousel | `run_cloudless_carousel_pipeline` (`carousel_pipeline.py`) | Copy (CF) → NLP fix (DMR `ai/llama3.2`) → spellcheck → per-slide CF txt2img background → `compose_branded_slide` (PIL brand canvas) → single multi-page PDF. Creates a draft Post + PostTarget for the Company Page; `publish=true` schedules it. |
 | Media enhance | worker task `app.worker.tasks.media_enhance` | Upscales/restyles existing assets. |
-| Text-to-video | `POST /media/generate-video` → `generate_video_asset_task` (media queue) → `services/comfyui_video.py` | LTX-Video 2B GGUF Q8 on ComfyUI (`COMFYUI_URL`, GPU). Async: returns `{task_id, poll_url}`; poll `GET /media/generate-video/{task_id}` → `{status, asset_id}`. Output H.264/yuv420p MP4. Options: `width`/`height` (multiples of 32 — 480×832 = TikTok 9:16), `num_frames` (8n+1), `frame_rate`, `steps`, `cfg_scale`, `seed`, `negative_prompt`, `duration_seconds` (≤60), `scene_prompts` (≤40). Nonzero `duration_seconds` or a `scene_prompts` shot list runs `generate_video_segments` — sequential per-scene LTX jobs stitched via the ffmpeg concat demuxer (60s+ Creator-Rewards clips). `source=comfyui-ltxv`, `duration_seconds` recorded on the asset. Task limits 1800/2100s. |
+| Text-to-video | `POST /media/generate-video` → `generate_video_asset_task` (media queue) → `services/comfyui_video.py` | Wan2.2 TI2V-5B GGUF (Q4_K_M) on ComfyUI (`COMFYUI_URL`, GPU) — the only video model (beat LTXV/Wan2.1 on verified A/B). Async: returns `{task_id, poll_url}`; poll `GET /media/generate-video/{task_id}` → `{status, asset_id}`. Output H.264/yuv420p MP4. Options: `width`/`height` (multiples of 16 — default 704×1280 = Wan2.2 native, TikTok 9:16), `num_frames` (4n+1, default 81), `frame_rate` (24), `steps` (20), `cfg_scale` (5.0), `seed`, `negative_prompt`, `duration_seconds` (≤60), `scene_prompts` (≤40), `image_asset_id` (native I2V). Nonzero `duration_seconds` or a `scene_prompts` shot list runs `generate_video_segments` — sequential per-scene jobs stitched via the ffmpeg concat demuxer (60s+ Creator-Rewards clips). `source=comfyui-wan22`, `duration_seconds` recorded on the asset. |
 
-## Video model notes (benchmarked 2026-10-02, RTX 3070 8GB, lowvram profile)
+## Video model notes (benchmarked 2026-10-09, RTX 3070 8GB, lowvram profile)
 
-- **Primary: `ltx-video-2b-v0.9-Q8_0.gguf`** (city96 quants) via `UnetLoaderGGUF` + core `KSampler` + `LTXVConditioning` + `EmptyLTXVLatentVideo` + `VHS_VideoCombine`. ~1 it/s → ~25s for a 41-frame 480×832 clip. Requires `ComfyUI-GGUF`, `ComfyUI-LTXVideo`, `ComfyUI-VideoHelperSuite`.
-- **Fallback: `wan2.1_t2v_1.3B_fp16`** — core nodes only, ~7.3s/step (~153s total); softer output. Stored graphs in `comfyui-workflows/`.
-- **Do not use `ltxv-2b-0.9.8-distilled-fp8.safetensors`** — produces noise on ComfyUI 0.38 + current pack (LTX-2.x era dropped 0.9.x support; `KeyError: skip_block_list`).
-- Long-form = N sequential segments stitched by ffmpeg (`generate_video_segments`) — e.g. `duration_seconds=60` ≈ 37 segments ≈ ~18 min GPU time.
+- **Only model: `Wan2.2-TI2V-5B-Q4_K_M.gguf`** (QuantStack) via `UnetLoaderGGUF` + `umt5_xxl_fp8` CLIP + `wan2.2_vae` + `Wan22ImageToVideoLatent` + `KSampler` (uni_pc/simple, cfg 5) + `VAEDecodeTiled` + `VHS_VideoCombine`. ~25s/step → ~10 min sampling + ~5 min tiled decode for an 81-frame 704×1280 clip. Requires `ComfyUI-GGUF` + `ComfyUI-VideoHelperSuite`.
+- **Native res is 704×1280** (per HF model card) — rendering at 480×832 produces dark/blurry output (out-of-distribution); always render at native res and downscale if needed.
+- **Use the official Wan2.2 negative prompt** (`WAN22_NEGATIVE`) — targets overexposed/blurry/gray failure modes; the generic DEFAULT_NEGATIVE produced blown-out mush.
+- **Tiled VAE decode is mandatory** — the 16×16×4 temporal VAE stalls 25min+/OOMs on a single-pass 720p decode on 8GB.
+- LTXV (`ltx-video-2b-v0.9-Q8_0.gguf`) and Wan2.1 (`wan2.1_t2v_1.3B_fp16`) are retired — builders kept for reference but unreachable via the API (`VIDEO_MODELS = ("wan22",)`).
+- Long-form = N sequential segments stitched by ffmpeg (`generate_video_segments`).
 - Model weights live on the ComfyUI models volume (`storage-models/`, gitignored), not in the repo.
 - n8n `tiktok-video-post` workflow drives the pipeline every 2 days 19:00 Athens (webhook `/webhook/tiktok-video-post`): DMR caption + scene prompt → this endpoint → post with `media_ids` → `MEDIA_UPLOAD` (scheduled) or `DIRECT_POST` (explicit). `publish:false` = draft-only dry run.
 

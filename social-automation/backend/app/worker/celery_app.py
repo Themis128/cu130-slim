@@ -111,10 +111,11 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 300,
         },
-        # ComfyUI T2V: cold model load + sampling — ~30s-15min worst case.
+        # ComfyUI T2V: LTXV ~15min worst case; Wan2.2-5B 720p ~35min+
+        # (slow temporal VAE decode on the 8GB card).
         "app.worker.tasks.media.generate_video_asset_task": {
-            "soft_time_limit": 1800,
-            "time_limit": 2100,
+            "soft_time_limit": 2700,
+            "time_limit": 3000,
         },
         "app.worker.tasks.media_enhance.batch_enhance_task": {
             "soft_time_limit": 1800,

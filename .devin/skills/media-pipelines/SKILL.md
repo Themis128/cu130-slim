@@ -21,7 +21,7 @@ capabilities and routing.
 | Branded static image | `cloudless-carousel-pipeline` (single-slide mode) | JPG/PNG, brand-composed | DMR copy + FLUX schnell bg, seconds |
 | LinkedIn carousel PDF | `cloudless-carousel-pipeline` | Multi-slide PDF doc post | FLUX → SD img2img → compose |
 | Branded slideshow video | `branded-video-pipeline` (`scripts/gen_branded_video.py`) | MP4 H.264/yuv420p, zoom+xfade, silent AAC, faststart | ~40s, zero GPU |
-| AI video (real motion) | ComfyUI LTXV/Wan via `tiktok-video-post` n8n workflow | Vertical clip (default 480x832) | GPU, minutes |
+| AI video (real motion) | ComfyUI Wan2.2 TI2V-5B via `tiktok-video-post` n8n workflow | Vertical clip (default 704x1280, ~16min render) | GPU |
 | Carousel backgrounds | ComfyUI FLUX.1-schnell GGUF → CF Workers AI fallback | Slide background images | local GPU, free |
 | Emoji/icon assets | `emoji-generator` | Unicode/styled assets for copy | instant |
 | Media library | `socialauto-media` | Stored asset_ids for posts | reuse |

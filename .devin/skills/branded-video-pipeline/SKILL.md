@@ -5,7 +5,7 @@ description: >-
   WITHOUT an AI video model: PIL brand-composed slides → ffmpeg zoom/crossfade
   slideshow → LinkedIn-spec QA → media upload + draft/publish. Use when making
   LinkedIn video posts, branded motion content, or when AI video gen
-  (ComfyUI LTXV/Wan) is too slow or overkill. ~40s end-to-end, zero GPU.
+  (ComfyUI Wan2.2) is too slow or overkill. ~40s end-to-end, zero GPU.
 ---
 
 # Branded Video Pipeline
@@ -138,7 +138,7 @@ generic audience.
 
 ## AI video models (when photoreal motion IS the point)
 
-- ComfyUI LTXV 2B GGUF (`tiktok-video-ltxv-gguf` workflow) — fastest real
+- ComfyUI Wan2.2 TI2V-5B GGUF (`tiktok-video-post` workflow, wan22) — real
   video model on the 8GB card; supports i2v from `image_asset_id`
 - Wan2.1 1.3B — smaller but ~7.3s/step, slower in practice
 - `POST /api/v1/media/generate-video` → `generate_video_asset_task`
