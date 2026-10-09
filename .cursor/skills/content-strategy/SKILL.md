@@ -258,6 +258,56 @@ effort-vs-result / curiosity / contrast / callout / hard-truth /
 competitor hook types; kill patterns: too generic, reveals the answer,
 vague questions, no specific situation, never testing, topic-hopping).
 
+### DAY 13 — Content That Leads + One Script, Any Format (adopted)
+
+Sources: `3 week/Day13/` — "Write Content That Leads" (3-part script)
+and "Your Script, Any Format" (same script → 4 formats).
+
+**Core rule**: information informs, leadership moves. A leading post
+takes the reader from where they are to somewhere different — by the
+end they should feel like they already moved. Inform-only posts get
+scrolled past in 3 seconds.
+
+**The 3-part script** (stored as `voice_signature.content_that_leads`):
+
+1. **WHERE THEY ARE** — name the exact situation the reader is stuck in
+   right now (not where they want to be); make them feel completely
+   seen before anything else.
+2. **WHAT SHIFTS** — ONE insight that reframes the situation. Not a
+   list, not advice — one clear shift that lands.
+3. **WHERE THEY GO** — what becomes possible after the shift; close
+   with one specific question or direction as the CTA.
+
+**Script mistakes that break it**: lingering in part 1, skipping the
+shift, cramming three insights into one, ending with no direction,
+teaching instead of leading. Every line should earn the next one.
+
+**One script, four formats** (`voice_signature.day13_formats`) — the
+structure never changes, only the delivery:
+
+| Format | Best for | Rendering |
+|---|---|---|
+| Written post | LinkedIn, IG, FB, Threads — lowest barrier, test ideas here | hook line → 3 context lines → 3-5 line shift → 1-2 line CTA question |
+| Carousel | IG + LinkedIn — highest save rate | slide 1 hook alone → 2-3 where-they-are → 4-5 the shift → 6 where-they-go → last slide ONE CTA (never two on a slide) |
+| Talking head | LinkedIn video, Reels, TikTok, Shorts — builds trust fastest | 0:00-0:10 hook spoken, no intro → 0:10-0:40 the shift, pause, let it land → 0:40-1:00 where they go + natural CTA |
+| Reel/short | IG Reels, TikTok, Shorts — highest reach | script as TEXT OVERLAY on b-roll (no face needed): 0-3s hook → 3-20s shift line-by-line → 20-40s the picture → 40-60s CTA question |
+
+**Sofia's two AI prompts** (`voice_signature.day13_prompts`) — ready to
+call verbatim from workflows:
+
+- `write_script` — topic + audience → a post on the 3-part script.
+- `check_script` — paste a draft → "does it lead or just inform?"
+  review. Doubles as a QA gate for generated posts.
+
+Daily workflow (Sofia's 6 steps): pick one stuck situation → find the
+ONE shift → show where they go → write it with the script → check with
+`check_script` → post it. A leading post that ships beats a perfect
+draft.
+
+Apply/inspect live: `creator_type.py day13` (show) /
+`creator_type.py day13 apply` (writes `content_that_leads` +
+`day13_formats` + `day13_prompts`).
+
 ### VEC 2.0 — where the challenge actually lives
 
 The Visibility Era Challenge 2.0 runs on **Skool + Telegram**, not on the
