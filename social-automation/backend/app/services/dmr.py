@@ -1325,6 +1325,7 @@ async def _call_dmr_chat_internal(
     max_tokens: int | None = None,
     temperature: float = 0.7,
     top_p: float = 1.0,
+    top_k: int | None = None,
     schema: dict | None = None,
     tools: list[dict] | None = None,
     stream: bool = False,
@@ -1384,6 +1385,8 @@ async def _call_dmr_chat_internal(
         "temperature": temperature,
         "top_p": top_p,
     }
+    if top_k is not None:
+        payload["top_k"] = top_k
     if max_tokens:
         payload["max_tokens"] = max_tokens
     else:
@@ -1564,6 +1567,8 @@ async def call_dmr_chat(
     tools: list[dict] | None = None,
     stream: bool = False,
     temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int | None = None,
     platform: str | None = None,
 ) -> dict[str, Any]:
     """Call DMR for chat completion with all improvements active.
@@ -1585,6 +1590,8 @@ async def call_dmr_chat(
         system=system,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
         schema=schema,
         tools=tools,
         stream=stream,

@@ -15,6 +15,7 @@ MODELS = [
     "ai/qwen3-vl",
     "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF",
     "ai/smollm3",
+    "cloudless/qwen3-4b-media:latest",
 ]
 if len(sys.argv) > 1 and sys.argv[1] == "show":
     for m in MODELS:
@@ -43,4 +44,7 @@ docker_model("configure", "--keep-alive", "60s",
              "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF")
 docker_model("configure", "--context-size", "2048", "--keep-alive", "60s",
              "ai/smollm3", "--", "--reasoning-budget", "0")
+# media-prompt model — occasional use, evicts fast
+docker_model("configure", "--context-size", "4096", "--keep-alive", "5m",
+             "cloudless/qwen3-4b-media:latest")
 print("Done. Verify with: docker model configure show <model>")

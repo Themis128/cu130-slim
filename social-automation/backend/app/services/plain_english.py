@@ -48,7 +48,9 @@ SOFIA POST SPEC (must follow):
 - Structure: pick ONE intent — educating (framework/numbered list),
   nurturing (story: setup→turning point→lesson), soft selling (achievement→
   two choices), hard selling (offer→benefits→CTA), or engagement (contrarian
-  opinion→question). Commit fully to it.
+  opinion→question). Commit fully to it. The post leads somewhere — name
+  where the reader is, deliver one clear shift, show where they go. A post
+  that only informs gets scrolled past.
 - Close: end with a direct question or one clear CTA. Long posts (>900 chars)
   get exactly one P.S. — one idea, 8-15 words.
 """.strip()

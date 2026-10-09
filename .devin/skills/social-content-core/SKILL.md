@@ -41,7 +41,9 @@ Refresh: `docker exec social-postgres psql -U social_user -d social_automation -
 Always draw from `/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia/` (extract with
 `pymupdf` inside `social-api`). Pick the file matching the piece:
 DAY 1 (creator type), DAY 2 (2-platform rule), DAY 3 (own your lane),
-DAY 4 (5-second profile test), DAY 5 (bio that sells), `2 week/`, `Linkedin/`.
+DAY 4 (5-second profile test), DAY 5 (bio that sells), `2 week/`,
+`3 week/` (DAY 11 hooks, DAY 12 post blueprint, DAY 13 content-that-leads +
+one-script-four-formats), `Linkedin/`.
 
 Core frameworks: niche formula "We help [WHO] who [PROBLEM] so they can [RESULT]";
 "Clarity attracts. Vagueness gets ignored"; plain audience-first language.
@@ -66,10 +68,14 @@ CTAs only.
 1. Generate via `POST /api/v1/ai/generate-content` (or `/improve-content`) —
    writes in the owner voice on the right platform.
 2. NLP plain-English check + SEO score **≥90** before publish.
-3. **Protect from LanguageTool `auto_correct`**: proper nouns, hashtags,
+3. **Lead check (DAY 13)**: the post must move the reader — where they are →
+   one clear shift → where they go + one question CTA. If it only informs,
+   rewrite. `voice_signature.day13_prompts.check_script` is the review
+   prompt; format specs live in `day13_formats`.
+4. **Protect from LanguageTool `auto_correct`**: proper nouns, hashtags,
    `urn:li:` mention markup, domains — never "corrected".
-4. Coach attribution: `#sofiakakkavacoach` hashtag only — never her name in prose.
-5. **No duplicated posts** — never the same content/story twice, including the
+5. Coach attribution: `#sofiakakkavacoach` hashtag only — never her name in prose.
+6. **No duplicated posts** — never the same content/story twice, including the
    same piece repackaged in a different format. Different cuts per platform OK.
 
 ## Media pre-flight

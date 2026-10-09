@@ -408,12 +408,22 @@ async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str
         )
         result = await call_dmr_chat(
             prompt, system=system,
-            model_override=settings.DMR_MID_MODEL,
-            max_tokens=160, temperature=0.7,
+            model_override=settings.DMR_MEDIA_MODEL or settings.DMR_MID_MODEL,
+            # Qwen3-4B-Instruct-2507 recommended sampling (HF model card):
+            # temp 0.7, top_p 0.8, top_k 20 — tighter tail than llama.cpp
+            # defaults (top_p 1.0), guards against degenerate fragments.
+            max_tokens=160, temperature=0.7, top_p=0.8, top_k=20,
         )
         expanded = (result.get("text") or "").strip().strip('"')
-        # Guard: reject empty, absurdly long, or echoed-instruction outputs
-        if not expanded or len(expanded) > 1200 or expanded.lower() == prompt.lower():
+        # Guard: reject empty, absurdly long, echoed-instruction, or
+        # protocol-leak outputs (tool_call/chat-markup fragments) — never
+        # hand corrupted text to the diffusion backend.
+        if (
+            not expanded
+            or len(expanded) > 1200
+            or expanded.lower() == prompt.lower()
+            or "<" in expanded
+        ):
             return prompt
         return expanded
     except Exception as exc:  # noqa: BLE001
