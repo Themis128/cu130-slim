@@ -427,18 +427,25 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/telegram/{account_id}/bot/create` — POST
 - `/api/v1/telegram/{account_id}/bot/deactivate` — POST
 - `/api/v1/telegram/{account_id}/bot/personalities` — GET
+- `/api/v1/telegram/{account_id}/chat-members` — GET
 - `/api/v1/telegram/{account_id}/credentials` — PUT
+- `/api/v1/telegram/{account_id}/delete-message` — POST
 - `/api/v1/telegram/{account_id}/delete-webhook` — POST
 - `/api/v1/telegram/{account_id}/group-watch` — GET, PUT
 - `/api/v1/telegram/{account_id}/group-watch/activity` — GET
 - `/api/v1/telegram/{account_id}/group-watch/add-chat` — POST
 - `/api/v1/telegram/{account_id}/group-watch/digest-now` — POST
 - `/api/v1/telegram/{account_id}/group-watch/setup-links` — POST
+- `/api/v1/telegram/{account_id}/pin` — POST
 - `/api/v1/telegram/{account_id}/send` — POST
+- `/api/v1/telegram/{account_id}/send-media-group` — POST
+- `/api/v1/telegram/{account_id}/send-photo` — POST
+- `/api/v1/telegram/{account_id}/send-poll` — POST
 - `/api/v1/telegram/{account_id}/setup-status` — GET
 - `/api/v1/telegram/{account_id}/setup-webhook` — POST
 - `/api/v1/telegram/{account_id}/threads/pause` — POST
 - `/api/v1/telegram/{account_id}/threads/resume` — POST
+- `/api/v1/telegram/{account_id}/unpin` — POST
 
 ## `threads`
 
