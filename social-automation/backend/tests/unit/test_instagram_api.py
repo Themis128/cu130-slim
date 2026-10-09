@@ -575,3 +575,99 @@ async def test_get_recent_mentions_flat_list(client):
 async def test_get_recent_mentions_invalid_limit(client):
     with pytest.raises(ValueError, match="limit must be between 1 and 100"):
         await client.get_recent_mentions(limit=0)
+
+
+# ── Discovery + audience additions (v26) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_quota_parser_handles_int_usage(client):
+    """quota_usage arrives as a bare int on v26 — used to undercount."""
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": [{"quota_usage": 2}]})
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        remaining = await client.get_remaining_publish_quota()
+    assert remaining == 23
+
+
+@pytest.mark.asyncio
+async def test_quota_parser_handles_list_usage(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {
+                        "quota_usage": [{"metric": "publish_count", "value": 7}],
+                        "config": {"quota_total": 25},
+                    }
+                ]
+            },
+        )
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        remaining = await client.get_remaining_publish_quota()
+    assert remaining == 18
+
+
+@pytest.mark.asyncio
+async def test_search_hashtag(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": [{"id": "1784", "name": "automation"}]})
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        data = await client.search_hashtag("#automation")
+    call = fake.calls[0]
+    assert call["url"].endswith("/ig_hashtag_search")
+    assert call["params"]["q"] == "automation"
+    assert call["params"]["user_id"] == "987654321"
+    assert data["data"][0]["id"] == "1784"
+
+
+@pytest.mark.asyncio
+async def test_search_hashtag_requires_query(client):
+    with pytest.raises(ValueError, match="query is required"):
+        await client.search_hashtag("  ")
+
+
+@pytest.mark.asyncio
+async def test_hashtag_top_media(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": [{"id": "m1", "permalink": "https://i/p/1"}]})
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        rows = await client.get_hashtag_top_media("1784")
+    assert rows[0]["permalink"] == "https://i/p/1"
+    assert "/1784/top_media" in fake.calls[0]["url"]
+
+
+@pytest.mark.asyncio
+async def test_business_discovery(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"business_discovery": {"username": "rival", "followers_count": 5000}})
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        data = await client.business_discovery("@rival")
+    assert data["business_discovery"]["followers_count"] == 5000
+    assert "business_discovery.username(rival)" in fake.calls[0]["params"]["fields"]
+
+
+@pytest.mark.asyncio
+async def test_follower_demographics_breakdown(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"name": "follower_demographics"}]}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        await client.get_follower_demographics(breakdown="country")
+    params = fake.calls[0]["params"]
+    assert params["metric"] == "follower_demographics"
+    assert params["breakdown"] == "country"
+    assert params["metric_type"] == "total_value"
+
+    with pytest.raises(ValueError, match="breakdown"):
+        await client.get_follower_demographics(breakdown="bogus")

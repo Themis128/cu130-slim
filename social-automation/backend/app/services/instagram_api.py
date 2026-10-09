@@ -412,17 +412,143 @@ class InstagramAPIClient:
         try:
             data = await self.get_publishing_limit()
             usage_data = (data.get("data") or [{}])[0]
-            quota_usage = usage_data.get("quota_usage") or []
-            used = 0
-            for item in quota_usage:
-                if item.get("metric") == "publish_count":
-                    used = int(item.get("value", 0))
-                    break
+            quota_usage = usage_data.get("quota_usage")
+            # API returns quota_usage as a bare int on newer versions; older
+            # payloads wrap it as a list of {metric, value} entries.
+            if isinstance(quota_usage, int):
+                used = quota_usage
+            else:
+                used = 0
+                for item in quota_usage or []:
+                    if item.get("metric") == "publish_count":
+                        used = int(item.get("value", 0))
+                        break
             config = usage_data.get("config") or {}
             total = int(config.get("quota_total", 25))
             return max(0, total - used)
         except Exception:
             return 25  # fail open — assume full quota
+
+    # ── Discovery + audience insights ──────────────────────────────────
+
+    async def search_hashtag(self, query: str) -> dict[str, Any]:
+        """Official ``ig_hashtag_search`` — resolves a hashtag to its id.
+
+        Requires a Business/Creator account token.
+        """
+        q = (query or "").strip().lstrip("#")
+        if not q:
+            raise ValueError("query is required")
+        url = f"{self.base_url}/ig_hashtag_search"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url, params=self._params({"user_id": self.ig_user_id, "q": q})
+            )
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_hashtag_top_media(
+        self, hashtag_id: str, *, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """Top media for a hashtag id (official ``/{id}/top_media``)."""
+        hashtag_id = _validate_id(hashtag_id, "hashtag_id")
+        url = f"{self.base_url}/{hashtag_id}/top_media"
+        params = self._params(
+            {
+                "user_id": self.ig_user_id,
+                "fields": "id,caption,media_type,permalink,like_count,comments_count,timestamp",
+                "limit": str(limit),
+            }
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            self._raise_for_status(resp, url)
+            return (resp.json() or {}).get("data") or []
+
+    async def get_hashtag_recent_media(
+        self, hashtag_id: str, *, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """Recent media for a hashtag id (official ``/{id}/recent_media``)."""
+        hashtag_id = _validate_id(hashtag_id, "hashtag_id")
+        url = f"{self.base_url}/{hashtag_id}/recent_media"
+        params = self._params(
+            {
+                "user_id": self.ig_user_id,
+                "fields": "id,caption,media_type,permalink,timestamp",
+                "limit": str(limit),
+            }
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            self._raise_for_status(resp, url)
+            return (resp.json() or {}).get("data") or []
+
+    async def business_discovery(self, username: str) -> dict[str, Any]:
+        """Official ``business_discovery`` — public metrics for another
+        Business/Creator account (followers, media count, recent media)."""
+        uname = (username or "").strip().lstrip("@")
+        if not uname:
+            raise ValueError("username is required")
+        fields = (
+            f"business_discovery.username({uname}){{username,name,ig_id,id,"
+            "profile_picture_url,biography,followers_count,follows_count,"
+            "media_count,website,media.limit(12){id,caption,media_type,"
+            "permalink,like_count,comments_count,timestamp}}"
+        )
+        url = f"{self.base_url}/{self.ig_user_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=self._params({"fields": fields}))
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_follower_demographics(
+        self, *, breakdown: str = "age", timeframe: str = "this_month"
+    ) -> dict[str, Any]:
+        """Follower breakdowns by dimension — ``age``, ``country``,
+        ``city``, ``gender`` (one breakdown per call).
+
+        Official lifetime ``follower_demographics`` metric with
+        ``metric_type=total_value`` (v22+; replaces the removed
+        ``audience_*`` metrics). Requires ≥100 followers.
+        """
+        if breakdown not in ("age", "country", "city", "gender"):
+            raise ValueError("breakdown must be age|country|city|gender")
+        url = f"{self.base_url}/{self.ig_user_id}/insights"
+        params = self._params(
+            {
+                "metric": "follower_demographics",
+                "period": "lifetime",
+                "metric_type": "total_value",
+                "timeframe": timeframe,
+                "breakdown": breakdown,
+            }
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_engaged_audience_demographics(
+        self, *, breakdown: str = "age", timeframe: str = "this_month"
+    ) -> dict[str, Any]:
+        """Breakdown of accounts that engaged (``engaged_audience_
+        demographics``) — same signature as ``get_follower_demographics``."""
+        if breakdown not in ("age", "country", "city", "gender"):
+            raise ValueError("breakdown must be age|country|city|gender")
+        url = f"{self.base_url}/{self.ig_user_id}/insights"
+        params = self._params(
+            {
+                "metric": "engaged_audience_demographics",
+                "period": "lifetime",
+                "metric_type": "total_value",
+                "timeframe": timeframe,
+                "breakdown": breakdown,
+            }
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
 
     # ── Feature 2: Comment management ────────────────────────────────────
 
