@@ -31,6 +31,7 @@ from pathlib import Path
 import httpx
 
 from app.core.config import get_settings
+from app.services import stack_ops
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +428,10 @@ async def generate_video(
             seed=seed,
             filename_prefix=filename_prefix,
         )
+
+    # Pin ComfyUI awake for the render — the stack-ops sleeper only sees
+    # proxied connections + CPU%, and a GPU-bound job can look "idle".
+    await stack_ops.keepawake("comfyui", ttl_s=int(timeout_s) + 600)
 
     async with httpx.AsyncClient(base_url=base, timeout=60.0) as client:
         r = await client.post("/prompt", json=graph)

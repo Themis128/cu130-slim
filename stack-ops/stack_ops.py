@@ -92,6 +92,38 @@ async def container_state(name: str) -> str:
     return "starting"
 
 
+async def container_states(names: list[str]) -> dict[str, str]:
+    """docker container name -> running|starting|stopped|missing.
+
+    Single batched ``docker inspect`` — one subprocess spawn for the whole
+    fleet instead of one per service (each spawn costs ~2s through the
+    Docker Desktop socket relay, so the aggregate /status was taking ~40s
+    and every caller's 3-6s timeout fired → all probes looked offline).
+    """
+    if not names:
+        return {}
+    rc, out = await docker(
+        "inspect", "-f",
+        "{{.Name}}|{{.State.Status}}|"
+        "{{if .State.Health}}{{.State.Health.Status}}{{end}}",
+        *names,
+    )
+    states: dict[str, str] = {}
+    for line in out.splitlines():
+        parts = line.split("|")
+        if len(parts) < 2 or not parts[0]:
+            continue  # stderr lines for missing containers land here
+        cname, status = parts[0].lstrip("/"), parts[1]
+        health = parts[2] if len(parts) > 2 else ""
+        if status != "running":
+            states[cname] = "stopped"
+        elif health in ("healthy", ""):
+            states[cname] = "running"
+        else:
+            states[cname] = "starting"
+    return states
+
+
 async def cpu_pct(name: str) -> float:
     rc, out = await docker("stats", "--no-stream", "--format", "{{.CPUPerc}}", name)
     try:
@@ -294,9 +326,23 @@ async def api_handler(reader: asyncio.StreamReader,
         if segs == ["healthz"]:
             code, body = 200, {"ok": True}
         elif segs == ["status"]:
-            names = list(SERVICES)
-            res = await asyncio.gather(*(_status_of(n) for n in names))
-            body, code = dict(zip(names, res)), 200
+            entries = {n: resolve_container(n) for n in SERVICES}
+            states = await container_states(
+                sorted({d for d in entries.values()}))
+            body = {
+                n: {
+                    "container": dn,
+                    "state": states.get(dn, "missing"),
+                    "last_active_ago_s": int(
+                        time.monotonic() - last_active[dn])
+                    if dn in last_active else None,
+                    "active_conns": active_conns.get(dn, 0),
+                    "keepawake_s": max(0, int(
+                        keepawake.get(dn, 0) - time.monotonic())),
+                }
+                for n, dn in entries.items()
+            }
+            code = 200
         elif len(segs) == 2 and segs[0] == "status":
             if segs[1] not in SERVICES:
                 code, body = 404, {"error": "unknown service"}

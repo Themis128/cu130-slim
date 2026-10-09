@@ -34,7 +34,7 @@ async def statuses() -> dict[str, dict[str, Any]]:
     if time.monotonic() - ts < _CACHE_TTL_S:
         return cached
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.get(f"{STACK_OPS_URL.rstrip('/')}/status")
             if resp.status_code == 200:
                 data = resp.json()
@@ -77,4 +77,23 @@ async def wake(container_name: str) -> bool:
             return resp.status_code == 200
     except Exception as exc:
         logger.warning("stack-ops wake %s failed: %s", container_name, exc)
+        return False
+
+
+async def keepawake(service_name: str, ttl_s: int = 3600) -> bool:
+    """Pin a sleep-managed service awake for ``ttl_s`` seconds.
+
+    Call before long-running work on a managed service (e.g. a ComfyUI
+    video render) — the sleeper only counts proxied connections plus CPU,
+    so a GPU-bound job with low CPU can otherwise be stopped mid-run.
+    ``service_name`` is the stack-ops service key (e.g. ``comfyui``).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                f"{STACK_OPS_URL.rstrip('/')}/keepawake/{service_name}?ttl={ttl_s}"
+            )
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.debug("stack-ops keepawake %s failed: %s", service_name, exc)
         return False

@@ -160,3 +160,11 @@ design — check `curl http://127.0.0.1:8787/status` before calling it down.**
   redis, postgres ×2, minio, chroma, n8n, cloudflared, social-metrics, dmr-watchdog, stack-ops.
 - ComfyUI IS sleep-managed now (30min idle, `localhost:8000` wait-page for browsers);
   `restart: no` still applies — compose up doesn't force it, proxy wakes it.
+- **Long GPU jobs need `keepawake`** — the sleeper only sees proxied conns + CPU%;
+  a GPU-bound render can dip below CPU_PCT_MAX and get `docker stop`ped mid-job.
+  `comfyui_video.generate_video` / `comfyui_image.generate_image` already call
+  `stack_ops.keepawake("comfyui", ttl)`; do the same for any new long ComfyUI path.
+- `/status` uses ONE batched `docker inspect` (was N subprocesses ≈ 40s → 0.4s).
+  If it ever regresses past ~5s, ops-console probes fall back to proxied /health
+  → sleeping services show "offline (ReadTimeout)". Running-but-slow containers
+  report `busy (ReadTimeout)` online, not offline.
