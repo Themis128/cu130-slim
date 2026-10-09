@@ -201,10 +201,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/content/media/upload` — POST
 - `/api/v1/content/media/{media_id}` — DELETE
 - `/api/v1/content/pillars` — GET, POST
-- `/api/v1/content/pillars/{pillar_id}` — PATCH, DELETE
+- `/api/v1/content/pillars/{pillar_id}` — DELETE, PATCH
 - `/api/v1/content/posts` — GET, POST
 - `/api/v1/content/posts/calendar` — GET
-- `/api/v1/content/posts/{post_id}` — GET, PATCH, DELETE
+- `/api/v1/content/posts/{post_id}` — GET, DELETE, PATCH
 - `/api/v1/content/posts/{post_id}/approve` — POST
 - `/api/v1/content/posts/{post_id}/comments` — POST
 - `/api/v1/content/posts/{post_id}/cross-post` — POST
@@ -220,7 +220,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/digital-cards/from-brand` — POST
 - `/api/v1/digital-cards/public/{token}` — GET
 - `/api/v1/digital-cards/public/{token}/track` — POST
-- `/api/v1/digital-cards/{card_id}` — GET, PATCH, DELETE
+- `/api/v1/digital-cards/{card_id}` — GET, DELETE, PATCH
 - `/api/v1/digital-cards/{card_id}/send` — POST
 - `/api/v1/digital-cards/{card_id}/vcard` — GET
 
@@ -278,11 +278,11 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/media/assets` — GET
 - `/api/v1/media/assets/bulk-delete` — POST
-- `/api/v1/media/assets/{asset_id}` — GET, PATCH, DELETE
+- `/api/v1/media/assets/{asset_id}` — GET, DELETE, PATCH
 - `/api/v1/media/assets/{asset_id}/similar` — GET
 - `/api/v1/media/assets/{asset_id}/tag` — POST
 - `/api/v1/media/collections` — GET, POST
-- `/api/v1/media/collections/{collection_id}` — GET, PATCH, DELETE
+- `/api/v1/media/collections/{collection_id}` — GET, DELETE, PATCH
 - `/api/v1/media/collections/{collection_id}/assets` — POST
 - `/api/v1/media/collections/{collection_id}/assets/{asset_id}` — DELETE
 - `/api/v1/media/enhance/assets/{asset_id}/alt-text` — POST
@@ -413,9 +413,9 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/teams` — GET, POST
 - `/api/v1/teams/accept-invite` — POST
-- `/api/v1/teams/{team_id}` — GET, PATCH, DELETE
+- `/api/v1/teams/{team_id}` — GET, DELETE, PATCH
 - `/api/v1/teams/{team_id}/invite` — POST
-- `/api/v1/teams/{team_id}/members/{user_id}` — POST, PATCH, DELETE
+- `/api/v1/teams/{team_id}/members/{user_id}` — POST, DELETE, PATCH
 
 ## `telegram`
 
@@ -481,6 +481,21 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/usage` — GET
 - `/api/v1/usage/history` — GET
 
+## `viber`
+
+- `/api/v1/viber/connect` — POST
+- `/api/v1/viber/webhook/{account_id}` — POST
+- `/api/v1/viber/{account_id}/auto-reply` — GET, PUT
+- `/api/v1/viber/{account_id}/broadcast` — POST
+- `/api/v1/viber/{account_id}/credentials` — PUT
+- `/api/v1/viber/{account_id}/delete-webhook` — POST
+- `/api/v1/viber/{account_id}/send` — POST
+- `/api/v1/viber/{account_id}/send-picture` — POST
+- `/api/v1/viber/{account_id}/setup-status` — GET
+- `/api/v1/viber/{account_id}/setup-webhook` — POST
+- `/api/v1/viber/{account_id}/threads/{user_id}/pause` — POST
+- `/api/v1/viber/{account_id}/threads/{user_id}/resume` — POST
+
 ## `whatsapp`
 
 - `/api/v1/whatsapp/flows/endpoint` — POST
@@ -528,13 +543,13 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/workflows` — GET
 - `/api/v1/workflows/content-templates` — GET, POST
-- `/api/v1/workflows/content-templates/{template_id}` — PATCH, DELETE
+- `/api/v1/workflows/content-templates/{template_id}` — DELETE, PATCH
 - `/api/v1/workflows/deploy/{workflow_id}` — POST
 - `/api/v1/workflows/execute/{workflow_id}` — POST
 - `/api/v1/workflows/generate` — POST
 - `/api/v1/workflows/import-cloudless-carousel` — POST
 - `/api/v1/workflows/templates` — GET, POST
-- `/api/v1/workflows/templates/{template_id}` — GET, PATCH, DELETE
+- `/api/v1/workflows/templates/{template_id}` — GET, DELETE, PATCH
 - `/api/v1/workflows/{workflow_id}` — GET, DELETE
 - `/api/v1/workflows/{workflow_id}/executions` — GET
 - `/api/v1/workflows/{workflow_id}/undeploy` — POST
