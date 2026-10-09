@@ -310,3 +310,52 @@ async def test_create_tweet_with_reply(client):
     assert fake.calls[0]["url"] == "https://api.x.com/2/tweets"
     assert fake.calls[0]["json"]["text"] == "Hello"
     assert fake.calls[0]["json"]["reply"]["in_reply_to_tweet_id"] == "999"
+
+
+@pytest.mark.asyncio
+async def test_get_me_metrics_requests_public_metrics(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": {"id": "1", "username": "x", "public_metrics": {"followers_count": 3}}})
+    )
+
+    with patch("app.services.twitter_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        result = await client.get_me_metrics()
+
+    assert result["data"]["public_metrics"]["followers_count"] == 3
+    assert fake.calls[0]["url"] == "https://api.x.com/2/users/me"
+    assert "public_metrics" in fake.calls[0]["params"]["user.fields"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_username_strips_at_and_encodes_fields(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(200, {"data": {"id": "9", "username": "someone"}})
+    )
+
+    with patch("app.services.twitter_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        result = await client.get_user_by_username("@someone")
+
+    assert result["data"]["username"] == "someone"
+    assert fake.calls[0]["url"] == "https://api.x.com/2/users/by/username/someone"
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_username_requires_name(client):
+    with pytest.raises(ValueError):
+        await client.get_user_by_username("  ")
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_username_propagates_api_error(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(402, {"title": "Payment Required", "detail": "credits depleted"})
+    )
+
+    with patch("app.services.twitter_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        with pytest.raises(api.TwitterAPIError) as excinfo:
+            await client.get_user_by_username("someone")
+
+    assert excinfo.value.status_code == 402
