@@ -265,6 +265,7 @@ class TikTokAuditUpdate(BaseModel):
 async def _probe_service(
     name: str, url: str, timeout: float = 4.0, container: str | None = None
 ) -> ServiceStatus:
+    state: str | None = None
     if container:
         # stack-ops fronts these services; probing the proxy would wake them.
         state = await stack_ops.service_state(container)
@@ -277,12 +278,19 @@ async def _probe_service(
                 name=name, online=resp.status_code < 500, detail=str(resp.status_code)
             )
     except Exception as exc:
+        if state == "running":
+            # Container is up per docker — the app just didn't answer in
+            # time (busy, e.g. ComfyUI mid-render). Busy, not offline.
+            return ServiceStatus(
+                name=name, online=True, detail=f"busy ({type(exc).__name__})"
+            )
         return ServiceStatus(name=name, online=False, detail=type(exc).__name__)
 
 
 async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
     # Fronted by stack-ops — don't wake a sleeping GPU service just to probe it.
-    if await stack_ops.is_asleep("comfyui"):
+    state = await stack_ops.service_state("comfyui")
+    if state == "stopped":
         return (
             ServiceStatus(name="comfyui", online=True, detail="sleeping"),
             {},
@@ -309,6 +317,14 @@ async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
                 queue_info,
             )
     except Exception as exc:
+        if state == "running":
+            return (
+                ServiceStatus(
+                    name="comfyui", online=True,
+                    detail=f"busy ({type(exc).__name__})",
+                ),
+                {},
+            )
         return ServiceStatus(name="comfyui", online=False, detail=type(exc).__name__), {}
 
 
