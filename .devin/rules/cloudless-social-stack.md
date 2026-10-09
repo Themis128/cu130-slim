@@ -31,6 +31,11 @@ funnel, quality gate) plus `linkedin-content-ops`, `facebook-content-ops`,
 `instagram-content-ops`, `threads-content-ops`, `x-content-ops`,
 `tiktok-content-ops`, `messaging-channel-ops`. Read core before any channel.
 
+Platform API ops skills — `meta-graph-ops`, `linkedin-graph-ops`,
+`instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `whatsapp-ops`,
+`viber-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops` — each wraps a
+`backend/scripts/*_tool.py` CLI for token/credential/endpoint diagnostics.
+
 ## Safety
 
 - Never print or commit `.env` secrets (`N8N_API_KEY`, admin passwords, Cloudflare tokens, `GITHUB_TOKEN`).

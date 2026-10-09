@@ -205,11 +205,11 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 
 ## Platform coverage
 
-SocialAuto supports six feed platforms (OAuth, publishing, analytics, token refresh, SEO) plus messaging channels:
+SocialAuto supports seven feed platforms (OAuth, publishing, analytics, token refresh, SEO) plus messaging channels:
 
-**Feed platforms:** LinkedIn, Twitter / X, Facebook, Instagram, Threads, TikTok
+**Feed platforms:** LinkedIn, Twitter / X, Facebook, Instagram, Threads, TikTok, Bluesky (AT Protocol — app-password sessions, no OAuth; `app/services/bluesky_api.py` + `/api/v1/bluesky/connect`)
 
-**Messaging channels (no feed publish — soft-skipped):** WhatsApp Business Cloud API, Telegram Bot API, Facebook Messenger
+**Messaging channels (no feed publish — soft-skipped):** WhatsApp Business Cloud API, Telegram Bot API, Facebook Messenger, Viber (`app/api/viber.py` + `viber_chatbot.py`)
 
 ### Bot auto-reply architecture
 
