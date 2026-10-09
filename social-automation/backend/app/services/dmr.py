@@ -1199,6 +1199,18 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
         "keep_alive": "60s",
         "runtime_flags": ["--reasoning-budget", "0", "--n-gpu-layers", "0", "--threads", "4", "--batch-size", "512", "--flash-attn", "on"],
     },
+    # LoRA-tuned media-prompt expander (DMR_MEDIA_MODEL) — occasional use
+    # in the image/video pre-publish path. n-gpu-layers 0 is mandatory:
+    # `docker model package` bakes "-ngl 999" + the GGUF's native 262144
+    # ctx into defaults (~36GiB KV → OOM on the shared 8GB card), and the
+    # docker-model configure CLI cannot override ngl — only this table's
+    # runtime-flags via /engines/_configure can. keep_alive 5m: evicts
+    # quickly so it never lingers through a ComfyUI job.
+    "cloudless/qwen3-4b-media:latest": {
+        "context_size": 4096,
+        "keep_alive": "5m",
+        "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8", "--batch-size", "512", "--flash-attn", "on"],
+    },
 }
 
 # DMR model configs live in the runner's memory and are wiped when the model
