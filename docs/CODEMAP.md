@@ -61,7 +61,7 @@ Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypa
 | minio | 9100→9000, 9101→9001 | S3 failover (host 9100/9101 — not 9000) |
 | languagetool | 8010→8010 | spellcheck |
 | env-manager-frontend / backend | 8080, 8081 | .env UI/API |
-| postgres (metabase) / metabase | 5432 (internal), 3000 | analytics warehouse — separate from social-postgres |
+| postgres (metabase) / metabase | 5432 (internal), 3000 | BI on Postgres — `social-postgres`/`social_automation` attached as "SocialAuto" source; see `docs/metabase/` |
 | flower | 5555 | Celery UI |
 | social-metrics | 9390→80 | Prometheus/nginx metrics |
 | dmr-watchdog | — | restarts docker-model-runner when wedged |
@@ -290,6 +290,8 @@ All workflows authenticate to social-api via admin **TOTP login**; text generati
 | `{facebook,instagram,linkedin,threads,tiktok,twitter}-{text,image,carousel}-post` | webhook only | per-platform | on-demand |
 
 **n8n MCP server**: `.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py` — 13 tools (`n8n_list_workflows`, `n8n_deploy_workflow`, `n8n_trigger_webhook`, `n8n_audit_workflows`, …). API key covers workflow/credential endpoints; `/executions` returns 403 so execution tools fall back to reading Postgres `execution_data` (rehydrates n8n 2.x deduplicated format). Registered in `.devin/mcp_config.json`.
+
+Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI metabase-mcp-server → SocialAuto Postgres via the metabase container; wrapper `.devin/skills/metabase-ops/scripts/metabase-mcp.sh` sources untracked `.devin/metabase-mcp.env`), `deepwiki` (free remote `https://mcp.deepwiki.com/mcp` — public-repo docs/Q&A), `dmr` (model runner, see `docs/dmr-architecture.md`), `socialauto` (platform API, in-container), `platform`, `playwright`, `tiktok-console`, `cloudflare`/`cloudflare-api`/`cloudflare-docs`, `linkedin` (9227), `airbyte` (9228), `slack`/`slack-cloudless` (mcp-remote).
 
 ## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
 
