@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # Mid-tier non-thinking instruct (4B, ~2.7GB resident) — short-form platform
     # copy + chatbots. Pinned via keep-alive so the latency-critical paths stay warm.
     DMR_MID_MODEL: str = "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+    # Media-prompt model — LoRA-tuned Qwen3-4B for realistic visual prompts
+    # (.devin/skills/dmr-finetune). Empty → falls back to DMR_MID_MODEL.
+    DMR_MEDIA_MODEL: str = ""
     # Chatbot model — needs strong instruction-following (pricing/recruiting/disclosure rules)
     DMR_CHATBOT_MODEL: str = "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
     # Experimental vLLM backend on the same GPU runner (safetensors models only).

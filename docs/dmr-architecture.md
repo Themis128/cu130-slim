@@ -117,6 +117,7 @@ flowchart TB
 | `ai/qwen3-vl` | llama.cpp | Vision (`DMR_VISION_MODEL`) — alt text, smart crop, tagging | ~5 GB | defaults (load on demand only) |
 | `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | llama.cpp | Embeddings (`DMR_EMBEDDING_MODEL`) for Chroma — 1024 dims | ~0.7 GB | defaults |
 | `ai/smollm3` | llama.cpp | Tiny/fast (`DMR_TINY_MODEL`) — prompts <200 chars, no platform hint | ~1.9 GB | `context-size 4096`, `keep-alive 5m`, `--reasoning-budget 0` |
+| `cloudless/qwen3-4b-media:latest` | llama.cpp | Media-prompt writer (`DMR_MEDIA_MODEL`) — QLoRA-tuned Qwen3-4B-Instruct on real `media_assets` prompts; `expand_visual_prompt` falls back to `DMR_MID_MODEL` when unset | ~2.5 GB | `context-size 4096`, `keep-alive 5m`, `--n-gpu-layers 0` (repackaging resets config → re-apply; see `.devin/skills/dmr-finetune`) |
 | `hf.co/Qwen/Qwen3-0.6B-GGUF` | llama.cpp | Speculative-draft candidate for qwen3:8b | ~0.6 GB | **Do not attach** — crashes llama.cpp (`vector::_M_range_check` on draft load, takes target offline) |
 | `ai/smollm2` | llama.cpp | Superseded by smollm3 | ~256 MB | kept pulled as rollback |
 | `ai/llama3.2` | llama.cpp | Legacy / spare | ~2 GB | defaults |
@@ -153,6 +154,7 @@ applied override (e.g. it prints 262144 for the 4B even though 4096 is applied).
 | `DMR_VISION_MODEL` | `ai/qwen3-vl` | image_enhance, media_ai |
 | `DMR_EMBEDDING_MODEL` | `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` | chroma_client |
 | `DMR_TINY_MODEL` | `ai/smollm3` | short-prompt routing in dmr.py |
+| `DMR_MEDIA_MODEL` | `cloudless/qwen3-4b-media:latest` | `expand_visual_prompt` in media_ai (empty → falls back to `DMR_MID_MODEL`) |
 | `DMR_MAX_CONCURRENCY` | `1` | semaphore inside `app/services/dmr.py` — was 4; on a one-model card parallel requests are pure model-load races |
 
 `app/services/dmr.py` is the single client for all DMR traffic: shared httpx
@@ -228,6 +230,7 @@ does not merge. Always pass every flag in one call:
 docker model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
 docker model configure --context-size 4096 --keep-alive 5m hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
 docker model configure --context-size 4096 --keep-alive 5m ai/smollm3 -- --reasoning-budget 0
+docker model configure --context-size 4096 --keep-alive 5m cloudless/qwen3-4b-media:latest -- --n-gpu-layers 0
 docker model configure show <model>   # verify
 ```
 
