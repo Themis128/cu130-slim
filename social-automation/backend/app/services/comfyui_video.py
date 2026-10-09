@@ -66,6 +66,19 @@ DEFAULT_NEGATIVE = (
     "watermark, text, lowres, bad anatomy"
 )
 
+# Official Wan2.2 negative prompt (English translation of the reference
+# Chinese prompt from Wan-AI/Wan2.2-TI2V-5B). Explicitly targets the
+# overexposed/blurry/gray failure modes seen in under-prompted T2V output.
+WAN22_NEGATIVE = (
+    "oversaturated, overexposed, static, blurry details, subtitles, "
+    "stylized, artwork, painting, still image, overall gray, worst "
+    "quality, low quality, JPEG artifacts, ugly, deformed, extra "
+    "fingers, poorly drawn hands, poorly drawn face, malformed, "
+    "disfigured, deformed limbs, fused fingers, static motionless "
+    "frame, cluttered background, three legs, crowded background, "
+    "walking backwards"
+)
+
 
 class ComfyUIVideoError(Exception):
     """ComfyUI job failed or timed out."""
@@ -298,6 +311,8 @@ def build_wan22_prompt(
     ``LoadImage`` node feeds ``start_image`` on Wan22ImageToVideoLatent.
     Wan2.2-5B constraints (official template video_wan2_2_5B_ti2v):
     dims multiple of 16, frames 4n+1, uni_pc/simple @ cfg 5, 24fps.
+    The model's native 720p resolution is 704x1280 (HF docs) — request
+    704x1280 rather than 720x1280 for best quality.
     """
     if width % 16 or height % 16:
         raise ValueError("Wan2.2 dimensions must be multiples of 16")
@@ -332,7 +347,7 @@ def build_wan22_prompt(
         },
         "5": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"text": negative_prompt or DEFAULT_NEGATIVE, "clip": ["2", 0]},
+            "inputs": {"text": negative_prompt or WAN22_NEGATIVE, "clip": ["2", 0]},
         },
         "14": {
             "class_type": "Wan22ImageToVideoLatent",
@@ -359,9 +374,18 @@ def build_wan22_prompt(
                 "denoise": 1.0,
             },
         },
+        # Tiled decode: Wan2.2's 16x16x4 VAE stalls/OOMs 8GB cards on a
+        # single-pass 720p decode; temporal chunks keep peak VRAM flat.
         "13": {
-            "class_type": "VAEDecode",
-            "inputs": {"samples": ["15", 0], "vae": ["3", 0]},
+            "class_type": "VAEDecodeTiled",
+            "inputs": {
+                "samples": ["15", 0],
+                "vae": ["3", 0],
+                "tile_size": 256,
+                "overlap": 64,
+                "temporal_size": 64,
+                "temporal_overlap": 8,
+            },
         },
         "12": {
             "class_type": "VHS_VideoCombine",
