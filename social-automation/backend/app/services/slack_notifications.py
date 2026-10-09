@@ -305,3 +305,70 @@ async def post_thread_reply(*, channel_id: str, thread_ts: str, text: str) -> No
     except Exception:
         logger.debug("Slack thread reply failed (non-fatal)", exc_info=True)
 
+
+async def upload_file_to_slack(
+    *,
+    content: bytes,
+    filename: str,
+    channel_id: str,
+    title: str | None = None,
+    initial_comment: str | None = None,
+    mime: str = "application/octet-stream",
+    thread_ts: str | None = None,
+) -> tuple[bool, str | None, str | None]:
+    """Upload a file via the external-upload flow
+    (``files.getUploadURLExternal`` → raw PUT → ``files.completeUploadExternal``).
+
+    The legacy ``files.upload`` endpoint was sunset by Slack (Nov 2025) —
+    this is the only supported path. Requires ``SLACK_BOT_TOKEN`` with the
+    ``files:write`` scope; incoming webhooks cannot upload files.
+
+    Returns ``(ok, file_id, error)``. Fails soft — callers should log and
+    continue (digests still ship as text).
+    """
+    token = _get_slack_token()
+    channel_id = (channel_id or "").strip()
+    if not token or not channel_id:
+        return False, None, "files upload needs SLACK_BOT_TOKEN + channel id"
+    if not content:
+        return False, None, "empty file content"
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            step1 = await client.post(
+                "https://slack.com/api/files.getUploadURLExternal",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"filename": filename, "length": str(len(content))},
+            )
+            d1 = step1.json()
+            if not d1.get("ok"):
+                return False, None, f"getUploadURLExternal: {d1.get('error')}"
+
+            step2 = await client.post(
+                d1["upload_url"],
+                files={"file": (filename, content, mime)},
+            )
+            if step2.status_code != 200:
+                return False, None, f"upload PUT failed: HTTP {step2.status_code}"
+
+            payload: dict = {
+                "files": [{"id": d1["file_id"], "title": title or filename}],
+                "channel_id": channel_id,
+            }
+            if initial_comment:
+                payload["initial_comment"] = initial_comment
+            if thread_ts:
+                payload["thread_ts"] = thread_ts
+            step3 = await client.post(
+                "https://slack.com/api/files.completeUploadExternal",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+            d3 = step3.json()
+            if not d3.get("ok"):
+                return False, None, f"completeUploadExternal: {d3.get('error')}"
+            return True, d1["file_id"], None
+    except Exception as exc:
+        logger.debug("Slack file upload failed (non-fatal)", exc_info=True)
+        return False, None, str(exc)
+
