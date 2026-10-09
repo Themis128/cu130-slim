@@ -15,6 +15,7 @@ Usage:
     creator_type.py apply <type>            # expert|storyteller|energizer|blend
     creator_type.py platforms               # DAY 2 platform tiers (live)
     creator_type.py blueprint [apply]       # DAY 12 post blueprint (live)
+    creator_type.py day13 [apply]           # DAY 13 leading content (live)
     creator_type.py verify [platform]       # generate a sample post
 """
 
@@ -164,6 +165,92 @@ DAY12_MISTAKES = (
     "like 'let me know what you think', burying the hook ('I've been "
     "thinking...' openers), and writing for yourself instead of the reader."
 )
+
+# ---------------------------------------------------------------------------
+# DAY 13 — Content That Leads + One Script, Any Format
+#
+# Two Day-13 source docs (3 week/Day13/): "Write Content That Leads"
+# (the 3-part script) and "Your Script, Any Format" (the same script
+# rendered as written post / carousel / talking head / reel).
+# Written into voice_signature.content_that_leads (upgraded from the
+# one-liner), .day13_formats, .day13_prompts.
+# ---------------------------------------------------------------------------
+
+DAY13_LEADS = (
+    "DAY 13 — Content That Leads. Information informs; leadership moves. "
+    "Every post is a 3-part journey, not an info dump: 1) WHERE THEY ARE — "
+    "name the exact situation the reader is stuck in right now (not where "
+    "they want to be) so they feel completely seen before anything else. "
+    "2) WHAT SHIFTS — ONE insight that reframes the situation: not a list "
+    "of tips, not advice, one clear shift. 3) WHERE THEY GO — paint what "
+    "becomes possible after the shift, then close with one specific "
+    "question or direction as the CTA. A leading post ends differently "
+    "than it starts — the reader feels like they already moved. Script "
+    "mistakes that break it: lingering in part 1, skipping the shift, "
+    "cramming three insights into one, ending with no direction, teaching "
+    "instead of leading. Every line should earn the next one."
+)
+
+# The same 3-part script compressed per format — the structure never
+# changes, only the delivery. Carousel + reel drive the media pipelines.
+DAY13_FORMATS = {
+    "written_post": (
+        "Line 1 = hook only, no answer. Lines 2-4 = context, one sentence "
+        "per line, make them feel seen — don't teach yet. Value = 3-5 "
+        "lines, the ONE shift fully explained, never rushed to the CTA. "
+        "CTA = 1-2 lines, one specific question. Best for "
+        "LinkedIn/IG/FB/Threads; lowest barrier, test ideas here first."
+    ),
+    "carousel": (
+        "Slide 1 = hook alone, impossible to ignore. Slides 2-3 = where "
+        "they are, one idea per slide, make them feel seen. Slides 4-5 = "
+        "the shift, big text, short sentences, let it breathe. Slide 6 = "
+        "where they go, brief and vivid. Last slide = ONE CTA question — "
+        "never two CTAs on one slide. Highest save rate; best on "
+        "Instagram + LinkedIn."
+    ),
+    "talking_head": (
+        "0:00-0:10 = hook spoken out loud, no intro, no 'hey guys', jump "
+        "into their world — first 3 seconds decide everything. "
+        "0:10-0:40 = the shift, one idea, speak slowly, pause, let it "
+        "land. 0:40-1:00 = where they go + CTA spoken naturally, not like "
+        "a sales pitch. Builds trust fastest."
+    ),
+    "reel": (
+        "15-60s. Same script delivered as TEXT OVERLAY on b-roll (hands "
+        "typing, coffee, workspace, behind the scenes) — no face "
+        "recording needed. 0-3s = hook text, one line. 3-20s = the "
+        "shift, short sentences appearing one at a time. 20-40s = the "
+        "picture over aspirational b-roll. 40-60s = CTA as an on-screen "
+        "question. Highest reach/discovery of all formats."
+    ),
+}
+
+# Sofia's two ready-made AI prompts — a generator and a draft reviewer.
+# Workflows can call these verbatim; the checker doubles as a QA gate.
+DAY13_PROMPTS = {
+    "write_script": (
+        "My topic is [TOPIC]. My audience is [WHO THEY ARE — be specific "
+        "about their current situation and struggle]. Write a post using "
+        "this 3-part script: Part 1 — Where they are: name the exact "
+        "situation they are stuck in right now; make them feel "
+        "completely seen. Part 2 — What shifts: one insight that "
+        "reframes how they see the situation; not a list, one clear "
+        "shift. Part 3 — Where they go: what becomes possible after the "
+        "shift; end with one specific question as the CTA. Short, "
+        "direct, conversational — sound like a real person, not a brand."
+    ),
+    "check_script": (
+        "Here is my post: [DRAFT]. Review it using the 3-part script: "
+        "Part 1 — Where they are: does it name an exact situation, do "
+        "they feel completely seen? Part 2 — What shifts: is there one "
+        "clear insight or reframe, or does it just inform without "
+        "shifting? Part 3 — Where they go: does the reader end up "
+        "somewhere different from where they started, and is the CTA a "
+        "clear next step? Tell me what is working and what to fix. Be "
+        "direct."
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # Full Visibility Era foundation — the remaining days beyond DAY 1/2/6/8/12
@@ -414,6 +501,27 @@ def cmd_foundations(apply: bool = False) -> None:
     print("applied.")
 
 
+def cmd_day13(apply: bool = False) -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    live = sig.get("content_that_leads", "")
+    print("voice_signature.content_that_leads:")
+    print(" ", (live if isinstance(live, str) else json.dumps(live))[:300])
+    print("\nvoice_signature.day13_formats keys:",
+          ", ".join((sig.get("day13_formats") or {}).keys()) or "(not set)")
+    if not apply:
+        print("\nrun 'creator_type.py day13 apply' to write DAY 13 "
+              "(content_that_leads + day13_formats + day13_prompts)")
+        return
+    merged = {
+        **sig,
+        "content_that_leads": DAY13_LEADS,
+        "day13_formats": DAY13_FORMATS,
+        "day13_prompts": DAY13_PROMPTS,
+    }
+    _api("PUT", "/brand/voice", {"voice_signature": merged})
+    print("\nApplied content_that_leads + day13_formats + day13_prompts.")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -441,6 +549,8 @@ def main() -> None:
         cmd_blueprint(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "foundations":
         cmd_foundations(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
+    elif cmd == "day13":
+        cmd_day13(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:
