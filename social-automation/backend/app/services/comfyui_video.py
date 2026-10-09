@@ -59,7 +59,7 @@ WAN22_UNET = "Wan2.2-TI2V-5B-Q4_K_M.gguf"
 WAN22_CLIP = "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
 WAN22_VAE = "wan2.2_vae.safetensors"
 
-VIDEO_MODELS = ("ltxv", "wan21", "wan22")
+VIDEO_MODELS = ("wan22",)
 
 DEFAULT_NEGATIVE = (
     "worst quality, inconsistent motion, blurry, jittery, distorted, "
@@ -502,15 +502,15 @@ async def generate_video(
     *,
     prompt: str,
     negative_prompt: str | None = None,
-    width: int = 480,
-    height: int = 832,
-    num_frames: int = 41,
-    frame_rate: int = 25,
-    steps: int = 25,
-    cfg: float = 3.0,
+    width: int = 704,
+    height: int = 1280,
+    num_frames: int = 81,
+    frame_rate: int = 24,
+    steps: int = 20,
+    cfg: float = 5.0,
     seed: int | None = None,
     filename_prefix: str = "socialauto",
-    model: str = "ltxv",
+    model: str = "wan22",
     image_bytes: bytes | None = None,
     i2v_strength: float = 1.0,
     timeout_s: float | None = None,
@@ -518,99 +518,54 @@ async def generate_video(
 ) -> tuple[bytes, dict]:
     """Submit a T2V/I2V job to ComfyUI, poll until done, return (mp4_bytes, meta).
 
-    ``model``: "ltxv" (fast tier, default), "wan21" (mid quality tier —
-    slower, different frame/latent constraints; callers passing LTXV
-    defaults are normalized to Wan-friendly values), or "wan22" (top
-    quality tier — Wan2.2 TI2V-5B GGUF, T2V + native I2V).
-    ``image_bytes``: when set (LTXV or Wan2.2), runs image-to-video — the
-    first frame is conditioned on the image at ``i2v_strength``.
+    ``model``: only "wan22" (Wan2.2 TI2V-5B GGUF — T2V + native I2V) is
+    supported; it beat the LTXV/Wan2.1 tiers on verified A/B output and is
+    the single production video model.
+    ``image_bytes``: when set, runs image-to-video — the first frame is
+    conditioned on the image.
 
     meta: {"prompt_id", "filename", "subfolder", "width", "height",
            "frame_rate", "num_frames", "duration_seconds", "model"}
     """
-    # Wan2.2-5B at 720p takes ~35 min on the 8GB card (slow temporal VAE
-    # decode) — the 15min LTXV budget would cancel it mid-render.
+    # Wan2.2-5B at native 704x1280 takes ~15-35 min on the 8GB card — a
+    # shorter budget cancels it mid-render.
     if timeout_s is None:
-        timeout_s = 2700.0 if model == "wan22" else 900.0
+        timeout_s = 2700.0
 
     if model not in VIDEO_MODELS:
         raise ValueError(f"model must be one of {VIDEO_MODELS}")
-    if model == "wan21" and image_bytes is not None:
-        raise ValueError("image-to-video is only supported on the ltxv and wan22 models")
-    if model == "wan21":
-        # Normalize LTXV-shaped defaults to Wan2.1 constraints (4n+1 frames,
-        # 16fps-trained model, uni_pc @ cfg 6, ~8 steps is its sweet spot).
-        if num_frames % 4 != 1:
-            num_frames = 49
-        if frame_rate == 25:
-            frame_rate = 24
-        if steps == 25:
-            steps = 8
-        if cfg == 3.0:
-            cfg = 6.0
-    if model == "wan22":
-        # Normalize to Wan2.2-5B constraints (4n+1 frames, 24fps-trained,
-        # uni_pc/simple @ cfg 5, 20 steps per the official template).
-        if num_frames % 4 != 1:
-            num_frames = 81
-        if frame_rate == 25:
-            frame_rate = 24
-        if steps == 25:
-            steps = 20
-        if cfg == 3.0:
-            cfg = 5.0
+    # Normalize to Wan2.2-5B constraints (4n+1 frames, 24fps-trained,
+    # uni_pc/simple @ cfg 5, 20 steps per the official template).
+    if num_frames % 4 != 1:
+        num_frames = 81
+    if frame_rate == 25:
+        frame_rate = 24
+    if steps == 25:
+        steps = 20
+    if cfg == 3.0:
+        cfg = 5.0
 
     base = get_settings().COMFYUI_URL.rstrip("/")
     image_name: str | None = None
     if image_bytes is not None:
         async with httpx.AsyncClient(base_url=base, timeout=60.0) as up:
             image_name = await upload_image(up, image_bytes, f"i2v-{secrets.token_hex(6)}.png")
-    if image_name is not None and model == "wan22":
+    if image_name is not None:
         graph = build_wan22_prompt(
             prompt=prompt,
             image_name=image_name,
-            negative_prompt=negative_prompt,
-            width=width, height=height, num_frames=num_frames,
-            frame_rate=frame_rate, steps=steps, cfg=cfg,
-            seed=seed, filename_prefix=filename_prefix,
-        )
-    elif image_name is not None:
-        graph = build_i2v_prompt(
-            prompt=prompt,
-            image_name=image_name,
-            negative_prompt=negative_prompt,
-            width=width, height=height, num_frames=num_frames,
-            frame_rate=frame_rate, steps=steps, cfg=cfg,
-            strength=i2v_strength, seed=seed, filename_prefix=filename_prefix,
-        )
-    elif model == "wan22":
-        graph = build_wan22_prompt(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            width=width, height=height, num_frames=num_frames,
-            frame_rate=frame_rate, steps=steps, cfg=cfg,
-            seed=seed, filename_prefix=filename_prefix,
-        )
-    elif model == "wan21":
-        graph = build_wan21_prompt(
-            prompt=prompt,
             negative_prompt=negative_prompt,
             width=width, height=height, num_frames=num_frames,
             frame_rate=frame_rate, steps=steps, cfg=cfg,
             seed=seed, filename_prefix=filename_prefix,
         )
     else:
-        graph = build_t2v_prompt(
+        graph = build_wan22_prompt(
             prompt=prompt,
             negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            steps=steps,
-            cfg=cfg,
-            seed=seed,
-            filename_prefix=filename_prefix,
+            width=width, height=height, num_frames=num_frames,
+            frame_rate=frame_rate, steps=steps, cfg=cfg,
+            seed=seed, filename_prefix=filename_prefix,
         )
 
     # Pin ComfyUI awake for the render — the stack-ops sleeper only sees
@@ -708,15 +663,15 @@ async def generate_video_segments(
     *,
     prompts: list[str],
     negative_prompt: str | None = None,
-    width: int = 480,
-    height: int = 832,
-    num_frames: int = 41,
-    frame_rate: int = 25,
-    steps: int = 25,
-    cfg: float = 3.0,
+    width: int = 704,
+    height: int = 1280,
+    num_frames: int = 81,
+    frame_rate: int = 24,
+    steps: int = 20,
+    cfg: float = 5.0,
     seed: int | None = None,
     filename_prefix: str = "socialauto",
-    model: str = "ltxv",
+    model: str = "wan22",
     per_segment_timeout_s: float | None = None,
 ) -> tuple[bytes, dict]:
     """Generate N video segments sequentially and stitch them into one MP4.

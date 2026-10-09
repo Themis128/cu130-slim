@@ -28,7 +28,7 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 
 - **Media required** — video or photo posts; no text-only.
 - Best content: short vertical clips — infra timelapses, automation runs,
-  generated video (ComfyUI LTX-Video Q8 / Wan2.1 1.3B via `media_gpu_lock`),
+  generated video (ComfyUI Wan2.2 TI2V-5B GGUF via `media_gpu_lock`),
   screen-capture walkthroughs.
 - Product-funnel CTA only (below monetization thresholds) → pricing/audit.
 - Set `is_aigc: true` in `platform_specific.tiktok` when the clip is

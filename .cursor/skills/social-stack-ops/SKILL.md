@@ -38,7 +38,7 @@ triggers:
 - `social-worker-default` — Celery, `default` + `celery` queues; **restart after analytics/workflow/digest task / celery_app.py changes**
 - `celery-beat` — single scheduler instance; **restart after beat_schedule or queue routing changes**
 - `social-worker-messenger` — Celery, `messenger` queue; **restart after messenger task / celery_app.py changes**
-- `comfyui` — GPU image+video generation (`COMFYUI_PROFILE=flux` → lowvram + fp8 text-enc). Serves FLUX.1-schnell GGUF (images), LTX-Video Q8 + Wan2.1 1.3B (video, t2v+i2v). Custom-node deps (gguf, opencv, colour-science…) are pinned in the Dockerfile — nodes are bind-mounted so their own requirements.txt never install.
+- `comfyui` — GPU image+video generation (`COMFYUI_PROFILE=flux` → lowvram + fp8 text-enc). Serves FLUX.1-schnell GGUF (images), Wan2.2 TI2V-5B GGUF (video, t2v+i2v — only video model). Custom-node deps (gguf, opencv, colour-science…) are pinned in the Dockerfile — nodes are bind-mounted so their own requirements.txt never install.
 - `local-diffusers` — retired (SD 1.5). Stopped, `LOAD_ON_STARTUP=false`.
 - `n8n` + `n8n-sandbox`
 - `redis`, `social-postgres`

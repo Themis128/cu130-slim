@@ -55,7 +55,7 @@ Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypa
 | instagram-private-api | 8011 | aiograpi REST wrapper (mobile private API) |
 | warp-proxy | 1080 | free Cloudflare WARP SOCKS5 (first-choice proxy) |
 | n8n | 5678 | workflow automation |
-| comfyui | 8000→8000 | GPU image+video gen — LTX-Video 2B GGUF T2V + image models (shares RTX 3070 with DMR / local-diffusers) |
+| comfyui | 8000→8000 | GPU image+video gen — Wan2.2 TI2V-5B GGUF T2V/I2V + image models (shares RTX 3070 with DMR / local-diffusers) |
 | local-diffusers | (no host publish; :7860 internal) | SD 1.5 GPU image gen |
 | chroma | 8001→8000 | vector failover |
 | minio | 9100→9000, 9101→9001 | S3 failover (host 9100/9101 — not 9000) |
