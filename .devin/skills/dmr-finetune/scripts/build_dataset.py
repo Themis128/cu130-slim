@@ -29,145 +29,6 @@ SYSTEM_VID = (
     "meta-commentary; output the prompt only."
 )
 
-# --- Seed pairs: terse Cloudless-domain topic -> realistic dense prompt ------
-# Target style: photographic, physically plausible, concrete props/settings.
-SEED_PAIRS = [
-    # (terse, expanded)
-    ("cloud bill sticker shock",
-     "Photograph of a small business owner at a kitchen table holding a long printed invoice with a shocked expression, laptop open showing a confusing pricing dashboard, warm morning light through a window, shallow depth of field, realistic documentary style"),
-    ("self-hosted home lab",
-     "Photo of a compact home server rack on a wooden shelf in a home office, small black mini-PCs and a network switch with tidy ethernet cables, soft monitor glow from a desk nearby, realistic indoor photography, natural lighting"),
-    ("small team collaboration",
-     "Realistic photo of three coworkers around a wooden office desk reviewing a laptop screen together, coffee mugs and notebooks scattered, soft afternoon window light, candid documentary style, shallow depth of field"),
-    ("raspberry pi cluster build",
-     "Close-up photo of a stack of Raspberry Pi boards mounted in a clear acrylic case with visible ribbon cables and status LEDs lit, on a cluttered maker workbench with tools, warm desk lamp light, macro-style realistic photo"),
-    ("migrating off expensive cloud",
-     "Photo of a developer's desk with two monitors showing a terminal and a migration checklist, a hand-written sticky note on the bezel, coffee cup, evening warm lamp light, realistic candid shot, shallow depth of field"),
-    ("fixed price hosting relief",
-     "Realistic photo of a relaxed freelancer leaning back in a chair at a tidy desk, laptop closed, a calm satisfied expression, bright daylight from a large window, plants in background, candid lifestyle photography"),
-    ("vendor lock-in frustration",
-     "Photo of a frustrated developer with hands on head in front of a monitor showing an error dialog, dim blue-lit office at night, realistic candid workplace shot, shallow depth of field"),
-    ("deploy with git push",
-     "Photo of fingers on a laptop keyboard mid keypress, screen showing a terminal with a green success checkmark, clean modern desk, natural window light, realistic close-up photography"),
-    ("monitoring dashboard green",
-     "Photo of a wall-mounted monitor showing a status dashboard of green uptime bars, dim office with reflections on the screen, realistic photography, slightly elevated angle"),
-    ("backup drives redundancy",
-     "Photo of two external hard drives on a wooden desk next to a notebook labeled with checkmarks, warm afternoon light, realistic still-life photography, shallow depth of field"),
-    ("email on own domain",
-     "Photo of a tablet on a cafe table showing an email inbox interface, a ceramic espresso cup beside it, blurred cafe interior background, morning light, realistic lifestyle photo"),
-    ("home office setup",
-     "Photo of a tidy home office corner with a laptop on a wooden desk, small bookshelf, warm lamp light in early evening, realistic interior photography, cozy atmosphere"),
-    ("developer debugging at night",
-     "Realistic photo of a developer silhouetted against a monitor full of code, dark room lit by the screen, keyboard and energy drink can on desk, moody blue ambient light, candid shot"),
-    ("automation pipeline working",
-     "Photo of a laptop on a desk showing a flowchart-like interface with connected nodes, sticky notes on the wall behind, daylight, realistic office photography"),
-    ("weekend side project",
-     "Photo of a person sketching a website wireframe on paper at a kitchen table on a weekend morning, croissant and coffee nearby, bright natural light, candid realistic style"),
-    ("cost comparison spreadsheet",
-     "Photo of a tablet and printed paper side by side on a desk, comparing two price columns, a pen pointing at the lower number, office daylight, realistic top-down shot"),
-    ("container orchestration",
-     "Photo of a screen showing rows of small status tiles like shipping containers in a grid, a hand adjusting a knob on a desk device, soft bokeh office background, realistic photo"),
-    ("server room mini rack",
-     "Photo of a small 10-inch rack cabinet under a desk with glowing switch LEDs and neatly tied cables, dim room, cool blue accent light from the LEDs, realistic photo"),
-    ("video call with client",
-     "Photo of a laptop on a home desk mid video-call showing a smiling client on screen, notebook and pen beside it, bright daytime light, realistic candid shot"),
-    ("launch day excitement",
-     "Photo of two people fist-bumping over a desk where a laptop shows a live website, celebratory energy, warm afternoon light, realistic candid office photo"),
-    # Anti-cliché pairs — ground the abstract prompts that produced
-    # glow-mush output in production (e.g. "glowing feed" -> blown-out blur)
-    ("social media feed glow",
-     "Photo of a hand holding a smartphone showing a social feed interface of colorful photo cards, cozy cafe background with warm pendant lights bokeh, shallow depth of field, realistic photo"),
-    ("ai brain magic",
-     "Photo of a developer's monitor showing a neural-network diagram with connected nodes, hands typing on the keyboard below, warm desk light, realistic candid shot — no fantasy imagery"),
-    ("digital transformation",
-     "Photo of an office wall whiteboard covered with process flow diagrams and sticky notes, a person pointing at one node, bright daylight, realistic documentary style"),
-    ("data flow visualization",
-     "Photo of a large monitor showing a line graph dashboard, dim office, a mug and notebook on the desk in front, cool screen light, realistic photo"),
-    ("secure infrastructure",
-     "Photo of a server rack cabinet with a closed glass door and green status LEDs, tidy cable runs visible, dim utility room, realistic photo"),
-    ("cloud migration plan",
-     "Photo of printed architecture diagrams spread on a conference table with a hand pointing at an arrow between boxes, overhead daylight, realistic top-down shot"),
-    ("uptime monitoring",
-     "Photo of a wall screen showing an uptime dashboard with green bars and one red alert tile, a person standing below looking up, cool office lighting, realistic candid shot"),
-    ("password manager vault",
-     "Photo of a hand holding a smartphone showing a lock screen icon over a clean app interface, on a dark desk with keyboard edge visible, warm evening light, realistic close-up"),
-    ("api integration",
-     "Photo of two monitors side by side, one showing code with JSON and the other a dashboard, a hand reaching between them, desk daylight, realistic photo"),
-    ("team standup meeting",
-     "Photo of four people standing in a loose circle around a kanban board with sticky notes, one writing on it, bright morning office light, realistic candid shot"),
-    ("quiet focus work",
-     "Photo of a person wearing headphones typing on a laptop in a library-like quiet room, warm lamp pools of light, shallow depth of field, realistic photo"),
-    ("shipping a release",
-     "Photo of a developer pressing the enter key on a laptop whose screen shows a green progress bar completing, celebratory posture, evening warm light, realistic candid shot"),
-    ("customer support reply",
-     "Photo of a support agent at a desk typing a reply on a chat window, headset around neck, calm friendly expression, office daylight, realistic candid photo"),
-    ("open source contribution",
-     "Photo of a laptop screen showing a pull-request interface with a green merged badge, a mug and a small plant beside it, morning light, realistic close-up"),
-    ("hardware tinkering",
-     "Photo of hands holding a screwdriver over an open mini-PC exposing a circuit board and RAM slots, workbench with parts scattered, warm workshop light, realistic macro-style photo"),
-    ("reading server logs",
-     "Photo of a monitor filled with scrolling monospace log lines, a pair of glasses resting on the desk in front, dim room, screen glow, realistic photo"),
-    ("retro computing nostalgia",
-     "Photo of an old beige CRT monitor and chunky keyboard on a wooden desk beside a modern laptop, warm nostalgic afternoon light, realistic still-life photo"),
-    ("brainstorming session",
-     "Photo of sticky notes in many colors arranged on a glass wall, two people discussing with a marker in hand, bright office light, realistic candid shot"),
-    ("deploy friday meme mood",
-     "Photo of a developer with one finger hovering nervously over the keyboard, monitor showing a deploy button, colleagues watching over the shoulder, office humor candid, realistic photo"),
-    ("green energy datacenter",
-     "Photo of a small server shelf with a potted plant on top and a window view of trees behind, morning light, blending tech and nature, realistic photo"),
-    # Abstract business concepts — the mappings production actually sends.
-    # Each gets a DISTINCT scene so the model learns topic->scene, not
-    # a repeated scaffold.
-    ("surprise cloud invoice",
-     "Photograph of a café owner turning a long printed receipt over in disbelief at the counter, card terminal and pastry display beside, warm afternoon light, realistic candid shot"),
-    ("predictable monthly pricing",
-     "Photo of a tidy desk with a wall calendar, a laptop showing a simple plan page, and a hand writing a single recurring figure in a notebook, calm daylight, realistic office photo"),
-    ("cancel anytime no lock-in",
-     "Photo of a person sliding a laptop shut and smiling, jacket over shoulder ready to leave, bright lobby light behind, candid realistic lifestyle shot"),
-    ("migration weekend plan",
-     "Photo of a whiteboard timeline with arrows and checkboxes, two mugs and a weekend bag under the desk, a hand ticking the last box, evening office light, realistic documentary photo"),
-    ("downtime outage alert",
-     "Photo of a phone on a nightstand lighting up with a red alert screen at night, a pair of glasses and a watch beside it, dark room lit only by the phone, realistic close-up"),
-    ("analytics growth curve",
-     "Photo of a printed line chart trending upward on a desk, a hand holding a pen circling the peak, laptop edge visible, morning office light, realistic top-down shot"),
-    ("customer churn worry",
-     "Photo of a founder staring at an empty chair across a cafe table, two coffees one untouched, thoughtful expression, soft window light, realistic candid photo"),
-    ("subscription fatigue",
-     "Photo of a wallet with many small paper receipts fanned out on a desk, a tired hand resting on the mouse, warm lamp light, realistic still-life candid"),
-    ("launch week nerves",
-     "Photo of a team member refreshing a laptop screen repeatedly while colleagues watch, tension and coffee cups on the desk, early morning office light, realistic candid shot"),
-    ("flat rate vs usage billing",
-     "Photo of two paper lists side by side on a table, one short with a single total and one long with itemized lines, a finger pointing at the short one, daylight, realistic top-down shot"),
-    ("self hosted email inbox",
-     "Photo of an older laptop on a kitchen table showing a mail inbox, breakfast plate pushed aside, morning light through blinds, realistic documentary style"),
-    ("on call rotation",
-     "Photo of a shared desk calendar with color-coded name tags and a phone charging on top, dim hallway light, quiet office after hours, realistic photo"),
-    ("data export freedom",
-     "Photo of a hand plugging a USB drive into a laptop showing a file-download progress bar, desk plant and coffee nearby, daylight, realistic candid shot"),
-    ("monorepo cleanup day",
-     "Photo of a monitor showing a long file tree being tidied, sticky note tabs along the screen edge, a satisfied posture in the chair, afternoon light, realistic photo"),
-    ("incident postmortem notes",
-     "Photo of a notebook with a hand-written timeline and arrows, a laptop showing a chat thread beside it, calm focused desk scene, cool daylight, realistic top-down photo"),
-]
-
-# --- Augmentation: subjects x settings x lighting x camera -------------------
-SUBJECTS = [
-    ("a developer typing on a mechanical keyboard", "mechanical keyboard close-up"),
-    ("a small business owner reviewing invoices on a tablet", "invoice review"),
-    ("a freelancer sketching app wireframes on paper", "wireframe sketching"),
-    ("a sysadmin checking a home server status panel", "server check"),
-    ("a designer arranging printed logo drafts on a desk", "logo drafts"),
-    ("a remote worker in a video meeting with headphones", "remote meeting"),
-    ("a founder whiteboard-sketching a system diagram", "architecture whiteboard"),
-    ("a developer pointing at a code diff on a monitor", "code review"),
-    ("an engineer mounting a device inside a rack shelf", "rack install"),
-    ("a person scrolling a social feed on a smartphone", "scrolling feed"),
-    ("a coffee cup steaming next to a laptop running a build", "morning build"),
-    ("hands plugging an ethernet cable into a small switch", "network cabling"),
-    ("a notebook open with a hand-drawn funnel diagram", "funnel planning"),
-    ("a monitor showing a CI pipeline of green checkmarks", "green pipeline"),
-    ("a shelf with labeled backup drives and a NAS box", "backup shelf"),
-]
 SETTINGS = [
     "on a wooden home-office desk",
     "at a bright kitchen table",
@@ -479,6 +340,30 @@ def row(system: str, user: str, assistant: str) -> dict:
         {"role": "assistant", "content": assistant},
     ]}
 
+import re as _re
+
+_SECRET_RE = _re.compile(
+    r"(eyJ[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-|"
+    r"AKIA[0-9A-Z]{16}|-----BEGIN|Bearer\s+\S{20,})", _re.I)
+_PROTOCOL = ('<|im_', '<tool_call', '<think')
+
+
+def validate(rows: list, name: str) -> None:
+    """Fail loudly if the dataset violates the rules that broke past runs."""
+    users = [m["content"] for r in rows for m in r["messages"] if m["role"] == "user"]
+    tgts = [m["content"] for r in rows for m in r["messages"] if m["role"] == "assistant"]
+    assert rows, f"{name}: empty dataset"
+    assert all(u.strip().endswith("/no_think") for u in users),         f"{name}: user turns missing the production /no_think suffix"
+    assert all(20 <= len(t) <= 600 for t in tgts),         f"{name}: target length out of bounds"
+    joined = "\n".join(tgts + users)
+    for frag in _PROTOCOL:
+        assert frag not in joined, f"{name}: protocol fragment {frag!r} leaked"
+    assert not _SECRET_RE.search(joined), f"{name}: secret-like string found"
+    dup = 1 - len(set(tgts)) / len(tgts)
+    assert dup < 0.10, f"{name}: {dup:.0%} duplicate targets (memorization risk)"
+    print(f"{name}: {len(rows)} rows, {dup:.0%} dup targets, all checks pass")
+
+
 def main() -> None:
     rng = random.Random(42)
     img_rows, vid_rows = [], []
@@ -490,6 +375,8 @@ def main() -> None:
 
     rng.shuffle(img_rows)
     rng.shuffle(vid_rows)
+    validate(img_rows, "media_prompts.jsonl")
+    validate(vid_rows, "media_prompts_video.jsonl")
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "media_prompts.jsonl").write_text(
         "\n".join(json.dumps(r) for r in img_rows) + "\n")

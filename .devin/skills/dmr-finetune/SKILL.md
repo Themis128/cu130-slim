@@ -19,7 +19,7 @@ Wan2.2/FLUX output muddy.
 | 3. Package | `docker model package --gguf out/gguf/*.gguf cloudless/qwen3-4b-media:latest` | Registers merged model in the DMR content store |
 | 4. Configure | watchdog `apply_configs` or `POST /engines/_configure` | ctx 4096, keep-alive 5m, `--n-gpu-layers 0` (CPU like all DMR models — packaging resets config to GPU+262K ctx and OOMs) |
 | 5. Wire | set `DMR_MEDIA_MODEL=cloudless/qwen3-4b-media:latest` in `.env` | `expand_visual_prompt` uses it via `model_override` |
-| 6. Eval | `scripts/eval_prompts.py` | A/B base vs tuned on sample topics — output must be a dense, plausible scene prompt |
+| 6. Eval | `scripts/eval_prompts.py` | A/B base vs tuned. Default topics are OOD smoke tests only; use `--topics-file data/real_prompts.json` for in-distribution eval on the real input corpus |
 
 ## GPU discipline (8GB card, shared with ComfyUI + DMR CPU-pinned models)
 
@@ -95,6 +95,16 @@ plumbing.
 - **xformers cu124 wheel vs torch cu118**: expected warning; unsloth
   falls back to PyTorch attention. Do not chase the mismatch —
   rebuilding xformers is not worth it on this card.
+- **every `docker model package` orphans the previous entry**: each
+  repackage creates a new model ID and leaves the old one as `<none>` in
+  `docker model ls` (~2.5GiB each) AND resets runtime config to
+  `-ngl 999` + 262K ctx (36GB KV → OOM → HTTP 500 on next load). After
+  any repackage: `docker model rm <stale ids>` for `<none>` rows, then
+  re-run `dmr-configure.py`.
+- **`build_dataset.py` self-validates**: refuses to write rows with
+  duplicate-target rate ≥10%, missing `/no_think` suffixes, protocol
+  fragments (`<|im_`, `<tool_call`), secret-like strings, or
+  out-of-bounds target lengths — run it before every training run.
 - **dataset lessons (hard-won)**: (a) `expand_visual_prompt` receives
   terse VISUAL prompts, not post captions — train on the prompts stored
   in `media_assets`, not the `posts` table; (b) keep ONE output

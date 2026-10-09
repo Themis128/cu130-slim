@@ -7,7 +7,9 @@ Run on the host (needs DMR reachable at DMR_BASE).
 """
 import json
 import os
+import sys
 import urllib.request
+from pathlib import Path
 
 DMR_BASE = os.environ.get("DMR_BASE", "http://localhost:12435")
 BASE_MODEL = "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
@@ -20,6 +22,9 @@ SYSTEM = (
     "composition, and camera motion; no text/letters/watermarks; no "
     "meta-commentary; output the prompt only."
 )
+# Abstract topics = OOD smoke test only. The real input distribution is the
+# prompts stored in media_assets — pass --topics-file data/real_prompts.json
+# to eval in-distribution.
 TOPICS = [
     "cloud bill sticker shock",
     "self-hosted home lab",
@@ -27,6 +32,16 @@ TOPICS = [
     "fixed pricing relief",
     "deploy friday",
 ]
+
+
+def topics() -> list:
+    if "--topics-file" in sys.argv:
+        path = Path(sys.argv[sys.argv.index("--topics-file") + 1])
+        data = json.loads(path.read_text())
+        prompts = [e.get("prompt", "") for e in data if e.get("prompt")]
+        n = int(os.environ.get("EVAL_N", "8"))
+        return prompts[:n]
+    return TOPICS
 
 
 def chat(model: str, topic: str) -> str:
@@ -50,7 +65,7 @@ def chat(model: str, topic: str) -> str:
         return f"<error: {e}>"
 
 
-for topic in TOPICS:
+for topic in topics():
     print("=" * 78)
     print("TOPIC:", topic)
     print("-" * 78)
