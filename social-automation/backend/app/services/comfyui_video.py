@@ -489,7 +489,7 @@ async def generate_video(
     model: str = "ltxv",
     image_bytes: bytes | None = None,
     i2v_strength: float = 1.0,
-    timeout_s: float = 900.0,
+    timeout_s: float | None = None,
     poll_s: float = 5.0,
 ) -> tuple[bytes, dict]:
     """Submit a T2V/I2V job to ComfyUI, poll until done, return (mp4_bytes, meta).
@@ -504,6 +504,11 @@ async def generate_video(
     meta: {"prompt_id", "filename", "subfolder", "width", "height",
            "frame_rate", "num_frames", "duration_seconds", "model"}
     """
+    # Wan2.2-5B at 720p takes ~35 min on the 8GB card (slow temporal VAE
+    # decode) — the 15min LTXV budget would cancel it mid-render.
+    if timeout_s is None:
+        timeout_s = 2700.0 if model == "wan22" else 900.0
+
     if model not in VIDEO_MODELS:
         raise ValueError(f"model must be one of {VIDEO_MODELS}")
     if model == "wan21" and image_bytes is not None:
@@ -688,7 +693,7 @@ async def generate_video_segments(
     seed: int | None = None,
     filename_prefix: str = "socialauto",
     model: str = "ltxv",
-    per_segment_timeout_s: float = 900.0,
+    per_segment_timeout_s: float | None = None,
 ) -> tuple[bytes, dict]:
     """Generate N video segments sequentially and stitch them into one MP4.
 
