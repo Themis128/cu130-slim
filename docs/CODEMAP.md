@@ -101,12 +101,12 @@ Measured on this machine (do not invent different HW — re-measure if the host 
 
 ```
 main.py            FastAPI app, mounts api_router at /api/v1, init_db() on startup
-api/               37 routers — auth (OAuth + data-deletion), accounts, publishing,
-                   messenger, whatsapp, telegram, viber, instagram, inbox, media, ai,
+api/               38 routers — auth (OAuth + data-deletion), accounts, publishing,
+                   messenger, whatsapp, telegram, viber, bluesky, instagram, inbox, media, ai,
                    ai_providers, brand, billing, leads, secrets, teams, cf_db, mcp…
 services/          platform clients + infra — facebook_api, instagram_api
                    (InstagramAPIClient + InstagramWebDMClient), threads_api,
-                   tiktok_api, twitter_api, linkedin_api, messenger_api,
+                   tiktok_api, twitter_api, linkedin_api, messenger_api, bluesky_api,
                    whatsapp_api, telegram_api, viber_api, browser_bridge
                    (BrowserBridgeClient), browser_orchestrator, *_sidecar clients,
                    dmr (DMR client), inference (provider routing), media_*,
@@ -277,7 +277,7 @@ Sofia Kakkava's "Visibility Era" framework is encoded in the brand voice so ever
   - **MAIN = LinkedIn** — original content, carousels (Company Page `9c4451bb-…`), Educator posts.
   - **SECONDARY = Meta** — Instagram `38ddbd44-…`, Facebook Page, Threads `1071dcd5-…` — adapted/cross-posted versions.
   - **LAST = Twitter/X + TikTok** — opportunistic only (X free-tier quota ~1.5k posts/mo is chronically exhausted; don't schedule into it).
-- **Tools/skills**: `.devin/skills/content-strategy/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `social-profile-update` (DAY 4 audit); `publish-ops` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug); `meta-graph-ops` → `backend/scripts/meta_tool.py` (facebook-business SDK: `accounts`/`debug-token`/`pages`/`insights`); `linkedin-graph-ops` → `backend/scripts/linkedin_tool.py` (linkedin-api-client: `token-inspect`/`access-matrix`/`ad-accounts`); `media-dedup` → `app/services/media_dedup.py` + `scripts/dedup_scan.py` (perceptual-hash media dedup wired into the publish path); `whatsapp-ops` → `scripts/whatsapp_tool.py` (WABA health, phone status, templates); `viber-ops` → `scripts/viber_tool.py` + `app/api/viber.py` + `viber_chatbot.py`; `instagram-graph-ops` → `scripts/instagram_tool.py` (v26 quota/metrics, discovery capability checks); `tiktok-api-ops` → `scripts/tiktok_tool.py` (creator_info, video list, publish status, DMs); `x-api-ops` → `scripts/x_tool.py` (users/me metrics, user lookup, tweet metrics, 402 credits-depleted boundary).
+- **Tools/skills**: `.devin/skills/content-strategy/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `social-profile-update` (DAY 4 audit); `publish-ops` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug); `meta-graph-ops` → `backend/scripts/meta_tool.py` (facebook-business SDK: `accounts`/`debug-token`/`pages`/`insights`); `linkedin-graph-ops` → `backend/scripts/linkedin_tool.py` (linkedin-api-client: `token-inspect`/`access-matrix`/`ad-accounts`); `media-dedup` → `app/services/media_dedup.py` + `scripts/dedup_scan.py` (perceptual-hash media dedup wired into the publish path); `whatsapp-ops` → `scripts/whatsapp_tool.py` (WABA health, phone status, templates); `viber-ops` → `scripts/viber_tool.py` + `app/api/viber.py` + `viber_chatbot.py`; `instagram-graph-ops` → `scripts/instagram_tool.py` (v26 quota/metrics, discovery capability checks); `tiktok-api-ops` → `scripts/tiktok_tool.py` (creator_info, video list, publish status, DMs); `x-api-ops` → `scripts/x_tool.py` (users/me metrics, user lookup, tweet metrics, 402 credits-depleted boundary); `bluesky-ops` → `app/services/bluesky_api.py` + `app/api/bluesky.py` + `scripts/bluesky_tool.py` (AT Protocol: app-password sessions, blob media, richtext facets).
 
 ## n8n workflows (`n8n-workflows/`, 15 total)
 
@@ -297,4 +297,4 @@ Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI met
 
 ## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
 
-Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`, `metabase-ops`, `deepwiki-docs`, `devin-cli`, `meta-graph-ops`, `media-dedup`, `linkedin-graph-ops`, `viber-ops`, `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`.
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`, `metabase-ops`, `deepwiki-docs`, `devin-cli`, `meta-graph-ops`, `media-dedup`, `linkedin-graph-ops`, `viber-ops`, `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `bluesky-ops`.

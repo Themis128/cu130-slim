@@ -157,6 +157,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/billing/sync` — POST
 - `/api/v1/billing/webhook` — POST
 
+## `bluesky`
+
+- `/api/v1/bluesky/connect` — POST
+- `/api/v1/bluesky/{account_id}/status` — GET
+
 ## `brand`
 
 - `/api/v1/brand` — GET, POST, PUT, DELETE

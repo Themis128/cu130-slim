@@ -25,6 +25,7 @@ import hmac
 import io
 import json
 import logging
+import mimetypes
 import os
 import secrets
 import time
@@ -340,6 +341,15 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
         "max_bytes": 8 * _MB, "max_video_bytes": 1 * _GB,
         "ratio_min": 1 / 10, "ratio_max": 10.0, "max_count": 20,
     },
+    # AT Protocol lexicon caps: 4 images ≤2MB each, single mp4 ≤300MB.
+    # Videos: embed.video accepts video/mp4 only.
+    "bluesky": {
+        "required": True, "allow_pdf": False,
+        "formats": (".jpg", ".jpeg", ".png", ".webp", ".gif") + (".mp4",),
+        "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
+        "max_bytes": 2 * _MB, "max_video_bytes": 300 * _MB,
+        "ratio_min": None, "ratio_max": None, "max_count": 4,
+    },
 }
 
 
@@ -627,6 +637,7 @@ async def publish_to_platform(
         "instagram": _publish_instagram,
         "threads": _publish_threads,
         "tiktok": _publish_tiktok,
+        "bluesky": _publish_bluesky,
     }
     fn = dispatch.get(account.platform)
     if fn is None:
@@ -3130,4 +3141,96 @@ async def _publish_threads(
         success=True,
         platform_post_id=media_id,
         platform_url=f"https://www.threads.net/@{account.username}/post/{media_id}" if account.username else None,
+    )
+
+
+async def _publish_bluesky(
+    access_token: str,  # the stored Bluesky app password (decrypted)
+    text: str,
+    account: SocialAccount,
+    post: Post,
+    media_paths: list[str],
+    storage_paths: list[str] | None = None,
+) -> PublishResult:
+    """Publish to Bluesky via the AT Protocol.
+
+    A fresh ``createSession`` per publish avoids JWT lifecycle bookkeeping —
+    app passwords are long-lived. Media is uploaded as blobs (raw bytes) and
+    embedded: images → ``app.bsky.embed.images`` (≤4), a single mp4 →
+    ``app.bsky.embed.video``. Bluesky does not auto-link URLs/mentions/
+    hashtags — ``build_facets`` annotates them with UTF-8 byte offsets.
+    Text is capped at 300 graphemes (we truncate to a safe 295).
+    """
+    from app.services.bluesky_api import (
+        IMAGE_MIMES,
+        MAX_IMAGES,
+        BlueskyAPIError,
+        BlueskyClient,
+    )
+
+    pds = (account.meta_data or {}).get("pds_url") or None
+    client = BlueskyClient(
+        account.username or "",
+        access_token,
+        pds_url=pds or "https://bsky.social",
+    )
+    try:
+        await client.create_session()
+    except BlueskyAPIError as exc:
+        return PublishResult(
+            success=False,
+            error=f"Bluesky login failed ({exc.status_code}): {exc.response_text[:200]}",
+        )
+
+    bsky_text = text[:295]
+
+    images: list[dict[str, Any]] = []
+    video: dict[str, Any] | None = None
+    try:
+        from PIL import Image
+
+        for path in media_paths:
+            lower = path.lower()
+            if lower.endswith(".mp4"):
+                with open(path, "rb") as fh:
+                    blob = await client.upload_blob(fh.read(), "video/mp4")
+                video = {"blob": blob, "alt": post.title or ""}
+                break  # one video per post; it replaces the image embed
+            mime = mimetypes.guess_type(lower)[0] or "image/jpeg"
+            if mime not in IMAGE_MIMES:
+                mime = "image/jpeg"
+            with open(path, "rb") as fh:
+                data = fh.read()
+            blob = await client.upload_blob(data, mime)
+            try:
+                with Image.open(path) as im:
+                    w, h = im.size
+                ar = {"width": w, "height": h}
+            except Exception:
+                ar = None
+            images.append({"blob": blob, "alt": post.title or "", "aspectRatio": ar})
+            if len(images) >= MAX_IMAGES:
+                break
+
+        result = await client.create_post(
+            bsky_text,
+            images=images or None,
+            video=video,
+        )
+    except BlueskyAPIError as exc:
+        return PublishResult(
+            success=False,
+            error=f"Bluesky publish failed ({exc.status_code}): {exc.response_text[:300]}",
+        )
+
+    at_uri = result.get("uri", "")
+    # at://did:plc:…/app.bsky.feed.post/<rkey> → https://bsky.app/profile/<handle>/post/<rkey>
+    rkey = at_uri.rsplit("/", 1)[-1] if at_uri else ""
+    return PublishResult(
+        success=True,
+        platform_post_id=at_uri,
+        platform_url=(
+            f"https://bsky.app/profile/{account.username}/post/{rkey}"
+            if account.username and rkey else None
+        ),
     )
