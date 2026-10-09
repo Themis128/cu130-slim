@@ -41,6 +41,10 @@ dependencies = [
     # Official Meta Business SDK — used by the meta-graph-ops skill tooling
     # for token introspection, page insights, and IG account discovery.
     "facebook-business>=21.0.0",
+    # Official LinkedIn Rest.li client — used by scripts/linkedin_tool.py for
+    # token introspection (AuthClient.introspect_access_token) and as the
+    # reference client for new versioned-API work.
+    "linkedin-api-client>=0.3.0",
     # Security: pin setuptools and wheel for vulnerability fixes
     "setuptools>=78.1.1",
     "wheel>=0.46.2",
