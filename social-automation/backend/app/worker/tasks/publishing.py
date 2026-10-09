@@ -18,6 +18,7 @@ from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.duplicate_detector import is_duplicate
 from app.services.instagram_api import InstagramAPIClient
+from app.services.media_dedup import media_duplicate_reason
 from app.services.publishing import (
     PublishResult,
     _instagram_find_live,
@@ -569,6 +570,24 @@ async def _process_publish_queue_async() -> None:
                                 "Skipped: identical content already published to "
                                 "this account within the last 24h"
                             )
+                        await db.flush()
+                        await _rollup_post_status(post, db)
+                        await db.commit()
+                        continue
+
+                    # Media duplicate guard: same image set already published
+                    # to this account (catches repackaged duplicates the text
+                    # check misses, e.g. carousel slides re-cut as a reel).
+                    try:
+                        reason = await media_duplicate_reason(db, post, account.id)
+                    except Exception:
+                        logger.exception("media dedup check failed for post %s", post.id)
+                        reason = None
+                    if reason:
+                        item.status = QueueStatus.COMPLETED
+                        if target:
+                            target.status = "skipped"
+                            target.error_message = reason
                         await db.flush()
                         await _rollup_post_status(post, db)
                         await db.commit()
