@@ -26,6 +26,7 @@ Read `social-content-core` first.
 |----------|-----------|--------|------|
 | telegram | `f75d0132-0964-4236-9766-a6603c997dfd` | Cloudless_newbot | Bot — channel posts + chatbot |
 | whatsapp | `77f17091-3639-4633-b04d-0a3345dd7d3a` | Themistoklis Baltzakis | Business messaging + chatbot |
+| viber | (connect via `/viber/connect`) | — | Bot messaging + chatbot |
 
 ## Content rules
 
@@ -39,12 +40,15 @@ Read `social-content-core` first.
 
 ## Publishing
 
-- `publish_to_platform` dispatches messaging posts to the channel:
-  `telegram` → `TelegramAPIClient` (bot token, `telegram_api.py`);
-  `whatsapp` → `whatsapp_cloud_client.py` (Cloud API).
+- `publish_to_platform` **skips** messaging platforms (`whatsapp`,
+  `telegram`, `viber`) — sends go through each router's send endpoints:
+  `/viber/{id}/send`, `/telegram/{id}/send`, WhatsApp send APIs.
+- Viber specifics: `viber_api.py` client (`chatapi.viber.com`), broadcast
+  needs Viber approval (status 15), all media must be public HTTPS URLs,
+  webhook is HMAC-verified — see `viber-ops` skill.
 - Chatbot flows live separately: `telegram_chatbot.py`,
-  `telegram_group_watch.py`, `whatsapp_chatbot.py`, `whatsapp_flows.py` —
-  inbound replies, not content publishing.
+  `telegram_group_watch.py`, `whatsapp_chatbot.py`, `whatsapp_flows.py`,
+  `viber_chatbot.py` — inbound replies, not content publishing.
 
 ## Gotchas
 
