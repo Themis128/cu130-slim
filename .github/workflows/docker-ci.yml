@@ -35,7 +35,6 @@ concurrency:
 jobs:
   build-and-push:
     runs-on: ubuntu-24.04
-    continue-on-error: ${{ matrix.service.name == 'comfyui' }}
     strategy:
       fail-fast: false
       matrix:
