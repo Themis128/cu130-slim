@@ -261,6 +261,33 @@ class TwitterAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def get_me_metrics(self) -> dict[str, Any]:
+        """``GET /2/users/me`` with ``public_metrics`` + profile fields —
+        follower/following/tweet counts for the authenticated account."""
+        url = f"{self.api_base}/users/me"
+        params = {
+            "user.fields": "created_at,public_metrics,profile_image_url,verified,description"
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
+    async def get_user_by_username(self, username: str) -> dict[str, Any]:
+        """``GET /2/users/by/username/:username`` — public profile + metrics
+        for any X account (funnel/competitor checks)."""
+        uname = (username or "").strip().lstrip("@")
+        if not uname:
+            raise ValueError("username is required")
+        url = f"{self.api_base}/users/by/username/{uname}"
+        params = {
+            "user.fields": "created_at,public_metrics,profile_image_url,verified,description"
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            self._raise_for_status(resp, url)
+            return resp.json()
+
     @staticmethod
     def _media_id_from(body: dict[str, Any] | None) -> str:
         body = body or {}
