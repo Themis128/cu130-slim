@@ -1454,3 +1454,183 @@ async def test_threads_account_insights_aggregation():
     assert out == {"views": 12, "followers_count": 120}
     client.get = AsyncMock(return_value=_resp(500, {}))
     assert await A._fetch_threads_account_insights(client, "tok", "u1") == {}
+
+
+# ── sync_facebook_account (page path) ──────────────────────────────────
+
+
+def _fb_insights(post_id, *, media_view=100, clicks=5, likes=9, comment=2, share=3):
+    return _resp(
+        200,
+        {
+            "data": [
+                {"name": "post_media_view", "values": [{"value": media_view}]},
+                {"name": "post_clicks", "values": [{"value": clicks}]},
+                {"name": "post_reactions_like_total", "values": [{"value": likes}]},
+                {"name": "post_activity_by_action_type", "values": [{"value": {"comment": comment, "share": share}}]},
+            ],
+        },
+    )
+
+
+def _fb_obj(**counts):
+    return _resp(
+        200,
+        {
+            "comments": {"summary": {"total_count": counts.get("comments", 0)}},
+            "shares": {"count": counts.get("shares", 0)},
+            "reactions": {"summary": {"total_count": counts.get("likes", 0)}},
+        },
+    )
+
+
+def _fb_http(post_insights=None, post_objs=None, me_accounts=None, discovery=None, page_insights=None, fan_adds=None):
+    """Route _Client.get by URL — post/page ids disambiguate /insights."""
+    post_insights = post_insights or {}
+    post_objs = post_objs or {}
+
+    async def _get(url, **kw):
+        if "/me/accounts" in url:
+            return me_accounts or _resp(200, {"data": []})
+        if "page_fan_adds" in str(kw.get("params", {}).get("metric", "")):
+            return fan_adds or _resp(200, {"data": []})
+        if "/insights" in url:
+            for pid, resp in post_insights.items():
+                if f"/{pid}/" in url:
+                    return resp
+            return page_insights or _resp(200, {"data": []})
+        if "/published_posts" in url or "/feed" in url:
+            return discovery or _resp(200, {"data": []})
+        # bare /{post_id} object-metrics fetch
+        for pid, resp in post_objs.items():
+            if url.rstrip("/").endswith(f"/{pid}"):
+                return resp
+        return _resp(404, {})
+
+    _Client.get = AsyncMock(side_effect=_get)
+
+
+@pytest.fixture
+def _fb_patches_real(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_fb_page_sync_full(_fb_patches_real, monkeypatch):
+    events = []
+    monkeypatch.setattr(A, "_persist_account_event", lambda db, acc, at, etype, data: events.append((etype, data)))
+    t = _target("post_a")
+    db = _DB(results=[[t]])
+    _fb_http(
+        post_insights={"post_a": _fb_insights("post_a"), "post_b": _fb_insights("post_b", media_view=40)},
+        post_objs={"post_a": _fb_obj(comments=2, shares=3, likes=9), "post_b": _fb_obj()},
+        discovery=_resp(
+            200,
+            {
+                "data": [
+                    {"id": "post_a", "created_time": "2026-10-10T10:00:00+0000"},
+                    {"id": "post_b", "created_time": "2026-10-09T10:00:00+0000"},
+                    {"id": "post_old", "created_time": "2020-01-01T00:00:00+0000"},
+                ]
+            },
+        ),
+        page_insights=_resp(
+            200,
+            {
+                "data": [
+                    {"name": "page_views_total", "values": [{"value": 1}, {"value": 9}]},
+                ]
+            },
+        ),
+        fan_adds=_resp(
+            200,
+            {
+                "data": [
+                    {
+                        "name": "page_fan_adds_by_paid_non_paid_unique",
+                        "values": [{"value": {"paid": 2, "non_paid": 5}, "end_time": "2026-10-10T08:00:00+0000"}],
+                    },
+                ]
+            },
+        ),
+    )
+    acc = _account(platform="facebook", account_id="pg1", account_type="page", meta_data={"page_token": "pt"})
+    r = await A.sync_facebook_account(db, acc)
+    assert r.errors == []
+    # post_a from targets + post_b from discovery; post_old dropped by `since`
+    assert A._persist_snapshot.await_count == 2
+    m_a = A._persist_snapshot.await_args_list[0].kwargs["metrics"]
+    assert m_a.impressions == 100 and m_a.clicks == 5
+    assert m_a.comments == 2 and m_a.shares == 3 and m_a.likes == 9
+    m_b = A._persist_snapshot.await_args_list[1].kwargs["metrics"]
+    assert m_b.raw["discovery"]["id"] == "post_b"
+    assert ("account_insights", {"page_views_total": 9}) in events
+    attr = next(d for et, d in events if et == "follower_attribution")
+    assert attr["by_day"]["2026-10-10"] == {"paid": 2, "organic": 5}
+
+
+@pytest.mark.asyncio
+async def test_fb_page_token_lookup_and_feed_edge(_fb_patches_real):
+    """No meta.page_token → me/accounts lookup; non-page → /feed edge."""
+    seen_urls = []
+
+    async def _get(url, **kw):
+        seen_urls.append(url)
+        if "/me/accounts" in url:
+            return _resp(200, {"data": [{"id": "pg1", "access_token": "pt_from_lookup"}]})
+        return _resp(200, {"data": []})
+
+    _Client.get = AsyncMock(side_effect=_get)
+    db = _DB(results=[[]])
+    acc = _account(platform="facebook", account_id="pg1", account_type="user", meta_data={})
+    r = await A.sync_facebook_account(db, acc)
+    assert r.errors == []
+    assert any("/me/accounts" in u for u in seen_urls)
+    assert any("/pg1/feed" in u for u in seen_urls)  # user type → feed edge
+
+
+@pytest.mark.asyncio
+async def test_fb_post_metrics_salvage_on_insights_failure():
+    """Insights 500 → notes recorded, counters salvaged from the object."""
+    client = _Client()
+
+    async def _get(url, **kw):
+        if "/insights" in url:
+            return _resp(500, {"error": {"message": "boom"}})
+        return _fb_obj(comments=4, shares=1, likes=7)
+
+    client.get = AsyncMock(side_effect=_get)
+    m = await A._fetch_facebook_post_metrics(client, "pt", "post_x")
+    assert "HTTP 500" in m.notes
+    assert m.comments == 4 and m.shares == 1 and m.likes == 7
+    assert m.impressions == 0
+
+
+@pytest.mark.asyncio
+async def test_fb_discovery_error_collected(_fb_patches_real):
+    db = _DB(results=[[]])
+    _fb_http(discovery=_resp(500, {"error": {"message": "down"}}))
+    acc = _account(platform="facebook", account_id="pg1", account_type="page", meta_data={"page_token": "pt"})
+    r = await A.sync_facebook_account(db, acc)
+    assert any("facebook published_posts HTTP 500" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_fb_page_insights_error_collected(_fb_patches_real):
+    db = _DB(results=[[]])
+    _fb_http(page_insights=_resp(500, {"error": {"message": "nope"}}))
+    acc = _account(platform="facebook", account_id="pg1", account_type="page", meta_data={"page_token": "pt"})
+    r = await A.sync_facebook_account(db, acc)
+    assert any("facebook page insights HTTP 500" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_fb_object_metrics_error_returns_zeros():
+    client = _Client()
+    client.get = AsyncMock(return_value=_resp(404, {}))
+    out = await A._facebook_object_metrics(client, "post_x", "pt")
+    assert out == {"comments": 0, "shares": 0, "likes": 0}
