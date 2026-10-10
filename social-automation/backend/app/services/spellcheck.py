@@ -175,3 +175,90 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
         logger.info("Auto-corrected %d issue(s) in %d-char text", applied, len(text))
 
     return corrected
+
+
+# ── gibberish / mangle detection ──────────────────────────────────────────────
+#
+# LLM generation occasionally drops a separator inside a word, producing
+# non-dictionary tokens (``clientsget``) or stray-capitalized fragments
+# (``cloudless.g GGr`` — residue of a mangled ``.gr``). Both sailed through
+# spellcheck + the NLP gate onto a live LinkedIn post, so this second-line
+# detector flags them for the quality pipeline and the publish path.
+#
+# Two signals:
+#   1. Mixed-case mangle — ``[A-Z]{2,}[a-z]`` inside a token (``GGr``,
+#      ``APIkey``). Plural acronyms are exempt (``PDFs``, ``APIs`` — the
+#      lowercase tail is exactly ``s``), as is a small allowlist of real
+#      camel-case terms (``OAuth``, ``QLoRA``).
+#   2. Residual misspellings — tokens LanguageTool still reports as
+#      ``misspelling`` after auto_correct has run. Restricted to unprotected
+#      ASCII-letter tokens ≥8 chars to keep the false-positive surface small;
+#      non-ASCII scripts (e.g. Greek copy) are never flagged.
+#
+# Advisory like ``auto_correct``: a LanguageTool failure degrades to the
+# pattern-only signal rather than raising.
+
+_MANGLED_CASE = re.compile(r"\b[A-Za-z]*[A-Z]{2,}[a-z][A-Za-z]*\b")
+_PLURAL_ACRONYM = re.compile(r"[A-Z]{2,}s")  # PDFs, APIs, JWTs — legit
+_ASCII_WORD = re.compile(r"[A-Za-z]+")
+_MISSPELLING_MIN_LEN = 8
+
+# Real camel-case terms that match the mangle pattern.
+_CAMEL_ALLOWLIST = frozenset({"oauth", "qlora", "dbaas", "onnx"})
+
+
+def _mixed_case_mangles(text: str) -> list[str]:
+    """Tokens with an embedded uppercase run followed by lowercase — the
+    signature of a dropped separator (``.gr`` → ``GGr``, ``API key`` →
+    ``APIkey``)."""
+    flagged: list[str] = []
+    for m in _MANGLED_CASE.finditer(text):
+        token = m.group(0)
+        if _PLURAL_ACRONYM.fullmatch(token):
+            continue
+        if token.lower() in _CAMEL_ALLOWLIST:
+            continue
+        flagged.append(token)
+    return flagged
+
+
+async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
+    """Return suspicious non-dictionary / mangled tokens in ``text``.
+
+    Runs after ``auto_correct`` so anything still flagged here is corruption
+    LanguageTool could not fix. Never raises — LanguageTool unavailability
+    falls back to the local mixed-case signal only.
+    """
+    if not text or not text.strip():
+        return []
+
+    normalized = _normalize(text)
+    protected = _protected_spans(normalized)
+    masked = _mask(normalized, protected) if protected else normalized
+
+    flagged = _mixed_case_mangles(masked)
+
+    try:
+        settings = get_settings()
+        lt_url = settings.LANGUAGETOOL_URL.rstrip("/")
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                f"{lt_url}/v2/check",
+                data={"text": masked, "language": language},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        resp.raise_for_status()
+        for m in resp.json().get("matches", []):
+            if m.get("rule", {}).get("issueType") != "misspelling":
+                continue
+            token = normalized[m.get("offset", 0): m.get("offset", 0) + m.get("length", 0)]
+            if len(token) >= _MISSPELLING_MIN_LEN and _ASCII_WORD.fullmatch(token):
+                flagged.append(token)
+    except Exception as exc:
+        logger.warning("LanguageTool gibberish check unavailable: %s", exc)
+
+    # Stable de-dup, capped — a handful of tokens is enough to diagnose.
+    seen: dict[str, None] = {}
+    for tok in flagged:
+        seen.setdefault(tok, None)
+    return list(seen)[:10]

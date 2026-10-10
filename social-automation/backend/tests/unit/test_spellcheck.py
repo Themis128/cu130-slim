@@ -2,7 +2,13 @@
 
 import pytest
 
-from app.services.spellcheck import _normalize, auto_correct, preprocess_for_render
+import app.services.spellcheck as spellcheck
+from app.services.spellcheck import (
+    _normalize,
+    auto_correct,
+    detect_gibberish,
+    preprocess_for_render,
+)
 
 # -- _normalize ----------------------------------------------------------------
 
@@ -157,3 +163,122 @@ async def test_auto_correct_never_mangles_protected_words():
     result = await auto_correct(text)
     assert "Redis" in result
     assert "Regis" not in result
+
+
+# -- detect_gibberish ----------------------------------------------------------
+
+
+class _FakeLTResponse:
+    def __init__(self, matches):
+        self._matches = matches
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"matches": self._matches}
+
+
+def _patch_languagetool(monkeypatch, flag_word=None, broken=False):
+    """Deterministic LanguageTool for detect_gibberish tests.
+
+    ``flag_word`` makes the fake LT report it as a ``misspelling`` match (the
+    way real LT reports ``clientsget``); ``broken`` simulates the sidecar being
+    down so only the local mixed-case signal can fire.
+    """
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, data=None, headers=None):
+            if broken:
+                raise ConnectionError("LT down")
+            text = (data or {}).get("text", "")
+            matches = []
+            if flag_word and flag_word in text:
+                matches.append(
+                    {
+                        "offset": text.index(flag_word),
+                        "length": len(flag_word),
+                        "rule": {"issueType": "misspelling"},
+                    }
+                )
+            return _FakeLTResponse(matches)
+
+    monkeypatch.setattr(
+        spellcheck.httpx, "AsyncClient", lambda *a, **k: _Client()
+    )
+
+
+@pytest.mark.asyncio
+async def test_gibberish_historical_corruption(monkeypatch):
+    """The exact LinkedIn incident: ``clientsget`` + ``cloudless.g GGr``."""
+    _patch_languagetool(monkeypatch, flag_word="clientsget")
+    text = (
+        "Speed + security, handled edge-first We integrate Cloudflare "
+        "across our stack so cloudless.g GGr clientsget: Global CDN"
+    )
+    flagged = await detect_gibberish(text)
+    assert "GGr" in flagged
+    assert "clientsget" in flagged
+
+
+@pytest.mark.asyncio
+async def test_gibberish_mixed_case_pattern(monkeypatch):
+    _patch_languagetool(monkeypatch)
+    flagged = await detect_gibberish("Ship the APIkey today")
+    assert "APIkey" in flagged
+
+
+@pytest.mark.asyncio
+async def test_gibberish_plural_acronyms_exempt(monkeypatch):
+    _patch_languagetool(monkeypatch)
+    assert await detect_gibberish("Our APIs, PDFs and JWTs work") == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_camel_allowlist(monkeypatch):
+    _patch_languagetool(monkeypatch)
+    assert await detect_gibberish("Secure OAuth logins with QLoRA tuning") == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_protected_spans_untouched(monkeypatch):
+    _patch_languagetool(monkeypatch)
+    text = "Visit cloudless.gr or https://x.com/GGrAbc #GGrTag @GGhandle"
+    assert await detect_gibberish(text) == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_clean_text(monkeypatch):
+    _patch_languagetool(monkeypatch)
+    assert await detect_gibberish("We help small teams ship faster.") == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_greek_not_flagged(monkeypatch):
+    _patch_languagetool(monkeypatch, flag_word="Προσφέρουμε")
+    # Non-ASCII scripts are never flagged even if LT reports them.
+    assert await detect_gibberish("Προσφέρουμε αυτοματισμούς") == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_short_tokens_ignored(monkeypatch):
+    _patch_languagetool(monkeypatch, flag_word="tehh")
+    assert await detect_gibberish("a tehh short typo") == []
+
+
+@pytest.mark.asyncio
+async def test_gibberish_lt_down_still_catches_pattern(monkeypatch):
+    _patch_languagetool(monkeypatch, broken=True)
+    assert await detect_gibberish("see cloudless.g GGr here") == ["GGr"]
+
+
+@pytest.mark.asyncio
+async def test_gibberish_empty():
+    assert await detect_gibberish("") == []
+    assert await detect_gibberish("   ") == []

@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.cf_models import CF_TEXT_FREE
-from app.services.spellcheck import auto_correct
+from app.services.spellcheck import auto_correct, detect_gibberish
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class QualityResult:
     nlp_report: dict[str, Any] = field(default_factory=dict)
     sofia_score: int = 0
     spellcheck_applied: bool = False
+    gibberish_tokens: list[str] = field(default_factory=list)
     iterations: int = 0
     improved: bool = False
 
@@ -48,6 +49,7 @@ class QualityResult:
             "nlp_report": self.nlp_report,
             "sofia_score": self.sofia_score,
             "spellcheck_applied": self.spellcheck_applied,
+            "gibberish_tokens": self.gibberish_tokens,
             "iterations": self.iterations,
             "improved": self.improved,
         }
@@ -135,10 +137,26 @@ async def apply_quality_pipeline(
             logger.warning("NLP check failed (non-fatal): %s", exc)
 
     # ── Step 3: SEO scoring + auto-improvement loop ─────────────────────
+    # The gibberish guard runs inside the loop so regenerated copy is
+    # re-checked: LLM mangling (``clientsget``, ``cloudless.g GGr``) passes
+    # spellcheck/NLP untouched, so a residual flag forces one improvement
+    # round even when the SEO score already meets the target.
+    if not run_seo and result.content:
+        try:
+            result.gibberish_tokens = await detect_gibberish(result.content)
+        except Exception as exc:
+            logger.warning("Gibberish check failed (non-fatal): %s", exc)
+
     if run_seo:
         for iteration in range(max_iterations + 1):
             result.iterations = iteration
             try:
+                if result.content:
+                    try:
+                        result.gibberish_tokens = await detect_gibberish(result.content)
+                    except Exception as exc:
+                        logger.warning("Gibberish check failed (non-fatal): %s", exc)
+
                 # Assemble text with hashtags for scoring
                 full_text = result.content
                 if result.hashtags:
@@ -154,12 +172,18 @@ async def apply_quality_pipeline(
                 result.seo_score = seo_result.get("score", {})
                 overall = result.seo_score.get("overall", 0)
 
-                if overall >= target_score or iteration >= max_iterations:
+                if (overall >= target_score and not result.gibberish_tokens) or iteration >= max_iterations:
                     break
 
                 # ── Auto-improve: feed recommendations back to LLM ───────
                 recs = result.seo_score.get("recommendations", [])
                 rec_text = "\n".join(f"- {r}" for r in recs) if recs else "Improve length and hashtag coverage."
+                if result.gibberish_tokens:
+                    rec_text += (
+                        "\n- Fix mangled/non-dictionary tokens (a dropped space "
+                        "or stray capital letter): "
+                        + ", ".join(result.gibberish_tokens)
+                    )
 
                 from app.services.inference import call_inference
 
