@@ -354,6 +354,21 @@ class TikTokAPIClient:
             self._check_tiktok_error(data, url)
             return data
 
+    async def get_stats(self) -> dict[str, Any]:
+        """``GET /v2/user/info/`` with stats fields — follower/following/
+        likes/video counts (needs ``user.info.stats`` scope)."""
+        url = f"{self._base_url}/user/info/"
+        fields = (
+            "open_id,union_id,avatar_url,display_name,follower_count,"
+            "following_count,likes_count,video_count"
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params={"fields": fields})
+            self._raise_for_status(resp, url)
+            data = resp.json() or {}
+            self._check_tiktok_error(data, url)
+            return data
+
     async def get_creator_info(self) -> dict[str, Any]:
         """Query creator info (privacy options, max video duration, etc.)."""
         url = f"{self._base_url}/post/publish/creator_info/query/"

@@ -34,6 +34,11 @@ triggers:
 | telegram | `f75d0132-0964-4236-9766-a6603c997dfd` | Cloudless_newbot | Bot channel |
 | whatsapp | `77f17091-3639-4633-b04d-0a3345dd7d3a` | Themistoklis Baltzakis | Business messaging |
 
+Publish-capable but not yet connected: **viber** (`POST /api/v1/viber/connect`,
+needs a partner-approved bot token — see `viber-ops`) and **bluesky**
+(`POST /api/v1/bluesky/connect`, needs handle + app password — see
+`bluesky-ops`). Feed dispatch is wired for both.
+
 Refresh: `docker exec social-postgres psql -U social_user -d social_automation -c "SELECT id, platform, username, status FROM social_accounts ORDER BY platform;"`
 
 ## Source material — Sofia Kakkava "Visibility Era"
@@ -62,6 +67,11 @@ Configured in `brand_voices.voice_signature.monetization_funnel`, propagates to
 Rules: CTA must be earned by the content; real numbers only; rotate phrasing.
 Accounts below monetization thresholds (IG, TikTok, Threads) get product-funnel
 CTAs only.
+
+Progress toward each program's gate is measured, not guessed:
+`docker exec social-api python3 /app/scripts/monetization_tool.py report`
+evaluates every account against its thresholds (Stars 500/30d, Creator
+Rewards 10k+100k/30d, X 500+Premium+5M imp, IG ~10k). See `monetization-ops`.
 
 ## Quality gate — mandatory before publishing
 
